@@ -1,0 +1,56 @@
+services:
+  # ===== DATA STORES =====
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: bhl
+      POSTGRES_PASSWORD: bhl_dev
+      POSTGRES_DB: bhl_dev
+      POSTGRES_HOST_AUTH_METHOD: trust
+    ports:
+      - "5434:5432"
+    volumes:
+      - pg-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U bhl"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  # ===== VRP SOLVER =====
+  vrp:
+    build:
+      context: ./vrp-solver
+      dockerfile: Dockerfile
+    ports:
+      - "8090:8090"
+    environment:
+      - OSRM_URL=http://osrm:5000
+
+  # ===== OSRM ROUTING ENGINE =====
+  # Before first run, prepare data with: ./setup-osrm.ps1
+  osrm:
+    image: osrm/osrm-backend:v5.27.1
+    volumes:
+      - ./osrm-data:/data
+    command: osrm-routed --algorithm mld /data/vietnam-latest.osrm
+    ports:
+      - "5000:5000"
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:5000/health || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+
+volumes:
+  pg-data:

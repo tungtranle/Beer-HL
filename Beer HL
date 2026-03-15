@@ -1,0 +1,234 @@
+# BRD - Tài Liệu Yêu Cầu Nghiệp Vụ
+
+## 1. Thông tin tài liệu
+
+| Hạng mục | Nội dung |
+|---|---|
+| Tên dự án | Hệ thống quản lý vận tải và kho tích hợp quy trình đặt hàng - điều vận - kho vận |
+| Đơn vị | Công ty Cổ phần Bia và Nước giải khát Hạ Long |
+| Mã tài liệu | BRD-BHL-OMS-TMS-WMS-V1.2 |
+| Phiên bản | 1.2 |
+| Ngày cập nhật | 12/03/2026 |
+| Người lập | Ban dự án / Khối vận hành |
+| Trạng thái | Draft chờ ký duyệt |
+
+## 2. Mục tiêu tài liệu
+
+- Chuẩn hóa yêu cầu nghiệp vụ để triển khai thống nhất giữa các bộ phận: DVKH, QL CCDC, điều vận, kho bãi, kế toán, bảo vệ cổng.
+- Loại bỏ vận hành rời rạc bằng file thủ công, giảm phụ thuộc kinh nghiệm cá nhân trong lập kế hoạch giao vận.
+- Khép kín đối soát hàng đi - tiền về - vỏ về theo từng chuyến và theo ngày.
+- Thiết lập bộ tiêu chí nghiệm thu rõ ràng trước khi vận hành chính thức.
+
+## 3. Bối cảnh nghiệp vụ
+
+### 3.1 Hiện trạng vận hành
+
+- Mạng lưới gồm 02 nhà máy (Hạ Long và Đông Mai) và kho thuê ngoài theo mùa vụ.
+- Đội xe nội bộ khoảng 70 xe tải (2.5T - 16T).
+- Sản lượng phục vụ cao, biến động mùa vụ mạnh.
+- Quy trình điều vận, giao hàng, thu tiền, thu vỏ còn nhiều bước thủ công.
+
+### 3.2 Vấn đề cần giải quyết
+
+- Lập kế hoạch giao vận mất thời gian, khó mở rộng khi cao điểm.
+- Tỷ lệ xe chạy rỗng, nhất là tuyến trung chuyển nội bộ, còn cao.
+- Công nợ và vòng quay vỏ/két/keg/pallet khó kiểm soát chặt.
+- Dữ liệu đứt đoạn khi xe ra khỏi cổng đến lúc hoàn chứng từ.
+
+## 4. Mục tiêu nghiệp vụ và chỉ số kỳ vọng
+
+- Rút ngắn thời gian lập kế hoạch điều vận theo ngày.
+- Tăng hiệu suất sử dụng xe, giảm chuyến rỗng.
+- Nâng tỷ lệ giao đúng khung giờ cam kết.
+- Kiểm soát tuyệt đối sai lệch hàng và vỏ trong đối soát.
+- Minh bạch công nợ hàng hóa, tiền thu và vỏ cược theo từng khách hàng.
+
+## 5. Phạm vi
+
+### 5.1 Trong phạm vi
+
+- Tiếp nhận đơn hàng, kiểm tra điều kiện đáp ứng, gom/tách đơn.
+- Lập kế hoạch và điều phối giao hàng, bao gồm trung chuyển nội bộ.
+- Xuất hàng, kiểm đếm cổng, giao hàng, thu tiền, thu vỏ, nhập vỏ, nộp tiền.
+- Đối soát cuối chuyến, cuối ngày và xử lý sai lệch.
+- Theo dõi cảnh báo cận hạn và quản lý tài sản quay vòng.
+
+### 5.2 Ngoài phạm vi
+
+- Thay đổi chính sách kinh doanh nền tảng ngoài các nội dung đã chốt trong tài liệu này.
+- Thay đổi mô hình tổ chức nhân sự vận hành của doanh nghiệp.
+
+## 6. Các bên liên quan và vai trò nghiệp vụ
+
+| Vai trò | Trách nhiệm chính |
+|---|---|
+| Khách hàng / NPP | Đặt đơn, nhận hàng, thanh toán, hoàn trả vỏ theo thỏa thuận |
+| Bộ phận DVKH và QL CCDC | Tiếp nhận đơn, theo dõi đơn, phối hợp xử lý giao thất bại, nhận chứng từ |
+| Đội xe vận tải / Điều phối | Lập và giám sát kế hoạch giao, phân công xe và lái xe |
+| Lái xe | Kiểm tra xe trước chuyến, giao hàng, thu tiền, thu vỏ, hoàn chứng từ |
+| Kho bãi bốc xếp | Xuất hàng, bàn giao hàng, nhập và phân loại vỏ |
+| Kế toán / Thủ quỹ | Kiểm soát trước cổng, nhận tiền, ghi nhận công nợ và đối soát |
+| Bảo vệ cổng | Phối hợp kiểm đếm hàng trước khi xe xuất cổng |
+| Quản lý vận hành | Phê duyệt ngoại lệ, theo dõi KPI, xử lý sai lệch |
+
+## 7. Luồng nghiệp vụ To-Be (chuẩn hóa)
+
+1. Khách hàng đặt đơn.
+2. DVKH ghi nhận đơn và xác nhận điều kiện xử lý.
+3. Gom/tách đơn thành lệnh giao theo nguyên tắc tối ưu vận tải.
+4. Điều phối phân công xe, lái xe và lộ trình giao.
+5. Lái xe hoàn tất kiểm tra đầu chuyến.
+6. Kho xuất hàng, bàn giao lên xe.
+7. Kiểm đếm tại cổng, xác nhận đủ điều kiện xuất cổng.
+8. Giao hàng tại điểm nhận, cho phép hạ hàng trước xác nhận thanh toán.
+9. Thu tiền (nếu có) và thu vỏ sau giao.
+10. Trường hợp giao thất bại được phép giao lại, không giới hạn số lần, bắt buộc thống kê số lần giao lại.
+11. Xe quay về, nhập vỏ, nộp tiền, nộp chứng từ.
+12. Đối soát cuối ngày, cho phép hoàn tất xử lý sai lệch đến T+1.
+
+## 8. Danh mục yêu cầu nghiệp vụ chi tiết
+
+| Mã yêu cầu | Nhóm | Mô tả yêu cầu | Ưu tiên | Tiêu chí chấp nhận |
+|---|---|---|---|---|
+| OMS-01 | Quản lý đơn hàng | Đơn phải có đầy đủ thông tin bắt buộc trước khi xử lý | Must | Không cho chuyển bước nếu thiếu dữ liệu bắt buộc |
+| OMS-02 | Quản lý đơn hàng | Cho phép kiểm tra khả năng đáp ứng đơn theo tồn kho thực tế | Must | Đơn thiếu hàng được cảnh báo và có trạng thái xử lý |
+| OMS-03 | Quản lý đơn hàng | Hỗ trợ gom đơn cùng tuyến hoặc cùng khách để tối ưu chuyến | Must | Nhiều đơn có thể đi chung một chuyến giao |
+| OMS-04 | Quản lý đơn hàng | Hỗ trợ tách đơn khi vượt điều kiện giao hoặc thiếu hàng | Must | Đơn tách được theo phần giao ngay/giao lại |
+| OMS-05 | Quản lý đơn hàng | Giữ mốc chốt đơn trước 16h và sau 16h theo quy định hiện hành | Must | Đơn được phân luồng theo đúng mốc thời gian |
+| TMS-01 | Điều vận | Ưu tiên điều phối theo hiệu suất xe khi thiếu xe | Must | Kế hoạch giao thể hiện tiêu chí ưu tiên hiệu suất |
+| TMS-02 | Điều vận | Cho phép một chuyến có nhiều điểm giao, không giới hạn số điểm | Must | Chuyến được tạo với số điểm giao linh hoạt |
+| TMS-03 | Điều vận | Theo dõi trạng thái thực hiện từng chuyến và từng điểm giao | Must | Điều phối nhìn thấy tiến độ và kết quả theo điểm giao |
+| TMS-04 | Điều vận | Trường hợp giao thất bại cho phép giao lại không giới hạn số lần | Must | Có thể tạo giao lại nhiều lần cho cùng đơn |
+| TMS-05 | Điều vận | Bắt buộc thống kê số lần giao lại cho mỗi đơn/chuyến | Must | Báo cáo thể hiện số lần giao lại và lý do |
+| TMS-06 | Điều vận | Cam kết khung thời gian giao chuẩn là 1 giờ | Must | Mọi đơn có khung giao 1 giờ theo cấu hình hiệu lực |
+| TMS-07 | Điều vận | Cho phép điều chỉnh khung giờ theo từng thời kỳ áp dụng | Must | Có hiệu lực theo mốc thời gian và lưu lịch sử thay đổi |
+| WMS-01 | Kho | Quản lý vị trí hàng hóa trong kho theo khu vực/bố trí | Must | Truy xuất được vị trí lưu trữ theo lô hàng |
+| WMS-02 | Kho | Theo dõi hạn dùng và cảnh báo cận hạn theo ngưỡng khai báo | Must | Có trường ngưỡng cận hạn và cảnh báo khi đạt ngưỡng |
+| WMS-03 | Kho | Kiểm soát xuất/nhập và bàn giao hàng theo từng chuyến | Must | Có số liệu bàn giao rõ ràng giữa kho và lái xe |
+| WMS-04 | Kho | Không chấp nhận sai lệch hàng hóa tại cổng | Must | Sai lệch hàng bằng 0 trong đối soát cổng |
+| RA-01 | Tài sản quay vòng | Quản lý danh mục vỏ cược theo loại tài sản | Must | Có danh mục chuẩn cho vỏ/két/keg/pallet |
+| RA-02 | Tài sản quay vòng | Quy đổi vỏ bia hơi theo cái | Must | Số lượng vỏ bia hơi ghi nhận theo đơn vị cái |
+| RA-03 | Tài sản quay vòng | Quy đổi vỏ bia chai theo keg | Must | Số lượng vỏ bia chai ghi nhận theo đơn vị keg |
+| RA-04 | Tài sản quay vòng | Không chấp nhận sai lệch vỏ theo chuyến | Must | Sai lệch vỏ bằng 0 trong đối soát chuyến |
+| RA-05 | Tài sản quay vòng | Vỏ vỡ/sứt/mất được bồi hoàn theo đơn giá từng thời kỳ | Must | Tính đúng số tiền bồi hoàn theo đơn giá hiệu lực |
+| FIN-01 | Thu tiền và công nợ | Không bắt buộc thu ngay tại điểm giao, cho phép công nợ | Must | Đơn có thể hoàn tất giao khi chưa thu tiền |
+| FIN-02 | Thu tiền và công nợ | Cho phép hạ hàng trước xác nhận thanh toán | Must | Quy trình giao không bị chặn bởi trạng thái thu tiền |
+| FIN-03 | Thu tiền và công nợ | Theo dõi trạng thái thu tiền đầy đủ theo từng đơn | Must | Có trạng thái đã thu/chưa thu/thu một phần |
+| REC-01 | Đối soát | Đối soát cuối chuyến gồm hàng giao, tiền thu, vỏ thu | Must | Mỗi chuyến có biên bản đối soát kết thúc |
+| REC-02 | Đối soát | Cho phép xử lý sai lệch cuối ngày đến T+1 | Must | Sai lệch được mở đến T+1 và có trạng thái xử lý |
+| REP-01 | Báo cáo | Báo cáo hiệu suất điều vận theo xe, tuyến, lái xe | Must | Xem được hiệu suất theo ngày/tuần/tháng |
+| REP-02 | Báo cáo | Báo cáo giao đúng hẹn theo khung 1 giờ | Must | Có tỷ lệ đúng hẹn và danh sách vi phạm |
+| REP-03 | Báo cáo | Báo cáo công nợ vỏ và bồi hoàn vỏ hỏng/mất | Must | Có số liệu theo khách hàng, tuyến, thời kỳ |
+
+## 9. Quy tắc nghiệp vụ bắt buộc
+
+1. Không chấp nhận sai lệch hàng tại cổng.
+2. Không chấp nhận sai lệch vỏ theo chuyến.
+3. Được phép hạ hàng trước khi xác nhận thanh toán.
+4. Được phép công nợ, không bắt buộc thu tiền ngay.
+5. Giao thất bại được giao lại không giới hạn số lần.
+6. Bắt buộc thống kê số lần giao lại và lý do từng lần.
+7. Đối soát sai lệch được phép xử lý đến T+1.
+8. Khung giờ giao chuẩn 1 giờ, có thể điều chỉnh theo từng thời kỳ.
+9. Mốc chốt đơn trước/sau 16h giữ nguyên theo quy định hiện hành.
+10. Mùa cao điểm không thay đổi chính sách vận hành cốt lõi so với ngày thường.
+11. Vỏ vỡ/sứt/mất xử lý bồi hoàn theo đơn giá hiệu lực từng thời kỳ.
+12. Biểu mẫu vận hành số hóa thực hiện theo thiết kế mới đã phê duyệt.
+
+## 10. Danh mục dữ liệu nghiệp vụ cần quản lý
+
+### 10.1 Danh mục nền
+
+- Danh mục khách hàng/NPP và điểm giao.
+- Danh mục xe, tải trọng, lái xe.
+- Danh mục sản phẩm, lô hàng, hạn dùng.
+- Danh mục tài sản quay vòng: vỏ, két, keg, pallet.
+- Danh mục đơn giá bồi hoàn vỏ theo từng thời kỳ hiệu lực.
+- Danh mục khung giờ giao hàng và lịch hiệu lực.
+
+### 10.2 Dữ liệu giao dịch
+
+- Đơn hàng, lệnh giao, trạng thái xử lý.
+- Biên bản xuất kho, bàn giao, kiểm đếm cổng.
+- Kết quả giao hàng theo từng điểm giao.
+- Giao dịch thu tiền, công nợ còn lại.
+- Giao dịch thu vỏ, nhập vỏ, đối trừ công nợ vỏ.
+- Nhật ký sai lệch và lịch sử xử lý đến khi đóng vụ việc.
+
+## 11. Báo cáo và chỉ số theo dõi
+
+- Tỷ lệ giao đúng khung 1 giờ.
+- Hiệu suất sử dụng xe và tỷ lệ chuyến rỗng.
+- Thời gian hoàn tất một vòng chuyến.
+- Số đơn giao lại và số lần giao lại trung bình/đơn.
+- Tỷ lệ hoàn chứng từ đúng hạn.
+- Tỷ lệ chênh lệch hàng và vỏ (mục tiêu bằng 0).
+- Tình hình công nợ tiền hàng và công nợ vỏ.
+- Tỷ lệ xử lý sai lệch đúng hạn T+1.
+
+## 12. Quản lý ngoại lệ
+
+| Tình huống ngoại lệ | Hướng xử lý nghiệp vụ | Kết quả mong đợi |
+|---|---|---|
+| Khách chưa thanh toán tại điểm giao | Cho phép hạ hàng, ghi nhận công nợ và theo dõi thu sau | Không gián đoạn giao hàng, công nợ minh bạch |
+| Giao thất bại | Tạo giao lại, ghi nhận lý do, thống kê số lần | Đảm bảo truy vết lịch sử và kiểm soát chất lượng giao |
+| Vỏ hỏng/mất | Ghi nhận số lượng, tính bồi hoàn theo đơn giá hiệu lực | Bù trừ công nợ vỏ chính xác |
+| Sai lệch phát sinh cuối ngày | Mở hồ sơ xử lý và hoàn tất tối đa T+1 | Sai lệch có trạng thái và trách nhiệm rõ ràng |
+
+## 13. Tiêu chí nghiệm thu nghiệp vụ (UAT)
+
+1. Đơn hàng được xử lý đúng quy trình từ nhận đơn đến đối soát cuối ngày.
+2. Quy tắc mốc chốt đơn trước/sau 16h vận hành đúng.
+3. Vận hành hỗ trợ công nợ, không bắt buộc thu ngay và vẫn hoàn tất giao hàng.
+4. Trường hợp giao thất bại được giao lại nhiều lần và thống kê đúng số lần.
+5. Quản lý vỏ theo danh mục quy đổi đã chốt, không sai lệch đối soát chuyến.
+6. Vỏ hỏng/mất được tính bồi hoàn đúng theo đơn giá từng thời kỳ.
+7. Cảnh báo cận hạn hoạt động theo ngưỡng đã thiết lập.
+8. Sai lệch phát sinh được theo dõi và đóng xử lý đúng hạn T+1.
+9. Báo cáo vận hành thể hiện đầy đủ KPI đã định nghĩa.
+
+## 14. Kế hoạch triển khai nghiệp vụ
+
+| Giai đoạn | Nội dung chính | Kết quả đầu ra |
+|---|---|---|
+| Giai đoạn 1 | Khảo sát, thống nhất quy trình, chốt biểu mẫu và danh mục nghiệp vụ | Tài liệu yêu cầu và quy trình được phê duyệt |
+| Giai đoạn 2 | Đào tạo người dùng và chạy thử trên phạm vi hẹp | Biên bản chạy thử và danh sách điều chỉnh |
+| Giai đoạn 3 | Vận hành chính thức và hỗ trợ sau vận hành | Ổn định vận hành và báo cáo KPI theo ngày |
+
+## 15. Giả định, phụ thuộc, rủi ro
+
+### 15.1 Giả định
+
+- Các bộ phận nghiệp vụ tham gia đầy đủ trong các phiên rà soát và nghiệm thu.
+- Danh mục dữ liệu nền được chuẩn hóa trước khi chạy thử.
+
+### 15.2 Phụ thuộc
+
+- Chính sách công nợ, bồi hoàn vỏ và khung giờ giao được ban hành chính thức theo từng thời kỳ.
+- Biểu mẫu số hóa được chốt và duyệt trước giai đoạn vận hành.
+
+### 15.3 Rủi ro nghiệp vụ
+
+- Không đồng nhất cách ghi nhận giữa các bộ phận gây sai lệch đối soát.
+- Thay đổi chính sách giữa kỳ nhưng không cập nhật kịp thời vào biểu mẫu và quy trình.
+- Dữ liệu danh mục vỏ/đơn giá không đầy đủ làm sai lệch công nợ bồi hoàn.
+
+## 16. Danh sách đầu vào cần cung cấp để khóa tài liệu
+
+1. Danh mục khách hàng/NPP và điểm giao chuẩn.
+2. Danh mục xe, lái xe và điều kiện vận hành.
+3. Danh mục vỏ cược và quy tắc quy đổi chính thức.
+4. Bảng đơn giá bồi hoàn vỏ theo thời kỳ hiệu lực.
+5. Danh mục ngưỡng cận hạn theo nhóm sản phẩm.
+6. Danh sách biểu mẫu nghiệp vụ chính thức theo thiết kế mới.
+
+## 17. Phê duyệt
+
+| Vai trò | Họ tên | Chữ ký | Ngày |
+|---|---|---|---|
+| Đại diện Ban dự án |  |  |  |
+| Đại diện DVKH & QL CCDC |  |  |  |
+| Đại diện Điều vận |  |  |  |
+| Đại diện Kho bãi |  |  |  |
+| Đại diện Kế toán |  |  |  |
+| Đại diện Ban lãnh đạo |  |  |  |

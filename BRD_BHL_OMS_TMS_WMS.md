@@ -1,0 +1,1196 @@
+# BRD — HỆ THỐNG QUẢN LÝ VẬN HÀNH BHL
+## (OMS – TMS – WMS)
+
+**Phiên bản:** 2.2  
+**Ngày:** 14/03/2026  
+**Khách hàng:** Công ty Cổ phần Bia và Nước giải khát Hạ Long (BHL)  
+**Trạng thái:** Đã xác nhận yêu cầu — Sẵn sàng phát triển  
+**Nguồn:** Merge từ BRD-BHL-OMS-TMS-WMS-V1.2 (nghiệp vụ) + trao đổi BA chi tiết (giải pháp)
+
+---
+
+# MỤC LỤC
+
+1. [TỔNG QUAN DỰ ÁN](#1-tổng-quan-dự-án)
+2. [BỐI CẢNH & HIỆN TRẠNG (AS-IS)](#2-bối-cảnh--hiện-trạng-as-is)
+3. [QUY TẮC NGHIỆP VỤ BẮT BUỘC](#3-quy-tắc-nghiệp-vụ-bắt-buộc)
+4. [PHÂN HỆ OMS — QUẢN LÝ ĐƠN HÀNG](#4-phân-hệ-oms--quản-lý-đơn-hàng)
+5. [PHÂN HỆ TMS — QUẢN LÝ VẬN TẢI](#5-phân-hệ-tms--quản-lý-vận-tải)
+6. [PHÂN HỆ WMS — QUẢN LÝ KHO](#6-phân-hệ-wms--quản-lý-kho)
+7. [MODULE ĐỐI SOÁT](#7-module-đối-soát)
+8. [TÍCH HỢP HỆ THỐNG](#8-tích-hợp-hệ-thống)
+9. [PHÂN QUYỀN & APPROVAL FLOW](#9-phân-quyền--approval-flow)
+10. [BÁO CÁO & DASHBOARD](#10-báo-cáo--dashboard)
+11. [THÔNG BÁO & CẢNH BÁO](#11-thông-báo--cảnh-báo)
+12. [QUY MÔ & SIZING](#12-quy-mô--sizing)
+13. [PHỤ LỤC — DATA ENTITIES](#13-phụ-lục--data-entities)
+14. [TIÊU CHÍ NGHIỆM THU (UAT)](#14-tiêu-chí-nghiệm-thu-uat)
+
+---
+
+# 1. TỔNG QUAN DỰ ÁN
+
+## 1.1 Mục tiêu
+Xây dựng hệ thống vận hành chính (Primary Operations System) quản lý toàn bộ chuỗi khép kín: Đặt hàng → Điều vận → Xuất kho → Giao hàng → Thu tiền/Công nợ → Thu vỏ → Đối soát → Hoàn chứng từ, thay thế quy trình thủ công (Excel/Zalo) hiện tại.
+
+**Mục tiêu cụ thể (từ BRD V1.2):**
+- Rút ngắn thời gian lập kế hoạch điều vận theo ngày
+- Tăng hiệu suất sử dụng xe, giảm chuyến rỗng
+- Nâng tỷ lệ giao đúng khung giờ cam kết
+- Kiểm soát tuyệt đối sai lệch hàng và vỏ trong đối soát (target: 0)
+- Minh bạch công nợ hàng hóa, tiền thu và vỏ cược theo từng khách hàng
+
+## 1.2 Vai trò hệ thống
+| Hệ thống | Vai trò |
+|-----------|---------|
+| **Hệ thống mới (OMS-TMS-WMS)** | Hệ thống vận hành chính — nơi nhập đơn gốc, quản lý kho, điều vận, giao hàng |
+| **DMS** | Nhận dữ liệu đơn hàng đã xử lý từ hệ thống mới (qua API) để Sale theo dõi |
+| **Bravo** | Kế toán — nhận kết quả giao hàng, tiền thu, công nợ vỏ từ hệ thống mới (API 2 chiều) |
+
+> **LƯU Ý QUAN TRỌNG:** Luồng dữ liệu là **Hệ thống mới → DMS** (không phải DMS → OMS như đề bài gốc). Hệ thống mới là nguồn sự thật (Source of Truth) cho dữ liệu vận hành. Master data (Sản phẩm, Khách hàng, NPP, Tuyến) quản lý trên hệ thống mới, sau này có thể sync với DMS qua API.
+
+## 1.3 Các điểm nghẽn cần giải quyết
+| # | Điểm nghẽn (AS-IS) | Giải pháp (TO-BE) |
+|---|--------------------|--------------------|
+| 1 | Lập kế hoạch vận tải thủ công (Excel/Zalo), mất 1-3h/ngày | Auto-planning bằng thuật toán VRP (Google OR-Tools) |
+| 2 | Xe chạy rỗng chiều về, đặc biệt tuyến shuttle HL ↔ Đông Mai | Tối ưu shuttle + ghép đơn chiều về |
+| 3 | Không kiểm soát được vòng đời tài sản quay vòng (vỏ, két, keg, pallet) | Module quản lý Returnable Assets + đối trừ công nợ tự động |
+| 4 | "Khoảng chết" thông tin từ xe ra cổng đến hoàn chứng từ | Driver App (GPS + ePOD + thu tiền real-time) |
+| 5 | Công nợ tiền hàng và công nợ vỏ chưa minh bạch theo thời gian thực | Theo dõi công nợ NPP real-time, hạn mức theo thời kỳ |
+
+## 1.4 Quy mô vận hành
+| Thông số | Giá trị |
+|----------|---------|
+| Nhà máy | 2 (Hạ Long và Đông Mai, cách ~35km) |
+| Kho | 2 hiện tại, scale tới 8 (bao gồm kho thuê ngoài theo mùa) |
+| Đội xe nội bộ | ~70 đầu (2.5T – 16T) + xe thuê ngoài mùa cao điểm |
+| Sản lượng | 10-15 triệu lít/tháng |
+| Đơn hàng | ~1,000 đơn/ngày |
+| NPP/Khách hàng | ~800 |
+| SKU | ~30 |
+| Tuyến đường | ~500 |
+| User hệ thống | ~50 người |
+| Tính chất | Mùa vụ cao điểm (Tết, Hè) tăng đột biến — KHÔNG thay đổi chính sách vận hành cốt lõi |
+
+## 1.5 Các bên liên quan
+
+| Vai trò | Trách nhiệm chính |
+|---------|-------------------|
+| Khách hàng / NPP | Đặt đơn, nhận hàng, thanh toán (hoặc nợ), hoàn trả vỏ |
+| Bộ phận DVKH và QL CCDC | Tiếp nhận đơn, theo dõi đơn, xử lý giao thất bại, nhận chứng từ |
+| Đội xe vận tải / Điều phối | Lập và giám sát kế hoạch giao, phân công xe và lái xe |
+| Lái xe | Kiểm tra xe, giao hàng, thu tiền, thu vỏ, hoàn chứng từ |
+| Kho bãi bốc xếp | Xuất hàng, bàn giao hàng, nhập và phân loại vỏ |
+| Kế toán / Thủ quỹ | Kiểm soát cổng, nhận tiền, ghi nhận công nợ, đối soát, mở/đóng sai lệch |
+| Bảo vệ cổng | Phối hợp kiểm đếm hàng trước khi xe xuất cổng |
+| Quản lý vận hành / BGĐ | Phê duyệt ngoại lệ, theo dõi KPI, xử lý sai lệch |
+
+---
+
+# 2. BỐI CẢNH & HIỆN TRẠNG (AS-IS)
+
+## 2.1 Quy trình Điều vận (AS-IS) — 9 bước
+
+```
+Khách hàng đặt đơn (Tổng đài)
+    → [1] DVKH ghi nhận đơn, kiểm tra tồn kho
+    → Chuyển "File nhu cầu vận tải" cho Đội xe
+    → [2] Đội xe xếp tuyến (xe + lái xe + kiểm tra kỹ thuật)
+    → [3] DVKH làm lệnh đóng hàng → chuyển cho Kho
+    → [4] Kho xuất hàng lên xe, bàn giao cho lái xe
+    → [5] Kế toán/Thủ quỹ kiểm đếm tại cổng (nếu thiếu → quay lại)
+    → [6] Lái xe di chuyển đến điểm trả hàng
+    → [7] Giao hàng + Thu tiền (hoặc ghi nợ) + Thu vỏ
+    → [8] Về công ty: Nộp tiền, hoàn chứng từ, bàn giao vỏ
+    → [9] Bàn giao xe, kiểm tra kỹ thuật cuối ca
+```
+
+## 2.2 Luồng To-Be (chuẩn hóa từ BRD V1.2)
+
+```
+1. Khách hàng đặt đơn
+2. DVKH ghi nhận đơn và xác nhận điều kiện xử lý (ATP, hạn mức công nợ)
+3. Gom/tách đơn thành lệnh giao theo nguyên tắc tối ưu vận tải
+4. Điều phối phân công xe, lái xe và lộ trình (auto-planning + duyệt)
+5. Lái xe hoàn tất kiểm tra đầu chuyến (checklist trên app)
+6. Kho xuất hàng, bàn giao lên xe (PDA quét mã vạch)
+7. Kiểm đếm tại cổng, xác nhận đủ điều kiện xuất (sai lệch = 0)
+8. Giao hàng tại điểm nhận — HẠ HÀNG TRƯỚC, xác nhận thanh toán/nợ sau
+9. Thu tiền (nếu có) và thu vỏ sau giao
+10. Giao thất bại → cho phép giao lại KHÔNG GIỚI HẠN số lần, bắt buộc thống kê
+11. Xe quay về, nhập vỏ, nộp tiền, nộp chứng từ
+12. Đối soát cuối chuyến + cuối ngày, sai lệch xử lý đến T+1
+```
+
+## 2.3 Ràng buộc thời gian
+| Bước | Thời hạn |
+|------|----------|
+| Mốc chốt đơn | Trước 16h và sau 16h (giữ quy định hiện hành) |
+| Xếp tuyến → Lệnh đóng hàng (trước 16h) | Tối đa 20 phút |
+| Xếp tuyến → Lệnh đóng hàng (sau 16h) | Tối đa 1.5 giờ |
+| Khung giờ giao chuẩn | **1 giờ** (có thể điều chỉnh theo từng thời kỳ) |
+
+---
+
+# 3. QUY TẮC NGHIỆP VỤ BẮT BUỘC
+
+*(Chốt từ BRD V1.2 + trao đổi, áp dụng xuyên suốt toàn hệ thống)*
+
+| # | Quy tắc | Ghi chú |
+|---|---------|---------|
+| R01 | **Không chấp nhận sai lệch hàng tại cổng** (WMS-04: sai lệch = 0) | Gate Check phải khớp 100% |
+| R02 | **Không chấp nhận sai lệch vỏ theo chuyến** (RA-04: sai lệch = 0). Nếu chênh lệch, **lái xe chịu trách nhiệm** | Phân xưởng đếm thực tế là chuẩn |
+| R03 | **Được phép hạ hàng TRƯỚC khi xác nhận thanh toán** | Hàng và tiền tách rời |
+| R04 | **Được phép công nợ, KHÔNG bắt buộc thu tiền ngay** | NPP nào cũng có hạn mức công nợ |
+| R05 | **Giao thất bại → giao lại KHÔNG GIỚI HẠN số lần** | Bắt buộc thống kê số lần + lý do |
+| R06 | **Đối soát sai lệch được xử lý đến T+1** (T = ngày giao). Kế toán có quyền mở/đóng hồ sơ | Escalation nếu chưa đóng |
+| R07 | **Khung giờ giao chuẩn: 1 giờ**, điều chỉnh được theo từng thời kỳ (Admin cấu hình) | Lưu lịch sử hiệu lực |
+| R08 | **Mốc chốt đơn: trước 16h / sau 16h** giữ nguyên quy định hiện hành | Enforce trên hệ thống |
+| R09 | **Mùa cao điểm = chính sách vận hành cốt lõi KHÔNG ĐỔI** | Scale lên chỉ về lượng |
+| R10 | **Vỏ hỏng/sứt/mất → bồi hoàn theo đơn giá hiệu lực từng thời kỳ** | Bảng đơn giá riêng, Admin cập nhật |
+| R11 | **Biểu mẫu vận hành số hóa** theo thiết kế mới (không clone biểu mẫu cũ) | |
+| R12 | **Ưu tiên điều phối khi thiếu xe**: Thứ tự ưu tiên **cấu hình được** (Admin setting) | Không hardcode |
+| R13 | **Tài xế thông báo miệng cho NPP trước khi hạ hàng**. Sau giao hàng, hệ thống gửi Zalo kèm **link xác nhận** (NPP bấm link → xem chủng loại & số lượng → xác nhận hoặc báo sai lệch). Không phản hồi trong 24h = đúng (Silent Consent) | Nếu NPP phản hồi "sai" → tra soát, ai sai người đó chịu |
+| R14 | **Quy đổi vỏ**: Vỏ bia hơi theo **CÁI**, Vỏ bia chai theo **KEG** | |
+| R15 | **Hạn mức công nợ NPP** (không phải hạn mức tín dụng). Vượt hạn mức → **chặn đơn mới**, yêu cầu phê duyệt Kế toán | |
+
+---
+
+# 4. PHÂN HỆ OMS — QUẢN LÝ ĐƠN HÀNG
+
+## 4.1 Tổng quan
+OMS là **điểm vào duy nhất** của đơn hàng. DVKH nhập đơn trực tiếp trên hệ thống → hệ thống xử lý → đẩy sang DMS + chuyển nhu cầu cho TMS + tạo lệnh đóng hàng cho WMS.
+
+**Yêu cầu bắt buộc (từ BRD V1.2):**
+- OMS-01: Đơn phải có đầy đủ thông tin bắt buộc trước khi chuyển bước
+- OMS-02: Kiểm tra khả năng đáp ứng theo tồn kho thực tế
+- OMS-03: Gom đơn cùng tuyến/cùng khách để tối ưu chuyến
+- OMS-04: Tách đơn khi vượt điều kiện giao hoặc thiếu hàng
+- OMS-05: Giữ mốc chốt đơn trước/sau 16h theo quy định
+
+## 4.2 User Stories & Acceptance Criteria
+
+### US-OMS-01: Nhập đơn hàng
+**As a** nhân viên DVKH  
+**I want to** nhập đơn hàng khi khách gọi tổng đài  
+**So that** đơn hàng được ghi nhận chính xác trong hệ thống
+
+**Acceptance Criteria:**
+- [ ] Chọn NPP/Khách hàng từ danh mục (tìm kiếm theo tên, mã, SĐT)
+- [ ] Chọn sản phẩm (SKU), nhập số lượng
+- [ ] Hiển thị **tồn kho khả dụng (ATP)** real-time tại thời điểm nhập đơn
+- [ ] Nếu tồn kho không đủ → cảnh báo và cho phép: (a) đặt partial, (b) chuyển kho khác, (c) hủy dòng — đơn thiếu hàng có **trạng thái xử lý riêng**
+- [ ] Chọn ngày giờ giao hàng mong muốn
+- [ ] Chọn địa chỉ giao (từ danh sách địa chỉ đã lưu của NPP hoặc nhập mới)
+- [ ] Hiển thị chính sách vỏ cược áp dụng cho đơn này (tự động tính)
+- [ ] **Validate đầy đủ thông tin bắt buộc** — không cho chuyển bước nếu thiếu
+- [ ] Lưu đơn → trạng thái "Draft"
+- [ ] Đơn tự động **phân luồng trước 16h / sau 16h** theo mốc chốt
+
+### US-OMS-02: Kiểm tra tồn kho khả dụng (ATP)
+**As a** hệ thống  
+**I want to** tính toán ATP real-time  
+**So that** không bán vượt tồn kho
+
+**Acceptance Criteria:**
+- [ ] ATP = Tồn kho thực tế - Đã cam kết (cho đơn khác chưa xuất) - Đang giữ (reserved)
+- [ ] ATP tính theo từng kho, từng SKU
+- [ ] Khi đơn được xác nhận → trừ ATP ngay (reserved)
+- [ ] Khi đơn bị hủy → hoàn lại ATP
+
+### US-OMS-02a: Sửa đơn hàng (Edit Order)
+**As a** nhân viên DVKH / Điều phối viên  
+**I want to** chỉnh sửa đơn hàng đã tạo (khi chưa giao)  
+**So that** cập nhật sản phẩm, số lượng, thông tin giao hàng mà không cần hủy rồi tạo lại
+
+**Acceptance Criteria:**
+- [ ] Chỉ cho phép sửa đơn ở trạng thái: `draft`, `confirmed`, `pending_approval`
+- [ ] Không cho sửa đơn đã giao (`shipped`, `delivered`, `completed`, `cancelled`)
+- [ ] Khi sửa: giải phóng tồn kho reserved cũ → kiểm tra ATP mới → reserve lại
+- [ ] Tự động tính lại: tổng tiền, trọng lượng, thể tích, phí vỏ cược
+- [ ] Re-check hạn mức tín dụng: nếu đơn mới vượt hạn mức → chuyển `pending_approval`
+- [ ] Nếu đơn cũ đã có Shipment (status=pending) → xóa Shipment cũ và tạo lại
+- [ ] Giao diện sửa đơn tái sử dụng form tạo đơn, pre-fill dữ liệu hiện tại
+- [ ] Hiển thị nút "Sửa" trên trang chi tiết đơn và danh sách đơn (chỉ khi trạng thái cho phép)
+**As a** hệ thống  
+**I want to** gom nhiều đơn lẻ thành một lệnh vận chuyển  
+**So that** tối ưu tải trọng xe — nhiều đơn đi chung một chuyến giao
+
+**Acceptance Criteria:**
+- [ ] Tự động gom các đơn có cùng: (a) khu vực giao/tuyến, (b) khung giờ giao tương thích, (c) cùng NPP
+- [ ] Kết quả gom hiển thị cho điều phối viên review
+- [ ] Điều phối viên có quyền **override**: tách/gom lại thủ công
+- [ ] Mỗi lệnh vận chuyển (Shipment) ghi rõ nguồn gốc từ các Sales Order nào
+- [ ] Tổng trọng lượng/thể tích sau gom không vượt tải trọng xe dự kiến
+
+### US-OMS-04: Tách đơn (Order Split)
+**As a** nhân viên DVKH  
+**I want to** tách đơn lớn thành nhiều lệnh vận chuyển  
+**So that** phân bổ cho nhiều xe khi 1 xe không chở hết, hoặc tách phần giao ngay / giao lại
+
+**Acceptance Criteria:**
+- [ ] Tách theo số lượng (ví dụ: 500 thùng → 300 + 200)
+- [ ] Tách theo SKU (ví dụ: bia chai xe A, bia hơi xe B)
+- [ ] Tách khi thiếu hàng: phần đủ giao ngay, phần thiếu giao sau
+- [ ] Mỗi phần tách có trạng thái giao hàng độc lập
+- [ ] Tổng các phần tách = đơn gốc (không thừa, không thiếu)
+
+### US-OMS-05: Chính sách vỏ cược
+**As a** hệ thống  
+**I want to** tự động tính tiền cược vỏ khi xử lý đơn  
+**So that** kiểm soát được công nợ vỏ
+
+**Acceptance Criteria:**
+- [ ] Chính sách cược áp dụng cho **tất cả NPP** (không có miễn cược)
+- [ ] Loại tài sản tính cược: **Chai, Két (vỏ), Keg**
+- [ ] Quy đổi: Vỏ bia hơi theo **CÁI**, Vỏ bia chai theo **KEG** (R14)
+- [ ] Mỗi loại tài sản có đơn giá cược riêng (quản lý trong master data)
+- [ ] Khi tạo đơn → tự động tính số lượng vỏ cược dựa trên sản phẩm đặt
+- [ ] Hiển thị tổng tiền cược trên đơn hàng
+- [ ] Công nợ vỏ tích lũy theo NPP
+
+### US-OMS-06: Đẩy đơn hàng sang DMS
+**As a** hệ thống  
+**I want to** đồng bộ đơn hàng đã xác nhận sang DMS  
+**So that** Sale theo dõi được trạng thái đơn
+
+**Acceptance Criteria:**
+- [ ] Khi đơn hàng chuyển trạng thái "Confirmed" → gọi API đẩy sang DMS
+- [ ] Dữ liệu đẩy: Mã đơn, NPP, Sản phẩm, Số lượng, Trạng thái
+- [ ] Cập nhật trạng thái ngược về DMS khi: Đang giao / Đã giao / Hoãn / Hủy
+- [ ] Nếu API DMS lỗi → retry + ghi log + cảnh báo admin
+
+### US-OMS-07: Hạn mức công nợ NPP
+**As a** hệ thống  
+**I want to** kiểm tra hạn mức công nợ khi nhập đơn  
+**So that** không cho nợ vượt hạn mức
+
+**Acceptance Criteria:**
+- [ ] Mỗi NPP có **hạn mức công nợ** (không phải hạn mức tín dụng — R15)
+- [ ] Hạn mức thiết lập **theo thời kỳ** (từ ngày → đến ngày), Admin cấu hình
+- [ ] Khi nhập đơn → kiểm tra: Công nợ hiện tại + Giá trị đơn mới ≤ Hạn mức
+- [ ] Nếu **vượt hạn mức** → **chặn đơn mới**, yêu cầu phê duyệt từ **Kế toán**
+- [ ] Đơn chuyển trạng thái "Pending Approval" → Kế toán duyệt → tiếp tục / từ chối
+- [ ] Hết thời kỳ → Hạn mức không còn hiệu lực → cảnh báo Admin cập nhật
+- [ ] Lịch sử thay đổi hạn mức được ghi log đầy đủ
+
+### US-OMS-08: Mốc chốt đơn trước/sau 16h
+**As a** hệ thống  
+**I want to** phân luồng đơn hàng theo mốc 16h  
+**So that** tuân thủ quy định vận hành hiện hành (R08)
+
+**Acceptance Criteria:**
+- [ ] Đơn nhập trước 16h → nhóm "Giao trong ngày" (xếp tuyến trong 20 phút)
+- [ ] Đơn nhập sau 16h → nhóm "Giao ngày mai" (xếp tuyến trong 1.5 giờ)
+- [ ] Mốc 16h cấu hình được (Admin có thể điều chỉnh theo thời kỳ)
+- [ ] Hệ thống tự động gán nhóm, hiển thị rõ cho DVKH và Điều phối
+
+## 4.3 Trạng thái đơn hàng (Order Status Flow)
+```
+Draft (Mới nhập)
+  → Pending Approval (Vượt hạn mức công nợ — chờ Kế toán duyệt)
+    → Confirmed (DVKH xác nhận, ATP reserved)
+      → Planned (Đã xếp xe — từ TMS)
+        → Picking (Kho đang đóng hàng — từ WMS)
+          → Loaded (Hàng đã lên xe, kiểm đếm OK)
+            → In Transit (Xe đang giao)
+              → Delivered (Giao thành công)
+              → Partial Delivered (Giao thiếu — xác nhận thực tế với NPP)
+              → Rejected (Khách từ chối — ghi lý do)
+                → Re-delivery (Giao lại — không giới hạn số lần)
+              → On Credit (Giao hàng nhưng chưa thu tiền — ghi nhận công nợ)
+  → Cancelled (Hủy đơn)
+```
+
+---
+
+# 5. PHÂN HỆ TMS — QUẢN LÝ VẬN TẢI
+
+## 5.1 Tổng quan
+TMS quản lý toàn bộ vòng đời vận tải: Xếp xe tự động → Checklist kỹ thuật → Giám sát GPS → Giao hàng (ePOD) → Thu tiền/Công nợ → Thu vỏ → Hoàn chứng từ → Đối soát. Bao gồm cả xe nội bộ và xe thuê ngoài.
+
+**Yêu cầu bắt buộc (từ BRD V1.2):**
+- TMS-01: Ưu tiên điều phối theo hiệu suất xe khi thiếu xe (thứ tự cấu hình được)
+- TMS-02: Một chuyến nhiều điểm giao, không giới hạn số điểm (Multi-drop)
+- TMS-03: Theo dõi trạng thái từng chuyến và từng điểm giao
+- TMS-04: Giao thất bại → giao lại không giới hạn
+- TMS-05: Bắt buộc thống kê số lần giao lại + lý do
+- TMS-06: Khung giờ giao chuẩn 1 giờ
+- TMS-07: Khung giờ điều chỉnh theo từng thời kỳ
+
+## 5.2 Module: Auto-Planning (Xếp xe tự động)
+
+### US-TMS-01: Tự động xếp xe (VRP Solver)
+**As a** điều phối viên  
+**I want to** hệ thống tự động đề xuất phương án xếp xe tối ưu  
+**So that** giảm thời gian xếp xe từ 1-3h xuống vài phút
+
+**Acceptance Criteria:**
+- [ ] Input: Danh sách Shipment (từ OMS) + Danh sách xe khả dụng + Ràng buộc
+- [ ] Ràng buộc xử lý:
+  - Tải trọng xe (kg)
+  - Thể tích thùng xe (m³)
+  - Giờ cấm tải (theo bảng cấu hình thủ công — US-TMS-03)
+  - Cung đường / khu vực phục vụ
+  - Khung giờ giao hàng: **1 giờ** chuẩn, cấu hình theo thời kỳ (R07)
+  - Thời gian dỡ hàng ước tính tại mỗi điểm
+- [ ] **Khi thiếu xe** → áp dụng thứ tự ưu tiên **cấu hình được** (R12):
+  - Admin thiết lập bộ tiêu chí ưu tiên (ví dụ: Tải trọng lớn trước / Tuyến xa trước / Đơn giá trị cao trước)
+  - Thứ tự ưu tiên có thể thay đổi bất kỳ lúc nào
+- [ ] Output: Danh sách Trip (chuyến xe), mỗi Trip gồm: Xe, Tài xế, Thứ tự điểm giao, Thời gian dự kiến
+- [ ] Sử dụng **Google OR-Tools** làm engine tối ưu
+- [ ] Hỗ trợ bài toán **Multi-drop** — 1 xe giao nhiều điểm, **không giới hạn số điểm** (TMS-02)
+- [ ] Điều phối viên **xem kết quả → duyệt hoặc chỉnh tay** trước khi xác nhận
+- [ ] Thời gian xử lý solver: < 2 phút cho 1,000 đơn
+
+### US-TMS-01a: Dashboard đánh giá kết quả tối ưu
+**As a** điều phối viên  
+**I want to** xem các chỉ số đánh giá chất lượng kế hoạch vận tải ngay sau khi solver chạy xong  
+**So that** biết kế hoạch đã tối ưu hay cần điều chỉnh trước khi duyệt
+
+**Acceptance Criteria:**
+- [ ] Hiển thị KPI tổng hợp sau mỗi lần chạy VRP:
+  - Số chuyến xe được tạo
+  - Tổng số điểm giao đã xếp / không xếp được
+  - Tổng quãng đường (km) và tổng thời gian dự kiến (phút)
+  - Tổng trọng lượng hàng (kg)
+  - Tỷ lệ sử dụng tải trọng trung bình (%)
+  - Số điểm giao trung bình / chuyến
+  - Thời gian solver giải bài toán (ms)
+- [ ] Biểu đồ thanh (bar chart) hiển thị **mức sử dụng tải trọng từng xe**: xanh (<70%), vàng (70-90%), đỏ (>90%)
+- [ ] Cảnh báo nổi bật nếu có shipment **không xếp được** (unassigned) kèm lý do gợi ý (vượt tải, thiếu xe)
+- [ ] Cảnh báo nếu xe nào bị **quá tải** (vượt capacity)
+
+### US-TMS-01b: Điều chỉnh kế hoạch thủ công
+**As a** điều phối viên  
+**I want to** điều chỉnh lại kế hoạch vận tải sau khi xem kết quả tối ưu  
+**So that** linh hoạt xử lý các tình huống thực tế mà thuật toán chưa tính
+
+**Acceptance Criteria:**
+- [ ] **Kéo thả (drag & drop)** một điểm giao từ chuyến này sang chuyến khác
+- [ ] **Sắp xếp lại thứ tự** điểm giao trong cùng 1 chuyến (kéo lên/xuống)
+- [ ] Khi điều chỉnh, tải tích lũy (cumulative_load_kg) tự động **tính lại** real-time
+- [ ] Hiển thị cảnh báo khi thao tác khiến xe **vượt tải trọng** cho phép
+- [ ] **Gán tài xế** cho từng chuyến từ danh sách tài xế khả dụng (dropdown)
+- [ ] Nút **"Chạy lại VRP"** — cho phép tối ưu lại toàn bộ từ đầu nếu không hài lòng
+- [ ] Nút **"Duyệt kế hoạch"** — xác nhận tạo Trip sau khi điều chỉnh xong
+
+### US-TMS-01c: Bản đồ tuyến đường chuyến xe
+**As a** điều phối viên / quản lý  
+**I want to** xem bản đồ hiển thị tuyến đường thực tế (theo đường bộ) của từng chuyến xe  
+**So that** đánh giá trực quan lộ trình và phát hiện bất thường
+
+**Acceptance Criteria:**
+- [ ] Bản đồ hiển thị: điểm kho xuất phát (icon kho) + các điểm giao (icon số thứ tự) + tuyến đường nối
+- [ ] Tuyến đường vẽ theo **đường bộ thực tế** (sử dụng OSRM routing), không phải đường thẳng
+- [ ] Popup mỗi điểm giao: Tên NPP, Địa chỉ, Trọng lượng, Trạng thái
+- [ ] Fallback: Nếu OSRM không phản hồi → vẽ đường thẳng nét đứt
+
+### US-TMS-02: Tối ưu Shuttle Run (HL ↔ Đông Mai)
+**As a** điều phối viên  
+**I want to** hệ thống đề xuất lịch shuttle tối ưu giữa 2 nhà máy  
+**So that** giảm tỷ lệ xe chạy rỗng chiều về
+
+**Acceptance Criteria:**
+- [ ] Shuttle chạy **theo nhu cầu** (không lịch cố định)
+- [ ] Khi auto-planning phát hiện: Xe giao hàng xong tại khu vực gần Đông Mai + Đông Mai cần chuyển hàng về HL (hoặc ngược lại) → gợi ý ghép chiều về
+- [ ] Dashboard hiển thị tỷ lệ xe rỗng chiều về (target: giảm dần)
+- [ ] Hàng trung chuyển: cả thành phẩm và bán thành phẩm
+
+### US-TMS-03: Quản lý giờ cấm tải
+**As a** admin / điều phối viên  
+**I want to** cấu hình bảng giờ cấm tải  
+**So that** auto-planning né được giờ cấm
+
+**Acceptance Criteria:**
+- [ ] Bảng cấu hình: Khu vực / Tuyến đường + Khung giờ cấm + Loại xe áp dụng
+- [ ] Admin cập nhật **thủ công** (không có nguồn tự động)
+- [ ] Auto-planning sử dụng bảng này làm ràng buộc
+- [ ] Cảnh báo khi Trip dự kiến vi phạm giờ cấm
+
+### US-TMS-04: Quản lý xe thuê ngoài
+**As a** điều phối viên  
+**I want to** đưa xe thuê ngoài vào hệ thống  
+**So that** quản lý tương tự xe nội bộ
+
+**Acceptance Criteria:**
+- [ ] Thêm xe thuê ngoài vào danh mục xe với flag "Thuê ngoài"
+- [ ] Nhập thông tin: Biển số, Tải trọng, Nhà cung cấp xe, Tài xế thuê
+- [ ] Auto-planning xếp xe thuê ngoài tương tự xe nội bộ
+- [ ] Báo cáo phân tách chi phí xe nội bộ vs thuê ngoài
+
+### US-TMS-05: Quản lý khung giờ giao hàng theo thời kỳ
+**As a** admin  
+**I want to** cấu hình khung giờ giao chuẩn theo từng thời kỳ  
+**So that** linh hoạt điều chỉnh theo chính sách
+
+**Acceptance Criteria:**
+- [ ] Mặc định: 1 giờ (R07)
+- [ ] Admin có thể thay đổi khung giờ với hiệu lực: Từ ngày → Đến ngày
+- [ ] Lưu lịch sử thay đổi
+- [ ] Auto-planning và báo cáo OTD sử dụng khung giờ đang hiệu lực
+
+## 5.3 Module: Driver App (Ứng dụng Tài xế)
+
+### US-TMS-10: Checklist kỹ thuật trước chuyến
+**As a** tài xế  
+**I want to** thực hiện checklist kỹ thuật xe trên app  
+**So that** đảm bảo an toàn và có bằng chứng lưu trữ
+
+**Acceptance Criteria:**
+- [ ] Danh mục kiểm tra (cấu hình được): Phanh, Lốp, Đèn, Gương, Nước làm mát, Dầu...
+- [ ] Mỗi mục: Đạt / Không đạt
+- [ ] **Bắt buộc chụp ảnh** tổng quát xe (tối thiểu 1 ảnh)
+- [ ] Nếu có mục "Không đạt" → ghi chú + ảnh chi tiết → thông báo Đội trưởng
+- [ ] Checklist phải hoàn thành **trước khi** nhận lệnh vận chuyển
+- [ ] App hoạt động trên **iOS và Android**
+
+### US-TMS-11: Nhận lệnh vận chuyển
+**As a** tài xế  
+**I want to** nhận Trip được giao trên app  
+**So that** biết lịch trình giao hàng
+
+**Acceptance Criteria:**
+- [ ] Hiển thị danh sách điểm giao theo thứ tự tối ưu (không giới hạn số điểm)
+- [ ] Mỗi điểm giao hiển thị: Tên NPP, Địa chỉ, SĐT, Sản phẩm, Số lượng, Ghi chú
+- [ ] Hiển thị rõ trạng thái **từng điểm giao** (chưa giao / đang giao / đã giao / thất bại)
+- [ ] Nút "Bắt đầu chuyến" → kích hoạt GPS tracking
+- [ ] Nút "Mở bản đồ" → mở Google Maps/Apple Maps điều hướng
+
+### US-TMS-12: GPS Tracking thời gian thực
+**As a** điều phối viên  
+**I want to** xem vị trí tất cả xe trên bản đồ  
+**So that** giám sát tiến trình giao hàng — xem tiến độ và kết quả theo điểm giao (TMS-03)
+
+**Acceptance Criteria:**
+- [ ] GPS lấy từ **điện thoại tài xế** (không thiết bị gắn xe)
+- [ ] Tần suất gửi vị trí: mỗi 30 giây khi xe đang chạy
+- [ ] Bản đồ dashboard: Hiển thị tất cả xe đang chạy (icon theo trạng thái)
+- [ ] Lưu lịch sử tuyến đường (route history) theo ngày
+- [ ] Phát hiện xe dừng quá lâu tại 1 điểm → cảnh báo (ngưỡng cấu hình được)
+
+### US-TMS-13: Xác nhận giao hàng (ePOD)
+**As a** tài xế  
+**I want to** xác nhận giao hàng tại điểm giao  
+**So that** có bằng chứng điện tử
+
+**Acceptance Criteria:**
+- [ ] Khi đến điểm giao → app ghi nhận GPS arrival (tự động detect khoảng cách)
+- [ ] **Tài xế thông báo miệng cho NPP** dựa trên thông tin đơn trên app (R13)
+- [ ] NPP xác nhận đúng → Tiến hành **hạ hàng TRƯỚC** (R03)
+- [ ] Nhập số lượng **thực giao** cho từng SKU (có thể khác đơn nếu giao thiếu)
+- [ ] **Chụp ảnh chứng từ** (ít nhất 1 ảnh)
+- [ ] Xác nhận giao hàng trên app → Hệ thống **gửi tin nhắn Zalo kèm link xác nhận cho NPP** (silent consent 24h — R13)
+- [ ] Trạng thái cập nhật real-time về OMS
+
+### US-TMS-14: Xử lý ngoại lệ giao hàng
+**As a** tài xế  
+**I want to** ghi nhận các tình huống bất thường  
+**So that** có dữ liệu xử lý và truy vết
+
+| Tình huống | Xử lý trên App | Ghi chú |
+|-----------|----------------|---------|
+| Khách **từ chối nhận** | Chọn "Từ chối" → Nhập lý do (dropdown + text) → Chụp ảnh → Tạo yêu cầu **giao lại** | Giao lại không giới hạn (R05) |
+| **Giao thiếu** | Nhập số lượng thực giao < đơn → Xác nhận với NPP → Ghi nhận chênh lệch | |
+| **Giao sai hàng** | Ghi chú "Giao sai" → Xác nhận thực tế với NPP → Báo điều phối | Tra soát: ai sai người đó chịu |
+| **KH đổi địa chỉ** | Cập nhật địa chỉ mới trên app → Thông báo điều phối | |
+| **Xe hỏng giữa đường** | Chọn "Sự cố xe" → Mô tả + Ảnh → Thông báo tự động cho điều phối | Điều xe thay thế |
+| **Vi phạm GT / Bị giữ** | Chọn "Vi phạm GT" → Mô tả → Thông báo điều phối | |
+
+### US-TMS-14b: Giao lại (Re-delivery)
+**As a** điều phối viên  
+**I want to** tạo chuyến giao lại cho đơn thất bại  
+**So that** NPP nhận được hàng — tuân thủ R05
+
+**Acceptance Criteria:**
+- [ ] Từ đơn bị Rejected/Failed → nút "Tạo giao lại"
+- [ ] **Không giới hạn số lần giao lại** cho cùng 1 đơn
+- [ ] Mỗi lần giao lại ghi nhận: Lần thứ mấy, Lý do lần trước thất bại, Ngày giờ
+- [ ] **Bắt buộc thống kê** số lần giao lại và lý do từng lần (R05, TMS-05)
+- [ ] Giao lại được xếp vào Trip mới hoặc ghép Trip hiện có
+- [ ] Báo cáo: Số đơn giao lại, Số lần trung bình/đơn, Top lý do thất bại
+
+### US-TMS-15: Thu tiền / Ghi nhận công nợ
+**As a** tài xế  
+**I want to** ghi nhận thu tiền hoặc công nợ tại điểm giao  
+**So that** đối soát được khi về công ty
+
+**Acceptance Criteria:**
+- [ ] Hiển thị số tiền cần thu (tự động từ đơn hàng)
+- [ ] **3 lựa chọn thanh toán:**
+  - **Tiền mặt:** Nhập số tiền thu → app tính tiền thừa (nếu có)
+  - **Chuyển khoản:** Tài xế chọn → Hiển thị TK công ty → Điều vận xác nhận. **Timeout** nếu không xác nhận (Admin cấu hình) → escalation cấp trên
+  - **Công nợ:** Tài xế chọn "Ghi nợ" → Hệ thống ghi nhận công nợ cho NPP (R04)
+- [ ] **Cho phép hạ hàng TRƯỚC khi xác nhận thanh toán** (R03)
+- [ ] Thu tiền **không bắt buộc** — đơn có thể hoàn tất giao dù chưa thu tiền (R04)
+- [ ] Chụp ảnh phiếu thu / biên lai (nếu có)
+- [ ] Trạng thái thu tiền **độc lập** với trạng thái giao hàng: Đã thu / Chưa thu / Thu một phần / Công nợ (FIN-03)
+
+### US-TMS-16: Thu vỏ
+**As a** tài xế  
+**I want to** ghi nhận vỏ thu hồi tại điểm giao  
+**So that** đối trừ công nợ vỏ cho NPP
+
+**Acceptance Criteria:**
+- [ ] Sau khi giao hàng → chuyển sang bước thu vỏ
+- [ ] Nhập số lượng theo loại: Chai (đơn vị: cái), Két/Vỏ (đơn vị: keg), Keg, Pallet, CCDC (R14)
+- [ ] Phân loại: **Tốt** / **Hỏng**
+- [ ] Nếu khai **vỏ hỏng** → **bắt buộc chụp ảnh** làm bằng chứng
+- [ ] Vỏ tốt → đối trừ công nợ vỏ NPP
+- [ ] Vỏ hỏng/mất/sứt → **bồi hoàn theo đơn giá hiệu lực từng thời kỳ** (R10) — NPP chịu
+- [ ] **Sai lệch vỏ = 0** theo chuyến (R02): Nếu phân xưởng đếm khác số tài xế khai → **lái xe chịu trách nhiệm**
+
+### US-TMS-17: Hoàn chứng từ & nộp tiền
+**As a** tài xế  
+**I want to** hoàn tất chuyến khi về công ty  
+**So that** kết thúc Trip
+
+**Acceptance Criteria:**
+- [ ] App hiển thị tổng kết chuyến: Số tiền đã thu, Số tiền công nợ, Số vỏ đã thu, Trạng thái từng điểm
+- [ ] Tài xế bàn giao vỏ cho Phân xưởng → Phân xưởng đếm + xác nhận trên hệ thống
+- [ ] **Chênh lệch vỏ** giữa tài xế khai và phân xưởng đếm → ghi nhận, lái xe chịu (R02)
+- [ ] Tài xế nộp tiền cho Kế toán/Thủ quỹ → Kế toán xác nhận trên hệ thống
+- [ ] Nộp sổ giao hàng, sổ thu vỏ cho DVKH → xác nhận trên hệ thống
+- [ ] Trip chuyển sang trạng thái "Completed" khi tất cả bước hoàn tất
+
+### US-TMS-18: Bàn giao xe cuối ca
+**As a** tài xế  
+**I want to** checklist cuối ca và bàn giao xe  
+**So that** ghi nhận tình trạng xe sau ca
+
+**Acceptance Criteria:**
+- [ ] Checklist cuối ca (tương tự đầu ca, cấu hình được)
+- [ ] Nếu phát hiện hư hỏng → tạo **yêu cầu sửa chữa** (ghi mô tả + ảnh)
+- [ ] Bàn giao chìa khóa cho Đội trưởng/Đội phó → xác nhận trên app
+
+## 5.4 Module: Quản lý phương tiện & Bảo trì
+
+### US-TMS-20: Hồ sơ phương tiện
+**As a** quản lý đội xe  
+**I want to** quản lý thông tin từng xe  
+**So that** có hồ sơ đầy đủ
+
+**Acceptance Criteria:**
+- [ ] Thông tin xe: Biển số, Loại xe, Tải trọng, Thể tích thùng, Năm SX
+- [ ] Giấy tờ: Đăng ký (ngày hết hạn), Kiểm định (ngày hết hạn), Bảo hiểm (ngày hết hạn)
+- [ ] Phân loại: Nội bộ / Thuê ngoài
+- [ ] Trạng thái: Hoạt động / Đang sửa chữa / Tạm dừng
+
+### US-TMS-21: Lịch bảo dưỡng định kỳ
+**As a** quản lý đội xe  
+**I want to** hệ thống nhắc lịch bảo dưỡng  
+**So that** không bỏ sót
+
+**Acceptance Criteria:**
+- [ ] Thiết lập lịch bảo dưỡng theo: Km đã chạy HOẶC Thời gian (tuần/tháng)
+- [ ] Cảnh báo trước X ngày (cấu hình được) khi đến hạn bảo dưỡng/kiểm định/bảo hiểm
+- [ ] Cảnh báo gửi qua **Web + Mobile App** cho quản lý đội xe
+- [ ] Xe quá hạn kiểm định/bảo hiểm → **tự động loại khỏi danh sách xe khả dụng** cho auto-planning
+
+### US-TMS-22: Hồ sơ tài xế
+**As a** quản lý đội xe  
+**I want to** quản lý thông tin tài xế  
+**So that** kiểm soát điều kiện lái xe
+
+**Acceptance Criteria:**
+- [ ] Thông tin: Họ tên, CCCD, SĐT, Địa chỉ
+- [ ] Bằng lái: Loại, Ngày cấp, Ngày hết hạn
+- [ ] Trạng thái: Đang làm việc / Nghỉ phép / Đã nghỉ
+- [ ] Cảnh báo khi bằng lái sắp hết hạn
+
+## 5.5 Trạng thái Trip (Trip Status Flow)
+```
+Created (Auto-planning tạo)
+  → Assigned (Điều phối duyệt, gán xe + tài xế)
+    → Checked (Tài xế hoàn thành checklist kỹ thuật)
+      → Loading (Kho đang đóng hàng lên xe)
+        → Gate Checked (Kiểm đếm tại cổng OK — sai lệch = 0)
+          → In Transit (Xe đã xuất phát)
+            → At Stop #N (Đang tại điểm giao thứ N)
+              [Mỗi Stop: Delivered / Partial / Rejected / Re-delivery]
+              → Returning (Đã giao xong tất cả điểm, đang về)
+                → Unloading Returns (Nhập vỏ tại phân xưởng)
+                  → Settling (Nộp tiền, hoàn chứng từ)
+                    → Reconciled (Đối soát cuối chuyến hoàn tất)
+                      → Completed (Hoàn tất)
+  → Cancelled (Hủy chuyến)
+```
+
+---
+
+# 6. PHÂN HỆ WMS — QUẢN LÝ KHO
+
+## 6.1 Tổng quan
+WMS quản lý kho từ sơ đồ vị trí → nhập xuất → kiểm soát chất lượng (FIFO/FEFO) → quét mã vạch (PDA) → quản lý tài sản quay vòng.
+
+**Yêu cầu bắt buộc (từ BRD V1.2):**
+- WMS-01: Quản lý vị trí hàng trong kho
+- WMS-02: Theo dõi hạn dùng + cảnh báo cận hạn theo ngưỡng
+- WMS-03: Kiểm soát xuất/nhập và bàn giao hàng theo từng chuyến
+- WMS-04: Sai lệch hàng = 0 tại cổng (tuyệt đối)
+
+## 6.2 Module: Quản lý Kho & Vị trí
+
+### US-WMS-01: Sơ đồ kho (Layout/Bin/Location)
+**As a** thủ kho  
+**I want to** quản lý vị trí lưu trữ trong kho  
+**So that** biết hàng nằm ở đâu
+
+**Acceptance Criteria:**
+- [ ] Cấu trúc: Kho → Khu vực (Zone) → Dãy (Aisle) → Vị trí (Bin/Location)
+- [ ] Mỗi vị trí có: Mã vị trí, Loại (Thành phẩm / Vỏ / Keg / Pallet), Sức chứa tối đa
+- [ ] Hỗ trợ **2 kho hiện tại, mở rộng tới 8 kho** (bao gồm kho thuê ngoài thời vụ)
+- [ ] Giao diện trực quan sơ đồ kho (không yêu cầu 3D, dạng grid/table OK)
+- [ ] Truy xuất được vị trí lưu trữ theo lô hàng
+
+### US-WMS-02: Nhập kho (Inbound)
+**As a** thủ kho  
+**I want to** nhập hàng từ sản xuất vào kho  
+**So that** cập nhật tồn kho
+
+**Acceptance Criteria:**
+- [ ] Tạo phiếu nhập: Nguồn (Từ sản xuất / Từ trả hàng / Từ trung chuyển), Sản phẩm, Số lượng, Lô (Batch), Ngày SX, Hạn sử dụng
+- [ ] **Quét mã vạch bằng PDA** để xác nhận nhập → tự động gán vị trí kho
+- [ ] Gán vị trí lưu trữ (hệ thống gợi ý theo FIFO/FEFO + vị trí trống)
+- [ ] Cập nhật tồn kho real-time
+
+### US-WMS-03: Xuất kho / Đóng hàng (Outbound / Picking)
+**As a** thủ kho  
+**I want to** xuất hàng theo lệnh đóng hàng  
+**So that** chuẩn bị hàng lên xe — có số liệu bàn giao rõ ràng giữa kho và lái xe (WMS-03)
+
+**Acceptance Criteria:**
+- [ ] Nhận lệnh đóng hàng từ OMS (tự động khi Shipment được duyệt)
+- [ ] Hệ thống gợi ý **vị trí pick** theo nguyên tắc FIFO/FEFO (ưu tiên lô cận date)
+- [ ] **Quét mã vạch PDA** để xác nhận xuất đúng lô, đúng vị trí
+- [ ] In phiếu xuất kho
+- [ ] Bàn giao hàng cho tài xế → ký xác nhận trên hệ thống (Biên bản bàn giao — có số liệu rõ ràng)
+
+### US-WMS-04: Kiểm đếm tại cổng (Gate Check)
+**As a** kế toán / thủ quỹ / bảo vệ  
+**I want to** kiểm đếm hàng trên xe trước khi ra cổng  
+**So that** đảm bảo đủ và đúng — **sai lệch = 0** (R01)
+
+**Acceptance Criteria:**
+- [ ] Hiển thị danh sách hàng trên xe (từ phiếu xuất kho)
+- [ ] **Quét mã vạch PDA** để đối chiếu
+- [ ] Nếu **đủ và khớp** → Xác nhận "Gate Pass" → Xe được phép ra cổng
+- [ ] Nếu **thiếu** → Reject → Quay lại kho xuất bổ sung
+- [ ] Nếu **phát hiện đổ vỡ** → Ghi nhận + thay thế
+- [ ] **KHÔNG chấp nhận sai lệch** — sai lệch hàng = 0 tuyệt đối tại cổng (R01)
+- [ ] Ghi nhận thời gian ra cổng
+
+## 6.3 Module: Quản lý Hạn sử dụng & Chất lượng
+
+### US-WMS-10: FIFO/FEFO tự động
+**As a** hệ thống  
+**I want to** luôn gợi ý xuất lô cận date trước  
+**So that** tránh hàng hết hạn trong kho
+
+**Acceptance Criteria:**
+- [ ] **Bia tươi / Bia hơi (Keg):** Bắt buộc FEFO (First Expired First Out)
+- [ ] **Bia chai, bia lon, nước giải khát:** FIFO (First In First Out)
+- [ ] Khi tạo picking list → tự động sắp xếp theo nguyên tắc trên
+- [ ] Nếu thủ kho pick sai lô (quét mã vạch không khớp lô gợi ý) → **cảnh báo** (cho phép override có ghi lý do)
+
+### US-WMS-11: Cảnh báo lô cận date
+**As a** quản lý kho  
+**I want to** được cảnh báo khi hàng sắp hết hạn  
+**So that** ưu tiên đẩy bán
+
+**Acceptance Criteria:**
+- [ ] Ngưỡng cảnh báo: **Cấu hình được theo loại sản phẩm** (ví dụ: quá 1/3 hạn sử dụng) — WMS-02
+- [ ] Có **trường ngưỡng cận hạn** và cảnh báo khi đạt ngưỡng
+- [ ] Cảnh báo hiển thị trên dashboard WMS
+- [ ] Gửi thông báo **Web + Mobile App** cho quản lý kho + DVKH (để ưu tiên lên đơn)
+- [ ] Danh sách hàng cận date: SKU, Lô, Số lượng, Ngày hết hạn, Vị trí kho
+
+## 6.4 Module: Mã vạch & PDA
+
+### US-WMS-15: Quản lý mã vạch
+**As a** hệ thống  
+**I want to** hỗ trợ quét mã vạch trên PDA  
+**So that** thay thế đếm thủ công
+
+**Acceptance Criteria:**
+- [ ] Mã vạch được **in và dán tại khâu sản xuất**
+- [ ] Cấp độ mã vạch:
+  - **Vỏ bia hơi** (Keg 2L, 20L, 30L, Bom): mã vạch trên từng vỏ
+  - **Keg bia chai**: mã vạch trên từng keg
+  - **Thùng**: mã vạch trên từng thùng
+- [ ] Thông tin encode trong mã vạch: Mã SKU, Mã Lô (Batch), Ngày SX (hoặc link đến hệ thống)
+- [ ] PDA quét → hệ thống tra cứu → hiển thị đầy đủ thông tin sản phẩm
+- [ ] Hỗ trợ quét tại: Nhập kho, Xuất kho (picking), Kiểm đếm cổng, Kiểm kê
+
+## 6.5 Module: Tài sản quay vòng (Returnable Assets)
+
+### US-WMS-20: Quản lý vòng đời tài sản
+**As a** quản lý CCDC  
+**I want to** theo dõi từng loại tài sản quay vòng  
+**So that** kiểm soát mất mát
+
+**Acceptance Criteria:**
+- [ ] Loại tài sản: Vỏ chai, Két nhựa, Keg, Pallet, CCDC
+- [ ] Danh mục chuẩn cho từng loại (RA-01)
+- [ ] Quy đổi: Vỏ bia hơi theo **CÁI** (RA-02), Vỏ bia chai theo **KEG** (RA-03)
+- [ ] Trạng thái: Trong kho → Trên xe → Tại NPP → Thu hồi → Phân loại → Nhập lại kho
+- [ ] Số lượng theo dõi theo: Loại + Trạng thái + NPP (ai đang giữ bao nhiêu)
+- [ ] Theo dõi tuổi thọ / vòng quay (số lần sử dụng) để đánh giá hiệu quả đầu tư
+
+### US-WMS-21: Đối trừ công nợ vỏ tự động
+**As a** hệ thống  
+**I want to** tự động trừ công nợ vỏ khi tài xế thu về  
+**So that** không cần đối chiếu thủ công
+
+**Acceptance Criteria:**
+- [ ] Khi tài xế nhập vỏ thu hồi trên Driver App (US-TMS-16) → dữ liệu về WMS
+- [ ] Hệ thống phân loại: **Vỏ tốt** → trừ công nợ NPP; **Vỏ hỏng** → KHÔNG trừ (NPP chịu)
+- [ ] Vỏ hỏng có **ảnh bắt buộc** làm bằng chứng (từ Driver App)
+- [ ] Vỏ hỏng/mất/sứt → **bồi hoàn theo đơn giá hiệu lực từng thời kỳ** (R10)
+- [ ] Cập nhật bảng công nợ vỏ theo NPP real-time
+- [ ] Đẩy dữ liệu công nợ vỏ sang **Bravo** để hạch toán
+
+### US-WMS-21b: Bảng đơn giá bồi hoàn vỏ
+**As a** admin  
+**I want to** quản lý bảng đơn giá bồi hoàn vỏ theo từng thời kỳ  
+**So that** tính chính xác tiền bồi hoàn
+
+**Acceptance Criteria:**
+- [ ] Bảng riêng: Loại vỏ + Đơn giá bồi hoàn + Từ ngày → Đến ngày (hiệu lực)
+- [ ] Admin cập nhật khi có thay đổi
+- [ ] Hệ thống tự động áp đúng đơn giá theo thời điểm phát sinh
+- [ ] Lưu lịch sử thay đổi
+
+### US-WMS-22: Nhập vỏ tại phân xưởng
+**As a** nhân viên phân xưởng  
+**I want to** xác nhận nhập vỏ khi tài xế mang về  
+**So that** đối chiếu với dữ liệu tài xế khai
+
+**Acceptance Criteria:**
+- [ ] Tài xế bàn giao vỏ → Phân xưởng đếm + phân loại (Tốt / Hỏng / Huỷ)
+- [ ] Xác nhận trên hệ thống: Số lượng thực nhận theo loại
+- [ ] Nếu chênh lệch với dữ liệu tài xế khai trên app → **lái xe chịu trách nhiệm** (R02)
+- [ ] **Sai lệch vỏ = 0 theo chuyến** — Phân xưởng đếm là chuẩn (R02)
+- [ ] Tạo phiếu nhập vỏ
+
+---
+
+# 7. MODULE ĐỐI SOÁT (RECONCILIATION)
+
+## 7.1 Tổng quan
+Đối soát là module khép kín cuối cùng, đảm bảo hàng đi - tiền về - vỏ về khớp tuyệt đối theo từng chuyến và theo ngày.
+
+**Yêu cầu bắt buộc (từ BRD V1.2):**
+- REC-01: Đối soát cuối chuyến gồm hàng giao, tiền thu, vỏ thu
+- REC-02: Sai lệch xử lý đến T+1 (T = ngày giao)
+
+### US-REC-01: Đối soát cuối chuyến
+**As a** kế toán  
+**I want to** xem biên bản đối soát cuối mỗi chuyến  
+**So that** kiểm tra khớp hàng-tiền-vỏ
+
+**Acceptance Criteria:**
+- [ ] Mỗi Trip khi kết thúc → hệ thống tự động tạo **biên bản đối soát chuyến** gồm:
+  - Hàng: Số lượng xuất (phiếu xuất) vs Số lượng giao thực tế (ePOD) vs Hàng mang về (nếu có)
+  - Tiền: Số tiền phải thu vs Số tiền đã thu (mặt + CK) vs Công nợ ghi nhận
+  - Vỏ: Số vỏ tài xế khai thu vs Số vỏ phân xưởng đếm thực tế
+- [ ] Nếu tất cả khớp → Trạng thái "Reconciled"
+- [ ] Nếu có sai lệch → Trạng thái "Discrepancy" → Mở hồ sơ xử lý
+
+### US-REC-02: Xử lý sai lệch
+**As a** kế toán  
+**I want to** mở và đóng hồ sơ sai lệch  
+**So that** quy trách nhiệm và xử lý dứt điểm
+
+**Acceptance Criteria:**
+- [ ] Kế toán có quyền **mở hồ sơ sai lệch** (R06)
+- [ ] Hồ sơ gồm: Mã chuyến, Loại sai lệch (hàng/tiền/vỏ), Số lượng chênh, Người liên quan
+- [ ] Sai lệch vỏ → **lái xe chịu trách nhiệm** (R02)
+- [ ] Sai lệch hàng tại cổng = 0 (R01) — nếu phát sinh sau giao → tra soát ai sai người đó chịu
+- [ ] Deadline xử lý: **T+1** (T = ngày giao) (R06)
+- [ ] Nếu quá T+1 chưa đóng → **cảnh báo escalation** lên quản lý vận hành
+- [ ] Hồ sơ sai lệch có trạng thái: Mở → Đang xử lý → Đã đóng
+- [ ] Lưu lịch sử xử lý đầy đủ (ai làm gì, lúc nào)
+
+### US-REC-03: Đối soát cuối ngày
+**As a** kế toán  
+**I want to** xem tổng hợp đối soát tất cả chuyến trong ngày  
+**So that** kiểm tra tổng thể trước khi chốt sổ
+
+**Acceptance Criteria:**
+- [ ] Tổng hợp theo ngày: Tổng hàng xuất / giao / trả về, Tổng tiền thu / nợ, Tổng vỏ thu / nhập
+- [ ] Highlight các chuyến có sai lệch chưa xử lý
+- [ ] Cho phép xử lý sai lệch cuối ngày đến **T+1**
+- [ ] Khi tất cả chuyến "Reconciled" → chốt ngày
+
+---
+
+# 8. TÍCH HỢP HỆ THỐNG
+
+## 8.1 Tổng quan kiến trúc tích hợp
+
+```
+                    ┌──────────────┐
+                    │  Hệ thống    │
+                    │  mới         │
+                    │ (OMS-TMS-WMS)│
+                    └──────┬───────┘
+                           │
+              ┌────────────┼────────────┐
+              │            │            │
+              ▼            ▼            ▼
+        ┌──────────┐ ┌──────────┐ ┌──────────┐
+        │  Bravo   │ │   DMS    │ │ Zalo OA  │
+        │ (Kế toán)│ │ (Sales)  │ │ (Notify) │
+        └──────────┘ └──────────┘ └──────────┘
+```
+
+## 8.2 Tích hợp BRAVO (Kế toán) — API 2 chiều
+
+### Chiều đi (Hệ thống mới → Bravo)
+| Dữ liệu | Trigger | Tần suất |
+|----------|---------|----------|
+| Kết quả giao hàng (Delivered/Partial/Rejected) | Khi tài xế xác nhận ePOD | Real-time |
+| Số tiền đã thu (tiền mặt + CK) | Khi tài xế ghi nhận thu tiền | Real-time |
+| Công nợ tiền hàng (đơn ghi nợ) | Khi tài xế chọn "Công nợ" | Real-time |
+| Số vỏ thu về + phân loại (tốt/hỏng) | Khi phân xưởng xác nhận nhập vỏ | Real-time |
+| Tiền bồi hoàn vỏ hỏng/mất | Khi hệ thống tính bồi hoàn | Real-time |
+| Phiếu xuất kho | Khi hàng xuất cổng | Real-time |
+
+### Chiều về (Bravo → Hệ thống mới)
+| Dữ liệu | Mục đích |
+|----------|----------|
+| Số dư công nợ NPP | Kiểm tra hạn mức công nợ tại OMS |
+| Xác nhận hạch toán | Đánh dấu chứng từ đã xử lý kế toán |
+
+### Yêu cầu kỹ thuật
+- [ ] Giao thức: RESTful API (JSON)
+- [ ] Xác thực: API Key hoặc OAuth2
+- [ ] Retry mechanism: 3 lần, interval 1-5-15 phút
+- [ ] Dead letter queue: Lưu message lỗi để xử lý thủ công
+- [ ] Log mọi transaction tích hợp (audit trail)
+
+## 8.3 Tích hợp DMS (Sales) — Chiều đi
+
+| Dữ liệu | Trigger |
+|----------|---------|
+| Đơn hàng đã xác nhận | Khi OMS confirm đơn |
+| Cập nhật trạng thái đơn (Đang giao / Đã giao / Hoãn / Hủy) | Khi trạng thái thay đổi |
+
+### Yêu cầu
+- [ ] Giao thức: API do DMS cung cấp
+- [ ] Chiều duy nhất: Hệ thống mới → DMS (Master data giai đoạn đầu **độc lập**, sync sau)
+
+## 8.4 Tích hợp Zalo OA
+
+Chỉ dùng cho **xác nhận giao hàng với NPP** (gửi link xác nhận). Xem chi tiết tại [Mục 11.3](#113-xác-nhận-giao-hàng-qua-zalo-oa-dành-cho-npp).
+
+---
+
+# 9. PHÂN QUYỀN & APPROVAL FLOW
+
+## 9.1 Danh sách vai trò (Roles)
+
+| Vai trò | Mô tả | Số lượng ước tính |
+|---------|-------|-------------------|
+| **Admin** | Quản trị hệ thống, cấu hình, phân quyền | 2-3 |
+| **DVKH** (Dịch vụ khách hàng) | Nhập đơn, xử lý đơn, quản lý CCDC | 5-8 |
+| **Điều phối viên** | Duyệt auto-planning, chỉnh tay, giám sát GPS | 3-5 |
+| **Đội trưởng xe** | Quản lý tài xế, xe, checklist, bảo trì | 2-3 |
+| **Tài xế** | Driver App (checklist, giao hàng, thu tiền, thu vỏ) | 70+ |
+| **Thủ kho** | Nhập/xuất kho, PDA, picking | 5-8 |
+| **Bảo vệ (Cổng)** | Kiểm đếm Gate Check | 2-4 |
+| **Kế toán / Thủ quỹ** | Xác nhận nộp tiền, kiểm soát chứng từ, Gate Check, **mở/đóng sai lệch** | 3-5 |
+| **Phân xưởng** | Nhập vỏ, phân loại | 3-5 |
+| **Quản lý vận hành / BGĐ** | Dashboard, báo cáo (chỉ xem), phê duyệt ngoại lệ | 3-5 |
+
+## 9.2 Ma trận phân quyền (CRUD)
+
+| Chức năng | Admin | DVKH | Điều phối | Đội trưởng | Tài xế | Thủ kho | Bảo vệ | Kế toán | PX | BGĐ |
+|-----------|-------|------|-----------|------------|--------|---------|--------|---------|-----|-----|
+| Nhập đơn hàng | CRUD | CRU | R | - | - | R | - | R | - | R |
+| Duyệt đơn vượt hạn mức | CRUD | - | - | - | - | - | - | CRU | - | CRU |
+| Auto-planning | CRUD | R | CRU | R | - | - | - | - | - | R |
+| Gán xe/tài xế | CRUD | - | CRU | RU | - | - | - | - | - | R |
+| Driver App | - | - | R | R | RU | - | - | - | - | - |
+| Xuất kho (Picking) | CRUD | - | - | - | - | CRU | - | R | - | R |
+| Gate Check | CRUD | - | - | - | - | R | CRU | CRU | - | R |
+| Nhập vỏ | CRUD | R | - | - | - | R | - | R | CRU | R |
+| Xác nhận nộp tiền | CRUD | - | - | - | - | - | - | CRU | - | R |
+| Đối soát / Sai lệch | CRUD | R | R | - | - | - | - | **CRUD** | - | R |
+| Cấu hình hệ thống | CRUD | - | - | - | - | - | - | - | - | - |
+| Cấu hình ưu tiên xe | CRUD | - | R | - | - | - | - | - | - | - |
+| Cấu hình hạn mức NPP | CRUD | - | - | - | - | - | - | CRU | - | R |
+| Cấu hình đơn giá vỏ | CRUD | - | - | - | - | - | - | R | - | R |
+| Dashboard/Báo cáo | CRUD | R | R | R | - | R | - | R | R | R |
+
+*(C=Create, R=Read, U=Update, D=Delete)*
+
+## 9.3 Approval Flow
+
+### Flow 1: Đơn hàng vượt hạn mức công nợ
+```
+DVKH nhập đơn → Hệ thống phát hiện vượt hạn mức công nợ NPP
+  → Đơn chuyển trạng thái "Pending Approval"
+  → Thông báo trên Web + App cho Kế toán (R15)
+  → Kế toán duyệt → Đơn tiếp tục quy trình
+  → Kế toán từ chối → Đơn bị block, thông báo DVKH
+```
+
+### Flow 2: Xác nhận chuyển khoản
+```
+Tài xế chọn "Chuyển khoản" → Thông báo Điều vận
+  → Điều vận xác nhận (hoặc từ chối)
+  → Nếu không xác nhận trong [timeout - Admin cấu hình]
+    → Cảnh báo escalation lên cấp trên
+```
+
+### Flow 3: Hạn mức công nợ theo thời kỳ
+```
+Admin thiết lập: NPP X → Hạn mức 500 triệu (từ 01/01 → 30/06)
+  → Tự động áp dụng khi kiểm tra đơn hàng
+  → Hết thời kỳ → Hạn mức không còn hiệu lực → Cảnh báo Admin cập nhật
+```
+
+### Flow 4: Đối soát sai lệch T+1
+```
+Trip kết thúc → Hệ thống tạo biên bản đối soát
+  → Có sai lệch → Kế toán mở hồ sơ
+  → Xử lý trong T+1
+  → Quá T+1 chưa đóng → Cảnh báo escalation lên Quản lý vận hành
+```
+
+---
+
+# 10. BÁO CÁO & DASHBOARD
+
+## 10.1 Dashboard vận hành (Real-time)
+
+| Widget | Nội dung | Người xem |
+|--------|----------|-----------|
+| Bản đồ xe | Vị trí tất cả xe đang chạy, màu theo trạng thái | Điều phối, BGĐ |
+| Pipeline đơn hàng | Số đơn theo trạng thái (Draft → Confirmed → In Transit → Delivered) | DVKH, BGĐ |
+| Cảnh báo active | Xe dừng lâu, CK chưa xác nhận, hàng cận date, sai lệch chưa đóng | Điều phối, Thủ kho, Kế toán |
+| Số liệu hôm nay | Đơn đã giao / Tổng đơn, Tiền đã thu, Công nợ phát sinh, Vỏ đã thu | BGĐ |
+| Đối soát ngày | Số chuyến reconciled / Tổng chuyến, Sai lệch mở | Kế toán |
+
+## 10.2 KPI Reports (từ BRD V1.2 + trao đổi)
+
+| KPI | Công thức | Tần suất |
+|-----|-----------|----------|
+| **Tỷ lệ giao đúng hẹn (OTD)** | Số đơn giao trong khung 1 giờ / Tổng đơn × 100% | Ngày, Tuần, Tháng |
+| **Tỷ lệ xe rỗng (Empty Run %)** | Số km chạy rỗng / Tổng km × 100% | Ngày, Tuần, Tháng |
+| **Hiệu suất sử dụng xe** | Tải trọng sử dụng / Tải trọng khả dụng × 100% | Ngày, Tuần, Tháng |
+| **Thời gian hoàn tất 1 vòng chuyến** | Thời gian từ xuất cổng → hoàn chứng từ | Ngày |
+| **Số đơn giao lại** | Tổng đơn giao lại + Số lần trung bình/đơn | Ngày, Tuần |
+| **Tỷ lệ hoàn chứng từ đúng hạn** | Chuyến hoàn tất trong ngày / Tổng chuyến × 100% | Ngày |
+| **Tỷ lệ chênh lệch hàng & vỏ** | Target: 0 | Ngày |
+| **Tình hình công nợ tiền hàng** | Tổng nợ theo NPP, NPP vượt hạn mức | Ngày |
+| **Công nợ vỏ** | Theo NPP, theo loại vỏ | Tuần |
+| **Tỷ lệ xử lý sai lệch đúng T+1** | Sai lệch đóng đúng hạn / Tổng sai lệch × 100% | Tuần |
+
+## 10.3 Báo cáo nghiệp vụ
+
+| Báo cáo | Nội dung |
+|---------|----------|
+| Báo cáo giao hàng theo ngày | Chi tiết Trip: xe, tài xế, điểm giao, kết quả |
+| Báo cáo giao đúng hẹn khung 1 giờ | Tỷ lệ đúng hẹn + danh sách vi phạm (REP-02) |
+| Báo cáo hiệu suất điều vận | Theo xe, tuyến, lái xe (REP-01) |
+| Báo cáo giao lại | Số đơn, số lần, top lý do thất bại |
+| Báo cáo thu tiền | Tiền mặt vs CK vs Công nợ, theo tài xế, chênh lệch |
+| Báo cáo vỏ quay vòng | Vỏ phát ra / Thu về / Hỏng / Tồn tại NPP (REP-03) |
+| Báo cáo bồi hoàn vỏ | Theo NPP, theo loại vỏ, theo thời kỳ đơn giá |
+| Báo cáo xuất nhập tồn kho | Theo kho, SKU, lô (batch) |
+| Báo cáo đối soát | Chuyến đã reconciled, sai lệch mở, deadline T+1 |
+| Báo cáo ngoại lệ | Từ chối nhận, giao thiếu, xe hỏng, vi phạm GT |
+
+---
+
+# 11. THÔNG BÁO & CẢNH BÁO
+
+## 11.1 Phân kênh thông báo
+
+| Kênh | Đối tượng | Mục đích |
+|------|-----------|----------|
+| **Zalo OA** | NPP (bên ngoài) | **Chỉ dùng cho xác nhận giao hàng** — gửi link xác nhận nhận hàng theo chủng loại & số lượng |
+| **Web (Back-office)** | Nội bộ (DVKH, Điều phối, Kế toán, Thủ kho, BGĐ…) | Tất cả thông báo & cảnh báo vận hành nội bộ |
+| **Mobile App (Driver App)** | Tài xế, Đội trưởng xe | Thông báo liên quan đến chuyến, xe, checklist |
+
+> **Nguyên tắc:** Zalo OA là kênh **duy nhất giao tiếp với NPP bên ngoài**. Mọi cảnh báo/thông báo nội bộ đều hiển thị trên **Web + Mobile App** (kèm push notification).
+
+## 11.2 Thông báo nội bộ (Web + Mobile App)
+
+| # | Sự kiện | Người nhận | Kênh | Nội dung |
+|---|---------|-----------|------|----------|
+| 1 | Đơn hàng mới cần duyệt (vượt hạn mức công nợ) | Kế toán | Web | "Đơn #XXX vượt hạn mức công nợ NPP ABC, cần duyệt" |
+| 2 | Xe đang giao — Timeout CK chưa xác nhận | Điều phối + cấp trên | Web + App | "Chuyển khoản đơn #XXX chưa xác nhận sau [X] phút" |
+| 3 | Trip hoàn thành | DVKH | Web | "Chuyến xe BS XXX đã hoàn thành, giao X/Y đơn" |
+| 4 | Hàng cận date | Quản lý kho + DVKH | Web | "Lô XXX sản phẩm YYY còn Z ngày hết hạn, tồn: N thùng" |
+| 5 | Xe cần bảo dưỡng/kiểm định/bảo hiểm | Đội trưởng xe | Web + App | "Xe BS XXX cần kiểm định trước DD/MM/YYYY" |
+| 6 | Xe dừng bất thường | Điều phối | Web | "Xe BS XXX dừng tại [vị trí] hơn [X] phút" |
+| 7 | Sự cố xe / Vi phạm GT | Điều phối | Web + App | "Tài xế ABC báo sự cố: [mô tả]" |
+| 8 | Sai lệch đối soát chưa đóng gần T+1 | Kế toán + Quản lý VH | Web | "Chuyến #XXX có sai lệch chưa đóng, deadline: [ngày]" |
+| 9 | Hạn mức NPP sắp hết thời kỳ hiệu lực | Admin | Web | "Hạn mức công nợ NPP ABC hết hiệu lực ngày DD/MM" |
+
+**Acceptance Criteria (Notification Engine):**
+- [ ] Mỗi thông báo tạo record trong bảng Notification (user, type, content, read/unread, timestamp)
+- [ ] Web: Hiển thị badge số thông báo chưa đọc + dropdown danh sách
+- [ ] Mobile App: Push notification (Firebase Cloud Messaging hoặc tương đương)
+- [ ] Người dùng có thể đánh dấu đã đọc, lọc theo loại
+- [ ] Thông báo cấp bách (CK timeout, xe dừng bất thường, sai lệch gần deadline) hiển thị **popup/toast** trên Web
+
+## 11.3 Xác nhận giao hàng qua Zalo OA (dành cho NPP)
+
+**Yêu cầu:** BHL cần có Zalo OA đã xác thực để sử dụng Zalo Notification API.
+
+**Quy trình:**
+```
+Tài xế đến điểm giao → Thông báo miệng cho NPP dựa trên đơn trên app
+  → NPP xác nhận đúng → Hạ hàng
+  → Tài xế xác nhận giao hàng trên app (ePOD + ảnh)
+  → Hệ thống gửi tin nhắn Zalo cho NPP kèm LINK XÁC NHẬN:
+    ─────────────────────────────────────────
+    "BHL — Xác nhận nhận hàng
+     Đơn #XXX | Ngày: DD/MM/YYYY HH:mm
+     
+     Chủng loại & Số lượng giao:
+     • Bia Hạ Long chai 450ml — 50 thùng
+     • Bia Hạ Long lon 330ml — 30 thùng
+     • Keg 50L — 10 keg
+     
+     👉 [BẤM VÀO ĐÂY ĐỂ XÁC NHẬN] (link)
+     
+     Nếu có sai lệch, vui lòng phản hồi qua link trên
+     trong vòng 24h. Không phản hồi = xác nhận đúng."
+    ─────────────────────────────────────────
+
+→ NPP bấm link → Mở trang web xác nhận:
+   • Hiển thị danh sách chủng loại + số lượng giao
+   • NPP chọn "Xác nhận đúng" HOẶC "Báo sai lệch" (chọn SKU, nhập số lượng thực nhận, ghi chú)
+   • Submit → Hệ thống ghi nhận kết quả
+
+→ NPP bấm "Báo sai lệch" → Tạo ticket tranh chấp (tra soát, ai sai người đó chịu)
+→ NPP không phản hồi trong 24h → Tự động xác nhận "Đúng" (Silent Consent — R13)
+```
+
+**Acceptance Criteria:**
+- [ ] Gửi tin nhắn Zalo OA tự động khi tài xế hoàn thành ePOD tại điểm giao
+- [ ] Tin nhắn hiển thị **danh sách chủng loại + số lượng giao** của đơn hàng đó
+- [ ] Tin nhắn kèm **đường link duy nhất** (unique token, hết hạn sau 24h) dẫn đến trang xác nhận
+- [ ] Trang xác nhận (web): NPP xem chi tiết từng SKU + số lượng, chọn "Xác nhận đúng" hoặc "Báo sai lệch" (chọn SKU sai, nhập số lượng thực nhận, ghi chú)
+- [ ] NPP bấm "Báo sai lệch" → Hệ thống tạo ticket tranh chấp, thông báo DVKH trên Web
+- [ ] **Sau 24h không phản hồi → Mặc nhiên xác nhận đúng** (ghi nhận timestamp auto-confirm)
+- [ ] Lưu toàn bộ lịch sử: tin nhắn Zalo, lượt bấm link, kết quả xác nhận/sai lệch
+
+---
+
+# 12. QUY MÔ & SIZING
+
+## 12.1 Dữ liệu ước tính
+
+| Thông số | Ngày thường | Cao điểm (Tết/Hè) |
+|----------|------------|-------------------|
+| Đơn hàng / ngày | ~1,000 | ~3,000-5,000 (ước tính) |
+| Trip / ngày | ~100-150 | ~300-500 |
+| GPS point / ngày | ~200,000 (70 xe × 30s × 12h) | ~500,000+ |
+| Ảnh upload / ngày | ~500 (checklist + ePOD + vỏ) | ~1,500+ |
+
+## 12.2 Yêu cầu phi chức năng
+- [ ] **Availability:** 99.5% uptime (cho phép maintenance window ngoài giờ làm việc)
+- [ ] **Concurrency:** Chịu tải 50 user web + 70 tài xế app đồng thời
+- [ ] **Response time:** API < 2s, Auto-planning < 2 phút, Dashboard < 3s
+- [ ] **Data retention:** Lịch sử GPS 6 tháng online, archive 3 năm
+- [ ] **Offline:** Driver App hoạt động offline cơ bản (nhập dữ liệu, queue sync khi có mạng)
+- [ ] **Mobile:** iOS + Android (tài xế), Web responsive (back-office)
+
+---
+
+# 13. PHỤ LỤC — DATA ENTITIES
+
+## 13.1 Master Data
+
+| Entity | Trường chính | Nguồn |
+|--------|-------------|-------|
+| **Sản phẩm (SKU)** | Mã, Tên, Loại (Bia chai/Bia hơi/Keg/NGK), ĐVT, Trọng lượng, Thể tích, Hạn SD tiêu chuẩn | Hệ thống mới |
+| **NPP / Khách hàng** | Mã, Tên, Địa chỉ (nhiều), SĐT, Zalo, Hạn mức công nợ (theo thời kỳ), Chính sách cược | Hệ thống mới |
+| **Tuyến đường** | Mã, Tên, Danh sách điểm giao, Khoảng cách, Thời gian ước tính | Hệ thống mới |
+| **Xe** | Biển số, Loại, Tải trọng, Thể tích, Nội bộ/Thuê ngoài, Giấy tờ | Hệ thống mới |
+| **Tài xế** | Mã, Họ tên, CCCD, SĐT, Bằng lái, Trạng thái | Hệ thống mới |
+| **Kho / Vị trí** | Mã kho, Tên, Địa chỉ, Zone, Bin | Hệ thống mới |
+| **Giờ cấm tải** | Khu vực, Khung giờ, Loại xe | Admin nhập tay |
+| **Tài sản quay vòng** | Loại (Chai/Két/Keg/Pallet/CCDC), ĐVT quy đổi, Đơn giá cược | Hệ thống mới |
+| **Đơn giá bồi hoàn vỏ** | Loại vỏ, Đơn giá, Từ ngày, Đến ngày (hiệu lực) | Admin cập nhật |
+| **Khung giờ giao** | Khung giờ chuẩn (phút), Từ ngày, Đến ngày (hiệu lực) | Admin cập nhật |
+| **Thứ tự ưu tiên xe** | Tiêu chí ưu tiên (trọng tải/tuyến xa/giá trị đơn), Thứ tự | Admin cấu hình |
+
+## 13.2 Transaction Data
+
+| Entity | Mô tả |
+|--------|-------|
+| **Sales Order** | Đơn hàng gốc từ OMS |
+| **Shipment** | Lệnh vận chuyển (có thể gom/tách từ nhiều SO) |
+| **Trip** | Chuyến xe (1 Trip = 1 xe + 1 tài xế + nhiều Shipment) |
+| **Delivery Attempt** | Lần giao hàng (có thể nhiều lần cho 1 SO — giao lại) |
+| **Picking Order** | Lệnh đóng hàng cho kho |
+| **Stock Move** | Phiếu nhập/xuất kho (mỗi dòng: SKU, Lô, Số lượng, Vị trí) |
+| **Gate Check** | Biên bản kiểm đếm cổng |
+| **ePOD** | Xác nhận giao hàng (ảnh, GPS, timestamp) |
+| **Payment** | Thu tiền (tiền mặt/CK/công nợ, số tiền, trạng thái) |
+| **Return Collection** | Vỏ thu hồi (loại, số lượng, tốt/hỏng, ảnh) |
+| **Asset Ledger** | Sổ công nợ vỏ theo NPP |
+| **Receivable Ledger** | Sổ công nợ tiền hàng theo NPP |
+| **Reconciliation Record** | Biên bản đối soát chuyến (hàng-tiền-vỏ) |
+| **Discrepancy Ticket** | Hồ sơ sai lệch (mở → xử lý → đóng, deadline T+1) |
+
+## 13.3 Mapping với biểu mẫu hiện tại
+
+| Biểu mẫu cũ | Thay thế bằng |
+|-------------|---------------|
+| File nhu cầu vận tải (BM10) | Auto-planning output (Trip list) |
+| Biên bản kiểm tra ATKT (BM11) | Driver App Checklist (US-TMS-10) |
+| Lệnh đóng hàng | Picking Order (WMS) |
+| Phiếu xuất kho | Stock Move - Outbound (WMS) |
+| Biên bản bàn giao hàng hóa | ePOD + Gate Check (digital) |
+| Sổ giao hàng, thu vỏ (BM06, BM07) | ePOD + Return Collection (Driver App) |
+| Phiếu thu tiền | Payment record (Driver App) |
+| Phiếu nhập vỏ | Stock Move - Inbound Returns (WMS) |
+
+## 13.4 Danh mục đầu vào cần cung cấp (để khóa tài liệu)
+
+1. Danh mục khách hàng/NPP và điểm giao chuẩn
+2. Danh mục xe, lái xe và điều kiện vận hành
+3. Danh mục vỏ cược và quy tắc quy đổi chính thức
+4. Bảng đơn giá bồi hoàn vỏ theo thời kỳ hiệu lực
+5. Danh mục ngưỡng cận hạn theo nhóm sản phẩm
+6. Danh sách biểu mẫu nghiệp vụ chính thức theo thiết kế mới
+
+---
+
+# 14. TIÊU CHÍ NGHIỆM THU (UAT)
+
+*(Từ BRD V1.2 Section 13, bổ sung từ trao đổi)*
+
+| # | Tiêu chí | Tham chiếu |
+|---|----------|-----------|
+| 1 | Đơn hàng được xử lý đúng quy trình từ nhận đơn đến đối soát cuối ngày | OMS → TMS → WMS → REC |
+| 2 | Quy tắc mốc chốt đơn trước/sau 16h vận hành đúng | R08, US-OMS-08 |
+| 3 | Cho phép công nợ, không bắt buộc thu ngay, hạ hàng trước thanh toán | R03, R04, FIN-01, FIN-02 |
+| 4 | Giao thất bại → giao lại nhiều lần, thống kê đúng số lần + lý do | R05, US-TMS-14b |
+| 5 | Quản lý vỏ theo quy đổi (CÁI/KEG), sai lệch vỏ = 0, lái xe chịu trách nhiệm | R02, R14, RA-01~04 |
+| 6 | Vỏ hỏng/mất tính bồi hoàn đúng theo đơn giá từng thời kỳ | R10, RA-05, US-WMS-21b |
+| 7 | Cảnh báo cận hạn hoạt động theo ngưỡng đã thiết lập | WMS-02, US-WMS-11 |
+| 8 | Sai lệch phát sinh được theo dõi và đóng xử lý đúng hạn T+1 | R06, REC-02, US-REC-02 |
+| 9 | Báo cáo vận hành thể hiện đầy đủ KPI: OTD (khung 1 giờ), xe rỗng, giao lại, công nợ | REP-01~03 |
+| 10 | Sai lệch hàng = 0 tại cổng (quét PDA khớp 100%) | R01, WMS-04, US-WMS-04 |
+| 11 | Hạn mức công nợ NPP chặn đơn đúng, Kế toán duyệt đúng flow | R15, US-OMS-07 |
+| 12 | Xác nhận giao hàng qua Zalo + Silent Consent 24h hoạt động đúng | R13 |
+
+---
+
+**=== HẾT TÀI LIỆU BRD V2.2 ===**
+
+*Phiên bản 2.2 — Thêm US-OMS-02a (Sửa đơn hàng khi chưa giao).*
+
+*Phiên bản 2.1 — Thêm US-TMS-01a/01b/01c (Dashboard tối ưu VRP, Điều chỉnh kế hoạch, Bản đồ OSRM).*
+
+*Phiên bản 2.0 Final — Merge BRD V1.2 (nghiệp vụ) + trao đổi BA (giải pháp). Sẵn sàng cho thiết kế kỹ thuật và vibe coding.*

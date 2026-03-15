@@ -1,0 +1,189 @@
+name: CI/CD Pipeline
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main, develop]
+
+env:
+  GO_VERSION: "1.23"
+  NODE_VERSION: "20"
+
+jobs:
+  # ===== LINT =====
+  lint:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: bhl-oms
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+      - name: golangci-lint
+        uses: golangci/golangci-lint-action@v6
+        with:
+          version: v1.62
+          working-directory: bhl-oms
+      - name: go vet
+        run: go vet ./...
+
+  # ===== TEST (Go backend) =====
+  test-api:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: bhl-oms
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: test
+          POSTGRES_PASSWORD: test
+          POSTGRES_DB: bhl_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+      - name: Run migrations
+        run: |
+          PGPASSWORD=test psql -h localhost -U test -d bhl_test -f migrations/001_init.up.sql
+          PGPASSWORD=test psql -h localhost -U test -d bhl_test -f migrations/002_checklist.up.sql
+      - name: Run tests
+        run: go test -race -coverprofile=coverage.out -timeout 120s ./...
+        env:
+          DB_URL: postgres://test:test@localhost:5432/bhl_test?sslmode=disable
+          REDIS_URL: redis://localhost:6379/0
+          JWT_PRIVATE_KEY_PATH: keys/private.pem
+          JWT_PUBLIC_KEY_PATH: keys/public.pem
+      - name: Check coverage
+        run: |
+          go tool cover -func=coverage.out | tail -1
+      - name: Upload coverage
+        if: github.event_name == 'pull_request'
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-report
+          path: bhl-oms/coverage.out
+
+  # ===== TEST (Next.js frontend) =====
+  test-web:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: bhl-oms/web
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+          cache-dependency-path: bhl-oms/web/package-lock.json
+      - name: Install dependencies
+        run: npm ci
+      - name: Type check
+        run: npx tsc --noEmit
+      - name: Build
+        run: npm run build
+
+  # ===== BUILD DOCKER IMAGES =====
+  build:
+    needs: [lint, test-api, test-web]
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/develop'
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+      - name: Build API image
+        uses: docker/build-push-action@v5
+        with:
+          context: ./bhl-oms
+          file: ./bhl-oms/Dockerfile
+          push: false
+          tags: bhl-api:${{ github.sha }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+      - name: Build Web image
+        uses: docker/build-push-action@v5
+        with:
+          context: ./bhl-oms/web
+          file: ./bhl-oms/web/Dockerfile
+          push: false
+          tags: bhl-web:${{ github.sha }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+      - name: Build VRP image
+        uses: docker/build-push-action@v5
+        with:
+          context: ./bhl-oms/vrp-solver
+          file: ./bhl-oms/vrp-solver/Dockerfile
+          push: false
+          tags: bhl-vrp:${{ github.sha }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+      - name: Scan API image (Trivy)
+        uses: aquasecurity/trivy-action@master
+        with:
+          image-ref: bhl-api:${{ github.sha }}
+          severity: CRITICAL,HIGH
+          exit-code: 0
+
+  # ===== DEPLOY STAGING =====
+  deploy-staging:
+    needs: build
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/develop'
+    environment: staging
+    steps:
+      - name: Deploy to staging
+        uses: appleboy/ssh-action@v1
+        with:
+          host: ${{ secrets.STAGING_HOST }}
+          username: ${{ secrets.SSH_USER }}
+          key: ${{ secrets.SSH_KEY }}
+          script: |
+            cd /opt/bhl
+            docker compose -f docker-compose.prod.yml pull
+            docker compose -f docker-compose.prod.yml up -d
+            sleep 10
+            curl -sf http://localhost:8080/health || exit 1
+
+  # ===== DEPLOY PRODUCTION =====
+  deploy-prod:
+    needs: build
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/main'
+    environment: production
+    steps:
+      - name: Deploy to production
+        uses: appleboy/ssh-action@v1
+        with:
+          host: ${{ secrets.PROD_HOST }}
+          username: ${{ secrets.SSH_USER }}
+          key: ${{ secrets.SSH_KEY }}
+          script: |
+            cd /opt/bhl
+            docker compose -f docker-compose.prod.yml pull
+            docker compose -f docker-compose.prod.yml up -d --no-deps api worker
+            sleep 10
+            curl -sf http://localhost:8080/health || exit 1
