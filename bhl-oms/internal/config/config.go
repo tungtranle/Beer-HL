@@ -16,6 +16,15 @@ type Config struct {
 	JWTRefreshTTL  time.Duration
 	VRPSolverURL   string
 	OSRMURL        string
+
+	// Integration
+	BravoURL      string
+	BravoAPIKey   string
+	DMSURL        string
+	DMSAPIKey     string
+	ZaloOAToken   string
+	ZaloOAID      string
+	IntegrationMock bool
 }
 
 func Load() *Config {
@@ -30,6 +39,14 @@ func Load() *Config {
 		JWTRefreshTTL:  parseDuration(getEnv("JWT_REFRESH_TTL", "168h")), // 7 days
 		VRPSolverURL:   getEnv("VRP_SOLVER_URL", "http://localhost:8090"),
 		OSRMURL:        getEnv("OSRM_URL", "http://localhost:5000"),
+
+		BravoURL:        getEnv("BRAVO_URL", "http://localhost:9001"),
+		BravoAPIKey:     getEnv("BRAVO_API_KEY", ""),
+		DMSURL:          getEnv("DMS_URL", "http://localhost:9002"),
+		DMSAPIKey:       getEnv("DMS_API_KEY", ""),
+		ZaloOAToken:     getEnv("ZALO_OA_TOKEN", ""),
+		ZaloOAID:        getEnv("ZALO_OA_ID", ""),
+		IntegrationMock: getEnv("INTEGRATION_MOCK", "true") == "true",
 	}
 }
 

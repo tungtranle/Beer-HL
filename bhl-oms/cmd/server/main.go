@@ -12,6 +12,7 @@ import (
 	"bhl-oms/internal/auth"
 	"bhl-oms/internal/config"
 	"bhl-oms/internal/gps"
+	"bhl-oms/internal/integration"
 	"bhl-oms/internal/middleware"
 	"bhl-oms/internal/oms"
 	"bhl-oms/internal/tms"
@@ -108,6 +109,13 @@ func main() {
 	// WMS routes
 	wmsHandler := wms.NewHandler(wmsSvc)
 	wmsHandler.RegisterRoutes(protected)
+
+	// Integration adapters (Task 3.1-3.5)
+	bravoAdapter := integration.NewBravoAdapter(cfg.BravoURL, cfg.BravoAPIKey, cfg.IntegrationMock)
+	dmsAdapter := integration.NewDMSAdapter(cfg.DMSURL, cfg.DMSAPIKey, cfg.IntegrationMock)
+	zaloAdapter := integration.NewZaloAdapter(cfg.ZaloOAToken, cfg.ZaloOAID, cfg.IntegrationMock)
+	integrationHandler := integration.NewHandler(bravoAdapter, dmsAdapter, zaloAdapter)
+	integrationHandler.RegisterRoutes(protected)
 
 	// GPS routes (REST)
 	gpsHandler := gps.NewHandler(gpsHub)
