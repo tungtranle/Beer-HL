@@ -30,13 +30,13 @@ func NewDMSAdapter(baseURL, apiKey string, mockMode bool) *DMSAdapter {
 
 // DMSOrderSync payload sent to DMS
 type DMSOrderSync struct {
-	OrderNumber  string `json:"order_number"`
-	Status       string `json:"status"`
-	DeliveryDate string `json:"delivery_date,omitempty"`
-	DriverName   string `json:"driver_name,omitempty"`
-	VehiclePlate string `json:"vehicle_plate,omitempty"`
+	OrderNumber  string  `json:"order_number"`
+	Status       string  `json:"status"`
+	DeliveryDate string  `json:"delivery_date,omitempty"`
+	DriverName   string  `json:"driver_name,omitempty"`
+	VehiclePlate string  `json:"vehicle_plate,omitempty"`
 	TotalAmount  float64 `json:"total_amount"`
-	Notes        string `json:"notes,omitempty"`
+	Notes        string  `json:"notes,omitempty"`
 }
 
 // DMSSyncResponse from DMS

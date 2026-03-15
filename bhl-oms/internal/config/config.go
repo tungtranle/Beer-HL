@@ -18,12 +18,12 @@ type Config struct {
 	OSRMURL        string
 
 	// Integration
-	BravoURL      string
-	BravoAPIKey   string
-	DMSURL        string
-	DMSAPIKey     string
-	ZaloOAToken   string
-	ZaloOAID      string
+	BravoURL        string
+	BravoAPIKey     string
+	DMSURL          string
+	DMSAPIKey       string
+	ZaloOAToken     string
+	ZaloOAID        string
 	IntegrationMock bool
 }
 

@@ -30,15 +30,15 @@ func NewBravoAdapter(baseURL, apiKey string, mockMode bool) *BravoAdapter {
 
 // DeliveryDocument represents a delivery document for Bravo
 type DeliveryDocument struct {
-	OrderNumber    string  `json:"order_number"`
-	CustomerCode   string  `json:"customer_code"`
-	DeliveryDate   string  `json:"delivery_date"`
-	TotalAmount    float64 `json:"total_amount"`
-	DepositAmount  float64 `json:"deposit_amount"`
-	PaymentMethod  string  `json:"payment_method"`
-	DriverName     string  `json:"driver_name"`
-	VehiclePlate   string  `json:"vehicle_plate"`
-	Items          []DeliveryDocItem `json:"items"`
+	OrderNumber   string            `json:"order_number"`
+	CustomerCode  string            `json:"customer_code"`
+	DeliveryDate  string            `json:"delivery_date"`
+	TotalAmount   float64           `json:"total_amount"`
+	DepositAmount float64           `json:"deposit_amount"`
+	PaymentMethod string            `json:"payment_method"`
+	DriverName    string            `json:"driver_name"`
+	VehiclePlate  string            `json:"vehicle_plate"`
+	Items         []DeliveryDocItem `json:"items"`
 }
 
 type DeliveryDocItem struct {
@@ -195,11 +195,11 @@ type CreditDiscrepancy struct {
 
 // BravoWebhookPayload represents an incoming webhook from Bravo (Task 3.3)
 type BravoWebhookPayload struct {
-	Event      string `json:"event"`
-	DocumentID string `json:"document_id"`
-	Status     string `json:"status"`
+	Event      string  `json:"event"`
+	DocumentID string  `json:"document_id"`
+	Status     string  `json:"status"`
 	Amount     float64 `json:"amount"`
-	PostedAt   string `json:"posted_at"`
+	PostedAt   string  `json:"posted_at"`
 }
 
 // HandleWebhook processes incoming Bravo webhooks

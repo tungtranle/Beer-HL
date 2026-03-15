@@ -114,8 +114,13 @@ func main() {
 	bravoAdapter := integration.NewBravoAdapter(cfg.BravoURL, cfg.BravoAPIKey, cfg.IntegrationMock)
 	dmsAdapter := integration.NewDMSAdapter(cfg.DMSURL, cfg.DMSAPIKey, cfg.IntegrationMock)
 	zaloAdapter := integration.NewZaloAdapter(cfg.ZaloOAToken, cfg.ZaloOAID, cfg.IntegrationMock)
-	integrationHandler := integration.NewHandler(bravoAdapter, dmsAdapter, zaloAdapter)
+	confirmSvc := integration.NewConfirmService(pool, zaloAdapter)
+	integrationHandler := integration.NewHandler(bravoAdapter, dmsAdapter, zaloAdapter, confirmSvc)
 	integrationHandler.RegisterRoutes(protected)
+	integrationHandler.RegisterPublicRoutes(v1) // NPP portal (no auth)
+
+	// Start auto-confirm cron (Task 3.7)
+	go confirmSvc.RunAutoConfirmCron(appCtx)
 
 	// GPS routes (REST)
 	gpsHandler := gps.NewHandler(gpsHub)

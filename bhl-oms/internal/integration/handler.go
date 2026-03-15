@@ -6,17 +6,19 @@ import (
 	"bhl-oms/pkg/response"
 
 	"github.com/gin-gonic/gin"
+	"github.com/google/uuid"
 )
 
 // Handler provides HTTP endpoints for integration webhooks and admin
 type Handler struct {
-	bravo *BravoAdapter
-	dms   *DMSAdapter
-	zalo  *ZaloAdapter
+	bravo      *BravoAdapter
+	dms        *DMSAdapter
+	zalo       *ZaloAdapter
+	confirmSvc *ConfirmService
 }
 
-func NewHandler(bravo *BravoAdapter, dms *DMSAdapter, zalo *ZaloAdapter) *Handler {
-	return &Handler{bravo: bravo, dms: dms, zalo: zalo}
+func NewHandler(bravo *BravoAdapter, dms *DMSAdapter, zalo *ZaloAdapter, confirmSvc *ConfirmService) *Handler {
+	return &Handler{bravo: bravo, dms: dms, zalo: zalo, confirmSvc: confirmSvc}
 }
 
 func (h *Handler) RegisterRoutes(r *gin.RouterGroup) {
@@ -30,7 +32,19 @@ func (h *Handler) RegisterRoutes(r *gin.RouterGroup) {
 		ig.POST("/bravo/reconcile", h.TriggerBravoReconcile)
 		ig.POST("/dms/sync", h.PushDMSOrderStatus)
 		ig.POST("/zalo/send", h.SendZaloZNS)
+
+		// NPP Confirmation endpoints (Task 3.6)
+		ig.POST("/confirm/send", h.SendConfirmation)
+		ig.POST("/confirm/auto-confirm", h.TriggerAutoConfirm)
 	}
+}
+
+// RegisterPublicRoutes registers unauthenticated routes (NPP portal)
+func (h *Handler) RegisterPublicRoutes(r *gin.RouterGroup) {
+	// NPP portal — no auth required (accessed via Zalo link)
+	r.GET("/confirm/:token", h.GetConfirmation)
+	r.POST("/confirm/:token/confirm", h.ConfirmDelivery)
+	r.POST("/confirm/:token/dispute", h.DisputeDelivery)
 }
 
 // POST /v1/integration/bravo/webhook (Task 3.3)
@@ -131,4 +145,103 @@ func (h *Handler) SendZaloZNS(c *gin.Context) {
 	}
 
 	response.OK(c, result)
+}
+
+// POST /v1/integration/confirm/send (Task 3.6 — send confirmation to NPP)
+func (h *Handler) SendConfirmation(c *gin.Context) {
+	var req struct {
+		OrderID      string  `json:"order_id" binding:"required"`
+		CustomerID   string  `json:"customer_id" binding:"required"`
+		StopID       string  `json:"stop_id"`
+		Phone        string  `json:"phone" binding:"required"`
+		TotalAmount  float64 `json:"total_amount" binding:"required"`
+		OrderNumber  string  `json:"order_number" binding:"required"`
+		CustomerName string  `json:"customer_name" binding:"required"`
+		BaseURL      string  `json:"base_url"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		response.BadRequest(c, "Invalid request")
+		return
+	}
+
+	orderID, err := uuid.Parse(req.OrderID)
+	if err != nil {
+		response.BadRequest(c, "Invalid order ID")
+		return
+	}
+	customerID, err := uuid.Parse(req.CustomerID)
+	if err != nil {
+		response.BadRequest(c, "Invalid customer ID")
+		return
+	}
+
+	var stopID *uuid.UUID
+	if req.StopID != "" {
+		id, err := uuid.Parse(req.StopID)
+		if err == nil {
+			stopID = &id
+		}
+	}
+
+	baseURL := req.BaseURL
+	if baseURL == "" {
+		baseURL = "https://" + c.Request.Host
+	}
+
+	confirm, err := h.confirmSvc.SendConfirmation(c.Request.Context(), orderID, customerID, stopID, req.Phone, req.TotalAmount, req.OrderNumber, req.CustomerName, baseURL)
+	if err != nil {
+		response.Err(c, http.StatusInternalServerError, "ZALO_CONFIRM_ERROR", err.Error())
+		return
+	}
+
+	response.Created(c, confirm)
+}
+
+// GET /v1/confirm/:token (NPP portal — public)
+func (h *Handler) GetConfirmation(c *gin.Context) {
+	token := c.Param("token")
+	confirm, err := h.confirmSvc.GetByToken(c.Request.Context(), token)
+	if err != nil {
+		response.NotFound(c, "Không tìm thấy xác nhận giao hàng")
+		return
+	}
+	response.OK(c, confirm)
+}
+
+// POST /v1/confirm/:token/confirm (NPP portal — public)
+func (h *Handler) ConfirmDelivery(c *gin.Context) {
+	token := c.Param("token")
+	if err := h.confirmSvc.ConfirmDelivery(c.Request.Context(), token); err != nil {
+		response.Err(c, http.StatusBadRequest, "CONFIRM_ERROR", err.Error())
+		return
+	}
+	response.OK(c, gin.H{"status": "confirmed"})
+}
+
+// POST /v1/confirm/:token/dispute (NPP portal — public)
+func (h *Handler) DisputeDelivery(c *gin.Context) {
+	var req struct {
+		Reason string `json:"reason" binding:"required"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		response.BadRequest(c, "Vui lòng nhập lý do")
+		return
+	}
+
+	token := c.Param("token")
+	if err := h.confirmSvc.DisputeDelivery(c.Request.Context(), token, req.Reason); err != nil {
+		response.Err(c, http.StatusBadRequest, "DISPUTE_ERROR", err.Error())
+		return
+	}
+	response.OK(c, gin.H{"status": "disputed"})
+}
+
+// POST /v1/integration/confirm/auto-confirm (Task 3.7 manual trigger)
+func (h *Handler) TriggerAutoConfirm(c *gin.Context) {
+	count, err := h.confirmSvc.AutoConfirmExpired(c.Request.Context())
+	if err != nil {
+		response.Err(c, http.StatusInternalServerError, "AUTO_CONFIRM_ERROR", err.Error())
+		return
+	}
+	response.OK(c, gin.H{"auto_confirmed": count})
 }

@@ -439,3 +439,23 @@ type Payment struct {
 	CreatedAt       time.Time  `json:"created_at"`
 	UpdatedAt       time.Time  `json:"updated_at"`
 }
+
+// ZaloConfirmation tracks Zalo delivery confirmations (SM-06)
+type ZaloConfirmation struct {
+	ID              uuid.UUID  `json:"id"`
+	OrderID         uuid.UUID  `json:"order_id"`
+	CustomerID      uuid.UUID  `json:"customer_id"`
+	TripStopID      *uuid.UUID `json:"trip_stop_id,omitempty"`
+	Token           string     `json:"token"`
+	Phone           string     `json:"phone"`
+	Status          string     `json:"status"`
+	TotalAmount     float64    `json:"total_amount"`
+	ZaloMsgID       *string    `json:"zalo_msg_id,omitempty"`
+	SentAt          time.Time  `json:"sent_at"`
+	ConfirmedAt     *time.Time `json:"confirmed_at,omitempty"`
+	DisputedAt      *time.Time `json:"disputed_at,omitempty"`
+	DisputeReason   *string    `json:"dispute_reason,omitempty"`
+	AutoConfirmedAt *time.Time `json:"auto_confirmed_at,omitempty"`
+	CreatedAt       time.Time  `json:"created_at"`
+	UpdatedAt       time.Time  `json:"updated_at"`
+}
