@@ -1,0 +1,11 @@
+2026/03/15 21:07:34 ✅ Connected to PostgreSQL
+2026/03/15 21:07:34 ✅ Auth service initialized (RS256)
+2026/03/15 21:07:34 ✅ Connected to Redis
+2026/03/15 21:07:34 ✅ Notification service initialized (WebSocket)
+2026/03/15 21:07:34 ✅ KPI service initialized (cron 23:50)
+2026/03/15 21:07:34 📊 KPI daily snapshot cron started
+2026/03/15 21:07:34 📊 KPI snapshot cron: next run at 2026-03-15 23:50 (in 2h42m0s)
+2026/03/15 21:07:34 ✅ Integration hooks wired (Bravo, DMS, Zalo)
+2026/03/15 21:07:34 [AutoConfirm] Cron started (every 1 hour)
+2026/03/15 21:07:34 [Bravo] Nightly reconcile cron started (every hour, executes at midnight)
+2026/03/15 21:07:34 🚀 BHL OMS-TMS-WMS API starting on :8080

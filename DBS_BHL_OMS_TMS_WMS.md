@@ -421,6 +421,7 @@ CREATE TABLE shipments (
     total_volume_m3 NUMERIC(8,3) NOT NULL,
     delivery_date   DATE NOT NULL,
     status          VARCHAR(20) NOT NULL DEFAULT 'pending',  -- 'pending', 'assigned', 'picked', 'completed'
+    is_urgent       BOOLEAN NOT NULL DEFAULT false,          -- Ưu tiên giao hàng gấp (009)
     created_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
     updated_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
 
@@ -428,6 +429,7 @@ CREATE TABLE shipments (
 );
 
 CREATE INDEX idx_shipments_status_date ON shipments (status, delivery_date);
+CREATE INDEX idx_shipments_urgent ON shipments (is_urgent DESC, delivery_date);
 ```
 
 ---

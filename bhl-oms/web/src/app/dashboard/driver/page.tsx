@@ -42,6 +42,8 @@ const statusLabels: Record<string, string> = {
 export default function DriverPage() {
   const [trips, setTrips] = useState<Trip[]>([])
   const [loading, setLoading] = useState(true)
+  const [checkinStatus, setCheckinStatus] = useState<string>('loading')
+  const [checkinLoading, setCheckinLoading] = useState(false)
   const user = getUser()
 
   // Start GPS tracking for driver
@@ -63,6 +65,27 @@ export default function DriverPage() {
 
   useEffect(() => { loadTrips() }, [])
 
+  // Load check-in status
+  useEffect(() => {
+    apiFetch<any>('/driver/checkin')
+      .then(r => setCheckinStatus(r.data?.status || 'not_checked_in'))
+      .catch(() => setCheckinStatus('not_checked_in'))
+  }, [])
+
+  const handleCheckin = async (status: string, reason?: string) => {
+    setCheckinLoading(true)
+    try {
+      const body: any = { status }
+      if (reason) body.reason = reason
+      await apiFetch('/driver/checkin', { method: 'POST', body })
+      setCheckinStatus(status)
+    } catch (err) {
+      console.error(err)
+    } finally {
+      setCheckinLoading(false)
+    }
+  }
+
   const activeTrips = trips.filter(t => t.status === 'in_transit' || t.status === 'planned' || t.status === 'assigned' || t.status === 'ready')
   const completedTrips = trips.filter(t => t.status === 'completed' || t.status === 'cancelled')
 
@@ -81,6 +104,52 @@ export default function DriverPage() {
         <h1 className="text-2xl font-bold text-gray-900">🚚 Chuyến xe của tôi</h1>
         <p className="text-gray-500 mt-1">Xin chào, {user?.full_name}</p>
       </div>
+
+      {/* Check-in Banner */}
+      {checkinStatus !== 'loading' && (
+        <div className={`rounded-xl p-4 mb-6 ${
+          checkinStatus === 'available' ? 'bg-green-50 border-2 border-green-200' :
+          checkinStatus === 'off_duty' ? 'bg-red-50 border-2 border-red-200' :
+          'bg-yellow-50 border-2 border-yellow-300'
+        }`}>
+          {checkinStatus === 'not_checked_in' && (
+            <div className="text-center">
+              <p className="text-yellow-800 font-medium mb-3">🔔 Bạn chưa check-in hôm nay</p>
+              <div className="flex gap-3 justify-center">
+                <button onClick={() => handleCheckin('available')} disabled={checkinLoading}
+                  className="px-6 py-2.5 bg-green-600 text-white rounded-lg hover:bg-green-700 transition font-medium disabled:opacity-50">
+                  ✅ Sẵn sàng nhận chuyến
+                </button>
+                <button onClick={() => handleCheckin('off_duty', 'personal')} disabled={checkinLoading}
+                  className="px-6 py-2.5 bg-red-100 text-red-700 rounded-lg hover:bg-red-200 transition font-medium disabled:opacity-50">
+                  🔴 Hôm nay nghỉ
+                </button>
+              </div>
+            </div>
+          )}
+          {checkinStatus === 'available' && (
+            <div className="flex items-center justify-between">
+              <div>
+                <span className="text-green-800 font-medium">✅ Đã check-in — Sẵn sàng nhận chuyến</span>
+                <span className="text-green-600 text-sm ml-2">({new Date().toLocaleDateString('vi-VN')})</span>
+              </div>
+              <button onClick={() => handleCheckin('off_duty', 'personal')} disabled={checkinLoading}
+                className="px-3 py-1.5 text-sm bg-red-50 text-red-600 rounded-lg hover:bg-red-100 disabled:opacity-50">
+                Báo nghỉ
+              </button>
+            </div>
+          )}
+          {checkinStatus === 'off_duty' && (
+            <div className="flex items-center justify-between">
+              <span className="text-red-800 font-medium">🔴 Hôm nay nghỉ</span>
+              <button onClick={() => handleCheckin('available')} disabled={checkinLoading}
+                className="px-3 py-1.5 text-sm bg-green-50 text-green-700 rounded-lg hover:bg-green-100 disabled:opacity-50">
+                Đổi sang sẵn sàng
+              </button>
+            </div>
+          )}
+        </div>
+      )}
 
       {/* Active Trips */}
       {activeTrips.length > 0 && (

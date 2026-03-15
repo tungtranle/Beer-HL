@@ -18,6 +18,7 @@ const navItems = [
   { href: '/dashboard/vehicles', label: 'Phương tiện', icon: '🚗', roles: ['admin', 'dispatcher'] },
   { href: '/dashboard/drivers-list', label: 'Tài xế', icon: '👤', roles: ['admin', 'dispatcher'] },
   { href: '/dashboard/pda-scanner', label: 'Quét barcode', icon: '📱', roles: ['admin', 'dispatcher', 'warehouse'] },
+  { href: '/dashboard/reconciliation', label: 'Đối soát', icon: '🔄', roles: ['admin', 'accountant'] },
 ]
 
 export default function DashboardLayout({ children }: { children: React.ReactNode }) {

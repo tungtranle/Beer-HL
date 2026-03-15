@@ -480,6 +480,89 @@ Invalidate refresh token trong DB.
 ### CRUD /v1/vehicles/:id
 ### CRUD /v1/drivers/:id
 
+## 4.4 Shipments
+
+### GET /v1/shipments/pending
+**Danh sách shipments chờ giao**
+**Query params:** `warehouse_id` (required), `delivery_date` (required)
+**Response fields mới (Session 5):**
+- `is_urgent` (boolean) — ưu tiên giao gấp
+- `created_at` (timestamp) — thời gian tạo shipment
+- `order_created_at` (timestamp) — thời gian đặt hàng (từ sales_orders)
+- `order_confirmed_at` (timestamp, nullable) — thời gian xác nhận đơn
+- Sắp xếp: urgent DESC → order_created_at ASC → route_code → customer name
+
+### PUT /v1/shipments/:id/urgent
+**Toggle ưu tiên giao gấp** — admin/dispatcher only
+**Body:** `{ "is_urgent": true }`
+**Response 200:** `{ "success": true, "data": { "id": "...", "is_urgent": true } }`
+
+### GET /v1/shipments/pending-dates
+**Ngày có shipments chờ giao** — để frontend auto-detect ngày giao
+**Query params:** `warehouse_id` (required)
+
+**Response 200:**
+```json
+{
+  "success": true,
+  "data": [
+    { "delivery_date": "2026-03-15", "shipment_count": 4, "total_weight_kg": 23532.7 },
+    { "delivery_date": "2026-03-16", "shipment_count": 400, "total_weight_kg": 595875.6 }
+  ]
+}
+```
+
+## 4.5 Driver Check-in
+
+### POST /v1/driver/checkin
+**Tài xế check-in hàng ngày** — báo sẵn sàng hoặc nghỉ
+
+| | |
+|-|---|
+| Roles | `driver` |
+
+**Request:**
+```json
+{
+  "status": "available",   // "available" hoặc "off_duty"
+  "reason": "sick",        // Optional: sick, personal, vehicle_maintenance, other
+  "note": "Bị sốt"         // Optional
+}
+```
+
+**Response 200:**
+```json
+{
+  "success": true,
+  "data": {
+    "id": "uuid",
+    "driver_id": "uuid",
+    "checkin_date": "2026-03-15",
+    "status": "available",
+    "checked_in_at": "2026-03-15T07:30:00+07:00"
+  }
+}
+```
+
+### GET /v1/driver/checkin
+**Xem trạng thái check-in hôm nay** — trả `not_checked_in` nếu chưa check-in
+
+### GET /v1/drivers/checkins
+**Dispatcher xem trạng thái toàn bộ tài xế** — cho lập kế hoạch
+**Query params:** `warehouse_id` (required), `date` (required)
+
+**Response 200:**
+```json
+{
+  "success": true,
+  "data": [
+    { "id": "uuid", "full_name": "Phạm Văn Đức", "phone": "...", "checkin_status": "available", "has_active_trip": false },
+    { "id": "uuid", "full_name": "Nguyễn Văn Hùng", "phone": "...", "checkin_status": "on_trip", "has_active_trip": true },
+    { "id": "uuid", "full_name": "Trần Văn Toàn", "phone": "...", "checkin_status": "off_duty", "reason": "sick" }
+  ]
+}
+```
+
 ---
 
 # 5. DRIVER APP ENDPOINTS

@@ -22,21 +22,62 @@
 | 9 | **UIX** — UI/UX Screen Inventory & Flow | `UIX_BHL_OMS_TMS_WMS.md` | ✅ v1.0 | Screen list, navigation, component inventory |
 | 10 | **MIG** — Data Migration Plan | `MIG_BHL_OMS_TMS_WMS.md` | ✅ v1.0 | Legacy → New system, mapping, validation, rollback |
 
+### Tracking & Process (cập nhật liên tục)
+
+| # | Tài liệu | File | Mục đích |
+|---|----------|------|----------|
+| 11 | **CURRENT_STATE** — Trạng thái thực tế | `CURRENT_STATE.md` | AI đọc để biết code đang làm gì (source of truth) |
+| 12 | **TASK_TRACKER** — Tiến độ tasks | `TASK_TRACKER.md` | 78 tasks, 4 phases, % hoàn thành |
+| 13 | **CHANGELOG** — Lịch sử thay đổi | `CHANGELOG.md` | Mỗi session ghi gì đã thêm/sửa + docs updated |
+| 14 | **DECISIONS** — Quyết định kỹ thuật | `DECISIONS.md` | WHY code viết theo cách này, không phải cách khác |
+| 15 | **KNOWN_ISSUES** — Bugs & workarounds | `KNOWN_ISSUES.md` | AI check trước khi code để tránh lặp lỗi |
+| 16 | **TECH_DEBT** — Nợ kỹ thuật | `TECH_DEBT.md` | Hoạt động nhưng chưa chuẩn — AI KHÔNG tự sửa |
+
+### Specs chi tiết (docs/specs/)
+
+| # | Tài liệu | File | Mục đích |
+|---|----------|------|----------|
+| 17 | **BUSINESS_RULES** | `docs/specs/BUSINESS_RULES.md` | Công thức ATP, credit, cutoff, FEFO |
+| 18 | **STATE_MACHINES** | `docs/specs/STATE_MACHINES.md` | 7 state machines (SM-01 đến SM-07) |
+| 19 | **ERROR_CATALOGUE** | `docs/specs/ERROR_CATALOGUE.md` | 60+ error codes chuẩn |
+| 20 | **INTEGRATION_MOCKS** | `docs/specs/INTEGRATION_MOCKS.md` | Mock payloads Bravo/DMS/Zalo |
+| 21 | **SEQUENCE_DIAGRAMS** | `docs/specs/SEQUENCE_DIAGRAMS.md` | 6 Mermaid sequence flows |
+
+### AI Instructions (.github/instructions/)
+
+| File | Trigger |
+|------|---------|
+| `coding-standards.instructions.md` | Mọi file Go/TS/SQL/Python |
+| `business-rules.instructions.md` | service.go, repository.go |
+| `state-machines.instructions.md` | service.go, handler.go (status) |
+| `error-codes.instructions.md` | handler.go, service.go (errors) |
+| `frontend-patterns.instructions.md` | *.tsx pages |
+| `sync-brd-docs.instructions.md` | Code thay đổi so với BRD |
+| `doc-update-rules.instructions.md` | **Mọi thay đổi code** — sync docs |
+
 ---
 
 ## Trình tự đọc tài liệu
 
+### AI bắt đầu session mới → Đọc theo thứ tự:
+```
+1. CURRENT_STATE.md        ← Hệ thống đang làm gì (5 phút đọc)
+2. TECH_DEBT.md            ← Không tự ý sửa những thứ này
+3. KNOWN_ISSUES.md         ← Tránh lặp lỗi đã biết
+4. TASK_TRACKER.md         ← Biết task nào đang làm
+5. DECISIONS.md            ← Hiểu WHY code viết thế này
+```
+
+### Khi cần implement feature → Đọc thêm:
 ```
 BRD (Nghiệp vụ)
  └→ SAD (Kiến trúc tổng thể)
-     ├→ DBS (Database Schema)  ← Cần cho sqlc code generation
-     ├→ API (API Contract)     ← Cần cho frontend + backend parallel dev
-     ├→ INT (Integration Spec) ← Cần cho Bravo/DMS/Zalo integration
-     └→ INF (Infrastructure)   ← Cần cho DevOps setup
- └→ UIX (UI/UX Screens)       ← Cần cho frontend dev
- └→ PEP (Execution Plan)      ← Cần cho progress tracking
- └→ TST (Test Plan)           ← Cần cho quality assurance
- └→ MIG (Data Migration)      ← Cần cho Go-live
+     ├→ DBS (Database Schema)
+     ├→ API (API Contract)
+     ├→ INT (Integration Spec)
+     └→ INF (Infrastructure)
+ └→ UIX (UI/UX Screens)
+ └→ BUSINESS_RULES + STATE_MACHINES (logic chi tiết)
 ```
 
 ## Trình tự sử dụng khi vibe coding

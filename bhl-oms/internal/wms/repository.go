@@ -423,3 +423,113 @@ func (r *Repository) CreateLocation(ctx context.Context, loc WarehouseLocation) 
 	).Scan(&id)
 	return id, err
 }
+
+// ── Return Inbound (Task 3.12) ──────────────────────
+
+// GetPendingReturns gets return_collections not yet processed into stock (good condition only).
+func (r *Repository) GetPendingReturns(ctx context.Context, warehouseID uuid.UUID) ([]PendingReturn, error) {
+	rows, err := r.db.Query(ctx, `
+		SELECT rc.id, rc.trip_stop_id, rc.customer_id, rc.asset_type, rc.quantity, rc.condition::text,
+			ts.trip_id, t.warehouse_id
+		FROM return_collections rc
+		JOIN trip_stops ts ON ts.id = rc.trip_stop_id
+		JOIN trips t ON t.id = ts.trip_id
+		WHERE t.warehouse_id = $1
+		  AND rc.condition = 'good'
+		  AND NOT EXISTS (
+			SELECT 1 FROM stock_moves sm
+			WHERE sm.reference_type = 'return_collection' AND sm.reference_id = rc.id
+		  )
+		ORDER BY rc.created_at
+	`, warehouseID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var results []PendingReturn
+	for rows.Next() {
+		var pr PendingReturn
+		if err := rows.Scan(&pr.ID, &pr.TripStopID, &pr.CustomerID, &pr.AssetType, &pr.Quantity, &pr.Condition,
+			&pr.TripID, &pr.WarehouseID); err != nil {
+			return nil, err
+		}
+		results = append(results, pr)
+	}
+	return results, nil
+}
+
+// GetAssetPrice reads the configured price for an asset type from system_configs.
+func (r *Repository) GetAssetPrice(ctx context.Context, assetType string) (float64, error) {
+	var price float64
+	err := r.db.QueryRow(ctx,
+		`SELECT COALESCE(config_value::numeric, 0) FROM system_configs WHERE config_key = $1`,
+		"asset_price_"+assetType,
+	).Scan(&price)
+	if err != nil {
+		// default prices if not configured
+		defaults := map[string]float64{"bottle": 1500, "crate": 45000, "keg": 700000, "pallet": 200000}
+		if p, ok := defaults[assetType]; ok {
+			return p, nil
+		}
+		return 0, err
+	}
+	return price, nil
+}
+
+// GetLostReturnsByTrip gets return_collections with condition='lost' for a trip.
+func (r *Repository) GetLostReturnsByTrip(ctx context.Context, tripID uuid.UUID) ([]PendingReturn, error) {
+	rows, err := r.db.Query(ctx, `
+		SELECT rc.id, rc.trip_stop_id, rc.customer_id, rc.asset_type, rc.quantity, rc.condition::text,
+			ts.trip_id, t.warehouse_id
+		FROM return_collections rc
+		JOIN trip_stops ts ON ts.id = rc.trip_stop_id
+		JOIN trips t ON t.id = ts.trip_id
+		WHERE t.id = $1 AND rc.condition = 'lost'
+		ORDER BY rc.created_at
+	`, tripID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var results []PendingReturn
+	for rows.Next() {
+		var pr PendingReturn
+		if err := rows.Scan(&pr.ID, &pr.TripStopID, &pr.CustomerID, &pr.AssetType, &pr.Quantity, &pr.Condition,
+			&pr.TripID, &pr.WarehouseID); err != nil {
+			return nil, err
+		}
+		results = append(results, pr)
+	}
+	return results, nil
+}
+
+// GetAllLostReturns gets return_collections with condition='lost' for a warehouse.
+func (r *Repository) GetAllLostReturns(ctx context.Context, warehouseID uuid.UUID) ([]PendingReturn, error) {
+	rows, err := r.db.Query(ctx, `
+		SELECT rc.id, rc.trip_stop_id, rc.customer_id, rc.asset_type, rc.quantity, rc.condition::text,
+			ts.trip_id, t.warehouse_id
+		FROM return_collections rc
+		JOIN trip_stops ts ON ts.id = rc.trip_stop_id
+		JOIN trips t ON t.id = ts.trip_id
+		WHERE t.warehouse_id = $1 AND rc.condition = 'lost'
+		ORDER BY rc.created_at DESC
+		LIMIT 200
+	`, warehouseID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var results []PendingReturn
+	for rows.Next() {
+		var pr PendingReturn
+		if err := rows.Scan(&pr.ID, &pr.TripStopID, &pr.CustomerID, &pr.AssetType, &pr.Quantity, &pr.Condition,
+			&pr.TripID, &pr.WarehouseID); err != nil {
+			return nil, err
+		}
+		results = append(results, pr)
+	}
+	return results, nil
+}

@@ -3,20 +3,28 @@ package oms
 import (
 	"context"
 	"fmt"
+	"log"
 	"strconv"
 	"time"
 
 	"bhl-oms/internal/domain"
+	"bhl-oms/internal/integration"
 
 	"github.com/google/uuid"
 )
 
 type Service struct {
-	repo *Repository
+	repo  *Repository
+	hooks *integration.Hooks
 }
 
 func NewService(repo *Repository) *Service {
 	return &Service{repo: repo}
+}
+
+// SetIntegrationHooks injects optional integration hooks (Task 3.4 DMS wiring).
+func (s *Service) SetIntegrationHooks(h *integration.Hooks) {
+	s.hooks = h
 }
 
 func (s *Service) ListProducts(ctx context.Context) ([]domain.Product, error) {
@@ -225,7 +233,25 @@ func (s *Service) CreateOrder(ctx context.Context, req CreateOrderRequest, userI
 	order.Items = items
 	order.CustomerName = customer.Name
 	order.GrandTotal = totalAmount + depositAmount
+
+	// Fire DMS sync (Task 3.4)
+	s.fireDMSSync(order.OrderNumber, orderStatus, order.DeliveryDate, order.TotalAmount)
+
 	return order, nil
+}
+
+// fireDMSSync sends order status event to DMS asynchronously.
+func (s *Service) fireDMSSync(orderNumber, status, deliveryDate string, totalAmount float64) {
+	if s.hooks == nil {
+		return
+	}
+	s.hooks.OnOrderStatusChanged(context.Background(), integration.OrderStatusEvent{
+		OrderNumber:  orderNumber,
+		Status:       status,
+		DeliveryDate: deliveryDate,
+		TotalAmount:  totalAmount,
+	})
+	log.Printf("[OMS] DMS sync fired for %s → %s", orderNumber, status)
 }
 
 func (s *Service) UpdateOrder(ctx context.Context, orderID uuid.UUID, req CreateOrderRequest, userID uuid.UUID) (*domain.SalesOrder, error) {
@@ -461,7 +487,14 @@ func (s *Service) CancelOrder(ctx context.Context, orderID uuid.UUID) error {
 		return err
 	}
 
-	return tx.Commit(ctx)
+	if err := tx.Commit(ctx); err != nil {
+		return err
+	}
+
+	// Fire DMS sync (Task 3.4)
+	s.fireDMSSync(order.OrderNumber, "cancelled", order.DeliveryDate, order.TotalAmount)
+
+	return nil
 }
 
 func (s *Service) ApproveOrder(ctx context.Context, orderID, approvedBy uuid.UUID) error {
@@ -498,7 +531,14 @@ func (s *Service) ApproveOrder(ctx context.Context, orderID, approvedBy uuid.UUI
 		return fmt.Errorf("create debit: %w", err)
 	}
 
-	return tx.Commit(ctx)
+	if err := tx.Commit(ctx); err != nil {
+		return err
+	}
+
+	// Fire DMS sync (Task 3.4)
+	s.fireDMSSync(order.OrderNumber, "confirmed", order.DeliveryDate, order.TotalAmount)
+
+	return nil
 }
 
 func generateOrderNumber() string {

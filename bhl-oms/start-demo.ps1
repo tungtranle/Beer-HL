@@ -109,19 +109,31 @@ Write-Host ""
 Write-Host "[4/7] Running database migrations..." -ForegroundColor Yellow
 
 if (-not $SkipMigrate) {
+    # IMPORTANT: Use docker cp + docker exec -f instead of piping through PowerShell
+    # PowerShell pipe encoding corrupts Vietnamese UTF-8 characters (ắ, ạ, ờ, etc.)
+
+    $containerName = "bhl-oms-postgres-1"
+
     if ($ResetDB) {
         Write-Host "  Resetting database..." -ForegroundColor Gray
-        $downSql = Get-Content "migrations\001_init.down.sql" -Raw -Encoding UTF8
-        $downSql | docker compose exec -T postgres psql -U bhl -d bhl_dev 2>&1 | Out-Null
+        docker cp "migrations\001_init.down.sql" "${containerName}:/tmp/001_init.down.sql"
+        docker exec $containerName psql -U bhl -d bhl_dev -f /tmp/001_init.down.sql 2>&1 | Out-Null
     }
 
-    $migrationSql = Get-Content "migrations\001_init.up.sql" -Raw -Encoding UTF8
-    $result = $migrationSql | docker compose exec -T postgres psql -U bhl -d bhl_dev 2>&1
-    if ($LASTEXITCODE -eq 0) {
-        Write-Host "  Migrations applied" -ForegroundColor Green
-    } else {
-        Write-Host "  Migrations may already be applied (tables exist)" -ForegroundColor Yellow
+    # Apply ALL 8 migrations in order
+    $migrations = @(
+        "001_init", "002_checklist", "003_cutoff_consolidation", "004_wms",
+        "005_epod_payment", "006_zalo_confirm", "007_recon_dlq_kpi", "008_audit_log"
+    )
+    foreach ($m in $migrations) {
+        $sqlFile = "migrations\${m}.up.sql"
+        if (Test-Path $sqlFile) {
+            docker cp $sqlFile "${containerName}:/tmp/${m}.up.sql" 2>&1 | Out-Null
+            docker exec $containerName psql -U bhl -d bhl_dev -f "/tmp/${m}.up.sql" 2>&1 | Out-Null
+            Write-Host "  Applied: $m" -ForegroundColor Green
+        }
     }
+    Write-Host "  All 8 migrations applied" -ForegroundColor Green
 } else {
     Write-Host "  Skipped (--SkipMigrate)" -ForegroundColor Gray
 }
@@ -131,13 +143,25 @@ Write-Host ""
 Write-Host "[5/7] Seeding demo data..." -ForegroundColor Yellow
 
 if (-not $SkipMigrate) {
-    $seedSql = Get-Content "migrations\seed.sql" -Raw -Encoding UTF8
-    $result = $seedSql | docker compose exec -T postgres psql -U bhl -d bhl_dev 2>&1
-    if ($LASTEXITCODE -eq 0) {
-        Write-Host "  Demo data seeded (5 users, 15 products, 15 customers)" -ForegroundColor Green
-    } else {
-        Write-Host "  Seed data may already exist (duplicates)" -ForegroundColor Yellow
+    $containerName = "bhl-oms-postgres-1"
+
+    # Seed files in correct order (docker cp preserves UTF-8 encoding)
+    $seedFiles = @(
+        @{ File = "seed.sql";                    Desc = "Base (users, products, customers)" },
+        @{ File = "seed_production.sql";         Desc = "Production scale (800 NPP, 70 vehicles, 70 drivers)" },
+        @{ File = "seed_test_uat.sql";           Desc = "UAT test data (700 orders, 70 trips)" },
+        @{ File = "seed_comprehensive_test.sql"; Desc = "Management, warehouse staff, lots, stock" },
+        @{ File = "seed_planning_test.sql";      Desc = "Planning test (80 pending shipments)" }
+    )
+    foreach ($seed in $seedFiles) {
+        $sqlFile = "migrations\$($seed.File)"
+        if (Test-Path $sqlFile) {
+            docker cp $sqlFile "${containerName}:/tmp/$($seed.File)" 2>&1 | Out-Null
+            docker exec $containerName psql -U bhl -d bhl_dev -f "/tmp/$($seed.File)" 2>&1 | Out-Null
+            Write-Host "  Seeded: $($seed.Desc)" -ForegroundColor Green
+        }
     }
+    Write-Host "  All seed data loaded" -ForegroundColor Green
 } else {
     Write-Host "  Skipped (--SkipMigrate)" -ForegroundColor Gray
 }
@@ -168,15 +192,16 @@ Write-Host ""
 # Start Go backend in background
 Write-Host "  Starting Go API server on :8080..." -ForegroundColor Cyan
 $env:ENV = "development"
-$env:DB_URL = "postgres://bhl:bhl_dev@localhost:5432/bhl_dev?sslmode=disable"
-$env:REDIS_URL = "redis://localhost:6379/0"
+$env:DB_URL = "postgres://bhl:bhl_dev@localhost:5434/bhl_dev?sslmode=disable"
+$env:REDIS_URL = "redis://localhost:6379"
 $env:JWT_PRIVATE_KEY_PATH = "./keys/private.pem"
 $env:JWT_PUBLIC_KEY_PATH = "./keys/public.pem"
 $env:JWT_ACCESS_TTL = "15m"
-$env:JWT_REFRESH_TTL = "7d"
+$env:JWT_REFRESH_TTL = "168h"
 $env:SERVER_PORT = "8080"
 $env:VRP_SOLVER_URL = "http://localhost:8090"
 $env:OSRM_URL = "http://localhost:5000"
+$env:INTEGRATION_MOCK = "true"
 
 $goProcess = Start-Process -FilePath "go" -ArgumentList "run", "cmd/server/main.go" -PassThru -NoNewWindow
 Start-Sleep -Seconds 3
@@ -195,11 +220,13 @@ Write-Host "  Frontend:  http://localhost:3000" -ForegroundColor White
 Write-Host "  API:       http://localhost:8080/health" -ForegroundColor White
 Write-Host "  VRP:       http://localhost:8090/health" -ForegroundColor White
 Write-Host ""
-Write-Host "  Demo Accounts:" -ForegroundColor Yellow
-Write-Host "    admin / demo123       (Admin - full access)" -ForegroundColor White
-Write-Host "    dvkh01 / demo123      (DVKH - create orders)" -ForegroundColor White
-Write-Host "    dispatcher01 / demo123 (Dispatcher - planning)" -ForegroundColor White
-Write-Host "    accountant01 / demo123 (Accountant - approve)" -ForegroundColor White
+Write-Host "  Demo Accounts (password: demo123):" -ForegroundColor Yellow
+Write-Host "    admin              (Admin - full access)" -ForegroundColor White
+Write-Host "    dvkh01             (DVKH - create orders)" -ForegroundColor White
+Write-Host "    dispatcher01       (Dispatcher - planning)" -ForegroundColor White
+Write-Host "    accountant01       (Accountant - approve/reconcile)" -ForegroundColor White
+Write-Host "    driver01-driver70  (Driver - mobile app)" -ForegroundColor White
+Write-Host "    truongkho_hl       (Warehouse manager)" -ForegroundColor White
 Write-Host ""
 Write-Host "  Press Ctrl+C to stop all services" -ForegroundColor Gray
 Write-Host ""

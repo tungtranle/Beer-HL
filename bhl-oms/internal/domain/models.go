@@ -113,19 +113,23 @@ type OrderItem struct {
 
 // ===== SHIPMENT =====
 type Shipment struct {
-	ID              uuid.UUID `json:"id"`
-	ShipmentNumber  string    `json:"shipment_number"`
-	OrderID         uuid.UUID `json:"order_id"`
-	CustomerID      uuid.UUID `json:"customer_id"`
-	CustomerName    string    `json:"customer_name,omitempty"`
-	CustomerAddress string    `json:"customer_address,omitempty"`
-	WarehouseID     uuid.UUID `json:"warehouse_id"`
-	Status          string    `json:"status"`
-	DeliveryDate    string    `json:"delivery_date"`
-	TotalWeightKg   float64   `json:"total_weight_kg"`
-	TotalVolumeM3   float64   `json:"total_volume_m3"`
-	Latitude        *float64  `json:"latitude,omitempty"`
-	Longitude       *float64  `json:"longitude,omitempty"`
+	ID               uuid.UUID  `json:"id"`
+	ShipmentNumber   string     `json:"shipment_number"`
+	OrderID          uuid.UUID  `json:"order_id"`
+	CustomerID       uuid.UUID  `json:"customer_id"`
+	CustomerName     string     `json:"customer_name,omitempty"`
+	CustomerAddress  string     `json:"customer_address,omitempty"`
+	WarehouseID      uuid.UUID  `json:"warehouse_id"`
+	Status           string     `json:"status"`
+	DeliveryDate     string     `json:"delivery_date"`
+	TotalWeightKg    float64    `json:"total_weight_kg"`
+	TotalVolumeM3    float64    `json:"total_volume_m3"`
+	Latitude         *float64   `json:"latitude,omitempty"`
+	Longitude        *float64   `json:"longitude,omitempty"`
+	IsUrgent         bool       `json:"is_urgent"`
+	CreatedAt        *time.Time `json:"created_at,omitempty"`
+	OrderCreatedAt   *time.Time `json:"order_created_at,omitempty"`
+	OrderConfirmedAt *time.Time `json:"order_confirmed_at,omitempty"`
 }
 
 // ===== VEHICLE / DRIVER =====
@@ -458,4 +462,125 @@ type ZaloConfirmation struct {
 	AutoConfirmedAt *time.Time `json:"auto_confirmed_at,omitempty"`
 	CreatedAt       time.Time  `json:"created_at"`
 	UpdatedAt       time.Time  `json:"updated_at"`
+}
+
+// ===== INTEGRATION DLQ (Dead Letter Queue) =====
+type DLQEntry struct {
+	ID           uuid.UUID       `json:"id"`
+	Adapter      string          `json:"adapter"`
+	Operation    string          `json:"operation"`
+	Payload      json.RawMessage `json:"payload"`
+	ErrorMessage string          `json:"error_message"`
+	RetryCount   int             `json:"retry_count"`
+	MaxRetries   int             `json:"max_retries"`
+	Status       string          `json:"status"`
+	RefType      *string         `json:"reference_type,omitempty"`
+	RefID        *uuid.UUID      `json:"reference_id,omitempty"`
+	ResolvedAt   *time.Time      `json:"resolved_at,omitempty"`
+	NextRetryAt  *time.Time      `json:"next_retry_at,omitempty"`
+	CreatedAt    time.Time       `json:"created_at"`
+	UpdatedAt    time.Time       `json:"updated_at"`
+}
+
+// ===== RECONCILIATION =====
+type Reconciliation struct {
+	ID            uuid.UUID       `json:"id"`
+	TripID        uuid.UUID       `json:"trip_id"`
+	TripNumber    string          `json:"trip_number,omitempty"`
+	ReconType     string          `json:"recon_type"`
+	Status        string          `json:"status"`
+	ExpectedValue float64         `json:"expected_value"`
+	ActualValue   float64         `json:"actual_value"`
+	Variance      float64         `json:"variance"`
+	Details       json.RawMessage `json:"details"`
+	ReconciledBy  *uuid.UUID      `json:"reconciled_by,omitempty"`
+	ReconciledAt  *time.Time      `json:"reconciled_at,omitempty"`
+	CreatedAt     time.Time       `json:"created_at"`
+	UpdatedAt     time.Time       `json:"updated_at"`
+}
+
+type Discrepancy struct {
+	ID            uuid.UUID  `json:"id"`
+	ReconID       uuid.UUID  `json:"recon_id"`
+	TripID        uuid.UUID  `json:"trip_id"`
+	TripNumber    string     `json:"trip_number,omitempty"`
+	StopID        *uuid.UUID `json:"stop_id,omitempty"`
+	DiscType      string     `json:"disc_type"`
+	Status        string     `json:"status"`
+	Description   string     `json:"description"`
+	ExpectedValue float64    `json:"expected_value"`
+	ActualValue   float64    `json:"actual_value"`
+	Variance      float64    `json:"variance"`
+	Resolution    *string    `json:"resolution,omitempty"`
+	AssignedTo    *uuid.UUID `json:"assigned_to,omitempty"`
+	Deadline      *time.Time `json:"deadline,omitempty"`
+	ResolvedAt    *time.Time `json:"resolved_at,omitempty"`
+	ResolvedBy    *uuid.UUID `json:"resolved_by,omitempty"`
+	CreatedAt     time.Time  `json:"created_at"`
+	UpdatedAt     time.Time  `json:"updated_at"`
+}
+
+type DailyCloseSummary struct {
+	ID                    uuid.UUID       `json:"id"`
+	CloseDate             string          `json:"close_date"`
+	WarehouseID           uuid.UUID       `json:"warehouse_id"`
+	TotalTrips            int             `json:"total_trips"`
+	CompletedTrips        int             `json:"completed_trips"`
+	TotalStops            int             `json:"total_stops"`
+	DeliveredStops        int             `json:"delivered_stops"`
+	FailedStops           int             `json:"failed_stops"`
+	TotalRevenue          float64         `json:"total_revenue"`
+	TotalCollected        float64         `json:"total_collected"`
+	TotalOutstanding      float64         `json:"total_outstanding"`
+	TotalReturnsGood      int             `json:"total_returns_good"`
+	TotalReturnsDamaged   int             `json:"total_returns_damaged"`
+	TotalDiscrepancies    int             `json:"total_discrepancies"`
+	ResolvedDiscrepancies int             `json:"resolved_discrepancies"`
+	Summary               json.RawMessage `json:"summary"`
+	CreatedAt             time.Time       `json:"created_at"`
+}
+
+// ===== NOTIFICATION =====
+type Notification struct {
+	ID        uuid.UUID `json:"id"`
+	UserID    uuid.UUID `json:"user_id"`
+	Title     string    `json:"title"`
+	Body      string    `json:"body"`
+	Category  string    `json:"category"`
+	Link      *string   `json:"link,omitempty"`
+	IsRead    bool      `json:"is_read"`
+	CreatedAt time.Time `json:"created_at"`
+}
+
+// ===== DRIVER CHECK-IN =====
+type DriverCheckin struct {
+	ID          uuid.UUID `json:"id"`
+	DriverID    uuid.UUID `json:"driver_id"`
+	CheckinDate string    `json:"checkin_date"`
+	Status      string    `json:"status"`
+	Reason      *string   `json:"reason,omitempty"`
+	Note        *string   `json:"note,omitempty"`
+	CheckedInAt time.Time `json:"checked_in_at"`
+}
+
+// ===== DAILY KPI SNAPSHOT =====
+type DailyKPISnapshot struct {
+	ID                    uuid.UUID       `json:"id"`
+	SnapshotDate          string          `json:"snapshot_date"`
+	WarehouseID           uuid.UUID       `json:"warehouse_id"`
+	OTDRate               float64         `json:"otd_rate"`
+	DeliverySuccessRate   float64         `json:"delivery_success_rate"`
+	TotalOrders           int             `json:"total_orders"`
+	DeliveredOrders       int             `json:"delivered_orders"`
+	FailedOrders          int             `json:"failed_orders"`
+	AvgVehicleUtilization float64         `json:"avg_vehicle_utilization"`
+	TotalTrips            int             `json:"total_trips"`
+	TotalDistanceKm       float64         `json:"total_distance_km"`
+	TotalRevenue          float64         `json:"total_revenue"`
+	TotalCollected        float64         `json:"total_collected"`
+	OutstandingReceivable float64         `json:"outstanding_receivable"`
+	ReconMatchRate        float64         `json:"recon_match_rate"`
+	TotalDiscrepancies    int             `json:"total_discrepancies"`
+	Details               json.RawMessage `json:"details"`
+	CreatedAt             time.Time       `json:"created_at"`
 }

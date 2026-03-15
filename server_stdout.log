@@ -1,0 +1,208 @@
+[GIN-debug] [WARNING] Creating an Engine instance with the Logger and Recovery middleware already attached.
+
+[GIN-debug] [WARNING] Running in "debug" mode. Switch to "release" mode in production.
+ - using env:	export GIN_MODE=release
+ - using code:	gin.SetMode(gin.ReleaseMode)
+
+[GIN-debug] GET    /health                   --> main.main.func1 (4 handlers)
+[GIN-debug] GET    /v1/app/version           --> main.main.func2 (4 handlers)
+[GIN-debug] POST   /v1/auth/login            --> bhl-oms/internal/auth.(*Handler).Login-fm (5 handlers)
+[GIN-debug] POST   /v1/auth/refresh          --> bhl-oms/internal/auth.(*Handler).Refresh-fm (5 handlers)
+[GIN-debug] GET    /v1/products              --> bhl-oms/internal/oms.(*Handler).ListProducts-fm (6 handlers)
+[GIN-debug] GET    /v1/products/:id          --> bhl-oms/internal/oms.(*Handler).GetProduct-fm (6 handlers)
+[GIN-debug] POST   /v1/products              --> bhl-oms/internal/oms.(*Handler).CreateProduct-fm (7 handlers)
+[GIN-debug] PUT    /v1/products/:id          --> bhl-oms/internal/oms.(*Handler).UpdateProduct-fm (7 handlers)
+[GIN-debug] DELETE /v1/products/:id          --> bhl-oms/internal/oms.(*Handler).DeleteProduct-fm (7 handlers)
+[GIN-debug] GET    /v1/customers             --> bhl-oms/internal/oms.(*Handler).ListCustomers-fm (6 handlers)
+[GIN-debug] GET    /v1/customers/:id         --> bhl-oms/internal/oms.(*Handler).GetCustomer-fm (6 handlers)
+[GIN-debug] POST   /v1/customers             --> bhl-oms/internal/oms.(*Handler).CreateCustomer-fm (7 handlers)
+[GIN-debug] PUT    /v1/customers/:id         --> bhl-oms/internal/oms.(*Handler).UpdateCustomer-fm (7 handlers)
+[GIN-debug] DELETE /v1/customers/:id         --> bhl-oms/internal/oms.(*Handler).DeleteCustomer-fm (7 handlers)
+[GIN-debug] GET    /v1/atp                   --> bhl-oms/internal/oms.(*Handler).CheckATP-fm (6 handlers)
+[GIN-debug] POST   /v1/atp/batch             --> bhl-oms/internal/oms.(*Handler).CheckATPBatch-fm (6 handlers)
+[GIN-debug] POST   /v1/orders                --> bhl-oms/internal/oms.(*Handler).CreateOrder-fm (6 handlers)
+[GIN-debug] GET    /v1/orders                --> bhl-oms/internal/oms.(*Handler).ListOrders-fm (6 handlers)
+[GIN-debug] GET    /v1/orders/:id            --> bhl-oms/internal/oms.(*Handler).GetOrder-fm (6 handlers)
+[GIN-debug] PUT    /v1/orders/:id            --> bhl-oms/internal/oms.(*Handler).UpdateOrder-fm (6 handlers)
+[GIN-debug] POST   /v1/orders/:id/cancel     --> bhl-oms/internal/oms.(*Handler).CancelOrder-fm (6 handlers)
+[GIN-debug] POST   /v1/orders/:id/approve    --> bhl-oms/internal/oms.(*Handler).ApproveOrder-fm (7 handlers)
+[GIN-debug] POST   /v1/orders/:id/split      --> bhl-oms/internal/oms.(*Handler).SplitOrder-fm (7 handlers)
+[GIN-debug] POST   /v1/orders/consolidate    --> bhl-oms/internal/oms.(*Handler).ConsolidateOrders-fm (7 handlers)
+[GIN-debug] POST   /v1/planning/run-vrp      --> bhl-oms/internal/tms.(*Handler).RunVRP-fm (7 handlers)
+[GIN-debug] GET    /v1/planning/jobs/:jobId  --> bhl-oms/internal/tms.(*Handler).GetVRPResult-fm (6 handlers)
+[GIN-debug] POST   /v1/planning/approve      --> bhl-oms/internal/tms.(*Handler).ApprovePlan-fm (7 handlers)
+[GIN-debug] GET    /v1/shipments/pending     --> bhl-oms/internal/tms.(*Handler).ListPendingShipments-fm (6 handlers)
+[GIN-debug] GET    /v1/shipments/pending-dates --> bhl-oms/internal/tms.(*Handler).ListPendingDates-fm (6 handlers)
+[GIN-debug] PUT    /v1/shipments/:id/urgent  --> bhl-oms/internal/tms.(*Handler).ToggleUrgent-fm (7 handlers)
+[GIN-debug] GET    /v1/vehicles              --> bhl-oms/internal/tms.(*Handler).ListAllVehicles-fm (6 handlers)
+[GIN-debug] GET    /v1/vehicles/available    --> bhl-oms/internal/tms.(*Handler).ListAvailableVehicles-fm (6 handlers)
+[GIN-debug] GET    /v1/vehicles/:id          --> bhl-oms/internal/tms.(*Handler).GetVehicle-fm (6 handlers)
+[GIN-debug] POST   /v1/vehicles              --> bhl-oms/internal/tms.(*Handler).CreateVehicle-fm (7 handlers)
+[GIN-debug] PUT    /v1/vehicles/:id          --> bhl-oms/internal/tms.(*Handler).UpdateVehicle-fm (7 handlers)
+[GIN-debug] DELETE /v1/vehicles/:id          --> bhl-oms/internal/tms.(*Handler).DeleteVehicle-fm (7 handlers)
+[GIN-debug] GET    /v1/drivers               --> bhl-oms/internal/tms.(*Handler).ListAllDrivers-fm (6 handlers)
+[GIN-debug] GET    /v1/drivers/available     --> bhl-oms/internal/tms.(*Handler).ListAvailableDrivers-fm (6 handlers)
+[GIN-debug] GET    /v1/drivers/checkins      --> bhl-oms/internal/tms.(*Handler).ListDriverCheckins-fm (6 handlers)
+[GIN-debug] GET    /v1/drivers/:id           --> bhl-oms/internal/tms.(*Handler).GetDriver-fm (6 handlers)
+[GIN-debug] POST   /v1/drivers               --> bhl-oms/internal/tms.(*Handler).CreateDriver-fm (7 handlers)
+[GIN-debug] PUT    /v1/drivers/:id           --> bhl-oms/internal/tms.(*Handler).UpdateDriver-fm (7 handlers)
+[GIN-debug] DELETE /v1/drivers/:id           --> bhl-oms/internal/tms.(*Handler).DeleteDriver-fm (7 handlers)
+[GIN-debug] GET    /v1/trips                 --> bhl-oms/internal/tms.(*Handler).ListTrips-fm (6 handlers)
+[GIN-debug] GET    /v1/trips/:id             --> bhl-oms/internal/tms.(*Handler).GetTrip-fm (6 handlers)
+[GIN-debug] PUT    /v1/trips/:id/status      --> bhl-oms/internal/tms.(*Handler).UpdateTripStatus-fm (7 handlers)
+[GIN-debug] PUT    /v1/trips/:id/stops/:stopId/status --> bhl-oms/internal/tms.(*Handler).UpdateStopStatusDispatcher-fm (7 handlers)
+[GIN-debug] GET    /v1/driver/my-trips       --> bhl-oms/internal/tms.(*Handler).GetMyTrips-fm (7 handlers)
+[GIN-debug] POST   /v1/driver/checkin        --> bhl-oms/internal/tms.(*Handler).DriverCheckin-fm (7 handlers)
+[GIN-debug] GET    /v1/driver/checkin        --> bhl-oms/internal/tms.(*Handler).GetMyCheckin-fm (7 handlers)
+[GIN-debug] PUT    /v1/driver/trips/:id/start --> bhl-oms/internal/tms.(*Handler).StartTrip-fm (7 handlers)
+[GIN-debug] PUT    /v1/driver/trips/:id/stops/:stopId/update --> bhl-oms/internal/tms.(*Handler).UpdateStopStatus-fm (7 handlers)
+[GIN-debug] PUT    /v1/driver/trips/:id/complete --> bhl-oms/internal/tms.(*Handler).CompleteTrip-fm (7 handlers)
+[GIN-debug] POST   /v1/driver/trips/:id/checklist --> bhl-oms/internal/tms.(*Handler).SubmitChecklist-fm (7 handlers)
+[GIN-debug] GET    /v1/driver/trips/:id/checklist --> bhl-oms/internal/tms.(*Handler).GetChecklist-fm (7 handlers)
+[GIN-debug] POST   /v1/driver/trips/:id/stops/:stopId/epod --> bhl-oms/internal/tms.(*Handler).SubmitEPOD-fm (7 handlers)
+[GIN-debug] GET    /v1/driver/trips/:id/stops/:stopId/epod --> bhl-oms/internal/tms.(*Handler).GetEPOD-fm (7 handlers)
+[GIN-debug] POST   /v1/driver/trips/:id/stops/:stopId/payment --> bhl-oms/internal/tms.(*Handler).RecordPayment-fm (7 handlers)
+[GIN-debug] POST   /v1/driver/trips/:id/stops/:stopId/returns --> bhl-oms/internal/tms.(*Handler).RecordReturns-fm (7 handlers)
+[GIN-debug] GET    /v1/driver/trips/:id/stops/:stopId/returns --> bhl-oms/internal/tms.(*Handler).GetReturns-fm (7 handlers)
+[GIN-debug] GET    /v1/warehouse/stock       --> bhl-oms/internal/wms.(*Handler).GetStock-fm (6 handlers)
+[GIN-debug] POST   /v1/warehouse/inbound     --> bhl-oms/internal/wms.(*Handler).CreateInbound-fm (6 handlers)
+[GIN-debug] GET    /v1/warehouse/picking-orders --> bhl-oms/internal/wms.(*Handler).GetPickingOrders-fm (6 handlers)
+[GIN-debug] GET    /v1/warehouse/picking-orders/:id --> bhl-oms/internal/wms.(*Handler).GetPickingOrderByID-fm (6 handlers)
+[GIN-debug] POST   /v1/warehouse/confirm-pick --> bhl-oms/internal/wms.(*Handler).ConfirmPick-fm (6 handlers)
+[GIN-debug] POST   /v1/warehouse/gate-check  --> bhl-oms/internal/wms.(*Handler).PerformGateCheck-fm (6 handlers)
+[GIN-debug] GET    /v1/warehouse/gate-checks/:tripId --> bhl-oms/internal/wms.(*Handler).GetGateChecksByTrip-fm (6 handlers)
+[GIN-debug] POST   /v1/warehouse/barcode-scan --> bhl-oms/internal/wms.(*Handler).BarcodeScan-fm (6 handlers)
+[GIN-debug] GET    /v1/warehouse/expiry-alerts --> bhl-oms/internal/wms.(*Handler).GetExpiryAlerts-fm (6 handlers)
+[GIN-debug] GET    /v1/warehouse/locations   --> bhl-oms/internal/wms.(*Handler).GetLocations-fm (6 handlers)
+[GIN-debug] POST   /v1/warehouse/locations   --> bhl-oms/internal/wms.(*Handler).CreateLocation-fm (6 handlers)
+[GIN-debug] GET    /v1/warehouse/returns/pending --> bhl-oms/internal/wms.(*Handler).GetPendingReturns-fm (6 handlers)
+[GIN-debug] POST   /v1/warehouse/returns/inbound --> bhl-oms/internal/wms.(*Handler).ProcessReturnInbound-fm (6 handlers)
+[GIN-debug] GET    /v1/warehouse/asset-compensation --> bhl-oms/internal/wms.(*Handler).GetAssetCompensation-fm (6 handlers)
+[GIN-debug] GET    /v1/warehouse/asset-compensation/trip/:tripId --> bhl-oms/internal/wms.(*Handler).GetTripCompensation-fm (6 handlers)
+[GIN-debug] POST   /v1/reconciliation/trips/:tripId/reconcile --> bhl-oms/internal/reconciliation.(*Handler).ReconcileTrip-fm (6 handlers)
+[GIN-debug] GET    /v1/reconciliation/trips/:tripId --> bhl-oms/internal/reconciliation.(*Handler).GetTripReconciliation-fm (6 handlers)
+[GIN-debug] GET    /v1/reconciliation        --> bhl-oms/internal/reconciliation.(*Handler).ListReconciliations-fm (6 handlers)
+[GIN-debug] POST   /v1/reconciliation/:id/resolve --> bhl-oms/internal/reconciliation.(*Handler).ResolveReconciliation-fm (6 handlers)
+[GIN-debug] GET    /v1/reconciliation/discrepancies --> bhl-oms/internal/reconciliation.(*Handler).ListDiscrepancies-fm (6 handlers)
+[GIN-debug] POST   /v1/reconciliation/discrepancies/:id/resolve --> bhl-oms/internal/reconciliation.(*Handler).ResolveDiscrepancy-fm (6 handlers)
+[GIN-debug] POST   /v1/reconciliation/daily-close --> bhl-oms/internal/reconciliation.(*Handler).GenerateDailyClose-fm (6 handlers)
+[GIN-debug] GET    /v1/reconciliation/daily-close --> bhl-oms/internal/reconciliation.(*Handler).ListDailyClose-fm (6 handlers)
+[GIN-debug] GET    /v1/reconciliation/daily-close/:date --> bhl-oms/internal/reconciliation.(*Handler).GetDailyClose-fm (6 handlers)
+[GIN-debug] GET    /v1/notifications         --> bhl-oms/internal/notification.(*Handler).List-fm (6 handlers)
+[GIN-debug] GET    /v1/notifications/unread-count --> bhl-oms/internal/notification.(*Handler).UnreadCount-fm (6 handlers)
+[GIN-debug] POST   /v1/notifications/:id/read --> bhl-oms/internal/notification.(*Handler).MarkRead-fm (6 handlers)
+[GIN-debug] POST   /v1/notifications/read-all --> bhl-oms/internal/notification.(*Handler).MarkAllRead-fm (6 handlers)
+[GIN-debug] GET    /ws/notifications         --> bhl-oms/internal/notification.(*Handler).HandleWebSocket-fm (4 handlers)
+[GIN-debug] GET    /v1/kpi/report            --> bhl-oms/internal/kpi.(*Handler).GetReport-fm (6 handlers)
+[GIN-debug] POST   /v1/kpi/snapshot          --> bhl-oms/internal/kpi.(*Handler).GenerateSnapshot-fm (6 handlers)
+[GIN-debug] POST   /v1/integration/bravo/webhook --> bhl-oms/internal/integration.(*Handler).BravoWebhook-fm (6 handlers)
+[GIN-debug] POST   /v1/integration/bravo/push-document --> bhl-oms/internal/integration.(*Handler).PushBravoDocument-fm (6 handlers)
+[GIN-debug] POST   /v1/integration/bravo/reconcile --> bhl-oms/internal/integration.(*Handler).TriggerBravoReconcile-fm (6 handlers)
+[GIN-debug] POST   /v1/integration/dms/sync  --> bhl-oms/internal/integration.(*Handler).PushDMSOrderStatus-fm (6 handlers)
+[GIN-debug] POST   /v1/integration/zalo/send --> bhl-oms/internal/integration.(*Handler).SendZaloZNS-fm (6 handlers)
+[GIN-debug] POST   /v1/integration/confirm/send --> bhl-oms/internal/integration.(*Handler).SendConfirmation-fm (6 handlers)
+[GIN-debug] POST   /v1/integration/confirm/auto-confirm --> bhl-oms/internal/integration.(*Handler).TriggerAutoConfirm-fm (6 handlers)
+[GIN-debug] GET    /v1/integration/dlq       --> bhl-oms/internal/integration.(*Handler).ListDLQ-fm (6 handlers)
+[GIN-debug] GET    /v1/integration/dlq/stats --> bhl-oms/internal/integration.(*Handler).DLQStats-fm (6 handlers)
+[GIN-debug] POST   /v1/integration/dlq/:id/retry --> bhl-oms/internal/integration.(*Handler).RetryDLQ-fm (6 handlers)
+[GIN-debug] POST   /v1/integration/dlq/:id/resolve --> bhl-oms/internal/integration.(*Handler).ResolveDLQ-fm (6 handlers)
+[GIN-debug] GET    /v1/confirm/:token        --> bhl-oms/internal/integration.(*Handler).GetConfirmation-fm (5 handlers)
+[GIN-debug] POST   /v1/confirm/:token/confirm --> bhl-oms/internal/integration.(*Handler).ConfirmDelivery-fm (5 handlers)
+[GIN-debug] POST   /v1/confirm/:token/dispute --> bhl-oms/internal/integration.(*Handler).DisputeDelivery-fm (5 handlers)
+[GIN-debug] POST   /v1/driver/gps/batch      --> bhl-oms/internal/gps.(*Handler).BatchGPS-fm (7 handlers)
+[GIN-debug] GET    /v1/gps/latest            --> bhl-oms/internal/gps.(*Handler).GetLatestPositions-fm (6 handlers)
+[GIN-debug] GET    /ws/gps                   --> bhl-oms/internal/gps.(*Hub).HandleWebSocket-fm (4 handlers)
+[GIN-debug] GET    /v1/dashboard/stats       --> main.main.func3 (6 handlers)
+[GIN-debug] GET    /v1/warehouses            --> main.main.func4 (6 handlers)
+[GIN] 2026/03/15 - 21:07:41 | 404 |            0s |             ::1 | GET      "/v1/health"
+[GIN] 2026/03/15 - 21:07:48 | 401 |            0s |             ::1 | GET      "/v1/shipments/pending?warehouse_id=00000000-0000-0000-0000-000000000001&delivery_date=2026-03-16"
+[GIN] 2026/03/15 - 21:17:48 | 401 |      1.6842ms |             ::1 | GET      "/v1/dashboard/stats"
+[GIN] 2026/03/15 - 21:17:48 | 401 |            0s |             ::1 | GET      "/v1/dashboard/stats"
+[GIN] 2026/03/15 - 21:17:48 | 200 |     49.2816ms |             ::1 | POST     "/v1/auth/refresh"
+[GIN] 2026/03/15 - 21:17:48 | 200 |    250.8331ms |             ::1 | GET      "/v1/dashboard/stats"
+[GIN] 2026/03/15 - 21:17:49 | 200 |    106.3766ms |             ::1 | GET      "/v1/dashboard/stats"
+[GIN] 2026/03/15 - 21:17:53 | 200 |     31.8022ms |             ::1 | GET      "/v1/orders?limit=50"
+[GIN] 2026/03/15 - 21:17:53 | 200 |     11.9446ms |             ::1 | GET      "/v1/orders?limit=50"
+[GIN] 2026/03/15 - 21:25:22 | 200 |     10.1542ms |             ::1 | GET      "/v1/shipments/pending-dates?warehouse_id=a0000000-0000-0000-0000-000000000001"
+[GIN] 2026/03/15 - 21:25:22 | 200 |     21.5798ms |             ::1 | GET      "/v1/warehouses"
+[GIN] 2026/03/15 - 21:25:22 | 200 |     17.3338ms |             ::1 | GET      "/v1/shipments/pending-dates?warehouse_id=a0000000-0000-0000-0000-000000000001"
+[GIN] 2026/03/15 - 21:25:22 | 200 |     14.0817ms |             ::1 | GET      "/v1/vehicles/available?warehouse_id=a0000000-0000-0000-0000-000000000001&date=2026-03-16"
+[GIN] 2026/03/15 - 21:25:22 | 200 |      15.404ms |             ::1 | GET      "/v1/warehouses"
+[GIN] 2026/03/15 - 21:25:22 | 200 |     23.3867ms |             ::1 | GET      "/v1/drivers/checkins?warehouse_id=a0000000-0000-0000-0000-000000000001&date=2026-03-16"
+[GIN] 2026/03/15 - 21:25:22 | 200 |     24.5186ms |             ::1 | GET      "/v1/drivers/available?warehouse_id=a0000000-0000-0000-0000-000000000001&date=2026-03-16"
+[GIN] 2026/03/15 - 21:25:22 | 200 |     18.3296ms |             ::1 | GET      "/v1/vehicles"
+[GIN] 2026/03/15 - 21:25:22 | 200 |     32.1345ms |             ::1 | GET      "/v1/shipments/pending?warehouse_id=a0000000-0000-0000-0000-000000000001&delivery_date=2026-03-16"
+[GIN] 2026/03/15 - 21:25:22 | 200 |      8.7566ms |             ::1 | GET      "/v1/drivers"
+[GIN] 2026/03/15 - 21:28:08 | 200 |     38.1978ms |             ::1 | POST     "/v1/planning/run-vrp"
+[GIN] 2026/03/15 - 21:28:10 | 200 |       559.5µs |             ::1 | GET      "/v1/planning/jobs/vrp-20260315-5600"
+[GIN] 2026/03/15 - 21:28:12 | 200 |            0s |             ::1 | GET      "/v1/planning/jobs/vrp-20260315-5600"
+[GIN] 2026/03/15 - 21:28:14 | 200 |         519µs |             ::1 | GET      "/v1/planning/jobs/vrp-20260315-5600"
+[GIN] 2026/03/15 - 21:28:16 | 200 |            0s |             ::1 | GET      "/v1/planning/jobs/vrp-20260315-5600"
+[GIN] 2026/03/15 - 21:28:18 | 200 |            0s |             ::1 | GET      "/v1/planning/jobs/vrp-20260315-5600"
+[GIN] 2026/03/15 - 21:28:20 | 200 |      1.5764ms |             ::1 | GET      "/v1/planning/jobs/vrp-20260315-5600"
+[GIN] 2026/03/15 - 21:28:22 | 200 |       673.9µs |             ::1 | GET      "/v1/planning/jobs/vrp-20260315-5600"
+[GIN] 2026/03/15 - 21:28:24 | 200 |            0s |             ::1 | GET      "/v1/planning/jobs/vrp-20260315-5600"
+[GIN] 2026/03/15 - 21:28:26 | 200 |       787.1µs |             ::1 | GET      "/v1/planning/jobs/vrp-20260315-5600"
+[GIN] 2026/03/15 - 21:28:28 | 200 |       706.5µs |             ::1 | GET      "/v1/planning/jobs/vrp-20260315-5600"
+[GIN] 2026/03/15 - 21:28:30 | 200 |      1.2558ms |             ::1 | GET      "/v1/planning/jobs/vrp-20260315-5600"
+[GIN] 2026/03/15 - 21:28:32 | 200 |       588.4µs |             ::1 | GET      "/v1/planning/jobs/vrp-20260315-5600"
+[GIN] 2026/03/15 - 21:28:34 | 200 |            0s |             ::1 | GET      "/v1/planning/jobs/vrp-20260315-5600"
+[GIN] 2026/03/15 - 21:28:36 | 200 |       760.5µs |             ::1 | GET      "/v1/planning/jobs/vrp-20260315-5600"
+[GIN] 2026/03/15 - 21:28:38 | 200 |            0s |             ::1 | GET      "/v1/planning/jobs/vrp-20260315-5600"
+[GIN] 2026/03/15 - 21:28:40 | 200 |       939.4µs |             ::1 | GET      "/v1/planning/jobs/vrp-20260315-5600"
+[GIN] 2026/03/15 - 21:35:45 | 200 |     64.9851ms |             ::1 | POST     "/v1/planning/run-vrp"
+[GIN] 2026/03/15 - 21:35:47 | 200 |       631.5µs |             ::1 | GET      "/v1/planning/jobs/vrp-20260315-8500"
+[GIN] 2026/03/15 - 21:35:49 | 200 |         950µs |             ::1 | GET      "/v1/planning/jobs/vrp-20260315-8500"
+[GIN] 2026/03/15 - 21:35:51 | 200 |       794.2µs |             ::1 | GET      "/v1/planning/jobs/vrp-20260315-8500"
+[GIN] 2026/03/15 - 21:35:53 | 200 |      1.1599ms |             ::1 | GET      "/v1/planning/jobs/vrp-20260315-8500"
+[GIN] 2026/03/15 - 21:35:55 | 200 |            0s |             ::1 | GET      "/v1/planning/jobs/vrp-20260315-8500"
+[GIN] 2026/03/15 - 21:35:57 | 200 |            0s |             ::1 | GET      "/v1/planning/jobs/vrp-20260315-8500"
+[GIN] 2026/03/15 - 21:35:59 | 200 |       464.2µs |             ::1 | GET      "/v1/planning/jobs/vrp-20260315-8500"
+[GIN] 2026/03/15 - 21:36:01 | 200 |      1.7567ms |             ::1 | GET      "/v1/planning/jobs/vrp-20260315-8500"
+[GIN] 2026/03/15 - 21:36:03 | 200 |            0s |             ::1 | GET      "/v1/planning/jobs/vrp-20260315-8500"
+[GIN] 2026/03/15 - 21:36:05 | 200 |      1.3179ms |             ::1 | GET      "/v1/planning/jobs/vrp-20260315-8500"
+[GIN] 2026/03/15 - 21:36:07 | 200 |       537.6µs |             ::1 | GET      "/v1/planning/jobs/vrp-20260315-8500"
+[GIN] 2026/03/15 - 21:36:10 | 200 |            0s |             ::1 | GET      "/v1/planning/jobs/vrp-20260315-8500"
+[GIN] 2026/03/15 - 21:36:11 | 200 |     32.6083ms |             ::1 | GET      "/v1/products"
+[GIN] 2026/03/15 - 21:36:11 | 200 |       681.5µs |             ::1 | GET      "/v1/planning/jobs/vrp-20260315-8500"
+[GIN] 2026/03/15 - 21:36:11 | 200 |     16.0493ms |             ::1 | GET      "/v1/products"
+[GIN] 2026/03/15 - 21:36:13 | 200 |            0s |             ::1 | GET      "/v1/planning/jobs/vrp-20260315-8500"
+[GIN] 2026/03/15 - 21:36:15 | 200 |       782.2µs |             ::1 | GET      "/v1/planning/jobs/vrp-20260315-8500"
+[GIN] 2026/03/15 - 21:36:16 | 200 |     94.9253ms |             ::1 | GET      "/v1/dashboard/stats"
+[GIN] 2026/03/15 - 21:36:16 | 200 |     36.6509ms |             ::1 | GET      "/v1/dashboard/stats"
+[GIN] 2026/03/15 - 21:36:22 | 200 |    156.7552ms |             ::1 | GET      "/v1/trips/44444444-0000-0000-0000-000000000005"
+[GIN] 2026/03/15 - 21:36:22 | 200 |     58.4412ms |             ::1 | GET      "/v1/trips/44444444-0000-0000-0000-000000000005"
+[GIN] 2026/03/15 - 21:36:28 | 200 |     29.2147ms |             ::1 | GET      "/v1/orders/d2cb6f4c-4ddb-46b0-8800-0d2233dfae98"
+[GIN] 2026/03/15 - 21:36:28 | 200 |     12.6413ms |             ::1 | GET      "/v1/orders/d2cb6f4c-4ddb-46b0-8800-0d2233dfae98"
+[GIN] 2026/03/15 - 21:36:38 | 200 |      7.5593ms |             ::1 | GET      "/v1/shipments/pending-dates?warehouse_id=a0000000-0000-0000-0000-000000000001"
+[GIN] 2026/03/15 - 21:36:38 | 200 |     18.9877ms |             ::1 | GET      "/v1/warehouses"
+[GIN] 2026/03/15 - 21:36:38 | 200 |     24.4139ms |             ::1 | GET      "/v1/shipments/pending-dates?warehouse_id=a0000000-0000-0000-0000-000000000001"
+[GIN] 2026/03/15 - 21:36:38 | 200 |      4.4884ms |             ::1 | GET      "/v1/warehouses"
+[GIN] 2026/03/15 - 21:36:38 | 200 |     13.5968ms |             ::1 | GET      "/v1/drivers/available?warehouse_id=a0000000-0000-0000-0000-000000000001&date=2026-03-16"
+[GIN] 2026/03/15 - 21:36:38 | 200 |     13.7726ms |             ::1 | GET      "/v1/drivers/checkins?warehouse_id=a0000000-0000-0000-0000-000000000001&date=2026-03-16"
+[GIN] 2026/03/15 - 21:36:38 | 200 |     26.1843ms |             ::1 | GET      "/v1/vehicles/available?warehouse_id=a0000000-0000-0000-0000-000000000001&date=2026-03-16"
+[GIN] 2026/03/15 - 21:36:38 | 200 |     15.8066ms |             ::1 | GET      "/v1/vehicles"
+[GIN] 2026/03/15 - 21:36:38 | 200 |     14.0125ms |             ::1 | GET      "/v1/drivers"
+[GIN] 2026/03/15 - 21:36:38 | 200 |     55.8619ms |             ::1 | GET      "/v1/shipments/pending?warehouse_id=a0000000-0000-0000-0000-000000000001&delivery_date=2026-03-16"
+[GIN] 2026/03/15 - 21:37:23 | 200 |     38.9358ms |             ::1 | POST     "/v1/planning/run-vrp"
+[GIN] 2026/03/15 - 21:37:25 | 200 |            0s |             ::1 | GET      "/v1/planning/jobs/vrp-20260315-4200"
+[GIN] 2026/03/15 - 21:37:27 | 200 |       577.3µs |             ::1 | GET      "/v1/planning/jobs/vrp-20260315-4200"
+[GIN] 2026/03/15 - 21:37:29 | 200 |       407.8µs |             ::1 | GET      "/v1/planning/jobs/vrp-20260315-4200"
+[GIN] 2026/03/15 - 21:37:31 | 200 |       706.9µs |             ::1 | GET      "/v1/planning/jobs/vrp-20260315-4200"
+[GIN] 2026/03/15 - 21:37:33 | 200 |      1.1022ms |             ::1 | GET      "/v1/planning/jobs/vrp-20260315-4200"
+[GIN] 2026/03/15 - 21:37:35 | 200 |            0s |             ::1 | GET      "/v1/planning/jobs/vrp-20260315-4200"
+[GIN] 2026/03/15 - 21:37:37 | 200 |            0s |             ::1 | GET      "/v1/planning/jobs/vrp-20260315-4200"
+[GIN] 2026/03/15 - 21:37:39 | 200 |            0s |             ::1 | GET      "/v1/planning/jobs/vrp-20260315-4200"
+[GIN] 2026/03/15 - 21:37:41 | 200 |         924µs |             ::1 | GET      "/v1/planning/jobs/vrp-20260315-4200"
+[GIN] 2026/03/15 - 21:37:43 | 200 |            0s |             ::1 | GET      "/v1/planning/jobs/vrp-20260315-4200"
+[GIN] 2026/03/15 - 21:37:45 | 200 |            0s |             ::1 | GET      "/v1/planning/jobs/vrp-20260315-4200"
+[GIN] 2026/03/15 - 21:37:47 | 200 |            0s |             ::1 | GET      "/v1/planning/jobs/vrp-20260315-4200"
+[GIN] 2026/03/15 - 21:37:49 | 200 |       672.2µs |             ::1 | GET      "/v1/planning/jobs/vrp-20260315-4200"
+[GIN] 2026/03/15 - 21:37:51 | 200 |      1.1143ms |             ::1 | GET      "/v1/planning/jobs/vrp-20260315-4200"
+[GIN] 2026/03/15 - 21:37:53 | 200 |            0s |             ::1 | GET      "/v1/planning/jobs/vrp-20260315-4200"
+[GIN] 2026/03/15 - 21:37:55 | 200 |       817.2µs |             ::1 | GET      "/v1/planning/jobs/vrp-20260315-4200"
+[GIN] 2026/03/15 - 21:42:55 | 201 |    411.4945ms |             ::1 | POST     "/v1/planning/approve"
+[GIN] 2026/03/15 - 21:43:00 | 200 |     24.5109ms |             ::1 | GET      "/v1/trips"
+[GIN] 2026/03/15 - 21:43:00 | 200 |      7.0512ms |             ::1 | GET      "/v1/trips"
+[GIN] 2026/03/15 - 21:43:10 | 200 |     66.0169ms |             ::1 | GET      "/v1/trips/330aeb66-edf1-410d-9c4a-7989e52a7037"
+[GIN] 2026/03/15 - 21:43:10 | 200 |     43.4813ms |             ::1 | GET      "/v1/trips/330aeb66-edf1-410d-9c4a-7989e52a7037"

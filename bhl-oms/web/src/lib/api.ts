@@ -69,7 +69,12 @@ export async function apiFetch<T>(path: string, options: ApiOptions = {}): Promi
     }
   }
 
-  const json = await res.json();
+  let json: any;
+  try {
+    json = await res.json();
+  } catch {
+    throw new Error(`Server trả về lỗi ${res.status}. Vui lòng thử lại.`);
+  }
 
   if (!res.ok || !json.success) {
     // Nếu vẫn 401 sau refresh, chuyển về trang login

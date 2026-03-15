@@ -13,8 +13,11 @@ import (
 	"bhl-oms/internal/config"
 	"bhl-oms/internal/gps"
 	"bhl-oms/internal/integration"
+	"bhl-oms/internal/kpi"
 	"bhl-oms/internal/middleware"
+	"bhl-oms/internal/notification"
 	"bhl-oms/internal/oms"
+	"bhl-oms/internal/reconciliation"
 	"bhl-oms/internal/tms"
 	"bhl-oms/internal/wms"
 	"bhl-oms/pkg/db"
@@ -87,8 +90,22 @@ func main() {
 		response.OK(c, gin.H{"status": "ok", "service": "bhl-oms-tms-wms"})
 	})
 
+	// App version check (Task 3.19) — public, no auth
+	r.GET("/v1/app/version", func(c *gin.Context) {
+		response.OK(c, gin.H{
+			"current_version":  "1.0.0",
+			"minimum_version":  "1.0.0",
+			"force_update":     false,
+			"update_url":       "https://oms.bhl.vn/update",
+			"release_notes_vi": "Phiên bản đầu tiên – OMS/TMS/WMS",
+		})
+	})
+
 	// API v1
 	v1 := r.Group("/v1")
+
+	// Audit log middleware (Task 3.20) — logs POST/PUT/PATCH/DELETE
+	v1.Use(middleware.AuditLog(pool))
 
 	// Public routes (no auth)
 	authHandler := auth.NewHandler(authSvc)
@@ -110,17 +127,55 @@ func main() {
 	wmsHandler := wms.NewHandler(wmsSvc)
 	wmsHandler.RegisterRoutes(protected)
 
+	// Reconciliation routes (Tasks 3.9-3.11)
+	reconRepo := reconciliation.NewRepository(pool)
+	reconSvc := reconciliation.NewService(reconRepo)
+	reconHandler := reconciliation.NewHandler(reconSvc)
+	reconHandler.RegisterRoutes(protected)
+
+	// Notification module (Task 3.14)
+	notifHub := notification.NewHub()
+	notifRepo := notification.NewRepository(pool)
+	notifSvc := notification.NewService(notifRepo, notifHub)
+	notifHandler := notification.NewHandler(notifSvc, notifHub, authSvc)
+	notifHandler.RegisterRoutes(protected)
+	notifHandler.RegisterWebSocket(r)
+	log.Println("✅ Notification service initialized (WebSocket)")
+	_ = notifSvc // available for integration hooks
+
+	// KPI module (Tasks 3.16-3.17)
+	kpiRepo := kpi.NewRepository(pool)
+	kpiSvc := kpi.NewService(kpiRepo)
+	kpiHandler := kpi.NewHandler(kpiSvc)
+	kpiHandler.RegisterRoutes(protected)
+	go kpiSvc.RunDailySnapshotCron(appCtx)
+	log.Println("✅ KPI service initialized (cron 23:50)")
+
 	// Integration adapters (Task 3.1-3.5)
 	bravoAdapter := integration.NewBravoAdapter(cfg.BravoURL, cfg.BravoAPIKey, cfg.IntegrationMock)
 	dmsAdapter := integration.NewDMSAdapter(cfg.DMSURL, cfg.DMSAPIKey, cfg.IntegrationMock)
 	zaloAdapter := integration.NewZaloAdapter(cfg.ZaloOAToken, cfg.ZaloOAID, cfg.IntegrationMock)
 	confirmSvc := integration.NewConfirmService(pool, zaloAdapter)
-	integrationHandler := integration.NewHandler(bravoAdapter, dmsAdapter, zaloAdapter, confirmSvc)
+	dlqSvc := integration.NewDLQService(pool)
+	integrationHandler := integration.NewHandler(bravoAdapter, dmsAdapter, zaloAdapter, confirmSvc, dlqSvc)
 	integrationHandler.RegisterRoutes(protected)
 	integrationHandler.RegisterPublicRoutes(v1) // NPP portal (no auth)
 
+	// Integration hooks — wire adapters into business flows (Tasks 3.1-3.6)
+	baseURL := "http://localhost:" + cfg.ServerPort
+	if cfg.Env == "production" {
+		baseURL = "https://oms.bhl.vn"
+	}
+	integrationHooks := integration.NewHooks(bravoAdapter, dmsAdapter, confirmSvc, pool, baseURL)
+	tmsSvc.SetIntegrationHooks(integrationHooks)
+	omsSvc.SetIntegrationHooks(integrationHooks)
+	log.Println("✅ Integration hooks wired (Bravo, DMS, Zalo)")
+
 	// Start auto-confirm cron (Task 3.7)
 	go confirmSvc.RunAutoConfirmCron(appCtx)
+
+	// Start nightly Bravo reconcile cron (Task 3.2)
+	go integrationHooks.RunNightlyReconcileCron(appCtx)
 
 	// GPS routes (REST)
 	gpsHandler := gps.NewHandler(gpsHub)
@@ -129,25 +184,64 @@ func main() {
 	// GPS WebSocket (authenticated via query token)
 	r.GET("/ws/gps", gpsHub.HandleWebSocket)
 
-	// Dashboard stats
+	// Dashboard stats (Task 3.15 — 5 widgets)
 	protected.GET("/dashboard/stats", func(c *gin.Context) {
-		var orderCount, shipmentCount, tripCount int64
-		pool.QueryRow(context.Background(), `SELECT COUNT(*) FROM sales_orders`).Scan(&orderCount)
-		pool.QueryRow(context.Background(), `SELECT COUNT(*) FROM shipments WHERE status = 'pending'`).Scan(&shipmentCount)
-		pool.QueryRow(context.Background(), `SELECT COUNT(*) FROM trips WHERE status NOT IN ('completed','cancelled','closed')`).Scan(&tripCount)
+		ctx := context.Background()
 
-		var productCount int64
-		pool.QueryRow(context.Background(), `SELECT COUNT(*) FROM products WHERE is_active = true`).Scan(&productCount)
+		// Widget 1: Orders today
+		var ordersToday, ordersConfirmed int64
+		pool.QueryRow(ctx, `SELECT COUNT(*) FROM sales_orders WHERE created_at::date = CURRENT_DATE`).Scan(&ordersToday)
+		pool.QueryRow(ctx, `SELECT COUNT(*) FROM sales_orders WHERE created_at::date = CURRENT_DATE AND status = 'confirmed'`).Scan(&ordersConfirmed)
 
-		var customerCount int64
-		pool.QueryRow(context.Background(), `SELECT COUNT(*) FROM customers WHERE is_active = true`).Scan(&customerCount)
+		// Widget 2: Active trips
+		var activeTrips, completedTripsToday int64
+		pool.QueryRow(ctx, `SELECT COUNT(*) FROM trips WHERE status NOT IN ('completed','cancelled','closed')`).Scan(&activeTrips)
+		pool.QueryRow(ctx, `SELECT COUNT(*) FROM trips WHERE status = 'completed' AND completed_at::date = CURRENT_DATE`).Scan(&completedTripsToday)
+
+		// Widget 3: Delivery success rate (today)
+		var deliveredStops, totalStopsToday int64
+		pool.QueryRow(ctx, `
+			SELECT COUNT(*) FROM trip_stops ts JOIN trips t ON t.id = ts.trip_id
+			WHERE t.planned_date = CURRENT_DATE::text AND ts.status = 'delivered'
+		`).Scan(&deliveredStops)
+		pool.QueryRow(ctx, `
+			SELECT COUNT(*) FROM trip_stops ts JOIN trips t ON t.id = ts.trip_id
+			WHERE t.planned_date = CURRENT_DATE::text AND ts.status IN ('delivered','failed')
+		`).Scan(&totalStopsToday)
+		var deliveryRate float64
+		if totalStopsToday > 0 {
+			deliveryRate = float64(deliveredStops) / float64(totalStopsToday) * 100
+		}
+
+		// Widget 4: Revenue today (from payments)
+		var revenueToday float64
+		pool.QueryRow(ctx, `SELECT COALESCE(SUM(amount), 0) FROM payments WHERE collected_at::date = CURRENT_DATE AND status = 'confirmed'`).Scan(&revenueToday)
+
+		// Widget 5: Pending discrepancies
+		var pendingDiscrepancies int64
+		pool.QueryRow(ctx, `SELECT COUNT(*) FROM discrepancies WHERE status IN ('open','investigating')`).Scan(&pendingDiscrepancies)
+
+		// Extra stats
+		var productCount, customerCount int64
+		pool.QueryRow(ctx, `SELECT COUNT(*) FROM products WHERE is_active = true`).Scan(&productCount)
+		pool.QueryRow(ctx, `SELECT COUNT(*) FROM customers WHERE is_active = true`).Scan(&customerCount)
+
+		var pendingShipments int64
+		pool.QueryRow(ctx, `SELECT COUNT(*) FROM shipments WHERE status = 'pending'`).Scan(&pendingShipments)
 
 		response.OK(c, gin.H{
-			"total_orders":      orderCount,
-			"pending_shipments": shipmentCount,
-			"active_trips":      tripCount,
-			"total_products":    productCount,
-			"total_customers":   customerCount,
+			"orders_today":          ordersToday,
+			"orders_confirmed":      ordersConfirmed,
+			"active_trips":          activeTrips,
+			"completed_trips_today": completedTripsToday,
+			"delivery_rate":         deliveryRate,
+			"delivered_stops":       deliveredStops,
+			"total_stops_today":     totalStopsToday,
+			"revenue_today":         revenueToday,
+			"pending_discrepancies": pendingDiscrepancies,
+			"pending_shipments":     pendingShipments,
+			"total_products":        productCount,
+			"total_customers":       customerCount,
 		})
 	})
 

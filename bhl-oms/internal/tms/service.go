@@ -6,11 +6,13 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log"
 	"net/http"
 	"sync"
 	"time"
 
 	"bhl-oms/internal/domain"
+	"bhl-oms/internal/integration"
 
 	"github.com/google/uuid"
 )
@@ -19,6 +21,7 @@ type Service struct {
 	repo         *Repository
 	vrpSolverURL string
 	jobs         sync.Map // jobID → *domain.VRPResult
+	hooks        *integration.Hooks
 }
 
 func NewService(repo *Repository, vrpSolverURL string) *Service {
@@ -28,8 +31,17 @@ func NewService(repo *Repository, vrpSolverURL string) *Service {
 	}
 }
 
+// SetIntegrationHooks injects optional integration hooks (Tasks 3.1-3.6 wiring).
+func (s *Service) SetIntegrationHooks(h *integration.Hooks) {
+	s.hooks = h
+}
+
 func (s *Service) ListPendingShipments(ctx context.Context, warehouseID uuid.UUID, deliveryDate string) ([]domain.Shipment, error) {
 	return s.repo.ListPendingShipments(ctx, warehouseID, deliveryDate)
+}
+
+func (s *Service) ToggleUrgent(ctx context.Context, shipmentID uuid.UUID, isUrgent bool) error {
+	return s.repo.ToggleUrgent(ctx, shipmentID, isUrgent)
 }
 
 func (s *Service) ListAllVehicles(ctx context.Context) ([]domain.Vehicle, error) {
@@ -78,6 +90,10 @@ func (s *Service) ListAvailableVehicles(ctx context.Context, warehouseID uuid.UU
 
 func (s *Service) ListAvailableDrivers(ctx context.Context, warehouseID uuid.UUID, date string) ([]domain.Driver, error) {
 	return s.repo.ListAvailableDrivers(ctx, warehouseID, date)
+}
+
+func (s *Service) ListPendingDates(ctx context.Context, warehouseID uuid.UUID) ([]map[string]interface{}, error) {
+	return s.repo.ListPendingDates(ctx, warehouseID)
 }
 
 type RunVRPRequest struct {
@@ -993,6 +1009,18 @@ func (s *Service) SubmitEPOD(ctx context.Context, userID, tripID, stopID uuid.UU
 		_ = s.repo.FailStop(ctx, stopID, req.Notes)
 	}
 
+	// Fire integration hooks on successful delivery (Tasks 3.1, 3.5, 3.6)
+	if s.hooks != nil && stop.ShipmentID != nil && (req.DeliveryStatus == "delivered" || req.DeliveryStatus == "partial") {
+		go func() {
+			evt, err := s.hooks.BuildDeliveryEvent(context.Background(), stopID, *stop.ShipmentID, trip.DriverName, trip.VehiclePlate, "")
+			if err != nil {
+				log.Printf("[Integration] BuildDeliveryEvent failed for stop %s: %v", stopID, err)
+				return
+			}
+			s.hooks.OnDeliveryCompleted(context.Background(), *evt)
+		}()
+	}
+
 	return epod, nil
 }
 
@@ -1167,4 +1195,27 @@ func (s *Service) RecordReturns(ctx context.Context, userID, tripID, stopID uuid
 
 func (s *Service) GetReturns(ctx context.Context, stopID uuid.UUID) ([]domain.ReturnCollection, error) {
 	return s.repo.GetReturnsByStopID(ctx, stopID)
+}
+
+// ===== DRIVER CHECK-IN =====
+func (s *Service) DriverCheckin(ctx context.Context, userID uuid.UUID, status string, reason, note *string) (*domain.DriverCheckin, error) {
+	driver, err := s.repo.GetDriverByUserID(ctx, userID)
+	if err != nil {
+		return nil, fmt.Errorf("driver not found for user: %w", err)
+	}
+	today := time.Now().Format("2006-01-02")
+	return s.repo.UpsertDriverCheckin(ctx, driver.ID, today, status, reason, note)
+}
+
+func (s *Service) GetMyCheckin(ctx context.Context, userID uuid.UUID) (*domain.DriverCheckin, error) {
+	driver, err := s.repo.GetDriverByUserID(ctx, userID)
+	if err != nil {
+		return nil, fmt.Errorf("driver not found for user: %w", err)
+	}
+	today := time.Now().Format("2006-01-02")
+	return s.repo.GetDriverCheckin(ctx, driver.ID, today)
+}
+
+func (s *Service) ListDriverCheckinsForDate(ctx context.Context, warehouseID uuid.UUID, date string) ([]map[string]interface{}, error) {
+	return s.repo.ListDriverCheckinsForDate(ctx, warehouseID, date)
 }

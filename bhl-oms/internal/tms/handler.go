@@ -29,6 +29,8 @@ func (h *Handler) RegisterRoutes(r *gin.RouterGroup) {
 
 	// Shipments (pending for VRP)
 	r.GET("/shipments/pending", h.ListPendingShipments)
+	r.GET("/shipments/pending-dates", h.ListPendingDates)
+	r.PUT("/shipments/:id/urgent", middleware.RequireRole("admin", "dispatcher"), h.ToggleUrgent)
 
 	// Resources - Vehicles
 	vehicles := r.Group("/vehicles")
@@ -43,6 +45,7 @@ func (h *Handler) RegisterRoutes(r *gin.RouterGroup) {
 	drivers := r.Group("/drivers")
 	drivers.GET("", h.ListAllDrivers)
 	drivers.GET("/available", h.ListAvailableDrivers)
+	drivers.GET("/checkins", h.ListDriverCheckins)
 	drivers.GET("/:id", h.GetDriver)
 	drivers.POST("", middleware.RequireRole("admin", "dispatcher"), h.CreateDriver)
 	drivers.PUT("/:id", middleware.RequireRole("admin", "dispatcher"), h.UpdateDriver)
@@ -59,6 +62,8 @@ func (h *Handler) RegisterRoutes(r *gin.RouterGroup) {
 	driver := r.Group("/driver")
 	driver.Use(middleware.RequireRole("driver"))
 	driver.GET("/my-trips", h.GetMyTrips)
+	driver.POST("/checkin", h.DriverCheckin)
+	driver.GET("/checkin", h.GetMyCheckin)
 	driver.PUT("/trips/:id/start", h.StartTrip)
 	driver.PUT("/trips/:id/stops/:stopId/update", h.UpdateStopStatus)
 	driver.PUT("/trips/:id/complete", h.CompleteTrip)
@@ -75,6 +80,21 @@ func (h *Handler) RegisterRoutes(r *gin.RouterGroup) {
 	// Return collection
 	driver.POST("/trips/:id/stops/:stopId/returns", h.RecordReturns)
 	driver.GET("/trips/:id/stops/:stopId/returns", h.GetReturns)
+}
+
+func (h *Handler) ListPendingDates(c *gin.Context) {
+	warehouseID, err := uuid.Parse(c.Query("warehouse_id"))
+	if err != nil {
+		response.BadRequest(c, "warehouse_id là bắt buộc")
+		return
+	}
+
+	dates, err := h.svc.ListPendingDates(c.Request.Context(), warehouseID)
+	if err != nil {
+		response.InternalError(c)
+		return
+	}
+	response.OK(c, dates)
 }
 
 func (h *Handler) ListPendingShipments(c *gin.Context) {
@@ -96,6 +116,28 @@ func (h *Handler) ListPendingShipments(c *gin.Context) {
 		return
 	}
 	response.OK(c, shipments)
+}
+
+func (h *Handler) ToggleUrgent(c *gin.Context) {
+	shipmentID, err := uuid.Parse(c.Param("id"))
+	if err != nil {
+		response.BadRequest(c, "shipment id không hợp lệ")
+		return
+	}
+
+	var body struct {
+		IsUrgent bool `json:"is_urgent"`
+	}
+	if err := c.ShouldBindJSON(&body); err != nil {
+		response.BadRequest(c, "is_urgent là bắt buộc")
+		return
+	}
+
+	if err := h.svc.ToggleUrgent(c.Request.Context(), shipmentID, body.IsUrgent); err != nil {
+		response.InternalError(c)
+		return
+	}
+	response.OK(c, gin.H{"id": shipmentID, "is_urgent": body.IsUrgent})
 }
 
 func (h *Handler) ListAllVehicles(c *gin.Context) {
@@ -654,4 +696,58 @@ func (h *Handler) GetReturns(c *gin.Context) {
 		return
 	}
 	response.OK(c, returns)
+}
+
+// ===== DRIVER CHECK-IN =====
+
+func (h *Handler) DriverCheckin(c *gin.Context) {
+	userID := middleware.GetUserID(c)
+	var req struct {
+		Status string  `json:"status" binding:"required"`
+		Reason *string `json:"reason"`
+		Note   *string `json:"note"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		response.BadRequest(c, "status là bắt buộc (available hoặc off_duty)")
+		return
+	}
+	if req.Status != "available" && req.Status != "off_duty" {
+		response.BadRequest(c, "status phải là 'available' hoặc 'off_duty'")
+		return
+	}
+	checkin, err := h.svc.DriverCheckin(c.Request.Context(), userID, req.Status, req.Reason, req.Note)
+	if err != nil {
+		response.BadRequest(c, err.Error())
+		return
+	}
+	response.OK(c, checkin)
+}
+
+func (h *Handler) GetMyCheckin(c *gin.Context) {
+	userID := middleware.GetUserID(c)
+	checkin, err := h.svc.GetMyCheckin(c.Request.Context(), userID)
+	if err != nil {
+		response.OK(c, gin.H{"status": "not_checked_in"})
+		return
+	}
+	response.OK(c, checkin)
+}
+
+func (h *Handler) ListDriverCheckins(c *gin.Context) {
+	warehouseID, err := uuid.Parse(c.Query("warehouse_id"))
+	if err != nil {
+		response.BadRequest(c, "warehouse_id là bắt buộc")
+		return
+	}
+	date := c.Query("date")
+	if date == "" {
+		response.BadRequest(c, "date là bắt buộc")
+		return
+	}
+	checkins, err := h.svc.ListDriverCheckinsForDate(c.Request.Context(), warehouseID, date)
+	if err != nil {
+		response.InternalError(c)
+		return
+	}
+	response.OK(c, checkins)
 }

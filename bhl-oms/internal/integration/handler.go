@@ -1,6 +1,7 @@
 package integration
 
 import (
+	"fmt"
 	"net/http"
 
 	"bhl-oms/pkg/response"
@@ -15,10 +16,11 @@ type Handler struct {
 	dms        *DMSAdapter
 	zalo       *ZaloAdapter
 	confirmSvc *ConfirmService
+	dlq        *DLQService
 }
 
-func NewHandler(bravo *BravoAdapter, dms *DMSAdapter, zalo *ZaloAdapter, confirmSvc *ConfirmService) *Handler {
-	return &Handler{bravo: bravo, dms: dms, zalo: zalo, confirmSvc: confirmSvc}
+func NewHandler(bravo *BravoAdapter, dms *DMSAdapter, zalo *ZaloAdapter, confirmSvc *ConfirmService, dlq *DLQService) *Handler {
+	return &Handler{bravo: bravo, dms: dms, zalo: zalo, confirmSvc: confirmSvc, dlq: dlq}
 }
 
 func (h *Handler) RegisterRoutes(r *gin.RouterGroup) {
@@ -36,6 +38,12 @@ func (h *Handler) RegisterRoutes(r *gin.RouterGroup) {
 		// NPP Confirmation endpoints (Task 3.6)
 		ig.POST("/confirm/send", h.SendConfirmation)
 		ig.POST("/confirm/auto-confirm", h.TriggerAutoConfirm)
+
+		// DLQ Admin (Task 3.8)
+		ig.GET("/dlq", h.ListDLQ)
+		ig.GET("/dlq/stats", h.DLQStats)
+		ig.POST("/dlq/:id/retry", h.RetryDLQ)
+		ig.POST("/dlq/:id/resolve", h.ResolveDLQ)
 	}
 }
 
@@ -244,4 +252,85 @@ func (h *Handler) TriggerAutoConfirm(c *gin.Context) {
 		return
 	}
 	response.OK(c, gin.H{"auto_confirmed": count})
+}
+
+// ===== DLQ Admin Endpoints (Task 3.8) =====
+
+// GET /v1/integration/dlq
+func (h *Handler) ListDLQ(c *gin.Context) {
+	status := c.Query("status")
+	adapter := c.Query("adapter")
+	page := 1
+	limit := 20
+	if p := c.Query("page"); p != "" {
+		if v, err := parseInt(p); err == nil && v > 0 {
+			page = v
+		}
+	}
+	if l := c.Query("limit"); l != "" {
+		if v, err := parseInt(l); err == nil && v > 0 && v <= 100 {
+			limit = v
+		}
+	}
+
+	entries, total, err := h.dlq.List(c.Request.Context(), status, adapter, page, limit)
+	if err != nil {
+		response.InternalError(c)
+		return
+	}
+	response.OKWithMeta(c, entries, response.PaginationMeta{
+		Page:       page,
+		Limit:      limit,
+		Total:      total,
+		TotalPages: int((total + int64(limit) - 1) / int64(limit)),
+	})
+}
+
+// GET /v1/integration/dlq/stats
+func (h *Handler) DLQStats(c *gin.Context) {
+	stats, err := h.dlq.Stats(c.Request.Context())
+	if err != nil {
+		response.InternalError(c)
+		return
+	}
+	response.OK(c, stats)
+}
+
+// POST /v1/integration/dlq/:id/retry
+func (h *Handler) RetryDLQ(c *gin.Context) {
+	id, err := uuid.Parse(c.Param("id"))
+	if err != nil {
+		response.BadRequest(c, "Invalid DLQ entry ID")
+		return
+	}
+	if err := h.dlq.Retry(c.Request.Context(), id); err != nil {
+		response.InternalError(c)
+		return
+	}
+	response.OK(c, gin.H{"status": "retrying"})
+}
+
+// POST /v1/integration/dlq/:id/resolve
+func (h *Handler) ResolveDLQ(c *gin.Context) {
+	id, err := uuid.Parse(c.Param("id"))
+	if err != nil {
+		response.BadRequest(c, "Invalid DLQ entry ID")
+		return
+	}
+	if err := h.dlq.Resolve(c.Request.Context(), id); err != nil {
+		response.InternalError(c)
+		return
+	}
+	response.OK(c, gin.H{"status": "resolved"})
+}
+
+func parseInt(s string) (int, error) {
+	v := 0
+	for _, c := range s {
+		if c < '0' || c > '9' {
+			return 0, fmt.Errorf("invalid number")
+		}
+		v = v*10 + int(c-'0')
+	}
+	return v, nil
 }

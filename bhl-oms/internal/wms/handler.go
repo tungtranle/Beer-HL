@@ -31,6 +31,14 @@ func (h *Handler) RegisterRoutes(r *gin.RouterGroup) {
 		wh.GET("/expiry-alerts", h.GetExpiryAlerts)
 		wh.GET("/locations", h.GetLocations)
 		wh.POST("/locations", h.CreateLocation)
+
+		// Return inbound (Task 3.12)
+		wh.GET("/returns/pending", h.GetPendingReturns)
+		wh.POST("/returns/inbound", h.ProcessReturnInbound)
+
+		// Asset compensation (Task 3.13)
+		wh.GET("/asset-compensation", h.GetAssetCompensation)
+		wh.GET("/asset-compensation/trip/:tripId", h.GetTripCompensation)
 	}
 }
 
@@ -274,4 +282,88 @@ func (h *Handler) CreateLocation(c *gin.Context) {
 
 	req.ID = id
 	response.Created(c, req)
+}
+
+// GET /v1/warehouse/returns/pending — Task 3.12
+func (h *Handler) GetPendingReturns(c *gin.Context) {
+	whID := c.Query("warehouse_id")
+	if whID == "" {
+		response.BadRequest(c, "warehouse_id required")
+		return
+	}
+	warehouseID, err := uuid.Parse(whID)
+	if err != nil {
+		response.BadRequest(c, "invalid warehouse_id")
+		return
+	}
+
+	returns, err := h.svc.GetPendingReturnInbound(c.Request.Context(), warehouseID)
+	if err != nil {
+		response.InternalError(c)
+		return
+	}
+	response.OK(c, returns)
+}
+
+// POST /v1/warehouse/returns/inbound — Task 3.12
+func (h *Handler) ProcessReturnInbound(c *gin.Context) {
+	var req struct {
+		ReturnCollectionID uuid.UUID `json:"return_collection_id" binding:"required"`
+		WarehouseID        uuid.UUID `json:"warehouse_id" binding:"required"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		response.BadRequest(c, err.Error())
+		return
+	}
+
+	userID, _ := c.Get("user_id")
+	uid, ok := userID.(uuid.UUID)
+	if !ok {
+		response.Unauthorized(c, "invalid user context")
+		return
+	}
+
+	move, err := h.svc.ProcessReturnInbound(c.Request.Context(), req.ReturnCollectionID, req.WarehouseID, uid)
+	if err != nil {
+		response.Err(c, http.StatusUnprocessableEntity, "RETURN_INBOUND_FAILED", err.Error())
+		return
+	}
+	response.OK(c, move)
+}
+
+// GET /v1/warehouse/asset-compensation — Task 3.13
+func (h *Handler) GetAssetCompensation(c *gin.Context) {
+	whID := c.Query("warehouse_id")
+	if whID == "" {
+		response.BadRequest(c, "warehouse_id required")
+		return
+	}
+	warehouseID, err := uuid.Parse(whID)
+	if err != nil {
+		response.BadRequest(c, "invalid warehouse_id")
+		return
+	}
+
+	items, total, err := h.svc.CalculateAssetCompensation(c.Request.Context(), warehouseID)
+	if err != nil {
+		response.InternalError(c)
+		return
+	}
+	response.OK(c, gin.H{"items": items, "grand_total": total})
+}
+
+// GET /v1/warehouse/asset-compensation/trip/:tripId — Task 3.13
+func (h *Handler) GetTripCompensation(c *gin.Context) {
+	tripID, err := uuid.Parse(c.Param("tripId"))
+	if err != nil {
+		response.BadRequest(c, "invalid trip_id")
+		return
+	}
+
+	items, total, err := h.svc.CalculateTripCompensation(c.Request.Context(), tripID)
+	if err != nil {
+		response.InternalError(c)
+		return
+	}
+	response.OK(c, gin.H{"items": items, "grand_total": total})
 }

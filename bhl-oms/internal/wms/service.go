@@ -271,3 +271,137 @@ func (s *Service) CreateLocation(ctx context.Context, loc WarehouseLocation) (uu
 	}
 	return s.repo.CreateLocation(ctx, loc)
 }
+
+// ── Return Inbound (Task 3.12) ──────────────────────
+
+// PendingReturn represents a return_collection ready for inbound processing.
+type PendingReturn = struct {
+	ID          uuid.UUID `json:"id"`
+	TripStopID  uuid.UUID `json:"trip_stop_id"`
+	CustomerID  uuid.UUID `json:"customer_id"`
+	AssetType   string    `json:"asset_type"`
+	Quantity    int       `json:"quantity"`
+	Condition   string    `json:"condition"`
+	TripID      uuid.UUID `json:"trip_id"`
+	WarehouseID uuid.UUID `json:"warehouse_id"`
+}
+
+// GetPendingReturnInbound lists good-condition returns not yet stocked in.
+func (s *Service) GetPendingReturnInbound(ctx context.Context, warehouseID uuid.UUID) ([]PendingReturn, error) {
+	return s.repo.GetPendingReturns(ctx, warehouseID)
+}
+
+// ProcessReturnInbound creates a return_inbound stock move for good-condition returns.
+// Per BR-WMS-03: good → tái sử dụng (reusable, put back to stock).
+func (s *Service) ProcessReturnInbound(ctx context.Context, returnCollectionID, warehouseID uuid.UUID, userID uuid.UUID) (*domain.StockMove, error) {
+	// Verify the return exists and is good condition by checking pending returns
+	pending, err := s.repo.GetPendingReturns(ctx, warehouseID)
+	if err != nil {
+		return nil, fmt.Errorf("get pending returns: %w", err)
+	}
+
+	var target *PendingReturn
+	for i := range pending {
+		if pending[i].ID == returnCollectionID {
+			target = &pending[i]
+			break
+		}
+	}
+	if target == nil {
+		return nil, fmt.Errorf("return_collection không tìm thấy hoặc đã nhập kho")
+	}
+
+	moveNumber := fmt.Sprintf("RT-%s", time.Now().Format("20060102-150405"))
+	refType := "return_collection"
+	items, _ := json.Marshal([]map[string]interface{}{
+		{"asset_type": target.AssetType, "quantity": target.Quantity, "condition": target.Condition},
+	})
+
+	move := domain.StockMove{
+		MoveNumber:    moveNumber,
+		MoveType:      "return_inbound",
+		WarehouseID:   warehouseID,
+		ReferenceType: &refType,
+		ReferenceID:   &returnCollectionID,
+		Items:         items,
+		TotalItems:    target.Quantity,
+		CreatedBy:     userID,
+	}
+
+	id, err := s.repo.CreateStockMove(ctx, move)
+	if err != nil {
+		return nil, err
+	}
+	move.ID = id
+	move.CreatedAt = time.Now()
+	return &move, nil
+}
+
+// ── Asset Compensation (Task 3.13) ──────────────────
+
+// AssetCompensation represents the calculated compensation for a lost asset.
+type AssetCompensation struct {
+	ReturnCollectionID uuid.UUID `json:"return_collection_id"`
+	CustomerID         uuid.UUID `json:"customer_id"`
+	AssetType          string    `json:"asset_type"`
+	Quantity           int       `json:"quantity"`
+	UnitPrice          float64   `json:"unit_price"`
+	TotalCompensation  float64   `json:"total_compensation"`
+}
+
+// CalculateAssetCompensation calculates compensation for lost assets.
+// Per BR-WMS-03: lost → bồi hoàn = qty_lost × asset_price.
+func (s *Service) CalculateAssetCompensation(ctx context.Context, warehouseID uuid.UUID) ([]AssetCompensation, float64, error) {
+	lost, err := s.repo.GetAllLostReturns(ctx, warehouseID)
+	if err != nil {
+		return nil, 0, fmt.Errorf("get lost returns: %w", err)
+	}
+
+	var results []AssetCompensation
+	var grandTotal float64
+	for _, lr := range lost {
+		price, err := s.repo.GetAssetPrice(ctx, lr.AssetType)
+		if err != nil {
+			price = 0
+		}
+		comp := AssetCompensation{
+			ReturnCollectionID: lr.ID,
+			CustomerID:         lr.CustomerID,
+			AssetType:          lr.AssetType,
+			Quantity:           lr.Quantity,
+			UnitPrice:          price,
+			TotalCompensation:  float64(lr.Quantity) * price,
+		}
+		grandTotal += comp.TotalCompensation
+		results = append(results, comp)
+	}
+	return results, grandTotal, nil
+}
+
+// CalculateTripCompensation calculates compensation for lost assets on a specific trip.
+func (s *Service) CalculateTripCompensation(ctx context.Context, tripID uuid.UUID) ([]AssetCompensation, float64, error) {
+	lost, err := s.repo.GetLostReturnsByTrip(ctx, tripID)
+	if err != nil {
+		return nil, 0, fmt.Errorf("get lost returns: %w", err)
+	}
+
+	var results []AssetCompensation
+	var grandTotal float64
+	for _, lr := range lost {
+		price, err := s.repo.GetAssetPrice(ctx, lr.AssetType)
+		if err != nil {
+			price = 0
+		}
+		comp := AssetCompensation{
+			ReturnCollectionID: lr.ID,
+			CustomerID:         lr.CustomerID,
+			AssetType:          lr.AssetType,
+			Quantity:           lr.Quantity,
+			UnitPrice:          price,
+			TotalCompensation:  float64(lr.Quantity) * price,
+		}
+		grandTotal += comp.TotalCompensation
+		results = append(results, comp)
+	}
+	return results, grandTotal, nil
+}

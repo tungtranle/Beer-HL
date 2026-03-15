@@ -3,6 +3,7 @@ package tms
 import (
 	"context"
 	"fmt"
+	"time"
 
 	"bhl-oms/internal/domain"
 
@@ -20,15 +21,47 @@ func NewRepository(db *pgxpool.Pool) *Repository {
 }
 
 // ===== SHIPMENTS =====
+func (r *Repository) ListPendingDates(ctx context.Context, warehouseID uuid.UUID) ([]map[string]interface{}, error) {
+	rows, err := r.db.Query(ctx, `
+		SELECT s.delivery_date::text, COUNT(*) as shipment_count,
+		       COALESCE(SUM(s.total_weight_kg), 0) as total_weight_kg
+		FROM shipments s
+		WHERE s.warehouse_id = $1 AND s.status = 'pending'
+		GROUP BY s.delivery_date
+		ORDER BY s.delivery_date
+	`, warehouseID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var dates []map[string]interface{}
+	for rows.Next() {
+		var date string
+		var count int
+		var weight float64
+		if err := rows.Scan(&date, &count, &weight); err != nil {
+			return nil, err
+		}
+		dates = append(dates, map[string]interface{}{
+			"delivery_date":   date,
+			"shipment_count":  count,
+			"total_weight_kg": weight,
+		})
+	}
+	return dates, nil
+}
+
 func (r *Repository) ListPendingShipments(ctx context.Context, warehouseID uuid.UUID, deliveryDate string) ([]domain.Shipment, error) {
 	rows, err := r.db.Query(ctx, `
 		SELECT s.id, s.shipment_number, s.order_id, s.customer_id, c.name, c.address,
 		       s.warehouse_id, s.status::text, s.delivery_date::text, s.total_weight_kg, s.total_volume_m3,
-		       c.latitude, c.longitude
+		       c.latitude, c.longitude, s.is_urgent, s.created_at, o.created_at, o.approved_at
 		FROM shipments s
 		JOIN customers c ON c.id = s.customer_id
+		LEFT JOIN sales_orders o ON o.id = s.order_id
 		WHERE s.warehouse_id = $1 AND s.delivery_date = $2 AND s.status = 'pending'
-		ORDER BY c.route_code, c.name
+		ORDER BY s.is_urgent DESC, o.created_at ASC NULLS LAST, c.route_code, c.name
 	`, warehouseID, deliveryDate)
 	if err != nil {
 		return nil, err
@@ -40,12 +73,17 @@ func (r *Repository) ListPendingShipments(ctx context.Context, warehouseID uuid.
 		var s domain.Shipment
 		if err := rows.Scan(&s.ID, &s.ShipmentNumber, &s.OrderID, &s.CustomerID, &s.CustomerName, &s.CustomerAddress,
 			&s.WarehouseID, &s.Status, &s.DeliveryDate, &s.TotalWeightKg, &s.TotalVolumeM3,
-			&s.Latitude, &s.Longitude); err != nil {
+			&s.Latitude, &s.Longitude, &s.IsUrgent, &s.CreatedAt, &s.OrderCreatedAt, &s.OrderConfirmedAt); err != nil {
 			return nil, err
 		}
 		shipments = append(shipments, s)
 	}
 	return shipments, nil
+}
+
+func (r *Repository) ToggleUrgent(ctx context.Context, shipmentID uuid.UUID, isUrgent bool) error {
+	_, err := r.db.Exec(ctx, `UPDATE shipments SET is_urgent = $1, updated_at = now() WHERE id = $2`, isUrgent, shipmentID)
+	return err
 }
 
 // ===== VEHICLES =====
@@ -213,6 +251,90 @@ func (r *Repository) ListAvailableDrivers(ctx context.Context, warehouseID uuid.
 		drivers = append(drivers, d)
 	}
 	return drivers, nil
+}
+
+// ===== DRIVER CHECK-IN =====
+func (r *Repository) UpsertDriverCheckin(ctx context.Context, driverID uuid.UUID, date, status string, reason, note *string) (*domain.DriverCheckin, error) {
+	var c domain.DriverCheckin
+	err := r.db.QueryRow(ctx, `
+		INSERT INTO driver_checkins (driver_id, checkin_date, status, reason, note)
+		VALUES ($1, $2, $3, $4, $5)
+		ON CONFLICT (driver_id, checkin_date) DO UPDATE
+		SET status = EXCLUDED.status, reason = EXCLUDED.reason, note = EXCLUDED.note, checked_in_at = NOW()
+		RETURNING id, driver_id, checkin_date::text, status, reason, note, checked_in_at
+	`, driverID, date, status, reason, note).Scan(
+		&c.ID, &c.DriverID, &c.CheckinDate, &c.Status, &c.Reason, &c.Note, &c.CheckedInAt)
+	return &c, err
+}
+
+func (r *Repository) GetDriverCheckin(ctx context.Context, driverID uuid.UUID, date string) (*domain.DriverCheckin, error) {
+	var c domain.DriverCheckin
+	err := r.db.QueryRow(ctx, `
+		SELECT id, driver_id, checkin_date::text, status, reason, note, checked_in_at
+		FROM driver_checkins WHERE driver_id = $1 AND checkin_date = $2
+	`, driverID, date).Scan(
+		&c.ID, &c.DriverID, &c.CheckinDate, &c.Status, &c.Reason, &c.Note, &c.CheckedInAt)
+	if err != nil {
+		return nil, err
+	}
+	return &c, nil
+}
+
+func (r *Repository) ListDriverCheckinsForDate(ctx context.Context, warehouseID uuid.UUID, date string) ([]map[string]interface{}, error) {
+	rows, err := r.db.Query(ctx, `
+		SELECT d.id, d.full_name, d.phone, d.status::text as driver_status,
+		       COALESCE(dc.status, 'not_checked_in') as checkin_status,
+		       dc.reason, dc.checked_in_at,
+		       CASE WHEN EXISTS (
+		           SELECT 1 FROM trips t WHERE t.driver_id = d.id AND t.planned_date = $2
+		           AND t.status NOT IN ('completed', 'cancelled', 'closed')
+		       ) THEN true ELSE false END as has_active_trip
+		FROM drivers d
+		LEFT JOIN driver_checkins dc ON dc.driver_id = d.id AND dc.checkin_date = $2
+		WHERE d.warehouse_id = $1 AND d.status != 'inactive'
+		ORDER BY CASE COALESCE(dc.status, 'not_checked_in')
+		    WHEN 'available' THEN 1 WHEN 'not_checked_in' THEN 2 WHEN 'off_duty' THEN 3 END,
+		    d.full_name
+	`, warehouseID, date)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var results []map[string]interface{}
+	for rows.Next() {
+		var id uuid.UUID
+		var fullName, phone, driverStatus, checkinStatus string
+		var reason *string
+		var checkedInAt *time.Time
+		var hasActiveTrip bool
+		if err := rows.Scan(&id, &fullName, &phone, &driverStatus, &checkinStatus, &reason, &checkedInAt, &hasActiveTrip); err != nil {
+			return nil, err
+		}
+
+		// Determine display status
+		displayStatus := checkinStatus
+		if hasActiveTrip {
+			displayStatus = "on_trip"
+		}
+
+		result := map[string]interface{}{
+			"id":              id,
+			"full_name":       fullName,
+			"phone":           phone,
+			"driver_status":   driverStatus,
+			"checkin_status":  displayStatus,
+			"has_active_trip": hasActiveTrip,
+		}
+		if reason != nil {
+			result["reason"] = *reason
+		}
+		if checkedInAt != nil {
+			result["checked_in_at"] = checkedInAt
+		}
+		results = append(results, result)
+	}
+	return results, nil
 }
 
 func (r *Repository) GetWarehouse(ctx context.Context, warehouseID uuid.UUID) (float64, float64, error) {
