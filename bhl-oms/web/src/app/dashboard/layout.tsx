@@ -11,11 +11,13 @@ const navItems = [
   { href: '/dashboard/orders/new', label: 'Tạo đơn hàng', icon: '➕', roles: ['admin', 'dispatcher', 'dvkh'] },
   { href: '/dashboard/planning', label: 'Lập kế hoạch', icon: '🗺️', roles: ['admin', 'dispatcher'] },
   { href: '/dashboard/trips', label: 'Chuyến xe', icon: '🚛', roles: ['admin', 'dispatcher'] },
+  { href: '/dashboard/map', label: 'Bản đồ GPS', icon: '🗺️', roles: ['admin', 'dispatcher'] },
   { href: '/dashboard/driver', label: 'Chuyến xe của tôi', icon: '🚚', roles: ['driver'] },
   { href: '/dashboard/products', label: 'Sản phẩm', icon: '📦', roles: ['admin', 'dispatcher', 'dvkh'] },
   { href: '/dashboard/customers', label: 'Khách hàng', icon: '🏪', roles: ['admin', 'dispatcher', 'dvkh'] },
   { href: '/dashboard/vehicles', label: 'Phương tiện', icon: '🚗', roles: ['admin', 'dispatcher'] },
   { href: '/dashboard/drivers-list', label: 'Tài xế', icon: '👤', roles: ['admin', 'dispatcher'] },
+  { href: '/dashboard/pda-scanner', label: 'Quét barcode', icon: '📱', roles: ['admin', 'dispatcher', 'warehouse'] },
 ]
 
 export default function DashboardLayout({ children }: { children: React.ReactNode }) {
