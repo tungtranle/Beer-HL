@@ -1,0 +1,22 @@
+{
+  "name": "BHL OMS-TMS-WMS",
+  "short_name": "BHL System",
+  "description": "Beer Hà Nội Logistics - Order, Transport & Warehouse Management",
+  "start_url": "/dashboard",
+  "display": "standalone",
+  "background_color": "#1f2937",
+  "theme_color": "#d97706",
+  "orientation": "portrait-primary",
+  "icons": [
+    {
+      "src": "/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png"
+    },
+    {
+      "src": "/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png"
+    }
+  ]
+}

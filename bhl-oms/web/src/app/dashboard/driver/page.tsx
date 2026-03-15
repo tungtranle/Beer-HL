@@ -3,6 +3,8 @@
 import { useEffect, useState } from 'react'
 import Link from 'next/link'
 import { apiFetch, getUser } from '@/lib/api'
+import { useGpsTracker } from '@/lib/useGpsTracker'
+import { useOfflineSync } from '@/lib/useOfflineSync'
 
 interface Trip {
   id: string
@@ -41,6 +43,11 @@ export default function DriverPage() {
   const [trips, setTrips] = useState<Trip[]>([])
   const [loading, setLoading] = useState(true)
   const user = getUser()
+
+  // Start GPS tracking for driver
+  useGpsTracker()
+  // Start offline sync worker
+  useOfflineSync()
 
   const loadTrips = async () => {
     setLoading(true)

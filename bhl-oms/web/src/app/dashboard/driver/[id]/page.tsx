@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react'
 import { useParams, useRouter } from 'next/navigation'
 import Link from 'next/link'
 import { apiFetch, getUser } from '@/lib/api'
+import { useGpsTracker } from '@/lib/useGpsTracker'
 
 interface Stop {
   id: string
@@ -130,6 +131,9 @@ export default function DriverTripDetailPage() {
   const [loading, setLoading] = useState(true)
   const [actionLoading, setActionLoading] = useState(false)
   const user = getUser()
+
+  // Start GPS tracking for driver
+  useGpsTracker()
 
   // Modal state
   const [activeModal, setActiveModal] = useState<ModalType>(null)
