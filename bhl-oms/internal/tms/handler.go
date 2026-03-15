@@ -64,6 +64,17 @@ func (h *Handler) RegisterRoutes(r *gin.RouterGroup) {
 	driver.PUT("/trips/:id/complete", h.CompleteTrip)
 	driver.POST("/trips/:id/checklist", h.SubmitChecklist)
 	driver.GET("/trips/:id/checklist", h.GetChecklist)
+
+	// ePOD (Electronic Proof of Delivery)
+	driver.POST("/trips/:id/stops/:stopId/epod", h.SubmitEPOD)
+	driver.GET("/trips/:id/stops/:stopId/epod", h.GetEPOD)
+
+	// Payment
+	driver.POST("/trips/:id/stops/:stopId/payment", h.RecordPayment)
+
+	// Return collection
+	driver.POST("/trips/:id/stops/:stopId/returns", h.RecordReturns)
+	driver.GET("/trips/:id/stops/:stopId/returns", h.GetReturns)
 }
 
 func (h *Handler) ListPendingShipments(c *gin.Context) {
@@ -526,4 +537,121 @@ func (h *Handler) GetChecklist(c *gin.Context) {
 		return
 	}
 	response.OK(c, cl)
+}
+
+// ===== ePOD HANDLERS =====
+
+func (h *Handler) SubmitEPOD(c *gin.Context) {
+	tripID, err := uuid.Parse(c.Param("id"))
+	if err != nil {
+		response.BadRequest(c, "Invalid trip ID")
+		return
+	}
+	stopID, err := uuid.Parse(c.Param("stopId"))
+	if err != nil {
+		response.BadRequest(c, "Invalid stop ID")
+		return
+	}
+
+	var req SubmitEPODRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		response.BadRequest(c, "Dữ liệu ePOD không hợp lệ")
+		return
+	}
+
+	userID := middleware.GetUserID(c)
+	epod, err := h.svc.SubmitEPOD(c.Request.Context(), userID, tripID, stopID, req)
+	if err != nil {
+		response.Err(c, http.StatusBadRequest, "EPOD_FAILED", err.Error())
+		return
+	}
+	response.Created(c, epod)
+}
+
+func (h *Handler) GetEPOD(c *gin.Context) {
+	stopID, err := uuid.Parse(c.Param("stopId"))
+	if err != nil {
+		response.BadRequest(c, "Invalid stop ID")
+		return
+	}
+
+	epod, err := h.svc.GetEPOD(c.Request.Context(), stopID)
+	if err != nil {
+		response.NotFound(c, "Chưa có ePOD cho điểm giao này")
+		return
+	}
+	response.OK(c, epod)
+}
+
+// ===== PAYMENT HANDLERS =====
+
+func (h *Handler) RecordPayment(c *gin.Context) {
+	tripID, err := uuid.Parse(c.Param("id"))
+	if err != nil {
+		response.BadRequest(c, "Invalid trip ID")
+		return
+	}
+	stopID, err := uuid.Parse(c.Param("stopId"))
+	if err != nil {
+		response.BadRequest(c, "Invalid stop ID")
+		return
+	}
+
+	var req RecordPaymentRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		response.BadRequest(c, "Dữ liệu thanh toán không hợp lệ")
+		return
+	}
+
+	userID := middleware.GetUserID(c)
+	payment, err := h.svc.RecordPayment(c.Request.Context(), userID, tripID, stopID, req)
+	if err != nil {
+		response.Err(c, http.StatusBadRequest, "PAYMENT_FAILED", err.Error())
+		return
+	}
+	response.Created(c, payment)
+}
+
+// ===== RETURN COLLECTION HANDLERS =====
+
+func (h *Handler) RecordReturns(c *gin.Context) {
+	tripID, err := uuid.Parse(c.Param("id"))
+	if err != nil {
+		response.BadRequest(c, "Invalid trip ID")
+		return
+	}
+	stopID, err := uuid.Parse(c.Param("stopId"))
+	if err != nil {
+		response.BadRequest(c, "Invalid stop ID")
+		return
+	}
+
+	var req RecordReturnsRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		response.BadRequest(c, "Dữ liệu thu hồi không hợp lệ")
+		return
+	}
+
+	userID := middleware.GetUserID(c)
+	returns, err := h.svc.RecordReturns(c.Request.Context(), userID, tripID, stopID, req)
+	if err != nil {
+		response.Err(c, http.StatusBadRequest, "RETURN_FAILED", err.Error())
+		return
+	}
+	response.Created(c, returns)
+}
+
+func (h *Handler) GetReturns(c *gin.Context) {
+	stopID, err := uuid.Parse(c.Param("stopId"))
+	if err != nil {
+		response.BadRequest(c, "Invalid stop ID")
+		return
+	}
+
+	returns, err := h.svc.GetReturns(c.Request.Context(), stopID)
+	if err != nil {
+		response.NotFound(c, "Chưa có thu hồi cho điểm giao này")
+		return
+	}
+	response.OK(c, returns)
 }

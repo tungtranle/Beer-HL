@@ -392,3 +392,50 @@ type ReturnCollection struct {
 	CreatedAt            time.Time  `json:"created_at"`
 	UpdatedAt            time.Time  `json:"updated_at"`
 }
+
+// ===== ePOD (Electronic Proof of Delivery) =====
+type EPOD struct {
+	ID             uuid.UUID       `json:"id"`
+	TripStopID     uuid.UUID       `json:"trip_stop_id"`
+	DriverID       uuid.UUID       `json:"driver_id"`
+	CustomerID     uuid.UUID       `json:"customer_id"`
+	DeliveredItems json.RawMessage `json:"delivered_items"`
+	ReceiverName   *string         `json:"receiver_name,omitempty"`
+	ReceiverPhone  *string         `json:"receiver_phone,omitempty"`
+	SignatureURL   *string         `json:"signature_url,omitempty"`
+	PhotoURLs      []string        `json:"photo_urls"`
+	TotalAmount    float64         `json:"total_amount"`
+	DepositAmount  float64         `json:"deposit_amount"`
+	DeliveryStatus string          `json:"delivery_status"`
+	Notes          *string         `json:"notes,omitempty"`
+	CreatedAt      time.Time       `json:"created_at"`
+	UpdatedAt      time.Time       `json:"updated_at"`
+}
+
+type EPODItem struct {
+	ProductID    uuid.UUID `json:"product_id"`
+	ProductName  string    `json:"product_name,omitempty"`
+	OrderedQty   int       `json:"ordered_qty"`
+	DeliveredQty int       `json:"delivered_qty"`
+	Reason       string    `json:"reason,omitempty"`
+}
+
+// ===== PAYMENT =====
+type Payment struct {
+	ID              uuid.UUID  `json:"id"`
+	TripStopID      uuid.UUID  `json:"trip_stop_id"`
+	EPODID          *uuid.UUID `json:"epod_id,omitempty"`
+	CustomerID      uuid.UUID  `json:"customer_id"`
+	DriverID        uuid.UUID  `json:"driver_id"`
+	OrderID         *uuid.UUID `json:"order_id,omitempty"`
+	PaymentMethod   string     `json:"payment_method"`
+	Amount          float64    `json:"amount"`
+	Status          string     `json:"status"`
+	ReferenceNumber *string    `json:"reference_number,omitempty"`
+	Notes           *string    `json:"notes,omitempty"`
+	CollectedAt     time.Time  `json:"collected_at"`
+	ConfirmedAt     *time.Time `json:"confirmed_at,omitempty"`
+	ConfirmedBy     *uuid.UUID `json:"confirmed_by,omitempty"`
+	CreatedAt       time.Time  `json:"created_at"`
+	UpdatedAt       time.Time  `json:"updated_at"`
+}

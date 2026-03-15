@@ -867,3 +867,304 @@ func (s *Service) SubmitChecklist(ctx context.Context, userID, tripID uuid.UUID,
 func (s *Service) GetChecklist(ctx context.Context, tripID uuid.UUID) (*domain.TripChecklist, error) {
 	return s.repo.GetChecklistByTripID(ctx, tripID)
 }
+
+// ===== ePOD (Electronic Proof of Delivery) =====
+
+type SubmitEPODRequest struct {
+	DeliveryStatus string            `json:"delivery_status"` // delivered, partial, rejected
+	DeliveredItems []domain.EPODItem `json:"delivered_items"`
+	ReceiverName   *string           `json:"receiver_name"`
+	ReceiverPhone  *string           `json:"receiver_phone"`
+	SignatureURL   *string           `json:"signature_url"`
+	PhotoURLs      []string          `json:"photo_urls"`
+	Notes          *string           `json:"notes"`
+}
+
+func (s *Service) SubmitEPOD(ctx context.Context, userID, tripID, stopID uuid.UUID, req SubmitEPODRequest) (*domain.EPOD, error) {
+	trip, err := s.repo.GetTrip(ctx, tripID)
+	if err != nil {
+		return nil, fmt.Errorf("trip not found: %w", err)
+	}
+
+	driver, err := s.repo.GetDriverByUserID(ctx, userID)
+	if err != nil {
+		return nil, fmt.Errorf("driver not found: %w", err)
+	}
+	if trip.DriverID == nil || *trip.DriverID != driver.ID {
+		return nil, fmt.Errorf("không có quyền thao tác chuyến xe này")
+	}
+
+	if trip.Status != "in_transit" {
+		return nil, fmt.Errorf("chuyến xe chưa bắt đầu")
+	}
+
+	stop, err := s.repo.GetTripStopByID(ctx, stopID)
+	if err != nil {
+		return nil, fmt.Errorf("stop not found: %w", err)
+	}
+	if stop.TripID != tripID {
+		return nil, fmt.Errorf("stop không thuộc chuyến xe này")
+	}
+
+	if stop.Status != "arrived" && stop.Status != "delivering" {
+		return nil, fmt.Errorf("phải đến điểm giao trước khi làm ePOD")
+	}
+
+	// Check if ePOD already exists
+	existing, _ := s.repo.GetEPODByStopID(ctx, stopID)
+	if existing != nil {
+		return nil, fmt.Errorf("ePOD đã tồn tại cho điểm giao này")
+	}
+
+	// Validate delivery status
+	if req.DeliveryStatus == "" {
+		req.DeliveryStatus = "delivered"
+	}
+	validStatuses := map[string]bool{"delivered": true, "partial": true, "rejected": true}
+	if !validStatuses[req.DeliveryStatus] {
+		return nil, fmt.Errorf("delivery_status không hợp lệ: %s", req.DeliveryStatus)
+	}
+
+	// Calculate total from delivered items
+	var totalAmount, depositAmount float64
+	for _, item := range req.DeliveredItems {
+		// amounts will be calculated on client, we just store them
+		_ = item
+	}
+
+	// Get order amounts from stop
+	if stop.ShipmentID != nil {
+		totalAmount, depositAmount, _ = s.repo.GetOrderAmountsByShipment(ctx, *stop.ShipmentID)
+	}
+
+	// If partial or rejected, adjust amounts based on delivered qty ratio
+	if req.DeliveryStatus == "partial" {
+		var orderedTotal, deliveredTotal int
+		for _, item := range req.DeliveredItems {
+			orderedTotal += item.OrderedQty
+			deliveredTotal += item.DeliveredQty
+		}
+		if orderedTotal > 0 {
+			ratio := float64(deliveredTotal) / float64(orderedTotal)
+			totalAmount = totalAmount * ratio
+			depositAmount = depositAmount * ratio
+		}
+	} else if req.DeliveryStatus == "rejected" {
+		totalAmount = 0
+		depositAmount = 0
+	}
+
+	itemsJSON, err := json.Marshal(req.DeliveredItems)
+	if err != nil {
+		return nil, fmt.Errorf("marshal delivered items: %w", err)
+	}
+
+	photoURLs := req.PhotoURLs
+	if photoURLs == nil {
+		photoURLs = []string{}
+	}
+
+	epod := &domain.EPOD{
+		TripStopID:     stopID,
+		DriverID:       driver.ID,
+		CustomerID:     stop.CustomerID,
+		DeliveredItems: itemsJSON,
+		ReceiverName:   req.ReceiverName,
+		ReceiverPhone:  req.ReceiverPhone,
+		SignatureURL:   req.SignatureURL,
+		PhotoURLs:      photoURLs,
+		TotalAmount:    totalAmount,
+		DepositAmount:  depositAmount,
+		DeliveryStatus: req.DeliveryStatus,
+		Notes:          req.Notes,
+	}
+
+	if err := s.repo.CreateEPOD(ctx, epod); err != nil {
+		return nil, fmt.Errorf("create epod: %w", err)
+	}
+
+	// Update stop status based on delivery
+	switch req.DeliveryStatus {
+	case "delivered":
+		_ = s.repo.DeliverStop(ctx, stopID, req.Notes)
+	case "partial":
+		_ = s.repo.UpdateTripStopStatus(ctx, stopID, "partially_delivered")
+	case "rejected":
+		_ = s.repo.FailStop(ctx, stopID, req.Notes)
+	}
+
+	return epod, nil
+}
+
+func (s *Service) GetEPOD(ctx context.Context, stopID uuid.UUID) (*domain.EPOD, error) {
+	return s.repo.GetEPODByStopID(ctx, stopID)
+}
+
+// ===== PAYMENT =====
+
+type RecordPaymentRequest struct {
+	PaymentMethod   string  `json:"payment_method"` // cash, transfer, credit, cod
+	Amount          float64 `json:"amount"`
+	ReferenceNumber *string `json:"reference_number,omitempty"`
+	Notes           *string `json:"notes,omitempty"`
+}
+
+func (s *Service) RecordPayment(ctx context.Context, userID, tripID, stopID uuid.UUID, req RecordPaymentRequest) (*domain.Payment, error) {
+	trip, err := s.repo.GetTrip(ctx, tripID)
+	if err != nil {
+		return nil, fmt.Errorf("trip not found: %w", err)
+	}
+
+	driver, err := s.repo.GetDriverByUserID(ctx, userID)
+	if err != nil {
+		return nil, fmt.Errorf("driver not found: %w", err)
+	}
+	if trip.DriverID == nil || *trip.DriverID != driver.ID {
+		return nil, fmt.Errorf("không có quyền thao tác chuyến xe này")
+	}
+
+	stop, err := s.repo.GetTripStopByID(ctx, stopID)
+	if err != nil {
+		return nil, fmt.Errorf("stop not found: %w", err)
+	}
+	if stop.TripID != tripID {
+		return nil, fmt.Errorf("stop không thuộc chuyến xe này")
+	}
+
+	// Validate payment method
+	validMethods := map[string]bool{"cash": true, "transfer": true, "credit": true, "cod": true}
+	if !validMethods[req.PaymentMethod] {
+		return nil, fmt.Errorf("phương thức thanh toán không hợp lệ: %s", req.PaymentMethod)
+	}
+
+	if req.Amount <= 0 {
+		return nil, fmt.Errorf("số tiền phải lớn hơn 0")
+	}
+
+	// Get order_id from shipment
+	var orderID *uuid.UUID
+	if stop.ShipmentID != nil {
+		oid, err := s.repo.GetOrderIDByShipment(ctx, *stop.ShipmentID)
+		if err == nil {
+			orderID = &oid
+		}
+	}
+
+	// Get ePOD ID if exists
+	var epodID *uuid.UUID
+	epod, _ := s.repo.GetEPODByStopID(ctx, stopID)
+	if epod != nil {
+		epodID = &epod.ID
+	}
+
+	payment := &domain.Payment{
+		TripStopID:      stopID,
+		EPODID:          epodID,
+		CustomerID:      stop.CustomerID,
+		DriverID:        driver.ID,
+		OrderID:         orderID,
+		PaymentMethod:   req.PaymentMethod,
+		Amount:          req.Amount,
+		Status:          "collected",
+		ReferenceNumber: req.ReferenceNumber,
+		Notes:           req.Notes,
+	}
+
+	if err := s.repo.CreatePayment(ctx, payment); err != nil {
+		return nil, fmt.Errorf("create payment: %w", err)
+	}
+
+	// If payment method is credit, record in receivable_ledger
+	if req.PaymentMethod == "credit" && orderID != nil {
+		_ = s.repo.CreateCreditLedgerEntry(ctx, stop.CustomerID, *orderID, req.Amount, driver.ID)
+	}
+
+	return payment, nil
+}
+
+// ===== RETURN COLLECTION =====
+
+type ReturnItem struct {
+	AssetType string `json:"asset_type"` // bottle, crate, keg, pallet
+	Quantity  int    `json:"quantity"`
+	Condition string `json:"condition"` // good, damaged, lost
+	PhotoURL  string `json:"photo_url,omitempty"`
+}
+
+type RecordReturnsRequest struct {
+	Items []ReturnItem `json:"items"`
+	Notes *string      `json:"notes,omitempty"`
+}
+
+func (s *Service) RecordReturns(ctx context.Context, userID, tripID, stopID uuid.UUID, req RecordReturnsRequest) ([]domain.ReturnCollection, error) {
+	trip, err := s.repo.GetTrip(ctx, tripID)
+	if err != nil {
+		return nil, fmt.Errorf("trip not found: %w", err)
+	}
+
+	driver, err := s.repo.GetDriverByUserID(ctx, userID)
+	if err != nil {
+		return nil, fmt.Errorf("driver not found: %w", err)
+	}
+	if trip.DriverID == nil || *trip.DriverID != driver.ID {
+		return nil, fmt.Errorf("không có quyền thao tác chuyến xe này")
+	}
+
+	stop, err := s.repo.GetTripStopByID(ctx, stopID)
+	if err != nil {
+		return nil, fmt.Errorf("stop not found: %w", err)
+	}
+	if stop.TripID != tripID {
+		return nil, fmt.Errorf("stop không thuộc chuyến xe này")
+	}
+
+	if len(req.Items) == 0 {
+		return nil, fmt.Errorf("phải có ít nhất 1 loại vỏ thu hồi")
+	}
+
+	var results []domain.ReturnCollection
+	for _, item := range req.Items {
+		// Validate asset type
+		validTypes := map[string]bool{"bottle": true, "crate": true, "keg": true, "pallet": true}
+		if !validTypes[item.AssetType] {
+			return nil, fmt.Errorf("loại vỏ không hợp lệ: %s", item.AssetType)
+		}
+		validConditions := map[string]bool{"good": true, "damaged": true, "lost": true}
+		if !validConditions[item.Condition] {
+			return nil, fmt.Errorf("tình trạng không hợp lệ: %s", item.Condition)
+		}
+		if item.Quantity <= 0 {
+			return nil, fmt.Errorf("số lượng phải lớn hơn 0")
+		}
+
+		var photoURL *string
+		if item.PhotoURL != "" {
+			photoURL = &item.PhotoURL
+		}
+
+		rc := &domain.ReturnCollection{
+			TripStopID: stopID,
+			CustomerID: stop.CustomerID,
+			AssetType:  item.AssetType,
+			Quantity:   item.Quantity,
+			Condition:  item.Condition,
+			PhotoURL:   photoURL,
+			CreatedBy:  &driver.ID,
+		}
+
+		if err := s.repo.CreateReturnCollection(ctx, rc); err != nil {
+			return nil, fmt.Errorf("create return collection: %w", err)
+		}
+
+		// Record in asset_ledger (direction = 'in' for returns)
+		_ = s.repo.CreateAssetLedgerEntry(ctx, stop.CustomerID, item.AssetType, "in", item.Quantity, item.Condition, "return_collection", rc.ID, driver.ID)
+
+		results = append(results, *rc)
+	}
+
+	return results, nil
+}
+
+func (s *Service) GetReturns(ctx context.Context, stopID uuid.UUID) ([]domain.ReturnCollection, error) {
+	return s.repo.GetReturnsByStopID(ctx, stopID)
+}

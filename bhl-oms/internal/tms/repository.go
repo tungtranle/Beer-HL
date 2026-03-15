@@ -574,3 +574,119 @@ func (r *Repository) GetChecklistByTripID(ctx context.Context, tripID uuid.UUID)
 	}
 	return &cl, nil
 }
+
+// ===== ePOD =====
+
+func (r *Repository) CreateEPOD(ctx context.Context, epod *domain.EPOD) error {
+	return r.db.QueryRow(ctx, `
+		INSERT INTO epod (trip_stop_id, driver_id, customer_id, delivered_items,
+			receiver_name, receiver_phone, signature_url, photo_urls,
+			total_amount, deposit_amount, delivery_status, notes)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+		RETURNING id, created_at, updated_at
+	`, epod.TripStopID, epod.DriverID, epod.CustomerID, epod.DeliveredItems,
+		epod.ReceiverName, epod.ReceiverPhone, epod.SignatureURL, epod.PhotoURLs,
+		epod.TotalAmount, epod.DepositAmount, epod.DeliveryStatus, epod.Notes,
+	).Scan(&epod.ID, &epod.CreatedAt, &epod.UpdatedAt)
+}
+
+func (r *Repository) GetEPODByStopID(ctx context.Context, stopID uuid.UUID) (*domain.EPOD, error) {
+	var e domain.EPOD
+	err := r.db.QueryRow(ctx, `
+		SELECT id, trip_stop_id, driver_id, customer_id, delivered_items,
+		       receiver_name, receiver_phone, signature_url, photo_urls,
+		       total_amount, deposit_amount, delivery_status, notes,
+		       created_at, updated_at
+		FROM epod WHERE trip_stop_id = $1
+	`, stopID).Scan(&e.ID, &e.TripStopID, &e.DriverID, &e.CustomerID, &e.DeliveredItems,
+		&e.ReceiverName, &e.ReceiverPhone, &e.SignatureURL, &e.PhotoURLs,
+		&e.TotalAmount, &e.DepositAmount, &e.DeliveryStatus, &e.Notes,
+		&e.CreatedAt, &e.UpdatedAt)
+	if err != nil {
+		return nil, err
+	}
+	return &e, nil
+}
+
+func (r *Repository) GetOrderAmountsByShipment(ctx context.Context, shipmentID uuid.UUID) (float64, float64, error) {
+	var totalAmount, depositAmount float64
+	err := r.db.QueryRow(ctx, `
+		SELECT so.total_amount, so.deposit_amount
+		FROM shipments sh JOIN sales_orders so ON so.id = sh.order_id
+		WHERE sh.id = $1
+	`, shipmentID).Scan(&totalAmount, &depositAmount)
+	return totalAmount, depositAmount, err
+}
+
+func (r *Repository) GetOrderIDByShipment(ctx context.Context, shipmentID uuid.UUID) (uuid.UUID, error) {
+	var orderID uuid.UUID
+	err := r.db.QueryRow(ctx, `SELECT order_id FROM shipments WHERE id = $1`, shipmentID).Scan(&orderID)
+	return orderID, err
+}
+
+// ===== PAYMENT =====
+
+func (r *Repository) CreatePayment(ctx context.Context, p *domain.Payment) error {
+	return r.db.QueryRow(ctx, `
+		INSERT INTO payments (trip_stop_id, epod_id, customer_id, driver_id, order_id,
+			payment_method, amount, status, reference_number, notes)
+		VALUES ($1, $2, $3, $4, $5, $6::payment_method, $7, $8::payment_status, $9, $10)
+		RETURNING id, collected_at, created_at, updated_at
+	`, p.TripStopID, p.EPODID, p.CustomerID, p.DriverID, p.OrderID,
+		p.PaymentMethod, p.Amount, p.Status, p.ReferenceNumber, p.Notes,
+	).Scan(&p.ID, &p.CollectedAt, &p.CreatedAt, &p.UpdatedAt)
+}
+
+func (r *Repository) CreateCreditLedgerEntry(ctx context.Context, customerID, orderID uuid.UUID, amount float64, createdBy uuid.UUID) error {
+	_, err := r.db.Exec(ctx, `
+		INSERT INTO receivable_ledger (customer_id, order_id, ledger_type, amount, description, created_by)
+		VALUES ($1, $2, 'debit', $3, 'Ghi nợ giao hàng - thanh toán công nợ', $4)
+	`, customerID, orderID, amount, createdBy)
+	return err
+}
+
+// ===== RETURN COLLECTION =====
+
+func (r *Repository) CreateReturnCollection(ctx context.Context, rc *domain.ReturnCollection) error {
+	return r.db.QueryRow(ctx, `
+		INSERT INTO return_collections (trip_stop_id, customer_id, asset_type, quantity, condition, photo_url, created_by)
+		VALUES ($1, $2, $3::asset_type, $4, $5::asset_condition, $6, $7)
+		RETURNING id, created_at, updated_at
+	`, rc.TripStopID, rc.CustomerID, rc.AssetType, rc.Quantity, rc.Condition, rc.PhotoURL, rc.CreatedBy,
+	).Scan(&rc.ID, &rc.CreatedAt, &rc.UpdatedAt)
+}
+
+func (r *Repository) GetReturnsByStopID(ctx context.Context, stopID uuid.UUID) ([]domain.ReturnCollection, error) {
+	rows, err := r.db.Query(ctx, `
+		SELECT id, trip_stop_id, customer_id, asset_type::text, quantity, condition::text,
+		       photo_url, workshop_confirmed_qty, workshop_confirmed_by, workshop_confirmed_at,
+		       discrepancy_qty, created_by, created_at, updated_at
+		FROM return_collections WHERE trip_stop_id = $1
+		ORDER BY created_at
+	`, stopID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var results []domain.ReturnCollection
+	for rows.Next() {
+		var rc domain.ReturnCollection
+		if err := rows.Scan(&rc.ID, &rc.TripStopID, &rc.CustomerID, &rc.AssetType, &rc.Quantity, &rc.Condition,
+			&rc.PhotoURL, &rc.WorkshopConfirmedQty, &rc.WorkshopConfirmedBy, &rc.WorkshopConfirmedAt,
+			&rc.DiscrepancyQty, &rc.CreatedBy, &rc.CreatedAt, &rc.UpdatedAt); err != nil {
+			return nil, err
+		}
+		results = append(results, rc)
+	}
+	return results, nil
+}
+
+func (r *Repository) CreateAssetLedgerEntry(ctx context.Context, customerID uuid.UUID, assetType, direction string, quantity int, condition, refType string, refID, createdBy uuid.UUID) error {
+	_, err := r.db.Exec(ctx, `
+		INSERT INTO asset_ledger (customer_id, asset_type, direction, quantity, condition,
+			reference_type, reference_id, created_by)
+		VALUES ($1, $2::asset_type, $3::asset_direction, $4, $5::asset_condition, $6, $7, $8)
+	`, customerID, assetType, direction, quantity, condition, refType, refID, createdBy)
+	return err
+}
