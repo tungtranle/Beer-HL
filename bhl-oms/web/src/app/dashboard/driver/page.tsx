@@ -18,6 +18,9 @@ interface Trip {
   vehicle_plate: string
   started_at: string | null
   completed_at: string | null
+  completed_stops?: number
+  next_stop_customer?: string
+  next_stop_address?: string
 }
 
 const statusColors: Record<string, string> = {
@@ -100,9 +103,14 @@ export default function DriverPage() {
   return (
     <div className="max-w-2xl mx-auto">
       {/* Header */}
-      <div className="mb-6">
-        <h1 className="text-2xl font-bold text-gray-900">🚚 Chuyến xe của tôi</h1>
-        <p className="text-gray-500 mt-1">Xin chào, {user?.full_name}</p>
+      <div className="mb-6 flex items-center justify-between">
+        <div>
+          <h1 className="text-2xl font-bold text-gray-900">🚚 Chuyến xe của tôi</h1>
+          <p className="text-gray-500 mt-1">Xin chào, {user?.full_name}</p>
+        </div>
+        <Link href="/dashboard/driver/profile" className="w-10 h-10 rounded-full bg-blue-100 flex items-center justify-center text-blue-600 hover:bg-blue-200 transition">
+          👤
+        </Link>
       </div>
 
       {/* Check-in Banner */}
@@ -173,6 +181,24 @@ export default function DriverPage() {
                     <div>⚖️ {trip.total_weight_kg.toFixed(0)} kg</div>
                     <div>⏱️ ~{trip.total_duration_min} phút</div>
                   </div>
+                  {/* Progress bar for in-transit trips */}
+                  {trip.status === 'in_transit' && trip.completed_stops !== undefined && (
+                    <div className="mt-2">
+                      <div className="flex items-center justify-between text-xs text-gray-500 mb-1">
+                        <span>Tiến độ: {trip.completed_stops}/{trip.total_stops} điểm</span>
+                        <span>{trip.total_stops > 0 ? Math.round(trip.completed_stops / trip.total_stops * 100) : 0}%</span>
+                      </div>
+                      <div className="w-full bg-gray-200 rounded-full h-2">
+                        <div className="bg-amber-500 h-2 rounded-full transition-all" style={{ width: `${trip.total_stops > 0 ? trip.completed_stops / trip.total_stops * 100 : 0}%` }} />
+                      </div>
+                    </div>
+                  )}
+                  {trip.status === 'in_transit' && trip.next_stop_customer && (
+                    <div className="mt-2 bg-blue-50 rounded-lg p-2 text-xs text-blue-700">
+                      <span className="font-medium">Điểm tiếp theo:</span> {trip.next_stop_customer}
+                      {trip.next_stop_address && <span className="text-blue-500"> · {trip.next_stop_address}</span>}
+                    </div>
+                  )}
                   {trip.status === 'in_transit' && (
                     <div className="mt-3 bg-amber-50 text-amber-700 text-center py-2 rounded-lg text-sm font-medium">
                       Nhấn để tiếp tục giao hàng →

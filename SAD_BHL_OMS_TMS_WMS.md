@@ -28,7 +28,7 @@
 | 9 | Section Observability đã đúng Go stack | Aligned với backend |
 | 10 | **Timeline rút từ 14 tuần → 8 tuần** (4 Phase thay 7 Sprint). Go-live ~15/05/2026 | Vibe coding acceleration — bottleneck là external dependencies, không phải code |
 
----
+---D
 
 # MỤC LỤC
 

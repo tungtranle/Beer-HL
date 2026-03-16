@@ -708,7 +708,7 @@ func (s *Service) StartTrip(ctx context.Context, userID, tripID uuid.UUID) error
 }
 
 type UpdateStopRequest struct {
-	Action string  `json:"action"` // arrive, deliver, fail, skip
+	Action string  `json:"action"` // arrive, delivering, deliver, fail, skip
 	Notes  *string `json:"notes,omitempty"`
 }
 
@@ -745,6 +745,12 @@ func (s *Service) UpdateStopStatus(ctx context.Context, userID, tripID, stopID u
 			return fmt.Errorf("điểm giao đang ở trạng thái '%s', không thể đánh dấu đến nơi", stop.Status)
 		}
 		return s.repo.ArriveAtStop(ctx, stopID)
+
+	case "delivering":
+		if stop.Status != "arrived" {
+			return fmt.Errorf("phải đến điểm giao trước khi bắt đầu hạ hàng")
+		}
+		return s.repo.UpdateTripStopStatus(ctx, stopID, "delivering")
 
 	case "deliver":
 		if stop.Status != "arrived" && stop.Status != "delivering" {

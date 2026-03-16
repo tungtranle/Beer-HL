@@ -51,6 +51,9 @@ func (h *Handler) RegisterRoutes(r *gin.RouterGroup) {
 	orders.POST("/:id/approve", middleware.RequireRole("admin", "accountant", "management"), h.ApproveOrder)
 	orders.POST("/:id/split", middleware.RequireRole("admin", "dispatcher"), h.SplitOrder)
 	orders.POST("/consolidate", middleware.RequireRole("admin", "dispatcher"), h.ConsolidateOrders)
+
+	// Pending approvals with credit details
+	orders.GET("/pending-approvals", middleware.RequireRole("admin", "accountant", "management"), h.ListPendingApprovals)
 }
 
 func (h *Handler) ListProducts(c *gin.Context) {
@@ -410,4 +413,13 @@ func (h *Handler) SplitOrder(c *gin.Context) {
 		return
 	}
 	response.OK(c, shipments)
+}
+
+func (h *Handler) ListPendingApprovals(c *gin.Context) {
+	orders, err := h.svc.ListPendingApprovals(c.Request.Context())
+	if err != nil {
+		response.InternalError(c)
+		return
+	}
+	response.OK(c, orders)
 }

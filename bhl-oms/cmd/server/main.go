@@ -9,6 +9,7 @@ import (
 	"syscall"
 	"time"
 
+	"bhl-oms/internal/admin"
 	"bhl-oms/internal/auth"
 	"bhl-oms/internal/config"
 	"bhl-oms/internal/gps"
@@ -178,8 +179,14 @@ func main() {
 	go integrationHooks.RunNightlyReconcileCron(appCtx)
 
 	// GPS routes (REST)
-	gpsHandler := gps.NewHandler(gpsHub)
+	gpsHandler := gps.NewHandler(gpsHub, pool)
 	gpsHandler.RegisterRoutes(protected)
+
+	// Admin module — user management
+	adminSvc := admin.NewService(pool)
+	adminHandler := admin.NewHandler(adminSvc)
+	adminHandler.RegisterRoutes(protected)
+	log.Println("\u2705 Admin module initialized (user management)")
 
 	// GPS WebSocket (authenticated via query token)
 	r.GET("/ws/gps", gpsHub.HandleWebSocket)
@@ -229,7 +236,14 @@ func main() {
 		var pendingShipments int64
 		pool.QueryRow(ctx, `SELECT COUNT(*) FROM shipments WHERE status = 'pending'`).Scan(&pendingShipments)
 
+		var pendingApprovals int64
+		pool.QueryRow(ctx, `SELECT COUNT(*) FROM sales_orders WHERE status = 'pending_approval'`).Scan(&pendingApprovals)
+
+		var totalOrders int64
+		pool.QueryRow(ctx, `SELECT COUNT(*) FROM sales_orders`).Scan(&totalOrders)
+
 		response.OK(c, gin.H{
+			"total_orders":          totalOrders,
 			"orders_today":          ordersToday,
 			"orders_confirmed":      ordersConfirmed,
 			"active_trips":          activeTrips,
@@ -239,6 +253,7 @@ func main() {
 			"total_stops_today":     totalStopsToday,
 			"revenue_today":         revenueToday,
 			"pending_discrepancies": pendingDiscrepancies,
+			"pending_approvals":     pendingApprovals,
 			"pending_shipments":     pendingShipments,
 			"total_products":        productCount,
 			"total_customers":       customerCount,

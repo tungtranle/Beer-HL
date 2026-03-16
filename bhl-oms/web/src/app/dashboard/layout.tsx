@@ -6,7 +6,7 @@ import { usePathname, useRouter } from 'next/navigation'
 import { getToken, getUser, clearAuth } from '@/lib/api'
 
 const navItems = [
-  { href: '/dashboard', label: 'Dashboard', icon: '📊', roles: ['admin', 'dispatcher', 'dvkh', 'accountant'] },
+  { href: '/dashboard', label: 'Tổng quan', icon: '📊', roles: ['admin', 'dispatcher', 'dvkh', 'accountant'] },
   { href: '/dashboard/orders', label: 'Đơn hàng', icon: '📋', roles: ['admin', 'dispatcher', 'dvkh', 'accountant'] },
   { href: '/dashboard/orders/new', label: 'Tạo đơn hàng', icon: '➕', roles: ['admin', 'dispatcher', 'dvkh'] },
   { href: '/dashboard/planning', label: 'Lập kế hoạch', icon: '🗺️', roles: ['admin', 'dispatcher'] },
@@ -17,8 +17,14 @@ const navItems = [
   { href: '/dashboard/customers', label: 'Khách hàng', icon: '🏪', roles: ['admin', 'dispatcher', 'dvkh'] },
   { href: '/dashboard/vehicles', label: 'Phương tiện', icon: '🚗', roles: ['admin', 'dispatcher'] },
   { href: '/dashboard/drivers-list', label: 'Tài xế', icon: '👤', roles: ['admin', 'dispatcher'] },
+  { href: '/dashboard/warehouse', label: 'Quản lý kho', icon: '🏭', roles: ['admin', 'warehouse'] },
   { href: '/dashboard/pda-scanner', label: 'Quét barcode', icon: '📱', roles: ['admin', 'dispatcher', 'warehouse'] },
+  { href: '/dashboard/gate-check', label: 'Kiểm tra cổng', icon: '🚧', roles: ['admin', 'warehouse', 'security'] },
+  { href: '/dashboard/approvals', label: 'Duyệt đơn hàng', icon: '✅', roles: ['admin', 'accountant'] },
   { href: '/dashboard/reconciliation', label: 'Đối soát', icon: '🔄', roles: ['admin', 'accountant'] },
+  { href: '/dashboard/reconciliation/daily-close', label: 'Chốt sổ ngày', icon: '📑', roles: ['admin', 'accountant'] },
+  { href: '/dashboard/kpi', label: 'Báo cáo KPI', icon: '📈', roles: ['admin', 'management'] },
+  { href: '/dashboard/settings', label: 'Quản trị hệ thống', icon: '⚙️', roles: ['admin'] },
 ]
 
 export default function DashboardLayout({ children }: { children: React.ReactNode }) {
@@ -45,6 +51,9 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
     dispatcher: 'Điều phối viên',
     accountant: 'Kế toán',
     driver: 'Tài xế',
+    warehouse: 'Thu kho',
+    security: 'Bảo vệ',
+    management: 'Ban giám đốc',
   }
 
   if (!user) return null
@@ -54,8 +63,8 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
       {/* Sidebar */}
       <aside className="w-64 bg-gray-900 text-white flex flex-col">
         <div className="p-4 border-b border-gray-700">
-          <h1 className="text-xl font-bold text-amber-400">🍺 BHL System</h1>
-          <p className="text-xs text-gray-400 mt-1">OMS - TMS - WMS</p>
+          <h1 className="text-xl font-bold text-amber-400">🍺 BHL</h1>
+          <p className="text-xs text-gray-400 mt-1">Đơn hàng · Vận chuyển · Kho</p>
         </div>
 
         <nav className="flex-1 py-4">

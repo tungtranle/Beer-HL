@@ -603,3 +603,97 @@ func (r *Repository) CreateSplitShipment(ctx context.Context, tx pgx.Tx, shipmen
 
 	return shipment, err
 }
+
+// ListPendingApprovals returns orders with pending_approval status, enriched with credit data and items
+func (r *Repository) ListPendingApprovals(ctx context.Context) ([]map[string]interface{}, error) {
+	rows, err := r.db.Query(ctx, `
+		SELECT so.id, so.order_number, so.customer_id, c.code, c.name,
+		       so.status::text, so.total_amount, so.delivery_date::text, so.created_at,
+		       COALESCE(cl.credit_limit, 0) as credit_limit,
+		       COALESCE((SELECT SUM(CASE WHEN rl.ledger_type = 'debit' THEN rl.amount ELSE -rl.amount END)
+		                 FROM receivable_ledger rl WHERE rl.customer_id = so.customer_id), 0) as current_balance,
+		       so.notes
+		FROM sales_orders so
+		JOIN customers c ON c.id = so.customer_id
+		LEFT JOIN credit_limits cl ON cl.customer_id = so.customer_id
+		     AND cl.effective_from <= CURRENT_DATE
+		     AND (cl.effective_to IS NULL OR cl.effective_to >= CURRENT_DATE)
+		WHERE so.status = 'pending_approval'
+		ORDER BY so.created_at DESC
+	`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var results []map[string]interface{}
+	for rows.Next() {
+		var id, customerID uuid.UUID
+		var orderNumber, customerCode, customerName, status, deliveryDate string
+		var totalAmount, creditLimit, currentBalance float64
+		var createdAt interface{}
+		var notes *string
+
+		if err := rows.Scan(&id, &orderNumber, &customerID, &customerCode, &customerName,
+			&status, &totalAmount, &deliveryDate, &createdAt, &creditLimit, &currentBalance, &notes); err != nil {
+			return nil, err
+		}
+
+		exceedAmount := (currentBalance + totalAmount) - creditLimit
+		if exceedAmount < 0 {
+			exceedAmount = 0
+		}
+
+		order := map[string]interface{}{
+			"id":              id,
+			"order_number":    orderNumber,
+			"customer_id":     customerID,
+			"customer_code":   customerCode,
+			"customer_name":   customerName,
+			"status":          status,
+			"total_amount":    totalAmount,
+			"delivery_date":   deliveryDate,
+			"created_at":      createdAt,
+			"credit_limit":    creditLimit,
+			"current_balance": currentBalance,
+			"available_limit": creditLimit - currentBalance,
+			"exceed_amount":   exceedAmount,
+			"notes":           notes,
+		}
+
+		// Load order items
+		itemRows, err := r.db.Query(ctx, `
+			SELECT oi.product_id, p.name, p.sku, oi.quantity, oi.unit_price, oi.amount
+			FROM order_items oi
+			JOIN products p ON p.id = oi.product_id
+			WHERE oi.order_id = $1
+		`, id)
+		if err == nil {
+			var items []map[string]interface{}
+			for itemRows.Next() {
+				var productID uuid.UUID
+				var productName, productSKU string
+				var qty int
+				var unitPrice, amount float64
+				if err := itemRows.Scan(&productID, &productName, &productSKU, &qty, &unitPrice, &amount); err == nil {
+					items = append(items, map[string]interface{}{
+						"product_id":   productID,
+						"product_name": productName,
+						"product_sku":  productSKU,
+						"quantity":     qty,
+						"unit_price":   unitPrice,
+						"amount":       amount,
+					})
+				}
+			}
+			itemRows.Close()
+			order["items"] = items
+		}
+
+		results = append(results, order)
+	}
+	if results == nil {
+		results = []map[string]interface{}{}
+	}
+	return results, nil
+}

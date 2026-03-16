@@ -8,6 +8,7 @@ interface VehiclePosition {
   vehicle_id: string
   vehicle_plate?: string
   driver_name?: string
+  trip_status?: string
   lat: number
   lng: number
   speed: number
@@ -95,18 +96,24 @@ export default function DispatcherMapPage() {
       })
 
       const existingMarker = markersRef.current.get(vehicleId)
+      const tripLabel = pos.trip_status === 'in_transit' ? 'Đang giao hàng' : pos.trip_status === 'planned' ? 'Chờ xuất phát' : pos.trip_status === 'started' ? 'Đã xuất phát' : ''
+      const popupContent = `
+        <div style="min-width:180px">
+          <b style="font-size:14px">${pos.vehicle_plate || vehicleId}</b><br/>
+          <span style="color:#555">👤 ${pos.driver_name || 'Chưa xác định'}</span><br/>
+          ${tripLabel ? `<span style="color:#2563eb">📦 ${tripLabel}</span><br/>` : ''}
+          <span style="color:#666">🚀 ${pos.speed?.toFixed(1) || 0} km/h</span><br/>
+          <span style="color:#999;font-size:11px">⏱️ ${pos.ts ? new Date(pos.ts).toLocaleTimeString('vi-VN') : '--'}</span>
+        </div>
+      `
       if (existingMarker) {
         existingMarker.setLatLng([pos.lat, pos.lng])
         existingMarker.setIcon(icon)
+        existingMarker.setPopupContent(popupContent)
       } else {
         const marker = L.marker([pos.lat, pos.lng], { icon })
           .addTo(mapRef.current)
-          .bindPopup(`
-            <b>${pos.vehicle_plate || vehicleId}</b><br/>
-            ${pos.driver_name || 'Driver'}<br/>
-            Tốc độ: ${pos.speed?.toFixed(1) || 0} km/h<br/>
-            Cập nhật: ${pos.ts ? new Date(pos.ts).toLocaleTimeString('vi-VN') : '--'}
-          `)
+          .bindPopup(popupContent)
         marker.on('click', () => setSelectedVehicle(vehicleId))
         markersRef.current.set(vehicleId, marker)
       }
@@ -178,10 +185,20 @@ export default function DispatcherMapPage() {
         })).json()
         if (res.data) {
           const posMap = new Map<string, VehiclePosition>()
-          Object.entries(res.data).forEach(([vehicleId, posStr]: [string, any]) => {
+          Object.entries(res.data).forEach(([vehicleId, posData]: [string, any]) => {
             try {
-              const pos = typeof posStr === 'string' ? JSON.parse(posStr) : posStr
-              posMap.set(vehicleId, { vehicle_id: vehicleId, ...pos })
+              const pos = typeof posData === 'string' ? JSON.parse(posData) : posData
+              posMap.set(vehicleId, {
+                vehicle_id: pos.vehicle_id || vehicleId,
+                vehicle_plate: pos.vehicle_plate || undefined,
+                driver_name: pos.driver_name || undefined,
+                trip_status: pos.trip_status || undefined,
+                lat: pos.lat,
+                lng: pos.lng,
+                speed: pos.speed,
+                heading: pos.heading,
+                ts: pos.ts,
+              })
             } catch { /* ignore */ }
           })
           setVehicles(prev => {
@@ -238,9 +255,23 @@ export default function DispatcherMapPage() {
               }`}>
               <div className="flex items-center gap-2">
                 <span className={`w-3 h-3 rounded-full ${v.speed > 2 ? 'bg-green-500' : 'bg-amber-500'}`} />
-                <span className="font-medium text-sm">{v.vehicle_plate || v.vehicle_id}</span>
+                <div>
+                  <span className="font-medium text-sm">{v.vehicle_plate || v.vehicle_id}</span>
+                  {v.driver_name && <span className="text-xs text-gray-500 ml-2">👤 {v.driver_name}</span>}
+                </div>
               </div>
-              <span className="text-xs text-gray-500">{v.speed?.toFixed(0) || 0} km/h</span>
+              <div className="text-right">
+                <span className="text-xs text-gray-500">{v.speed?.toFixed(0) || 0} km/h</span>
+                {v.trip_status && (
+                  <span className={`ml-2 text-xs px-1.5 py-0.5 rounded ${
+                    v.trip_status === 'in_transit' ? 'bg-green-100 text-green-700' :
+                    v.trip_status === 'planned' ? 'bg-yellow-100 text-yellow-700' :
+                    'bg-blue-100 text-blue-700'
+                  }`}>
+                    {v.trip_status === 'in_transit' ? 'Đang giao' : v.trip_status === 'planned' ? 'Chờ giao' : v.trip_status}
+                  </span>
+                )}
+              </div>
             </div>
           ))}
           {vehicles.size === 0 && (

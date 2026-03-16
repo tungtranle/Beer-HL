@@ -32,6 +32,7 @@ export default function NewOrderPage() {
   const [warehouseId, setWarehouseId] = useState('')
   const [deliveryDate, setDeliveryDate] = useState('')
   const [notes, setNotes] = useState('')
+  const [isUrgent, setIsUrgent] = useState(false)
   const [items, setItems] = useState<OrderItem[]>([])
   const [atpResults, setAtpResults] = useState<Record<string, ATPResult>>({})
   const [atpLoading, setAtpLoading] = useState(false)
@@ -171,6 +172,7 @@ export default function NewOrderPage() {
           warehouse_id: warehouseId,
           delivery_date: deliveryDate,
           notes: notes || undefined,
+          is_urgent: isUrgent || undefined,
           items: items.map((i) => ({ product_id: i.product_id, quantity: i.quantity })),
         },
       })
@@ -261,13 +263,27 @@ export default function NewOrderPage() {
             </div>
           </div>
 
+          {/* Urgent order toggle */}
+          <div className="mt-4">
+            <label className="inline-flex items-center gap-2 cursor-pointer select-none">
+              <input
+                type="checkbox"
+                checked={isUrgent}
+                onChange={(e) => setIsUrgent(e.target.checked)}
+                className="w-4 h-4 text-red-600 border-gray-300 rounded focus:ring-red-500"
+              />
+              <span className="text-sm font-medium text-gray-700">⚡ Đơn gấp</span>
+              {isUrgent && <span className="text-xs text-red-600 bg-red-50 px-2 py-0.5 rounded-full">Ưu tiên giao trước</span>}
+            </label>
+          </div>
+
           {/* Credit info panel */}
           {creditInfo && (
             <div className="mt-4 border rounded-lg overflow-hidden">
               <div className={`px-4 py-2 text-sm font-semibold ${
                 creditInfo.available_limit > 0 ? 'bg-blue-50 text-blue-800' : 'bg-red-50 text-red-800'
               }`}>
-                💳 Hạn mức tín dụng — {creditInfo.code}
+                💳 Hạn mức nợ — {creditInfo.code}
               </div>
               <div className="px-4 py-3 bg-white">
                 <div className="grid grid-cols-3 gap-4 text-sm">
@@ -385,6 +401,8 @@ export default function NewOrderPage() {
                           <span className="text-gray-400 text-xs">—</span>
                         ) : atpLoading ? (
                           <span className="text-gray-400 text-xs">Đang kiểm...</span>
+                        ) : !warehouseId ? (
+                          <span className="text-gray-400 text-xs">Chọn kho để kiểm tra</span>
                         ) : atpChecked ? (
                           <div className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-semibold ${
                             atpOk ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'
@@ -394,7 +412,11 @@ export default function NewOrderPage() {
                             <span className="text-gray-400">/ Đặt: {formatNumber(item.quantity)}</span>
                           </div>
                         ) : (
-                          <span className="text-gray-400 text-xs">Chọn kho để kiểm tra</span>
+                          <div className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-semibold bg-red-100 text-red-700">
+                            <span>❌</span>
+                            <span>ATP: 0</span>
+                            <span className="text-gray-400">/ Đặt: {formatNumber(item.quantity)}</span>
+                          </div>
                         )}
                       </td>
                       <td className="py-2 px-3">
@@ -480,7 +502,7 @@ export default function NewOrderPage() {
                   <span className="text-xl">{creditExceeded ? '⚠️' : '✅'}</span>
                   <div>
                     <p className={`font-semibold text-sm ${creditExceeded ? 'text-yellow-700' : 'text-green-700'}`}>
-                      Kiểm tra hạn mức tín dụng
+                      Kiểm tra hạn mức nợ
                     </p>
                     {creditExceeded ? (
                       <div className="text-sm text-yellow-700 mt-1">

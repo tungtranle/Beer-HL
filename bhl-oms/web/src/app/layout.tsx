@@ -2,7 +2,7 @@ import type { Metadata } from 'next'
 import './globals.css'
 
 export const metadata: Metadata = {
-  title: 'BHL OMS-TMS-WMS',
+  title: 'BHL - Quản lý Đơn hàng, Vận chuyển & Kho',
   description: 'Hệ thống Quản lý Đơn hàng - Vận tải - Kho vận | Bia Hạ Long',
 }
 

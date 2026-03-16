@@ -1,6 +1,6 @@
 # CURRENT_STATE — BHL OMS-TMS-WMS
 
-> **Cập nhật:** 15/03/2026 (session 2)  
+> **Cập nhật:** 20/03/2026 (session 10)  
 > **Mục đích:** Mô tả trạng thái THỰC TẾ của hệ thống. AI đọc file này để biết code đang làm gì, **không** phải spec nói gì.  
 > **Quy tắc:** Khi code thay đổi → cập nhật file này. Nếu CURRENT_STATE không khớp code → file này sai.
 
@@ -26,13 +26,19 @@
 - RS256 JWT, 6 roles: admin, dispatcher, driver, warehouse_handler, management, accountant
 - Test credentials: tất cả password `demo123`
 
-### OMS — ✅ Hoạt động (20 endpoints)
+### Admin — ✅ Hoạt động (7 endpoints) — NEW Session 9
+- **Quản lý người dùng:** List, Get, Create, Update, Delete (soft), Reset password
+- **Danh sách quyền:** List roles + default permissions
+- Chỉ admin mới truy cập được
+- Frontend: `/dashboard/settings` — Quản trị hệ thống
+
+### OMS — ✅ Hoạt động (21 endpoints)
 - **Products:** Full CRUD (5 endpoints)
 - **Customers:** Full CRUD + credit info (5 endpoints)
 - **ATP:** Single + batch check (2 endpoints)
-- **Orders:** Create, list, get, update, cancel, approve, split, consolidate (8 endpoints)
+- **Orders:** Create, list, get, update, cancel, approve, split, consolidate, **pending-approvals** (9 endpoints)
 - **Cutoff 16h:** Hoạt động — configurable qua `system_settings`
-- **Credit limit:** Auto `pending_approval` khi vượt hạn mức
+- **Credit limit:** Auto `pending_approval` khi vượt hạn mức — **enriched endpoint with credit details + order items**
 - **DMS sync:** Tự động fire khi tạo/hủy/duyệt đơn (Task 3.4 — async, không block)
 
 ### TMS — ✅ Hoạt động (34 endpoints)
@@ -75,16 +81,30 @@
 ### GPS — ✅ Hoạt động
 - REST: Batch upload, get latest positions
 - WebSocket: `/ws/gps` (Redis pub/sub)
+- **GPS inject tool:** `cmd/inject_gps/main.go` — Sets test GPS positions for in-transit vehicles via Go Redis client. Run with `go run ./cmd/inject_gps/`
+- **Lưu ý:** Hệ thống có LOCAL Windows Redis (port 6379) bên cạnh Docker Redis. Go server kết nối tới local Redis. Dùng Go inject tool để đảm bảo JSON hợp lệ.
 
 ### Cron Jobs
 - Auto-confirm Zalo 24h expired (mỗi 1 giờ)
 - Nightly Bravo credit reconcile (mỗi giờ, chỉ chạy lúc 0:00 VN)
 - **Daily KPI snapshot** (23:50 ICT, all warehouses) — NEW
 
-### Frontend — 19 pages
-- Login, dashboard, orders CRUD, trips + map, products/customers/vehicles/drivers CRUD
-- Driver mobile (my-trips, checklist, ePOD, payment, returns)
-- PDA scanner (PWA barcode), NPP confirm portal, real-time GPS map
+### Frontend — 29 pages
+- Login, dashboard (role-specific stat cards), orders CRUD, trips + map, products/customers/vehicles/drivers CRUD
+- **Dashboard:** Role-specific — admin/dispatcher sees operational, accountant sees financial (pending_approvals, discrepancies), dvkh sees orders, management sees KPI — Session 10
+- **Orders page:** Supports `?status=` URL param for pre-filtering — Session 10
+- **ATP display:** Shows "ATP: 0" (red) when warehouse selected but no stock — Session 10
+- **Driver mobile** (my-trips + progress bar, checklist submission, ePOD + photo capture, payment with debt/credit, returns + damage photo, incident reporting, trip summary, Google Maps navigation, post-trip checklist, profile page)
+- **Driver stop flow:** pending → arrived → delivering → ePOD/fail (matches SM-03 state machine) — Session 11
+- **Driver profile** (APP-10): Account info, app version, logout — Session 11
+- **Driver post-trip checklist** (US-TMS-18): 6-item confirmation before trip completion — Session 11
+- PDA scanner (PWA barcode), NPP confirm portal, real-time GPS map (enriched with vehicle plates, driver names, trip status)
+- **Warehouse** (dashboard, picking, returns) — NEW Session 7
+- **Security** gate check — NEW Session 7
+- **Accountant** approvals queue (enriched with credit details + order items), daily close — NEW Session 7, updated Session 9
+- **Management** KPI dashboard — NEW Session 7
+- **Admin** settings/user management — NEW Session 9
+- **UI Localization:** Toàn bộ giao diện tiếng Việt, không có AI/VRP/ePOD/English text visible — Session 9
 
 ---
 
@@ -153,6 +173,9 @@ New (6): DLQEntry, Reconciliation, Discrepancy, DailyCloseSummary, Notification,
 | `seed_planning_test.sql` | **Planning page test** | 80 đơn confirmed + 80 shipments pending (50 WH-HL + 30 WH-HP, delivery_date = tomorrow) |
 | `seed_test_uat.sql` | UAT driver test | 70 xe, 70 TX, 700 đơn, 70 trips, 5 bảo vệ |
 | `seed_comprehensive_test.sql` | **Test toàn diện** | Bổ sung: 19 quản lý (3 BGĐ + 8 trưởng vùng + 8 giám sát), 11 thủ kho, 6 bảo vệ, 8 DVKH+dispatcher+KT, 12 TX phụ, 12 xe phụ, 60+ lots, 80+ stock quants (2 kho), 15 system settings, receivable ledger 800 NPP |
+| `reset_to_production.sql` | **Reset & nạp data SX** | Xóa toàn bộ demo data, nạp seed_production + 10 đơn hàng mẫu + lots/stock |
+| `seed_demo_comprehensive.sql` | **Demo đầy đủ** | Stock quants 30 SP × 2 kho, lots SP 16-30, daily close 7 ngày, KPI 6 bản, closed orders — Session 10 |
+| `patch_demo_data.sql` | **Bổ sung demo** | Driver checkins (63 available/6 off_duty), 12 reconciliations, 4 discrepancies, 2 pending_approval orders — Session 10 |
 
 **Thứ tự chạy khuyến nghị:**
 1. `seed_full.sql` (dữ liệu demo cơ bản)
@@ -160,6 +183,7 @@ New (6): DLQEntry, Reconciliation, Discrepancy, DailyCloseSummary, Notification,
 3. `seed_comprehensive_test.sql` (bổ sung quản lý, thủ kho, 12 xe/TX phụ, lots, tồn kho)
 4. `seed_test_uat.sql` (tạo 700 đơn + 70 trips cho UAT)
 5. `seed_planning_test.sql` (tạo 80 pending shipments cho planning page)
+6. `seed_demo_comprehensive.sql` + `patch_demo_data.sql` (stock quants, checkins, reconciliations, discrepancies)
 
 **Tổng sau khi chạy đầy đủ:**
 - Users: ~120+ (admin 1, management 19, dispatcher 4, accountant 4, dvkh 7, warehouse_handler 11, security 6, driver 82)

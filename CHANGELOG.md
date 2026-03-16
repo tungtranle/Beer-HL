@@ -7,6 +7,140 @@
 
 ## [Unreleased] — Phase 4 in progress
 
+### 2026-03-16 — Session 11: Dashboard & Data Fixes + Driver App BRD Compliance
+
+#### Fixed
+- **Dashboard "Tổng đơn hàng" showing "-"** — API `/dashboard/stats` was missing `total_orders` field; added `SELECT COUNT(*) FROM sales_orders` query to return it
+- **Vietnamese font corruption in order notes** — Orders SO-20260317-0001/0002 had garbled notes (????); fixed data in DB directly using Unicode escapes; root cause was `patch_demo_data.sql` piped through PowerShell (KI-006)
+- **Frontend-backend action field mismatch** — Driver stop update was sending `{ status: 'arrived' }` but backend expected `{ action: 'arrive' }`; fixed frontend `handleUpdateStop` and incident handler to send correct field names and action values
+
+#### Added
+- **GPS map enrichment** — `/gps/latest` endpoint now returns vehicle_plate, driver_name, trip_status via DB join; map displays meaningful info instead of UUIDs
+- **"Delivering" stop action (SM-03)** — Added `delivering` case to `UpdateStopStatus` in service.go; stop flow: pending → arrived → delivering → delivered/failed (matches BRD state machine)
+- **Post-trip checklist (US-TMS-18)** — Frontend modal with 6 confirmation items (vehicle clean, no damage, fuel noted, cash ready, returns collected, keys ready); required before trip completion
+- **Driver profile page (APP-10)** — `/dashboard/driver/profile` — Shows account info, role, app version, logout with confirmation dialog
+- **Customer phone on stops** — Stop cards display phone number with click-to-call link
+- **Estimated arrival time** — Stop cards display expected arrival time
+- **GPS-based navigation** — Stop navigation uses coordinates when available, falls back to address-based Google Maps search
+- **Test driver account** — `driver70` (Phạm Văn Vinh) with trip TRIP-TEST-001 (3 stops), vehicle 15C-11111
+
+#### Docs Updated
+- CURRENT_STATE.md, CHANGELOG.md, KNOWN_ISSUES.md
+
+### 2026-03-20 — Session 10: Demo Data Fix, UX Bugs, GPS Integration
+
+#### Added
+- **Comprehensive demo seed SQL** — `migrations/seed_demo_comprehensive.sql` + `migrations/patch_demo_data.sql` — Driver checkins (63 available/6 off_duty out of 79 = 80%), reconciliation records (12: goods/payment/asset × 4 completed trips), discrepancies (4: open/investigating/escalated/resolved), daily close summaries (7), KPI snapshots (6), stock quants for 30 products in 2 warehouses
+- **GPS injection tool** — `cmd/inject_gps/main.go` — Sets GPS positions for 4 in-transit vehicles in Redis via Go redis client (avoids quoting issues with redis-cli)
+- **`pending_approvals` stat** — Dashboard stats API now returns count of `pending_approval` orders
+
+#### Changed
+- **Role-specific dashboard** — `dashboard/page.tsx` — Stat cards filtered by user role: admin/dispatcher see operational metrics, accountant sees financial (pending_approvals, discrepancies, revenue), dvkh sees order-related, management sees KPI
+- **"Đơn chờ giao" navigation fix** — Changed href from `/dashboard/planning` to `/dashboard/orders?status=confirmed` (accessible to DVKH role)
+- **Orders page URL filter** — `orders/page.tsx` — Reads `?status=` search param to pre-filter order list
+- **ATP display fix** — `orders/new/page.tsx` — When warehouse selected but product has no stock, shows "ATP: 0" (red) instead of misleading "Chọn kho để kiểm tra"
+- **DB port config** — `.env` DB_URL changed from port 5432 to 5434 (matches Docker postgres mapping)
+
+#### Fixed
+- GPS data stored with invalid JSON (no quoted keys) when using PowerShell inject script — resolved by using Go redis client tool
+- Local Windows Redis (port 6379) conflicting with Docker Redis — Go server was connecting to local instance; GPS inject tool now targets correct instance
+
+#### Docs Updated
+- CURRENT_STATE.md, CHANGELOG.md
+
+### 2026-03-20 — Session 9: UI Localization, RBAC, Credit Approval, Production Data
+
+#### Added
+- **Admin user management module** — `internal/admin/handler.go`, `service.go` — Full CRUD for users, password reset, role listing. Routes: GET/POST `/admin/users`, GET/PUT/DELETE `/admin/users/:id`, PUT `/admin/users/:id/reset-password`, GET `/admin/roles`. All protected by admin role.
+- **Admin settings page** — `/dashboard/settings` — User management UI with create/edit/delete, role filter, search, password reset modal. Admin-only access.
+- **Credit limit approval enriched endpoint** — GET `/orders/pending-approvals` — Returns orders with credit_limit, current_balance, available_limit, exceed_amount, and order items (product details).
+- **Approvals page with full credit details** — `approvals/page.tsx` — Now shows: 5-column credit info cards, credit usage progress bar, expandable order items table, reject reason modal with required note, exceed percentage badge.
+- **Reset-to-production SQL script** — `migrations/reset_to_production.sql` — Truncates all demo/transaction data, then loads production seed (70 vehicles, 70 drivers, 800 NPP, 30 products, 10 sample orders with items).
+
+#### Changed
+- **UI localization (Vietnamese)** — Removed all English text visible to users:
+  - Login: "Demo accounts:" → "Tài khoản thử nghiệm:", "Hệ thống OMS-TMS-WMS" → "Hệ thống Quản lý Đơn hàng - Vận chuyển - Kho"
+  - Layout: title → "BHL - Quản lý Đơn hàng, Vận chuyển & Kho"
+  - Sidebar: "Dashboard" → "Tổng quan", "BHL System" → "BHL", "OMS - TMS - WMS" → "Đơn hàng · Vận chuyển · Kho"
+  - KPI: "Dashboard KPI" → "Bảng điều khiển KPI"
+  - Dashboard: "Quy trình Demo" → "Quy trình nghiệp vụ"
+  - Driver: "Giao hàng (ePOD)" → "Xác nhận giao hàng", "Xem ePOD" → "Xem biên bản", "Checklist xe" → "Bảng kiểm tra xe"
+  - Map: "Driver" fallback → "Tài xế"
+- **RBAC enforcement on planning page** — Added client-side role check: only admin/dispatcher can access `/dashboard/planning`, others redirected to dashboard.
+- **Sidebar navigation** — Added "⚙️ Quản trị hệ thống" menu item (admin-only)
+
+#### Docs Updated
+- CURRENT_STATE.md (session 9 updates, admin module, enriched approvals, reset script, page count 26→28)
+- CHANGELOG.md (this entry)
+
+---
+
+### 2026-03-16 — Session 8: Driver App Major Enhancements
+
+#### Added
+- **Vehicle checklist submission form** — `driver/[id]/page.tsx` — Pre-trip inspection with 11 items (tires, brakes, lights, mirrors, horn, coolant, oil, fire extinguisher, first aid, documents, cargo) + fuel level slider + pass/fail summary. Required before starting trip (BRD US-TMS-10)
+- **ePOD photo capture** — Camera capture with preview, mandatory 1+ photo before submit. Uses `capture="environment"` for mobile (BRD US-TMS-13)
+- **Debt/credit payment option** — Added "📝 Công nợ" and "💰 Thu một phần" payment methods alongside cash and transfer. Debt shows receivable notice (BRD R04)
+- **Google Maps navigation** — "Chỉ đường" button on each pending/arrived stop, opens Google Maps search with customer address (BRD US-TMS-11)
+- **Incident reporting modal** — 7 incident types: wrong address, absent customer, vehicle breakdown, traffic police, road blockage, accident, other. Description + photo evidence (BRD US-TMS-14)
+- **Trip completion summary** — Shows delivery stats (success/partial/failed), route metrics, financial summary, post-trip instructions before confirming completion (BRD US-TMS-17)
+- **Photo for damaged/lost containers** — Returns modal now requires photo evidence when condition is damaged or lost (BRD R10)
+- **Failed delivery indicator** — Shows re-delivery message on failed stops
+
+#### Changed
+- **Pre-trip checklist flow** — Trip cannot start without passing vehicle checklist. Shows warning if checklist fails, suggests contacting team lead for vehicle replacement
+- **Stop action buttons** — Added "⚠️ Báo sự cố" button alongside ePOD and failure buttons at arrived stops
+- **Trip completion flow** — Now shows summary modal before confirming, includes partially_delivered stops in completion check
+- **Payment modal layout** — 2x2 grid layout for payment methods, amount hidden for credit/debt
+- **Driver trips list** — Added progress bar for in-transit trips, next stop preview
+
+#### Docs Updated
+- CURRENT_STATE.md, CHANGELOG.md
+
+---
+
+### 2026-03-15 — Session 7: Role Pages + UI Improvements
+
+#### Added
+- **Warehouse dashboard page** — `/dashboard/warehouse` — Stock overview, picking queue, expiry alerts, quick links
+- **Picking orders page** — `/dashboard/warehouse/picking` — Pending/completed picking list, confirm-pick action
+- **Returns inbound page** — `/dashboard/warehouse/returns` — Process pending returns into stock
+- **Gate check page** — `/dashboard/gate-check` — Security guard trip search, pass/fail check, notes
+- **Approvals page** — `/dashboard/approvals` — Accountant order approval queue (pending_approval orders)
+- **Daily close page** — `/dashboard/reconciliation/daily-close` — Generate daily close, resolve discrepancies
+- **KPI dashboard page** — `/dashboard/kpi` — OTD rate, capacity utilization, financial KPIs, period filter
+- **Sidebar navigation** — Added 5 new nav items for warehouse, gate-check, approvals, daily-close, KPI
+- **Role labels** — Added warehouse ("Thu kho"), security ("Bảo vệ"), management ("Ban giám đốc") to sidebar
+
+#### Changed
+- **Driver assignment dropdown** — `planning/page.tsx` — Filtered to only show drivers with `checkin_status === 'available'`
+- **Create order form** — `orders/new/page.tsx` — Added "⚡ Đơn gấp" checkbox (`is_urgent` field)
+- **Credit label rename** — `orders/new/page.tsx` — "Hạn mức tín dụng" → "Hạn mức nợ" (2 locations)
+- **Dashboard cards clickable** — `page.tsx` — Stats cards now navigate to corresponding detail pages
+- **Demo flow steps clickable** — `page.tsx` — Each step navigates to the corresponding workflow page
+
+#### Docs Updated
+- CURRENT_STATE.md (page count 19→26, new pages listed)
+- CHANGELOG.md (this entry)
+- TASK_TRACKER.md
+
+---
+
+### 2026-03-15 — Session 6: Planning Page Bug Fixes
+
+#### Fixed
+- **Driver detail modal count mismatch** — Modal showed all 79 drivers (all warehouses) as "Chưa check-in" instead of warehouse-filtered list. Now uses `/drivers/checkins` data (warehouse-filtered) as primary source.
+- **Unassigned orders list not displaying** — VRP returns bare UUID list for unassigned shipments. Frontend now cross-references with shipments list to show shipment number, customer name, and weight.
+- **Driver assignment dropdown ordering** — Drivers already assigned to other trips are now sorted to the bottom of the dropdown list for easier selection.
+
+#### Added
+- **Vehicle/driver mismatch warning** — Step 0 (Tổng quan) shows orange warning when available vehicles exceed checked-in drivers, reminding dispatcher to have drivers check in before running VRP.
+
+#### Docs Updated
+- CHANGELOG.md, KNOWN_ISSUES.md
+
+---
+
 ### 2026-03-15 — Session 5: Urgent Priority & Order Timestamps
 
 #### Added

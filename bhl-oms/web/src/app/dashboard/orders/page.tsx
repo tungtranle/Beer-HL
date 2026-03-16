@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react'
 import Link from 'next/link'
+import { useSearchParams } from 'next/navigation'
 import { apiFetch } from '@/lib/api'
 
 interface Order {
@@ -37,7 +38,8 @@ const statusLabels: Record<string, string> = {
 export default function OrdersPage() {
   const [orders, setOrders] = useState<Order[]>([])
   const [loading, setLoading] = useState(true)
-  const [statusFilter, setStatusFilter] = useState('')
+  const searchParams = useSearchParams()
+  const [statusFilter, setStatusFilter] = useState(searchParams.get('status') || '')
 
   const loadOrders = async () => {
     setLoading(true)

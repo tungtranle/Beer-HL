@@ -185,6 +185,7 @@ type TripStop struct {
 	CustomerID         uuid.UUID   `json:"customer_id"`
 	CustomerName       string      `json:"customer_name,omitempty"`
 	CustomerAddress    string      `json:"customer_address,omitempty"`
+	CustomerPhone      string      `json:"customer_phone,omitempty"`
 	Latitude           *float64    `json:"latitude,omitempty"`
 	Longitude          *float64    `json:"longitude,omitempty"`
 	StopOrder          int         `json:"stop_order"`

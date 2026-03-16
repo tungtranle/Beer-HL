@@ -9,3 +9,34 @@
 2026/03/15 21:07:34 [AutoConfirm] Cron started (every 1 hour)
 2026/03/15 21:07:34 [Bravo] Nightly reconcile cron started (every hour, executes at midnight)
 2026/03/15 21:07:34 🚀 BHL OMS-TMS-WMS API starting on :8080
+2026/03/15 22:36:50 GPS WS: client connected (user=b0000000-0000-0000-0000-000000000001, role=admin, total=1)
+2026/03/15 22:36:50 GPS WS: client connected (user=b0000000-0000-0000-0000-000000000001, role=admin, total=1)
+2026/03/15 22:36:53 GPS WS: client connected (user=b0000000-0000-0000-0000-000000000001, role=admin, total=2)
+2026/03/15 22:36:56 GPS WS: client connected (user=b0000000-0000-0000-0000-000000000001, role=admin, total=2)
+2026/03/15 22:36:56 GPS WS: client connected (user=b0000000-0000-0000-0000-000000000001, role=admin, total=2)
+2026/03/15 22:36:57 GPS WS: client connected (user=b0000000-0000-0000-0000-000000000001, role=admin, total=3)
+2026/03/15 22:36:59 GPS WS: client connected (user=b0000000-0000-0000-0000-000000000001, role=admin, total=4)
+2026/03/15 22:46:52 GPS WS: client connected (user=b0000000-0000-0000-0000-000000000001, role=admin, total=4)
+2026/03/15 23:46:22 [OMS] DMS sync fired for SO-20260315-2400 → confirmed
+2026/03/15 23:46:22 [Integration] DMS sync OK for SO-20260315-2400 → DMS-2026-686300
+2026/03/15 23:50:00 📊 KPI snapshot: warehouse=a0000000-0000-0000-0000-000000000001 date=2026-03-15 orders=514 delivered=0 rate=0.0%
+2026/03/15 23:50:00 📊 KPI snapshot: warehouse=a0000000-0000-0000-0000-000000000002 date=2026-03-15 orders=200 delivered=0 rate=0.0%
+2026/03/15 23:50:00 📊 KPI snapshot cron: next run at 2026-03-16 23:50 (in 24h0m0s)
+2026/03/16 00:07:34 [Bravo] Nightly reconcile: 800 customers checked, 800 discrepancies
+2026/03/16 00:07:34 [Bravo] Nightly reconcile completed: 800 customers, 800 discrepancies
+2026/03/16 09:25:44 [OMS] DMS sync fired for SO-20260316-6300 → confirmed
+2026/03/16 09:25:44 [Integration] DMS sync OK for SO-20260316-6300 → DMS-2026-834600
+2026/03/16 10:00:04 [OMS] DMS sync fired for SO-20260314-7900 → confirmed
+2026/03/16 10:00:04 [Integration] DMS sync OK for SO-20260314-7900 → DMS-2026-666700
+2026/03/16 11:28:40 [OMS] DMS sync fired for SO-20260316-4800 → confirmed
+2026/03/16 11:28:40 [Integration] DMS sync OK for SO-20260316-4800 → DMS-2026-498300
+2026/03/16 11:30:16 [OMS] DMS sync fired for SO-20260316-4900 → confirmed
+2026/03/16 11:30:16 [Integration] DMS sync OK for SO-20260316-4900 → DMS-2026-046700
+2026/03/16 11:37:28 GPS WS: client connected (user=b0000000-0000-0000-0000-000000000003, role=dispatcher, total=1)
+2026/03/16 11:37:28 GPS WS: client connected (user=b0000000-0000-0000-0000-000000000003, role=dispatcher, total=1)
+2026/03/16 11:37:31 GPS WS: client connected (user=b0000000-0000-0000-0000-000000000003, role=dispatcher, total=2)
+2026/03/16 11:38:20 GPS WS: client connected (user=b0000000-0000-0000-0000-000000000003, role=dispatcher, total=2)
+2026/03/16 11:48:52 GPS WS: client connected (user=b0000000-0000-0000-0000-000000000001, role=admin, total=1)
+2026/03/16 11:48:52 GPS WS: client connected (user=b0000000-0000-0000-0000-000000000001, role=admin, total=1)
+2026/03/16 11:48:55 GPS WS: client connected (user=b0000000-0000-0000-0000-000000000001, role=admin, total=1)
+2026/03/16 11:48:58 GPS WS: client connected (user=b0000000-0000-0000-0000-000000000001, role=admin, total=2)

@@ -37,7 +37,7 @@ export default function LoginPage() {
         <div className="bg-white rounded-2xl shadow-xl p-8">
           <div className="text-center mb-8">
             <h1 className="text-3xl font-bold text-amber-700">🍺 BHL</h1>
-            <p className="text-gray-500 mt-2">Hệ thống OMS-TMS-WMS</p>
+            <p className="text-gray-500 mt-2">Hệ thống Quản lý Đơn hàng - Vận chuyển - Kho</p>
             <p className="text-sm text-gray-400">Công ty CP Bia và NGK Hạ Long</p>
           </div>
 
@@ -86,7 +86,7 @@ export default function LoginPage() {
           </form>
 
           <div className="mt-6 p-4 bg-gray-50 rounded-lg">
-            <p className="text-xs text-gray-500 font-medium mb-2">Demo accounts:</p>
+            <p className="text-xs text-gray-500 font-medium mb-2">Tài khoản thử nghiệm:</p>
             <div className="space-y-1 text-xs text-gray-600">
               <p><span className="font-mono bg-gray-200 px-1 rounded">dvkh01</span> — Dịch vụ khách hàng</p>
               <p><span className="font-mono bg-gray-200 px-1 rounded">dispatcher01</span> — Điều phối viên</p>

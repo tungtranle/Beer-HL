@@ -57,6 +57,20 @@ export default function TripDetailPage() {
   const mapRef = useRef<HTMLDivElement>(null)
   const mapInstanceRef = useRef<any>(null)
 
+  // Cancel trip modal state
+  const [showCancelModal, setShowCancelModal] = useState(false)
+  const [cancelReason, setCancelReason] = useState('')
+  const [cancelNote, setCancelNote] = useState('')
+
+  const cancelReasons = [
+    'Khách hàng yêu cầu hủy',
+    'Xe gặp sự cố kỹ thuật',
+    'Tài xế không khả dụng',
+    'Thời tiết xấu, không thể giao',
+    'Đường bị tắc / không thể đi',
+    'Lý do khác',
+  ]
+
   const loadTrip = useCallback(() => {
     apiFetch<any>(`/trips/${params.id}`)
       .then((r) => setTrip(r.data))
@@ -68,7 +82,10 @@ export default function TripDetailPage() {
 
   const updateTripStatus = async (newStatus: string) => {
     if (!trip) return
-    if (newStatus === 'cancelled' && !window.confirm('Xác nhận hủy chuyến xe?')) return
+    if (newStatus === 'cancelled') {
+      setShowCancelModal(true)
+      return
+    }
     setUpdating(true)
     try {
       const r = await apiFetch<any>(`/trips/${trip.id}/status`, { method: 'PUT', body: { status: newStatus } })
@@ -77,6 +94,26 @@ export default function TripDetailPage() {
       alert(e.message || 'Cập nhật thất bại')
     } finally {
       setUpdating(false)
+    }
+  }
+
+  const confirmCancelTrip = async () => {
+    if (!trip || !cancelReason) return
+    setUpdating(true)
+    setShowCancelModal(false)
+    try {
+      const reason = cancelReason === 'Lý do khác' && cancelNote ? cancelNote : cancelReason
+      const r = await apiFetch<any>(`/trips/${trip.id}/status`, {
+        method: 'PUT',
+        body: { status: 'cancelled', reason }
+      })
+      setTrip(r.data)
+    } catch (e: any) {
+      alert(e.message || 'Hủy chuyến thất bại')
+    } finally {
+      setUpdating(false)
+      setCancelReason('')
+      setCancelNote('')
     }
   }
 

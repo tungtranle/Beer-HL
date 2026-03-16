@@ -474,7 +474,7 @@ func (r *Repository) GetTrip(ctx context.Context, tripID uuid.UUID) (*domain.Tri
 	// Load stops
 	rows, err := r.db.Query(ctx, `
 		SELECT ts.id, ts.trip_id, ts.shipment_id, ts.customer_id, c.name, c.address,
-		       c.latitude, c.longitude, ts.stop_order, ts.status::text,
+		       COALESCE(c.phone, ''), c.latitude, c.longitude, ts.stop_order, ts.status::text,
 		       ts.estimated_arrival, ts.estimated_departure,
 		       ts.actual_arrival, ts.actual_departure,
 		       ts.distance_from_prev_km, ts.cumulative_load_kg, ts.notes
@@ -491,7 +491,7 @@ func (r *Repository) GetTrip(ctx context.Context, tripID uuid.UUID) (*domain.Tri
 	for rows.Next() {
 		var s domain.TripStop
 		if err := rows.Scan(&s.ID, &s.TripID, &s.ShipmentID, &s.CustomerID, &s.CustomerName,
-			&s.CustomerAddress, &s.Latitude, &s.Longitude, &s.StopOrder, &s.Status,
+			&s.CustomerAddress, &s.CustomerPhone, &s.Latitude, &s.Longitude, &s.StopOrder, &s.Status,
 			&s.EstimatedArrival, &s.EstimatedDeparture,
 			&s.ActualArrival, &s.ActualDeparture,
 			&s.DistanceFromPrevKm, &s.CumulativeLoadKg, &s.Notes); err != nil {

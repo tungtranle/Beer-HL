@@ -1,6 +1,8 @@
 package gps
 
 import (
+	"context"
+	"encoding/json"
 	"net/http"
 
 	"bhl-oms/internal/middleware"
@@ -8,16 +10,18 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 // Handler provides REST endpoints for GPS.
 type Handler struct {
 	hub *Hub
+	db  *pgxpool.Pool
 }
 
 // NewHandler creates a GPS REST handler.
-func NewHandler(hub *Hub) *Handler {
-	return &Handler{hub: hub}
+func NewHandler(hub *Hub, db *pgxpool.Pool) *Handler {
+	return &Handler{hub: hub, db: db}
 }
 
 // RegisterRoutes registers GPS-related REST endpoints.
@@ -71,12 +75,75 @@ func (h *Handler) BatchGPS(c *gin.Context) {
 	})
 }
 
-// GetLatestPositions handles GET /v1/gps/latest - returns latest position of all vehicles.
+// GetLatestPositions handles GET /v1/gps/latest - returns latest position of all vehicles enriched with plate/driver info.
 func (h *Handler) GetLatestPositions(c *gin.Context) {
 	positions, err := h.hub.GetLatestPositions(c.Request.Context())
 	if err != nil {
 		response.InternalError(c)
 		return
 	}
-	response.OK(c, positions)
+
+	enriched := h.enrichPositions(c.Request.Context(), positions)
+	response.OK(c, enriched)
+}
+
+type enrichedPosition struct {
+	VehicleID    string  `json:"vehicle_id"`
+	VehiclePlate string  `json:"vehicle_plate"`
+	DriverName   string  `json:"driver_name"`
+	TripStatus   string  `json:"trip_status"`
+	Lat          float64 `json:"lat"`
+	Lng          float64 `json:"lng"`
+	Speed        float64 `json:"speed"`
+	Heading      float64 `json:"heading"`
+	Ts           string  `json:"ts"`
+}
+
+func (h *Handler) enrichPositions(ctx context.Context, positions map[string]json.RawMessage) map[string]enrichedPosition {
+	result := make(map[string]enrichedPosition, len(positions))
+
+	for vehicleID, raw := range positions {
+		var pos struct {
+			Lat     float64 `json:"lat"`
+			Lng     float64 `json:"lng"`
+			Speed   float64 `json:"speed"`
+			Heading float64 `json:"heading"`
+			Ts      string  `json:"ts"`
+		}
+		json.Unmarshal(raw, &pos)
+
+		ep := enrichedPosition{
+			VehicleID: vehicleID,
+			Lat:       pos.Lat,
+			Lng:       pos.Lng,
+			Speed:     pos.Speed,
+			Heading:   pos.Heading,
+			Ts:        pos.Ts,
+		}
+
+		// Lookup vehicle plate and active trip driver
+		var plate, driverName, tripStatus *string
+		h.db.QueryRow(ctx, `
+			SELECT v.plate_number, d.full_name, t.status::text
+			FROM vehicles v
+			LEFT JOIN trips t ON t.vehicle_id = v.id AND t.status::text IN ('in_transit','started','planned')
+			LEFT JOIN drivers d ON d.id = t.driver_id
+			WHERE v.id = $1
+			ORDER BY t.created_at DESC
+			LIMIT 1
+		`, vehicleID).Scan(&plate, &driverName, &tripStatus)
+
+		if plate != nil {
+			ep.VehiclePlate = *plate
+		}
+		if driverName != nil {
+			ep.DriverName = *driverName
+		}
+		if tripStatus != nil {
+			ep.TripStatus = *tripStatus
+		}
+
+		result[vehicleID] = ep
+	}
+	return result
 }

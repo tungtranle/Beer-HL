@@ -24,12 +24,16 @@ const statusColors: Record<string, string> = {
   active: 'bg-green-100 text-green-700',
   maintenance: 'bg-amber-100 text-amber-700',
   inactive: 'bg-red-100 text-red-700',
+  broken: 'bg-red-100 text-red-700',
+  impounded: 'bg-gray-100 text-gray-700',
 }
 
 const statusLabels: Record<string, string> = {
   active: 'Hoạt động',
   maintenance: 'Bảo trì',
   inactive: 'Ngưng',
+  broken: 'Hỏng',
+  impounded: 'Tạm giữ',
 }
 
 const emptyVehicle = {

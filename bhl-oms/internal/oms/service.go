@@ -733,3 +733,8 @@ func (s *Service) SplitOrder(ctx context.Context, orderID uuid.UUID, req SplitRe
 
 	return shipments, nil
 }
+
+// ListPendingApprovals returns orders with status pending_approval, enriched with credit details and items
+func (s *Service) ListPendingApprovals(ctx context.Context) ([]map[string]interface{}, error) {
+	return s.repo.ListPendingApprovals(ctx)
+}

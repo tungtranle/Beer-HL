@@ -1,6 +1,7 @@
 'use client'
 
 import { useEffect, useState, useRef, useCallback } from 'react'
+import { useRouter } from 'next/navigation'
 import { apiFetch, getUser } from '@/lib/api'
 
 // ─── OSRM routing helper ─────────────────────────────
@@ -321,7 +322,7 @@ function VehicleStatusModal({ vehicles, onClose }: { vehicles: Vehicle[]; onClos
 // ─── Driver Status Modal ────────────────────────────
 function DriverStatusModal({ drivers, checkins, onClose }: { drivers: Driver[]; checkins: any[]; onClose: () => void }) {
   const [selectedDriver, setSelectedDriver] = useState<Driver | null>(null)
-  const checkinMap = new Map(checkins.map(c => [c.driver_id, c]))
+  const checkinMap = new Map(checkins.map(c => [c.driver_id || c.id, c]))
 
   const statusGroups: Record<string, { label: string; color: string; icon: string }> = {
     available: { label: 'Sẵn sàng', color: 'bg-green-100 text-green-800', icon: '🟢' },
@@ -330,14 +331,26 @@ function DriverStatusModal({ drivers, checkins, onClose }: { drivers: Driver[]; 
     not_checked_in: { label: 'Chưa check-in', color: 'bg-yellow-100 text-yellow-800', icon: '🟡' },
   }
 
-  // Build driver list with checkin status
-  const driverWithStatus = drivers.map(d => {
-    const checkin = checkinMap.get(d.id)
-    const checkinStatus = checkin?.checkin_status || checkin?.status || 'not_checked_in'
-    return { ...d, checkin_status: checkinStatus, reason: checkin?.reason }
-  })
+  // Use checkins as primary data source (already filtered by warehouse)
+  // Only fall back to drivers list if no checkins data
+  const driverWithStatus: Array<{ id: string; full_name: string; phone: string; license_number: string; status: string; warehouse_id?: string; checkin_status: string; reason?: string }> = checkins.length > 0
+    ? checkins.map((c: any) => ({
+        id: c.driver_id || c.id,
+        full_name: c.full_name || drivers.find(d => d.id === (c.driver_id || c.id))?.full_name || 'N/A',
+        phone: c.phone || drivers.find(d => d.id === (c.driver_id || c.id))?.phone || '',
+        license_number: c.license_number || drivers.find(d => d.id === (c.driver_id || c.id))?.license_number || '',
+        status: c.driver_status || c.status || 'active',
+        warehouse_id: c.warehouse_id,
+        checkin_status: c.checkin_status || c.status || 'not_checked_in',
+        reason: c.reason,
+      }))
+    : drivers.map(d => {
+        const checkin = checkinMap.get(d.id)
+        const checkinStatus = checkin?.checkin_status || checkin?.status || 'not_checked_in'
+        return { ...d, checkin_status: checkinStatus, reason: checkin?.reason }
+      })
 
-  const grouped = driverWithStatus.reduce<Record<string, typeof driverWithStatus>>((acc, d) => {
+  const grouped = driverWithStatus.reduce<Record<string, typeof driverWithStatus>>((acc, d: any) => {
     if (!acc[d.checkin_status]) acc[d.checkin_status] = []
     acc[d.checkin_status].push(d)
     return acc
@@ -473,11 +486,20 @@ interface VRPResult {
   trips: VRPTrip[]; unassigned_shipments: any[]; summary: VRPSummary
 }
 
-const STEPS = ['Tổng quan', 'Chọn xe', 'Xem đơn hàng', 'Tối ưu VRP', 'Duyệt & Tạo chuyến']
-const STEP_ICONS = ['📊', '🚛', '📦', '🧠', '✅']
+const STEPS = ['Tổng quan', 'Chọn xe', 'Xem đơn hàng', 'Tạo kế hoạch giao hàng', 'Duyệt & Tạo chuyến']
+const STEP_ICONS = ['📊', '🚛', '📦', '🗺️', '✅']
 
 export default function PlanningPage() {
   const user = getUser()
+  const router = useRouter()
+
+  // Role check — only admin and dispatcher can access planning
+  useEffect(() => {
+    if (user && user.role !== 'admin' && user.role !== 'dispatcher') {
+      router.replace('/dashboard')
+    }
+  }, [user, router])
+
   // ─── State ──────────────────────────────────────────
   const [step, setStep] = useState(0)
   const [warehouseId, setWarehouseId] = useState(user?.warehouse_ids?.[0] || '')
@@ -607,11 +629,11 @@ export default function PlanningPage() {
   const runVRP = async () => {
     // Pre-validate
     if (!warehouseId) {
-      setError('Vui lòng chọn kho xuất trước khi chạy VRP.')
+      setError('Vui lòng chọn kho xuất trước khi tạo kế hoạch.')
       return
     }
     if (!deliveryDate) {
-      setError('Vui lòng chọn ngày giao trước khi chạy VRP.')
+      setError('Vui lòng chọn ngày giao trước khi tạo kế hoạch.')
       return
     }
     if (activeShipments.length === 0) {
@@ -795,7 +817,7 @@ export default function PlanningPage() {
   return (
     <div className="max-w-[1400px] mx-auto">
       <h1 className="text-2xl font-bold text-gray-800 mb-2">Lập kế hoạch giao hàng</h1>
-      <p className="text-sm text-gray-500 mb-6">Tối ưu hoá tuyến đường giao hàng bằng AI — 5 bước</p>
+      <p className="text-sm text-gray-500 mb-6">Lập kế hoạch và tối ưu tuyến đường giao hàng — 5 bước</p>
 
       {/* ─── TOP CONTROLS ─── */}
       <div className="bg-white rounded-xl shadow-sm p-4 mb-6 flex gap-4 items-end flex-wrap">
@@ -982,6 +1004,22 @@ export default function PlanningPage() {
                 Một số đơn sẽ không được xếp. Hãy thêm xe ở bước tiếp theo hoặc loại bớt đơn hàng.
               </div>
             )}
+            {(() => {
+              const checkedInAvailable = driverCheckins.filter((d: any) => d.checkin_status === 'available').length
+              const notCheckedIn = driverCheckins.filter((d: any) => d.checkin_status === 'not_checked_in').length
+              const showWarning = vehicles.length > 0 && checkedInAvailable < vehicles.length && notCheckedIn > 0
+              return showWarning ? (
+                <div className="mt-4 bg-orange-50 border border-orange-300 text-orange-800 px-4 py-3 rounded-lg text-sm">
+                  <div className="font-semibold mb-1">⚠️ Chênh lệch xe — tài xế sẵn sàng</div>
+                  <div>Có <strong>{vehicles.length} xe</strong> khả dụng nhưng chỉ <strong>{checkedInAvailable} tài xế</strong> đã check-in sẵn sàng.
+                  Còn <strong>{notCheckedIn} tài xế chưa check-in</strong>.</div>
+                  <div className="mt-2 text-xs text-orange-600">
+                    💡 Hãy nhắc tài xế check-in trước khi lập kế hoạch để hệ thống phân bổ hiệu quả hơn.
+                    Nếu không đủ tài xế sẵn sàng, hệ thống sẽ bị giới hạn số xe sử dụng.
+                  </div>
+                </div>
+              ) : null
+            })()}
           </div>
         </div>
       )}
@@ -1010,7 +1048,7 @@ export default function PlanningPage() {
           {selectedVehicleIds.size > drivers.length && (
             <div className="bg-yellow-50 border border-yellow-200 text-yellow-800 px-4 py-3 rounded-xl text-sm">
               ⚠️ Bạn chọn <strong>{selectedVehicleIds.size} xe</strong> nhưng chỉ có <strong>{drivers.length} tài xế</strong> khả dụng.
-              VRP sẽ tối ưu với tất cả xe đã chọn, nhưng ở bước gán tài xế sẽ có {selectedVehicleIds.size - drivers.length} chuyến chưa có tài xế.
+              Hệ thống sẽ tối ưu với tất cả xe đã chọn, nhưng ở bước gán tài xế sẽ có {selectedVehicleIds.size - drivers.length} chuyến chưa có tài xế.
               <br />
               <span className="text-xs text-yellow-600 mt-1 block">
                 💡 Gợi ý: Chọn tối đa {drivers.length} xe để đảm bảo đủ tài xế cho mỗi chuyến.
@@ -1147,17 +1185,17 @@ export default function PlanningPage() {
       )}
 
       {/* ═══════════════════════════════════════════════
-          STEP 3: TỐI ƯU VRP
+          STEP 3: TẠO KẾ HOẠCH GIAO HÀNG
          ═══════════════════════════════════════════════ */}
       {step === 3 && (
         <div className="space-y-6">
           {/* Pre-run info */}
           {!vrpResult && !running && (
             <div className="bg-white rounded-xl shadow-sm p-6 text-center">
-              <div className="text-5xl mb-4">🧠</div>
+              <div className="text-5xl mb-4">🗺️</div>
               <h2 className="text-xl font-bold text-gray-800 mb-2">Sẵn sàng tối ưu tuyến đường</h2>
               <p className="text-gray-500 mb-6 max-w-lg mx-auto">
-                Hệ thống sẽ sử dụng thuật toán AI (Google OR-Tools) để phân bổ
+                Hệ thống sẽ sử dụng thuật toán tối ưu để phân bổ
                 <strong className="text-amber-700"> {activeShipments.length} đơn hàng</strong> vào
                 <strong className="text-blue-700"> {selectedVehicleIds.size} xe</strong>,
                 tối ưu quãng đường và tải trọng.
@@ -1165,7 +1203,7 @@ export default function PlanningPage() {
 
               {/* VRP Optimization Criteria */}
               <div className="bg-gray-50 rounded-xl p-4 mb-6 text-left max-w-lg mx-auto">
-                <h3 className="font-semibold text-gray-700 text-sm mb-3">⚙️ Tiêu chí tối ưu VRP</h3>
+                <h3 className="font-semibold text-gray-700 text-sm mb-3">⚙️ Tiêu chí tối ưu tuyến đường</h3>
                 <div className="grid grid-cols-2 gap-2 text-xs">
                   <div className="flex items-center gap-2 p-2 bg-white rounded-lg">
                     <span className="text-amber-500">📏</span>
@@ -1181,7 +1219,7 @@ export default function PlanningPage() {
                   </div>
                   <div className="flex items-center gap-2 p-2 bg-white rounded-lg">
                     <span className="text-purple-500">🔄</span>
-                    <div><div className="font-medium text-gray-700">Depot round-trip</div><div className="text-gray-400">Kho → điểm giao → về kho</div></div>
+                    <div><div className="font-medium text-gray-700">Khứ hồi về kho</div><div className="text-gray-400">Kho → điểm giao → về kho</div></div>
                   </div>
                   <div className="flex items-center gap-2 p-2 bg-white rounded-lg">
                     <span className="text-red-500">🚛</span>
@@ -1189,7 +1227,7 @@ export default function PlanningPage() {
                   </div>
                   <div className="flex items-center gap-2 p-2 bg-white rounded-lg">
                     <span className="text-teal-500">📍</span>
-                    <div><div className="font-medium text-gray-700">Cluster theo vùng</div><div className="text-gray-400">Gom điểm gần nhau cùng xe</div></div>
+                    <div><div className="font-medium text-gray-700">Gom nhóm theo vùng</div><div className="text-gray-400">Gom điểm gần nhau cùng xe</div></div>
                   </div>
                 </div>
                 {(() => {
@@ -1198,7 +1236,7 @@ export default function PlanningPage() {
                   return selectedVehicleIds.size > availDrivers && availDrivers > 0 ? (
                     <div className="mt-3 bg-amber-50 border border-amber-200 rounded-lg p-2 text-xs text-amber-700">
                       ⚠️ Đã chọn {selectedVehicleIds.size} xe nhưng chỉ có {availDrivers} tài xế sẵn sàng.
-                      VRP sẽ chỉ sử dụng <strong>{effectiveVehicles} xe</strong> (= số tài xế khả dụng).
+                      Hệ thống sẽ chỉ sử dụng <strong>{effectiveVehicles} xe</strong> (= số tài xế khả dụng).
                     </div>
                   ) : null
                 })()}
@@ -1223,7 +1261,7 @@ export default function PlanningPage() {
               </div>
               <button onClick={runVRP}
                 className="px-8 py-3 bg-amber-600 text-white rounded-xl hover:bg-amber-700 transition font-medium text-lg shadow-lg shadow-amber-200">
-                🧠 Chạy tối ưu VRP
+                🗺️ Tạo kế hoạch giao hàng
               </button>
               <p className="text-xs text-gray-400 mt-3">Thời gian giải tùy thuộc số lượng đơn, có thể mất 10-60 giây</p>
             </div>
@@ -1234,7 +1272,7 @@ export default function PlanningPage() {
             <div className="bg-white rounded-xl shadow-sm p-8 text-center">
               <div className="text-5xl mb-4 animate-bounce">⚙️</div>
               <h2 className="text-xl font-bold text-gray-800 mb-2">Đang tối ưu tuyến đường...</h2>
-              <p className="text-gray-500 mb-6">AI đang tính toán phân bổ tối ưu cho {activeShipments.length} đơn hàng</p>
+              <p className="text-gray-500 mb-6">Đang tính toán phân bổ tối ưu cho {activeShipments.length} đơn hàng</p>
               <div className="max-w-md mx-auto mb-4">
                 <div className="bg-gray-200 rounded-full h-4 overflow-hidden">
                   <div className="bg-amber-500 h-full rounded-full transition-all duration-300"
@@ -1251,7 +1289,7 @@ export default function PlanningPage() {
               {/* Summary KPI */}
               <div className="bg-gradient-to-r from-green-50 to-emerald-50 border border-green-200 rounded-xl p-5">
                 <div className="flex items-center justify-between mb-4">
-                  <h2 className="font-bold text-green-800 text-lg">✅ Kết quả tối ưu VRP</h2>
+                  <h2 className="font-bold text-green-800 text-lg">✅ Kết quả tối ưu tuyến đường</h2>
                   <span className="text-xs bg-green-200 text-green-800 px-2 py-1 rounded-full">
                     Giải trong {vrpResult.summary?.solve_time_ms || vrpResult.solve_time_ms}ms
                   </span>
@@ -1317,7 +1355,7 @@ export default function PlanningPage() {
                   <div className="mt-3 bg-red-50 border border-red-200 rounded-xl p-4">
                     <div className="flex items-center justify-between mb-2">
                       <div className="text-sm font-bold text-red-700">
-                        ⚠️ Không xếp được: {vrpResult.unassigned_shipments.length} shipment
+                        ⚠️ Không xếp được: {vrpResult.unassigned_shipments.length} đơn hàng
                       </div>
                     </div>
                     <div className="text-xs text-red-600 mb-3">
@@ -1334,7 +1372,7 @@ export default function PlanningPage() {
                       </button>
                       <button onClick={() => { setVrpResult(null); setJobId(''); runVRP() }}
                         className="px-3 py-1.5 bg-green-100 text-green-700 rounded-lg text-xs font-medium hover:bg-green-200 transition">
-                        🔄 Chạy lại VRP
+                        🔄 Tối ưu lại
                       </button>
                     </div>
                     <details className="text-xs">
@@ -1342,13 +1380,18 @@ export default function PlanningPage() {
                         Xem danh sách đơn không xếp được ({vrpResult.unassigned_shipments.length})
                       </summary>
                       <div className="mt-2 max-h-[200px] overflow-y-auto space-y-1">
-                        {vrpResult.unassigned_shipments.map((s: any, i: number) => (
-                          <div key={i} className="flex items-center justify-between p-2 bg-white rounded border">
-                            <span>{s.shipment_number || s.shipment_id?.slice(0, 8)}</span>
-                            <span className="text-gray-500">{s.customer_name}</span>
-                            <span className="font-medium">{s.total_weight_kg?.toFixed(0) || '?'} kg</span>
-                          </div>
-                        ))}
+                        {vrpResult.unassigned_shipments.map((s: any, i: number) => {
+                          // unassigned_shipments may be bare UUIDs — enrich from shipments list
+                          const sid = typeof s === 'string' ? s : (s.shipment_id || s.id || s)
+                          const shipment = shipments.find(sh => sh.id === sid)
+                          return (
+                            <div key={i} className="flex items-center justify-between p-2 bg-white rounded border">
+                              <span className="font-medium">{shipment?.shipment_number || (typeof sid === 'string' ? sid.slice(0, 8) : '?')}</span>
+                              <span className="text-gray-500 truncate max-w-[200px]">{shipment?.customer_name || '—'}</span>
+                              <span className="font-medium whitespace-nowrap">{shipment?.total_weight_kg?.toFixed(0) || '?'} kg</span>
+                            </div>
+                          )
+                        })}
                       </div>
                     </details>
                   </div>
@@ -1362,7 +1405,7 @@ export default function PlanningPage() {
                   <li>• <strong>Kéo thả</strong> điểm giao giữa các chuyến xe để di chuyển shipment</li>
                   <li>• Dùng nút <strong>↑ ↓</strong> để thay đổi thứ tự giao trong chuyến</li>
                   <li>• Tải trọng sẽ tự động tính lại sau khi điều chỉnh</li>
-                  <li>• Bấm <strong>&quot;Chạy lại VRP&quot;</strong> nếu muốn hệ thống tối ưu lại từ đầu</li>
+                  <li>• Bấm <strong>&quot;Tối ưu lại từ đầu&quot;</strong> nếu muốn hệ thống tối ưu lại từ đầu</li>
                   <li>• Khi hài lòng với kết quả, bấm <strong>&quot;Tiếp theo&quot;</strong> để gán tài xế và duyệt</li>
                 </ul>
               </div>
@@ -1451,7 +1494,7 @@ export default function PlanningPage() {
               <div className="flex justify-center">
                 <button onClick={() => { setVrpResult(null); setJobId(''); runVRP() }}
                   className="px-6 py-2.5 bg-amber-100 text-amber-700 rounded-lg hover:bg-amber-200 transition font-medium">
-                  🔄 Chạy lại VRP từ đầu
+                  🔄 Tối ưu lại từ đầu
                 </button>
               </div>
             </>
@@ -1479,11 +1522,24 @@ export default function PlanningPage() {
             <>
               <div className="bg-white rounded-xl shadow-sm p-5">
                 <h2 className="font-bold text-gray-800 mb-4">Gán tài xế cho từng chuyến xe</h2>
-                <p className="text-sm text-gray-500 mb-4">
-                  Chọn tài xế cho mỗi chuyến. Tài xế đã được gán sẽ hiển thị màu xanh.
-                  Còn <strong className="text-green-700">{drivers.length}</strong> tài xế khả dụng
-                  cho <strong className="text-amber-700">{vrpResult.trips.length}</strong> chuyến.
-                </p>
+                {(() => {
+                  const availableDrivers = driverCheckins.filter((c: any) => c.checkin_status === 'available')
+                  const notCheckedIn = driverCheckins.filter((c: any) => c.checkin_status === 'not_checked_in').length
+                  return (
+                    <>
+                      <p className="text-sm text-gray-500 mb-2">
+                        Chọn tài xế cho mỗi chuyến. Tài xế đã được gán sẽ hiển thị màu xanh.
+                        Còn <strong className="text-green-700">{availableDrivers.length}</strong> tài xế sẵn sàng
+                        cho <strong className="text-amber-700">{vrpResult.trips.length}</strong> chuyến.
+                      </p>
+                      {notCheckedIn > 0 && (
+                        <div className="bg-yellow-50 border border-yellow-200 text-yellow-700 text-xs px-3 py-2 rounded-lg mb-4">
+                          ⚠️ Còn {notCheckedIn} tài xế chưa check-in. Chỉ tài xế đã check-in sẵn sàng mới hiển thị trong danh sách chọn.
+                        </div>
+                      )}
+                    </>
+                  )
+                })()}
 
                 <div className="space-y-3 max-h-[50vh] overflow-y-auto">
                   {vrpResult.trips.map((trip, idx) => {
@@ -1512,14 +1568,27 @@ export default function PlanningPage() {
                           className={`px-3 py-2 border rounded-lg text-sm min-w-[220px] ${assignedDriverId ? 'border-green-300 bg-white' : 'border-yellow-300 bg-white'}`}
                         >
                           <option value="">-- Chọn tài xế --</option>
-                          {drivers.map(d => {
-                            const isUsedElsewhere = usedDriverIds.has(d.id) && d.id !== assignedDriverId
-                            return (
-                              <option key={d.id} value={d.id} disabled={isUsedElsewhere}>
-                                {d.full_name} ({d.phone}){isUsedElsewhere ? ' — đã gán' : ''}
-                              </option>
-                            )
-                          })}
+                          {(() => {
+                            // Only show drivers with 'available' check-in status
+                            const availableCheckinIds = new Set(driverCheckins.filter((c: any) => c.checkin_status === 'available').map((c: any) => c.driver_id || c.id))
+                            return [...drivers]
+                              .filter(d => availableCheckinIds.has(d.id) || d.id === assignedDriverId)
+                              .sort((a, b) => {
+                                const aUsed = usedDriverIds.has(a.id) && a.id !== assignedDriverId
+                                const bUsed = usedDriverIds.has(b.id) && b.id !== assignedDriverId
+                                if (aUsed && !bUsed) return 1
+                                if (!aUsed && bUsed) return -1
+                                return a.full_name.localeCompare(b.full_name)
+                              })
+                              .map(d => {
+                                const isUsedElsewhere = usedDriverIds.has(d.id) && d.id !== assignedDriverId
+                                return (
+                                  <option key={d.id} value={d.id} disabled={isUsedElsewhere}>
+                                    {d.full_name} ({d.phone}){isUsedElsewhere ? ' — đã gán' : ''}
+                                  </option>
+                                )
+                              })
+                          })()}
                         </select>
                         {assignedDriver && (
                           <span className="text-green-600 text-sm">✓</span>
