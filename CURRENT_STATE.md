@@ -1,6 +1,6 @@
 # CURRENT_STATE — BHL OMS-TMS-WMS
 
-> **Cập nhật:** 20/03/2026 (session 10)  
+> **Cập nhật:** 21/03/2026 (session 11)  
 > **Mục đích:** Mô tả trạng thái THỰC TẾ của hệ thống. AI đọc file này để biết code đang làm gì, **không** phải spec nói gì.  
 > **Quy tắc:** Khi code thay đổi → cập nhật file này. Nếu CURRENT_STATE không khớp code → file này sai.
 
@@ -23,7 +23,7 @@
 
 ### Auth — ✅ Hoàn chỉnh
 - POST `/v1/auth/login`, `/v1/auth/refresh`
-- RS256 JWT, 6 roles: admin, dispatcher, driver, warehouse_handler, management, accountant
+- RS256 JWT, 8 roles: admin, dispatcher, driver, warehouse_handler, management, accountant, dvkh, security
 - Test credentials: tất cả password `demo123`
 
 ### Admin — ✅ Hoạt động (7 endpoints) — NEW Session 9
@@ -41,13 +41,14 @@
 - **Credit limit:** Auto `pending_approval` khi vượt hạn mức — **enriched endpoint with credit details + order items**
 - **DMS sync:** Tự động fire khi tạo/hủy/duyệt đơn (Task 3.4 — async, không block)
 
-### TMS — ✅ Hoạt động (34 endpoints)
+### TMS — ✅ Hoạt động (30+ endpoints)
 - **Vehicles/Drivers:** Full CRUD + availability check
 - **VRP:** Run solver, get result, approve plan → tạo trips + stops
-- **Shipments:** Pending list + **pending-dates** (dates with pending shipment counts per warehouse)
+- **Shipments:** Pending list + **pending-dates** (dates with pending shipment counts per warehouse) + **urgent toggle**
 - **Driver Check-in:** Check-in/out hàng ngày + dispatcher view trạng thái toàn kho
 - **Trips:** List, get, update status (dispatcher + driver)
-- **Driver flow:** my-trips → checkin → start → update-stop → checklist → ePOD → payment → returns → complete
+- **Driver flow:** my-trips → checkin → start → update-stop (arrive/delivering/deliver/fail/skip) → checklist → ePOD → payment → returns → complete
+- **Stop actions:** arrive, delivering, deliver, fail, skip — Session 11 (added "delivering" intermediate step)
 - **Integration hooks:** Khi ePOD delivered/partial → auto push Bravo + Zalo confirm (Task 3.1, 3.5, 3.6)
 
 ### WMS — ✅ Hoạt động (15 endpoints)
@@ -69,7 +70,7 @@
 - **Discrepancy tickets** (Task 3.10): auto-create with T+1 deadline, resolve with notes
 - **Daily close summary** (Task 3.11): warehouse-level daily aggregation
 
-### Notification — ✅ Hoạt động (4 endpoints + WS) — NEW
+### Notification — ✅ Hoạt động (5 endpoints + WS) — NEW
 - List, unread count, mark read, mark all read
 - WebSocket: `/ws/notifications?token=` for real-time push
 
@@ -78,8 +79,8 @@
 - Manual snapshot generation
 - Daily cron 23:50 ICT for all warehouses
 
-### GPS — ✅ Hoạt động
-- REST: Batch upload, get latest positions
+### GPS — ✅ Hoạt động (3 endpoints + WS)
+- REST: Batch upload (lên tới 1000 points), get latest positions **(enriched: vehicle_plate, driver_name, trip_status)** — Session 11
 - WebSocket: `/ws/gps` (Redis pub/sub)
 - **GPS inject tool:** `cmd/inject_gps/main.go` — Sets test GPS positions for in-transit vehicles via Go Redis client. Run with `go run ./cmd/inject_gps/`
 - **Lưu ý:** Hệ thống có LOCAL Windows Redis (port 6379) bên cạnh Docker Redis. Go server kết nối tới local Redis. Dùng Go inject tool để đảm bảo JSON hợp lệ.
@@ -120,6 +121,9 @@
 | 13 trip statuses (code) | DB enum có 13, code dùng ~8 | STATE_MACHINES | Bổ sung dần theo feature |
 | Integration thực (HTTP) | Mock mode mặc định | INT | Chờ BHL IT sandbox |
 | zerolog structured | stdlib `log` | SAD | Low priority |
+| 10 roles (BRD) | 8 roles (code): admin, dispatcher, driver, warehouse_handler, accountant, management, dvkh, security | BRD §9 | Gộp phân_xưởng vào warehouse_handler, đội_trưởng vào dispatcher |
+| BRD v2.2 | BRD v2.3 (updated session 11) | BRD | Đã sync — Session 11 |
+| API spec v1.0 | API spec v1.1 (updated session 11) | API | Đã sync — Session 11 |
 
 ---
 
@@ -140,11 +144,11 @@
 
 ---
 
-## Domain Models: 37 structs trong `internal/domain/models.go`
+## Domain Models: 37+ structs trong `internal/domain/models.go`
 
 Auth (1): User  
 OMS (7): Product, Customer, CustomerWithCredit, ATPResult, SalesOrder, OrderItem, Shipment  
-TMS (5): Vehicle, Driver, Trip, TripStop, TripChecklist  
+TMS (5): Vehicle, Driver, Trip, TripStop (includes CustomerPhone — Session 11), TripChecklist  
 VRP (5): VRPJob, VRPResult, VRPTrip, VRPStop, VRPSummary  
 WMS (7): StockMove, StockMoveItem, PickingOrder, PickingItem, GateCheck, Lot, StockQuant  
 Integration (6): AssetLedgerEntry, ReturnCollection, EPOD, EPODItem, Payment, ZaloConfirmation  

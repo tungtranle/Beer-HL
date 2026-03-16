@@ -2,8 +2,8 @@
 
 | Thông tin | Giá trị |
 |-----------|---------|
-| Phiên bản | **v1.0** |
-| Dựa trên | SAD v2.1, BRD v2.0, DBS v1.0 |
+| Phiên bản | **v1.1** |
+| Dựa trên | SAD v2.1, BRD v2.3, DBS v1.0 |
 | Base URL | `https://api.bhl-ops.vn/v1` |
 | Auth | Bearer JWT RS256 |
 | Content-Type | `application/json` |
@@ -25,7 +25,9 @@
 10. [Notification & WebSocket](#10-notification--websocket)
 11. [Public Endpoints](#11-public-endpoints)
 12. [Integration Webhooks](#12-integration-webhooks)
-13. [Error Codes](#13-error-codes)
+13. [KPI Endpoints](#13-kpi-endpoints)
+14. [GPS Endpoints](#14-gps-endpoints)
+15. [Error Codes](#15-error-codes)
 
 ---
 
@@ -1011,6 +1013,196 @@ Invalidate refresh token trong DB.
   }
 }
 ```
+
+---
+
+# 9. ADMIN & MASTER DATA
+
+> Base: `/v1/admin` — Tất cả require role `admin`
+
+### GET /v1/admin/users
+**Danh sách người dùng** — Paginated, filter by role
+
+**Query params:** `role`, `page`, `limit`
+
+### GET /v1/admin/users/:id
+**Chi tiết người dùng**
+
+### POST /v1/admin/users
+**Tạo người dùng mới**
+
+**Request:**
+```json
+{
+  "username": "dvkh_05",
+  "password": "***",
+  "full_name": "Nguyễn Văn A",
+  "role": "dvkh",
+  "warehouse_ids": ["uuid-wh-hl"]
+}
+```
+
+### PUT /v1/admin/users/:id
+**Cập nhật người dùng** — Sửa full_name, role, warehouse_ids
+
+### DELETE /v1/admin/users/:id
+**Xóa người dùng** — Soft delete
+
+### POST /v1/admin/users/:id/reset-password
+**Reset mật khẩu** — Admin reset
+
+**Request:**
+```json
+{ "new_password": "***" }
+```
+
+### GET /v1/admin/roles
+**Danh sách roles** — Trả roles với default permissions
+
+**Response:**
+```json
+{
+  "data": [
+    { "role": "admin", "name": "Quản trị viên", "permissions": ["*"] },
+    { "role": "dispatcher", "name": "Điều phối viên" },
+    { "role": "driver", "name": "Tài xế" },
+    { "role": "warehouse_handler", "name": "Thủ kho" },
+    { "role": "accountant", "name": "Kế toán" },
+    { "role": "management", "name": "Ban giám đốc" },
+    { "role": "dvkh", "name": "DVKH" },
+    { "role": "security", "name": "Bảo vệ" }
+  ]
+}
+```
+
+---
+
+# 10. NOTIFICATION & WEBSOCKET
+
+### GET /v1/notifications
+**Danh sách thông báo** — Người dùng hiện tại
+
+**Query params:** `page`, `limit`, `unread_only`
+
+### GET /v1/notifications/unread-count
+**Số thông báo chưa đọc**
+
+**Response:** `{ "data": { "count": 5 } }`
+
+### PUT /v1/notifications/:id/read
+**Đánh dấu đã đọc**
+
+### PUT /v1/notifications/read-all
+**Đánh dấu tất cả đã đọc**
+
+### WebSocket /ws/notifications
+**Real-time notifications**
+
+**Kết nối:** `ws://host/ws/notifications?token=<access_token>`
+
+---
+
+# 11. PUBLIC ENDPOINTS
+
+> Không yêu cầu authentication
+
+### GET /v1/public/confirm/:token
+**Trang xác nhận NPP** — Zalo confirmation token
+
+### POST /v1/public/confirm/:token
+**NPP xác nhận hoặc báo sai lệch**
+
+**Request:** `{ "action": "confirm" }` hoặc `{ "action": "dispute", "items": [...] }`
+
+---
+
+# 12. INTEGRATION WEBHOOKS
+
+### POST /v1/integration/bravo/webhook
+**Bravo webhook** — Nhận data từ Bravo
+
+### POST /v1/integration/bravo/push-document
+**Push chứng từ sang Bravo**
+
+### POST /v1/integration/bravo/reconcile
+**Đối soát Bravo**
+
+### POST /v1/integration/dms/sync
+**Sync đơn hàng sang DMS**
+
+### POST /v1/integration/zalo/send
+**Gửi tin nhắn Zalo ZNS**
+
+### POST /v1/integration/npp/send-confirmation
+**Gửi link xác nhận cho NPP**
+
+### POST /v1/integration/npp/auto-confirm
+**Auto-confirm NPP quá 24h** — Cron trigger
+
+### GET /v1/integration/dlq
+**Danh sách DLQ entries**
+
+### GET /v1/integration/dlq/stats
+**Thống kê DLQ**
+
+### POST /v1/integration/dlq/:id/retry
+**Retry DLQ entry**
+
+### POST /v1/integration/dlq/:id/resolve
+**Resolve DLQ entry**
+
+---
+
+# 13. KPI ENDPOINTS
+
+### GET /v1/kpi/report
+**KPI report** — date range + warehouse filter
+
+**Query:** `from_date`, `to_date`, `warehouse_id`
+
+**Metrics:** otd_rate, delivery_success_rate, vehicle_utilization, total_distance_km, total_revenue, total_collections, recon_match_rate
+
+### POST /v1/kpi/snapshot
+**Manual KPI snapshot**
+
+**Request:** `{ "warehouse_id": "uuid", "snapshot_date": "2026-03-20" }`
+
+---
+
+# 14. GPS ENDPOINTS
+
+### POST /v1/driver/gps/batch
+**Batch upload GPS** — Up to 1000 points *(See section 5.5)*
+
+### GET /v1/gps/latest
+**Latest GPS positions (enriched)** — vehicle_plate, driver_name, trip_status
+
+| | |
+|-|---|
+| Roles | `admin`, `dispatcher`, `management` |
+
+### WebSocket /ws/gps
+**Real-time GPS stream** — Redis pub/sub
+
+**Kết nối:** `ws://host/ws/gps?token=<access_token>`
+
+---
+
+# 15. ERROR CODES
+
+| Code | HTTP | Ý nghĩa |
+|------|------|---------|
+| `VALIDATION_ERROR` | 400 | Thiếu field hoặc format sai |
+| `UNAUTHORIZED` | 401 | Token missing/expired |
+| `FORBIDDEN` | 403 | Không đủ quyền |
+| `NOT_FOUND` | 404 | Resource không tồn tại |
+| `CREDIT_LIMIT_EXCEEDED` | 422 | Vượt hạn mức công nợ NPP |
+| `ATP_INSUFFICIENT` | 422 | Tồn kho không đủ |
+| `GATE_CHECK_FAILED` | 422 | Sai lệch hàng tại cổng |
+| `WRONG_LOT_PICKED` | 422 | Pick sai lô (FEFO violation) |
+| `INVALID_STATUS_TRANSITION` | 422 | Chuyển trạng thái không hợp lệ |
+| `DUPLICATE_ENTRY` | 409 | Trùng lặp (idempotency) |
+| `INTERNAL_ERROR` | 500 | Lỗi server |
 
 ### GET /v1/reports/receivable-by-customer
 **Công nợ tiền hàng theo NPP**

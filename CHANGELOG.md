@@ -7,7 +7,7 @@
 
 ## [Unreleased] — Phase 4 in progress
 
-### 2026-03-16 — Session 11: Dashboard & Data Fixes + Driver App BRD Compliance
+### 2026-03-16 — Session 11: Dashboard & Data Fixes + Driver App BRD Compliance + Doc Sync
 
 #### Fixed
 - **Dashboard "Tổng đơn hàng" showing "-"** — API `/dashboard/stats` was missing `total_orders` field; added `SELECT COUNT(*) FROM sales_orders` query to return it
@@ -24,8 +24,13 @@
 - **GPS-based navigation** — Stop navigation uses coordinates when available, falls back to address-based Google Maps search
 - **Test driver account** — `driver70` (Phạm Văn Vinh) with trip TRIP-TEST-001 (3 stops), vehicle 15C-11111
 
+#### Documentation Sync (Code vs Spec Audit)
+- **BRD v2.2 → v2.3** — Marked all implemented acceptance criteria with [x]; added 10 new user stories (US-NEW-01~10) for features not in original BRD: Admin CRUD, Driver Check-in, KPI, GPS enriched map, Offline Sync, Driver Profile, Urgent Priority, Pending Dates, Role-specific Dashboard, DLQ Management
+- **API spec v1.0 → v1.1** — Added sections 9-15: Admin endpoints (7), Notification endpoints (5+WS), Public endpoints (2), Integration webhooks (11), KPI endpoints (2), GPS endpoints (3+WS), Error codes table
+- **Deleted 4 demo files**: DEMO_PROGRESS.md, DEMO_SCRIPT.md, DEMO_SPRINT.md, DEMO_TEST_CASES.md
+
 #### Docs Updated
-- CURRENT_STATE.md, CHANGELOG.md, KNOWN_ISSUES.md
+- BRD_BHL_OMS_TMS_WMS.md (v2.3), API_BHL_OMS_TMS_WMS.md (v1.1), CURRENT_STATE.md, CHANGELOG.md
 
 ### 2026-03-20 — Session 10: Demo Data Fix, UX Bugs, GPS Integration
 

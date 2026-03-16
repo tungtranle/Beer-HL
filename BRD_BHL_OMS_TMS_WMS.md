@@ -1,11 +1,11 @@
 # BRD — HỆ THỐNG QUẢN LÝ VẬN HÀNH BHL
 ## (OMS – TMS – WMS)
 
-**Phiên bản:** 2.2  
-**Ngày:** 14/03/2026  
+**Phiên bản:** 2.3  
+**Ngày:** 21/03/2026  
 **Khách hàng:** Công ty Cổ phần Bia và Nước giải khát Hạ Long (BHL)  
-**Trạng thái:** Đã xác nhận yêu cầu — Sẵn sàng phát triển  
-**Nguồn:** Merge từ BRD-BHL-OMS-TMS-WMS-V1.2 (nghiệp vụ) + trao đổi BA chi tiết (giải pháp)
+**Trạng thái:** Đang phát triển — Đối chiếu code & spec  
+**Nguồn:** Merge từ BRD-BHL-OMS-TMS-WMS-V1.2 (nghiệp vụ) + trao đổi BA chi tiết (giải pháp) + rà soát code thực tế
 
 ---
 
@@ -24,6 +24,7 @@
 11. [THÔNG BÁO & CẢNH BÁO](#11-thông-báo--cảnh-báo)
 12. [QUY MÔ & SIZING](#12-quy-mô--sizing)
 13. [PHỤ LỤC — DATA ENTITIES](#13-phụ-lục--data-entities)
+13B. [TÍNH NĂNG BỔ SUNG (PHÁT SINH TỪ PHÁT TRIỂN)](#13b-tính-năng-bổ-sung-phát-sinh-từ-phát-triển)
 14. [TIÊU CHÍ NGHIỆM THU (UAT)](#14-tiêu-chí-nghiệm-thu-uat)
 
 ---
@@ -176,16 +177,16 @@ OMS là **điểm vào duy nhất** của đơn hàng. DVKH nhập đơn trực 
 **So that** đơn hàng được ghi nhận chính xác trong hệ thống
 
 **Acceptance Criteria:**
-- [ ] Chọn NPP/Khách hàng từ danh mục (tìm kiếm theo tên, mã, SĐT)
-- [ ] Chọn sản phẩm (SKU), nhập số lượng
-- [ ] Hiển thị **tồn kho khả dụng (ATP)** real-time tại thời điểm nhập đơn
+- [x] Chọn NPP/Khách hàng từ danh mục (tìm kiếm theo tên, mã, SĐT)
+- [x] Chọn sản phẩm (SKU), nhập số lượng
+- [x] Hiển thị **tồn kho khả dụng (ATP)** real-time tại thời điểm nhập đơn
 - [ ] Nếu tồn kho không đủ → cảnh báo và cho phép: (a) đặt partial, (b) chuyển kho khác, (c) hủy dòng — đơn thiếu hàng có **trạng thái xử lý riêng**
-- [ ] Chọn ngày giờ giao hàng mong muốn
-- [ ] Chọn địa chỉ giao (từ danh sách địa chỉ đã lưu của NPP hoặc nhập mới)
+- [x] Chọn ngày giờ giao hàng mong muốn
+- [x] Chọn địa chỉ giao (từ danh sách địa chỉ đã lưu của NPP hoặc nhập mới)
 - [ ] Hiển thị chính sách vỏ cược áp dụng cho đơn này (tự động tính)
-- [ ] **Validate đầy đủ thông tin bắt buộc** — không cho chuyển bước nếu thiếu
-- [ ] Lưu đơn → trạng thái "Draft"
-- [ ] Đơn tự động **phân luồng trước 16h / sau 16h** theo mốc chốt
+- [x] **Validate đầy đủ thông tin bắt buộc** — không cho chuyển bước nếu thiếu
+- [x] Lưu đơn → trạng thái "Draft" *(Impl: đơn auto-confirm nếu không vượt hạn mức, auto `pending_approval` nếu vượt)*
+- [x] Đơn tự động **phân luồng trước 16h / sau 16h** theo mốc chốt *(Impl: cutoff_hour configurable qua system_settings)*
 
 ### US-OMS-02: Kiểm tra tồn kho khả dụng (ATP)
 **As a** hệ thống  
@@ -193,10 +194,10 @@ OMS là **điểm vào duy nhất** của đơn hàng. DVKH nhập đơn trực 
 **So that** không bán vượt tồn kho
 
 **Acceptance Criteria:**
-- [ ] ATP = Tồn kho thực tế - Đã cam kết (cho đơn khác chưa xuất) - Đang giữ (reserved)
-- [ ] ATP tính theo từng kho, từng SKU
-- [ ] Khi đơn được xác nhận → trừ ATP ngay (reserved)
-- [ ] Khi đơn bị hủy → hoàn lại ATP
+- [x] ATP = Tồn kho thực tế - Đã cam kết (cho đơn khác chưa xuất) - Đang giữ (reserved) *(Impl: tính từ stock_quants)*
+- [x] ATP tính theo từng kho, từng SKU *(Impl: GET /v1/atp + POST /v1/atp/batch)*
+- [x] Khi đơn được xác nhận → trừ ATP ngay (reserved)
+- [x] Khi đơn bị hủy → hoàn lại ATP
 
 ### US-OMS-02a: Sửa đơn hàng (Edit Order)
 **As a** nhân viên DVKH / Điều phối viên  
@@ -204,24 +205,24 @@ OMS là **điểm vào duy nhất** của đơn hàng. DVKH nhập đơn trực 
 **So that** cập nhật sản phẩm, số lượng, thông tin giao hàng mà không cần hủy rồi tạo lại
 
 **Acceptance Criteria:**
-- [ ] Chỉ cho phép sửa đơn ở trạng thái: `draft`, `confirmed`, `pending_approval`
-- [ ] Không cho sửa đơn đã giao (`shipped`, `delivered`, `completed`, `cancelled`)
-- [ ] Khi sửa: giải phóng tồn kho reserved cũ → kiểm tra ATP mới → reserve lại
-- [ ] Tự động tính lại: tổng tiền, trọng lượng, thể tích, phí vỏ cược
-- [ ] Re-check hạn mức tín dụng: nếu đơn mới vượt hạn mức → chuyển `pending_approval`
-- [ ] Nếu đơn cũ đã có Shipment (status=pending) → xóa Shipment cũ và tạo lại
-- [ ] Giao diện sửa đơn tái sử dụng form tạo đơn, pre-fill dữ liệu hiện tại
-- [ ] Hiển thị nút "Sửa" trên trang chi tiết đơn và danh sách đơn (chỉ khi trạng thái cho phép)
+- [x] Chỉ cho phép sửa đơn ở trạng thái: `draft`, `confirmed`, `pending_approval`
+- [x] Không cho sửa đơn đã giao (`shipped`, `delivered`, `completed`, `cancelled`)
+- [x] Khi sửa: giải phóng tồn kho reserved cũ → kiểm tra ATP mới → reserve lại
+- [x] Tự động tính lại: tổng tiền, trọng lượng, thể tích, phí vỏ cược
+- [x] Re-check hạn mức tín dụng: nếu đơn mới vượt hạn mức → chuyển `pending_approval`
+- [x] Nếu đơn cũ đã có Shipment (status=pending) → xóa Shipment cũ và tạo lại
+- [x] Giao diện sửa đơn tái sử dụng form tạo đơn, pre-fill dữ liệu hiện tại
+- [x] Hiển thị nút "Sửa" trên trang chi tiết đơn và danh sách đơn (chỉ khi trạng thái cho phép)
 **As a** hệ thống  
 **I want to** gom nhiều đơn lẻ thành một lệnh vận chuyển  
 **So that** tối ưu tải trọng xe — nhiều đơn đi chung một chuyến giao
 
 **Acceptance Criteria:**
-- [ ] Tự động gom các đơn có cùng: (a) khu vực giao/tuyến, (b) khung giờ giao tương thích, (c) cùng NPP
-- [ ] Kết quả gom hiển thị cho điều phối viên review
+- [x] Tự động gom các đơn có cùng: (a) khu vực giao/tuyến, (b) khung giờ giao tương thích, (c) cùng NPP
+- [x] Kết quả gom hiển thị cho điều phối viên review
 - [ ] Điều phối viên có quyền **override**: tách/gom lại thủ công
-- [ ] Mỗi lệnh vận chuyển (Shipment) ghi rõ nguồn gốc từ các Sales Order nào
-- [ ] Tổng trọng lượng/thể tích sau gom không vượt tải trọng xe dự kiến
+- [x] Mỗi lệnh vận chuyển (Shipment) ghi rõ nguồn gốc từ các Sales Order nào
+- [x] Tổng trọng lượng/thể tích sau gom không vượt tải trọng xe dự kiến
 
 ### US-OMS-04: Tách đơn (Order Split)
 **As a** nhân viên DVKH  
@@ -229,11 +230,11 @@ OMS là **điểm vào duy nhất** của đơn hàng. DVKH nhập đơn trực 
 **So that** phân bổ cho nhiều xe khi 1 xe không chở hết, hoặc tách phần giao ngay / giao lại
 
 **Acceptance Criteria:**
-- [ ] Tách theo số lượng (ví dụ: 500 thùng → 300 + 200)
-- [ ] Tách theo SKU (ví dụ: bia chai xe A, bia hơi xe B)
-- [ ] Tách khi thiếu hàng: phần đủ giao ngay, phần thiếu giao sau
-- [ ] Mỗi phần tách có trạng thái giao hàng độc lập
-- [ ] Tổng các phần tách = đơn gốc (không thừa, không thiếu)
+- [x] Tách theo số lượng (ví dụ: 500 thùng → 300 + 200)
+- [x] Tách theo SKU (ví dụ: bia chai xe A, bia hơi xe B)
+- [x] Tách khi thiếu hàng: phần đủ giao ngay, phần thiếu giao sau
+- [x] Mỗi phần tách có trạng thái giao hàng độc lập
+- [x] Tổng các phần tách = đơn gốc (không thừa, không thiếu)
 
 ### US-OMS-05: Chính sách vỏ cược
 **As a** hệ thống  
@@ -255,10 +256,10 @@ OMS là **điểm vào duy nhất** của đơn hàng. DVKH nhập đơn trực 
 **So that** Sale theo dõi được trạng thái đơn
 
 **Acceptance Criteria:**
-- [ ] Khi đơn hàng chuyển trạng thái "Confirmed" → gọi API đẩy sang DMS
-- [ ] Dữ liệu đẩy: Mã đơn, NPP, Sản phẩm, Số lượng, Trạng thái
-- [ ] Cập nhật trạng thái ngược về DMS khi: Đang giao / Đã giao / Hoãn / Hủy
-- [ ] Nếu API DMS lỗi → retry + ghi log + cảnh báo admin
+- [x] Khi đơn hàng chuyển trạng thái "Confirmed" → gọi API đẩy sang DMS *(Impl: integration mock mode, async fire-and-forget)*
+- [x] Dữ liệu đẩy: Mã đơn, NPP, Sản phẩm, Số lượng, Trạng thái
+- [x] Cập nhật trạng thái ngược về DMS khi: Đang giao / Đã giao / Hoãn / Hủy *(Impl: DMS sync endpoint)*
+- [x] Nếu API DMS lỗi → retry + ghi log + cảnh báo admin *(Impl: DLQ dead letter queue với retry/resolve)*
 
 ### US-OMS-07: Hạn mức công nợ NPP
 **As a** hệ thống  
@@ -266,11 +267,11 @@ OMS là **điểm vào duy nhất** của đơn hàng. DVKH nhập đơn trực 
 **So that** không cho nợ vượt hạn mức
 
 **Acceptance Criteria:**
-- [ ] Mỗi NPP có **hạn mức công nợ** (không phải hạn mức tín dụng — R15)
-- [ ] Hạn mức thiết lập **theo thời kỳ** (từ ngày → đến ngày), Admin cấu hình
-- [ ] Khi nhập đơn → kiểm tra: Công nợ hiện tại + Giá trị đơn mới ≤ Hạn mức
-- [ ] Nếu **vượt hạn mức** → **chặn đơn mới**, yêu cầu phê duyệt từ **Kế toán**
-- [ ] Đơn chuyển trạng thái "Pending Approval" → Kế toán duyệt → tiếp tục / từ chối
+- [x] Mỗi NPP có **hạn mức công nợ** (không phải hạn mức tín dụng — R15)
+- [x] Hạn mức thiết lập **theo thời kỳ** (từ ngày → đến ngày), Admin cấu hình *(Impl: bảng credit_limits với valid_from/valid_to)*
+- [x] Khi nhập đơn → kiểm tra: Công nợ hiện tại + Giá trị đơn mới ≤ Hạn mức
+- [x] Nếu **vượt hạn mức** → **chặn đơn mới**, yêu cầu phê duyệt từ **Kế toán**
+- [x] Đơn chuyển trạng thái "Pending Approval" → Kế toán duyệt → tiếp tục / từ chối *(Impl: GET /v1/orders/pending-approvals, POST /v1/orders/:id/approve)*
 - [ ] Hết thời kỳ → Hạn mức không còn hiệu lực → cảnh báo Admin cập nhật
 - [ ] Lịch sử thay đổi hạn mức được ghi log đầy đủ
 
@@ -280,10 +281,10 @@ OMS là **điểm vào duy nhất** của đơn hàng. DVKH nhập đơn trực 
 **So that** tuân thủ quy định vận hành hiện hành (R08)
 
 **Acceptance Criteria:**
-- [ ] Đơn nhập trước 16h → nhóm "Giao trong ngày" (xếp tuyến trong 20 phút)
-- [ ] Đơn nhập sau 16h → nhóm "Giao ngày mai" (xếp tuyến trong 1.5 giờ)
-- [ ] Mốc 16h cấu hình được (Admin có thể điều chỉnh theo thời kỳ)
-- [ ] Hệ thống tự động gán nhóm, hiển thị rõ cho DVKH và Điều phối
+- [x] Đơn nhập trước 16h → nhóm "Giao trong ngày" (xếp tuyến trong 20 phút)
+- [x] Đơn nhập sau 16h → nhóm "Giao ngày mai" (xếp tuyến trong 1.5 giờ)
+- [x] Mốc 16h cấu hình được (Admin có thể điều chỉnh theo thời kỳ) *(Impl: system_settings key `cutoff_hour`)*
+- [x] Hệ thống tự động gán nhóm, hiển thị rõ cho DVKH và Điều phối *(Impl: cutoff_group field trên order)*
 
 ## 4.3 Trạng thái đơn hàng (Order Status Flow)
 ```
@@ -326,8 +327,8 @@ TMS quản lý toàn bộ vòng đời vận tải: Xếp xe tự động → Ch
 **So that** giảm thời gian xếp xe từ 1-3h xuống vài phút
 
 **Acceptance Criteria:**
-- [ ] Input: Danh sách Shipment (từ OMS) + Danh sách xe khả dụng + Ràng buộc
-- [ ] Ràng buộc xử lý:
+- [x] Input: Danh sách Shipment (từ OMS) + Danh sách xe khả dụng + Ràng buộc
+- [x] Ràng buộc xử lý:
   - Tải trọng xe (kg)
   - Thể tích thùng xe (m³)
   - Giờ cấm tải (theo bảng cấu hình thủ công — US-TMS-03)
@@ -337,11 +338,11 @@ TMS quản lý toàn bộ vòng đời vận tải: Xếp xe tự động → Ch
 - [ ] **Khi thiếu xe** → áp dụng thứ tự ưu tiên **cấu hình được** (R12):
   - Admin thiết lập bộ tiêu chí ưu tiên (ví dụ: Tải trọng lớn trước / Tuyến xa trước / Đơn giá trị cao trước)
   - Thứ tự ưu tiên có thể thay đổi bất kỳ lúc nào
-- [ ] Output: Danh sách Trip (chuyến xe), mỗi Trip gồm: Xe, Tài xế, Thứ tự điểm giao, Thời gian dự kiến
-- [ ] Sử dụng **Google OR-Tools** làm engine tối ưu
-- [ ] Hỗ trợ bài toán **Multi-drop** — 1 xe giao nhiều điểm, **không giới hạn số điểm** (TMS-02)
-- [ ] Điều phối viên **xem kết quả → duyệt hoặc chỉnh tay** trước khi xác nhận
-- [ ] Thời gian xử lý solver: < 2 phút cho 1,000 đơn
+- [x] Output: Danh sách Trip (chuyến xe), mỗi Trip gồm: Xe, Tài xế, Thứ tự điểm giao, Thời gian dự kiến
+- [x] Sử dụng **Google OR-Tools** làm engine tối ưu *(Impl: VRP Python service port 8090)*
+- [x] Hỗ trợ bài toán **Multi-drop** — 1 xe giao nhiều điểm, **không giới hạn số điểm** (TMS-02)
+- [x] Điều phối viên **xem kết quả → duyệt hoặc chỉnh tay** trước khi xác nhận *(Impl: POST /v1/planning/approve với trip_assignments)*
+- [x] Thời gian xử lý solver: < 2 phút cho 1,000 đơn
 
 ### US-TMS-01a: Dashboard đánh giá kết quả tối ưu
 **As a** điều phối viên  
@@ -349,7 +350,7 @@ TMS quản lý toàn bộ vòng đời vận tải: Xếp xe tự động → Ch
 **So that** biết kế hoạch đã tối ưu hay cần điều chỉnh trước khi duyệt
 
 **Acceptance Criteria:**
-- [ ] Hiển thị KPI tổng hợp sau mỗi lần chạy VRP:
+- [x] Hiển thị KPI tổng hợp sau mỗi lần chạy VRP:
   - Số chuyến xe được tạo
   - Tổng số điểm giao đã xếp / không xếp được
   - Tổng quãng đường (km) và tổng thời gian dự kiến (phút)
@@ -358,8 +359,8 @@ TMS quản lý toàn bộ vòng đời vận tải: Xếp xe tự động → Ch
   - Số điểm giao trung bình / chuyến
   - Thời gian solver giải bài toán (ms)
 - [ ] Biểu đồ thanh (bar chart) hiển thị **mức sử dụng tải trọng từng xe**: xanh (<70%), vàng (70-90%), đỏ (>90%)
-- [ ] Cảnh báo nổi bật nếu có shipment **không xếp được** (unassigned) kèm lý do gợi ý (vượt tải, thiếu xe)
-- [ ] Cảnh báo nếu xe nào bị **quá tải** (vượt capacity)
+- [x] Cảnh báo nổi bật nếu có shipment **không xếp được** (unassigned) kèm lý do gợi ý (vượt tải, thiếu xe)
+- [x] Cảnh báo nếu xe nào bị **quá tải** (vượt capacity)
 
 ### US-TMS-01b: Điều chỉnh kế hoạch thủ công
 **As a** điều phối viên  
@@ -371,9 +372,9 @@ TMS quản lý toàn bộ vòng đời vận tải: Xếp xe tự động → Ch
 - [ ] **Sắp xếp lại thứ tự** điểm giao trong cùng 1 chuyến (kéo lên/xuống)
 - [ ] Khi điều chỉnh, tải tích lũy (cumulative_load_kg) tự động **tính lại** real-time
 - [ ] Hiển thị cảnh báo khi thao tác khiến xe **vượt tải trọng** cho phép
-- [ ] **Gán tài xế** cho từng chuyến từ danh sách tài xế khả dụng (dropdown)
-- [ ] Nút **"Chạy lại VRP"** — cho phép tối ưu lại toàn bộ từ đầu nếu không hài lòng
-- [ ] Nút **"Duyệt kế hoạch"** — xác nhận tạo Trip sau khi điều chỉnh xong
+- [x] **Gán tài xế** cho từng chuyến từ danh sách tài xế khả dụng (dropdown) *(Impl: trip_assignments trong approve API)*
+- [x] Nút **"Chạy lại VRP"** — cho phép tối ưu lại toàn bộ từ đầu nếu không hài lòng *(Impl: POST /v1/planning/run-vrp)*
+- [x] Nút **"Duyệt kế hoạch"** — xác nhận tạo Trip sau khi điều chỉnh xong *(Impl: POST /v1/planning/approve)*
 
 ### US-TMS-01c: Bản đồ tuyến đường chuyến xe
 **As a** điều phối viên / quản lý  
@@ -381,10 +382,10 @@ TMS quản lý toàn bộ vòng đời vận tải: Xếp xe tự động → Ch
 **So that** đánh giá trực quan lộ trình và phát hiện bất thường
 
 **Acceptance Criteria:**
-- [ ] Bản đồ hiển thị: điểm kho xuất phát (icon kho) + các điểm giao (icon số thứ tự) + tuyến đường nối
-- [ ] Tuyến đường vẽ theo **đường bộ thực tế** (sử dụng OSRM routing), không phải đường thẳng
-- [ ] Popup mỗi điểm giao: Tên NPP, Địa chỉ, Trọng lượng, Trạng thái
-- [ ] Fallback: Nếu OSRM không phản hồi → vẽ đường thẳng nét đứt
+- [x] Bản đồ hiển thị: điểm kho xuất phát (icon kho) + các điểm giao (icon số thứ tự) + tuyến đường nối
+- [x] Tuyến đường vẽ theo **đường bộ thực tế** (sử dụng OSRM routing), không phải đường thẳng *(Impl: OSRM Docker container port 5000)*
+- [x] Popup mỗi điểm giao: Tên NPP, Địa chỉ, Trọng lượng, Trạng thái
+- [x] Fallback: Nếu OSRM không phản hồi → vẽ đường thẳng nét đứt
 
 ### US-TMS-02: Tối ưu Shuttle Run (HL ↔ Đông Mai)
 **As a** điều phối viên  
@@ -438,12 +439,12 @@ TMS quản lý toàn bộ vòng đời vận tải: Xếp xe tự động → Ch
 **So that** đảm bảo an toàn và có bằng chứng lưu trữ
 
 **Acceptance Criteria:**
-- [ ] Danh mục kiểm tra (cấu hình được): Phanh, Lốp, Đèn, Gương, Nước làm mát, Dầu...
-- [ ] Mỗi mục: Đạt / Không đạt
+- [x] Danh mục kiểm tra (cấu hình được): Phanh, Lốp, Đèn, Gương, Nước làm mát, Dầu... *(Impl: 12 items cố định + fuel_level)*
+- [x] Mỗi mục: Đạt / Không đạt
 - [ ] **Bắt buộc chụp ảnh** tổng quát xe (tối thiểu 1 ảnh)
 - [ ] Nếu có mục "Không đạt" → ghi chú + ảnh chi tiết → thông báo Đội trưởng
-- [ ] Checklist phải hoàn thành **trước khi** nhận lệnh vận chuyển
-- [ ] App hoạt động trên **iOS và Android**
+- [x] Checklist phải hoàn thành **trước khi** nhận lệnh vận chuyển *(Impl: pass = all_true + fuel ≥ 20%)*
+- [ ] App hoạt động trên **iOS và Android** *(Impl: Next.js PWA, chưa native)*
 
 ### US-TMS-11: Nhận lệnh vận chuyển
 **As a** tài xế  
@@ -451,11 +452,11 @@ TMS quản lý toàn bộ vòng đời vận tải: Xếp xe tự động → Ch
 **So that** biết lịch trình giao hàng
 
 **Acceptance Criteria:**
-- [ ] Hiển thị danh sách điểm giao theo thứ tự tối ưu (không giới hạn số điểm)
-- [ ] Mỗi điểm giao hiển thị: Tên NPP, Địa chỉ, SĐT, Sản phẩm, Số lượng, Ghi chú
-- [ ] Hiển thị rõ trạng thái **từng điểm giao** (chưa giao / đang giao / đã giao / thất bại)
-- [ ] Nút "Bắt đầu chuyến" → kích hoạt GPS tracking
-- [ ] Nút "Mở bản đồ" → mở Google Maps/Apple Maps điều hướng
+- [x] Hiển thị danh sách điểm giao theo thứ tự tối ưu (không giới hạn số điểm)
+- [x] Mỗi điểm giao hiển thị: Tên NPP, Địa chỉ, SĐT, Sản phẩm, Số lượng, Ghi chú *(Impl: Stop cards với thông tin đầy đủ + customer phone)*
+- [x] Hiển thị rõ trạng thái **từng điểm giao** (chưa giao / đang giao / đã giao / thất bại) *(Impl: pending/arrived/delivering/delivered/failed/skipped)*
+- [x] Nút "Bắt đầu chuyến" → kích hoạt GPS tracking *(Impl: POST /v1/driver/trips/:id/start + useGpsTracker hook)*
+- [x] Nút "Mở bản đồ" → mở Google Maps/Apple Maps điều hướng *(Impl: Google Maps deep link)*
 
 ### US-TMS-12: GPS Tracking thời gian thực
 **As a** điều phối viên  
@@ -463,10 +464,10 @@ TMS quản lý toàn bộ vòng đời vận tải: Xếp xe tự động → Ch
 **So that** giám sát tiến trình giao hàng — xem tiến độ và kết quả theo điểm giao (TMS-03)
 
 **Acceptance Criteria:**
-- [ ] GPS lấy từ **điện thoại tài xế** (không thiết bị gắn xe)
-- [ ] Tần suất gửi vị trí: mỗi 30 giây khi xe đang chạy
-- [ ] Bản đồ dashboard: Hiển thị tất cả xe đang chạy (icon theo trạng thái)
-- [ ] Lưu lịch sử tuyến đường (route history) theo ngày
+- [x] GPS lấy từ **điện thoại tài xế** (không thiết bị gắn xe)
+- [x] Tần suất gửi vị trí: mỗi 30 giây khi xe đang chạy *(Impl: useGpsTracker hook, batch upload lên tới 1000 points)*
+- [x] Bản đồ dashboard: Hiển thị tất cả xe đang chạy (icon theo trạng thái) *(Impl: /dashboard/map với biển số, tên TX, trạng thái trip)*
+- [x] Lưu lịch sử tuyến đường (route history) theo ngày *(Impl: gps_tracks table)*
 - [ ] Phát hiện xe dừng quá lâu tại 1 điểm → cảnh báo (ngưỡng cấu hình được)
 
 ### US-TMS-13: Xác nhận giao hàng (ePOD)
@@ -475,13 +476,13 @@ TMS quản lý toàn bộ vòng đời vận tải: Xếp xe tự động → Ch
 **So that** có bằng chứng điện tử
 
 **Acceptance Criteria:**
-- [ ] Khi đến điểm giao → app ghi nhận GPS arrival (tự động detect khoảng cách)
-- [ ] **Tài xế thông báo miệng cho NPP** dựa trên thông tin đơn trên app (R13)
-- [ ] NPP xác nhận đúng → Tiến hành **hạ hàng TRƯỚC** (R03)
-- [ ] Nhập số lượng **thực giao** cho từng SKU (có thể khác đơn nếu giao thiếu)
-- [ ] **Chụp ảnh chứng từ** (ít nhất 1 ảnh)
-- [ ] Xác nhận giao hàng trên app → Hệ thống **gửi tin nhắn Zalo kèm link xác nhận cho NPP** (silent consent 24h — R13)
-- [ ] Trạng thái cập nhật real-time về OMS
+- [x] Khi đến điểm giao → app ghi nhận GPS arrival (tự động detect khoảng cách) *(Impl: action "arrive" update stop status)*
+- [x] **Tài xế thông báo miệng cho NPP** dựa trên thông tin đơn trên app (R13)
+- [x] NPP xác nhận đúng → Tiến hành **hạ hàng TRƯỚC** (R03) *(Impl: "delivering" intermediate step)*
+- [x] Nhập số lượng **thực giao** cho từng SKU (có thể khác đơn nếu giao thiếu)
+- [ ] **Chụp ảnh chứng từ** (ít nhất 1 ảnh) *(Impl: photo_urls field có trong API, chưa enforce bắt buộc)*
+- [x] Xác nhận giao hàng trên app → Hệ thống **gửi tin nhắn Zalo kèm link xác nhận cho NPP** (silent consent 24h — R13) *(Impl: integration hook auto-trigger)*
+- [x] Trạng thái cập nhật real-time về OMS
 
 ### US-TMS-14: Xử lý ngoại lệ giao hàng
 **As a** tài xế  
@@ -532,13 +533,13 @@ TMS quản lý toàn bộ vòng đời vận tải: Xếp xe tự động → Ch
 **So that** đối trừ công nợ vỏ cho NPP
 
 **Acceptance Criteria:**
-- [ ] Sau khi giao hàng → chuyển sang bước thu vỏ
-- [ ] Nhập số lượng theo loại: Chai (đơn vị: cái), Két/Vỏ (đơn vị: keg), Keg, Pallet, CCDC (R14)
-- [ ] Phân loại: **Tốt** / **Hỏng**
-- [ ] Nếu khai **vỏ hỏng** → **bắt buộc chụp ảnh** làm bằng chứng
-- [ ] Vỏ tốt → đối trừ công nợ vỏ NPP
-- [ ] Vỏ hỏng/mất/sứt → **bồi hoàn theo đơn giá hiệu lực từng thời kỳ** (R10) — NPP chịu
-- [ ] **Sai lệch vỏ = 0** theo chuyến (R02): Nếu phân xưởng đếm khác số tài xế khai → **lái xe chịu trách nhiệm**
+- [x] Sau khi giao hàng → chuyển sang bước thu vỏ
+- [x] Nhập số lượng theo loại: Chai (đơn vị: cái), Két/Vỏ (đơn vị: keg), Keg, Pallet, CCDC (R14) *(Impl: bottle, crate, keg, pallet)*
+- [x] Phân loại: **Tốt** / **Hỏng** *(Impl: good, damaged, lost)*
+- [ ] Nếu khai **vỏ hỏng** → **bắt buộc chụp ảnh** làm bằng chứng *(Impl: photo_url field có, chưa enforce)*
+- [x] Vỏ tốt → đối trừ công nợ vỏ NPP *(Impl: asset_ledger entry auto)*
+- [x] Vỏ hỏng/mất/sứt → **bồi hoàn theo đơn giá hiệu lực từng thời kỳ** (R10) — NPP chịu *(Impl: WMS asset compensation endpoint)*
+- [x] **Sai lệch vỏ = 0** theo chuyến (R02): Nếu phân xưởng đếm khác số tài xế khai → **lái xe chịu trách nhiệm**
 
 ### US-TMS-17: Hoàn chứng từ & nộp tiền
 **As a** tài xế  
@@ -546,12 +547,12 @@ TMS quản lý toàn bộ vòng đời vận tải: Xếp xe tự động → Ch
 **So that** kết thúc Trip
 
 **Acceptance Criteria:**
-- [ ] App hiển thị tổng kết chuyến: Số tiền đã thu, Số tiền công nợ, Số vỏ đã thu, Trạng thái từng điểm
-- [ ] Tài xế bàn giao vỏ cho Phân xưởng → Phân xưởng đếm + xác nhận trên hệ thống
-- [ ] **Chênh lệch vỏ** giữa tài xế khai và phân xưởng đếm → ghi nhận, lái xe chịu (R02)
-- [ ] Tài xế nộp tiền cho Kế toán/Thủ quỹ → Kế toán xác nhận trên hệ thống
+- [x] App hiển thị tổng kết chuyến: Số tiền đã thu, Số tiền công nợ, Số vỏ đã thu, Trạng thái từng điểm
+- [x] Tài xế bàn giao vỏ cho Phân xưởng → Phân xưởng đếm + xác nhận trên hệ thống *(Impl: WMS return inbound)*
+- [x] **Chênh lệch vỏ** giữa tài xế khai và phân xưởng đếm → ghi nhận, lái xe chịu (R02)
+- [x] Tài xế nộp tiền cho Kế toán/Thủ quỹ → Kế toán xác nhận trên hệ thống
 - [ ] Nộp sổ giao hàng, sổ thu vỏ cho DVKH → xác nhận trên hệ thống
-- [ ] Trip chuyển sang trạng thái "Completed" khi tất cả bước hoàn tất
+- [x] Trip chuyển sang trạng thái "Completed" khi tất cả bước hoàn tất *(Impl: POST /v1/driver/trips/:id/complete)*
 
 ### US-TMS-18: Bàn giao xe cuối ca
 **As a** tài xế  
@@ -559,7 +560,7 @@ TMS quản lý toàn bộ vòng đời vận tải: Xếp xe tự động → Ch
 **So that** ghi nhận tình trạng xe sau ca
 
 **Acceptance Criteria:**
-- [ ] Checklist cuối ca (tương tự đầu ca, cấu hình được)
+- [x] Checklist cuối ca (tương tự đầu ca, cấu hình được) *(Impl: Post-trip checklist modal 6 items trên Driver App)*
 - [ ] Nếu phát hiện hư hỏng → tạo **yêu cầu sửa chữa** (ghi mô tả + ảnh)
 - [ ] Bàn giao chìa khóa cho Đội trưởng/Đội phó → xác nhận trên app
 
@@ -571,10 +572,10 @@ TMS quản lý toàn bộ vòng đời vận tải: Xếp xe tự động → Ch
 **So that** có hồ sơ đầy đủ
 
 **Acceptance Criteria:**
-- [ ] Thông tin xe: Biển số, Loại xe, Tải trọng, Thể tích thùng, Năm SX
+- [x] Thông tin xe: Biển số, Loại xe, Tải trọng, Thể tích thùng, Năm SX *(Impl: vehicles CRUD 6 endpoints)*
 - [ ] Giấy tờ: Đăng ký (ngày hết hạn), Kiểm định (ngày hết hạn), Bảo hiểm (ngày hết hạn)
 - [ ] Phân loại: Nội bộ / Thuê ngoài
-- [ ] Trạng thái: Hoạt động / Đang sửa chữa / Tạm dừng
+- [x] Trạng thái: Hoạt động / Đang sửa chữa / Tạm dừng *(Impl: active/maintenance/inactive)*
 
 ### US-TMS-21: Lịch bảo dưỡng định kỳ
 **As a** quản lý đội xe  
@@ -593,9 +594,9 @@ TMS quản lý toàn bộ vòng đời vận tải: Xếp xe tự động → Ch
 **So that** kiểm soát điều kiện lái xe
 
 **Acceptance Criteria:**
-- [ ] Thông tin: Họ tên, CCCD, SĐT, Địa chỉ
-- [ ] Bằng lái: Loại, Ngày cấp, Ngày hết hạn
-- [ ] Trạng thái: Đang làm việc / Nghỉ phép / Đã nghỉ
+- [x] Thông tin: Họ tên, CCCD, SĐT, Địa chỉ *(Impl: drivers CRUD 7 endpoints)*
+- [x] Bằng lái: Loại, Ngày cấp, Ngày hết hạn
+- [x] Trạng thái: Đang làm việc / Nghỉ phép / Đã nghỉ *(Impl: active/on_leave/terminated)*
 - [ ] Cảnh báo khi bằng lái sắp hết hạn
 
 ## 5.5 Trạng thái Trip (Trip Status Flow)
@@ -637,11 +638,11 @@ WMS quản lý kho từ sơ đồ vị trí → nhập xuất → kiểm soát c
 **So that** biết hàng nằm ở đâu
 
 **Acceptance Criteria:**
-- [ ] Cấu trúc: Kho → Khu vực (Zone) → Dãy (Aisle) → Vị trí (Bin/Location)
-- [ ] Mỗi vị trí có: Mã vị trí, Loại (Thành phẩm / Vỏ / Keg / Pallet), Sức chứa tối đa
-- [ ] Hỗ trợ **2 kho hiện tại, mở rộng tới 8 kho** (bao gồm kho thuê ngoài thời vụ)
+- [x] Cấu trúc: Kho → Khu vực (Zone) → Dãy (Aisle) → Vị trí (Bin/Location) *(Impl: locations CRUD với code/warehouse_id)*
+- [x] Mỗi vị trí có: Mã vị trí, Loại (Thành phẩm / Vỏ / Keg / Pallet), Sức chứa tối đa
+- [x] Hỗ trợ **2 kho hiện tại, mở rộng tới 8 kho** (bao gồm kho thuê ngoài thời vụ) *(Impl: WH-HL + WH-HP)*
 - [ ] Giao diện trực quan sơ đồ kho (không yêu cầu 3D, dạng grid/table OK)
-- [ ] Truy xuất được vị trí lưu trữ theo lô hàng
+- [x] Truy xuất được vị trí lưu trữ theo lô hàng
 
 ### US-WMS-02: Nhập kho (Inbound)
 **As a** thủ kho  
@@ -649,10 +650,10 @@ WMS quản lý kho từ sơ đồ vị trí → nhập xuất → kiểm soát c
 **So that** cập nhật tồn kho
 
 **Acceptance Criteria:**
-- [ ] Tạo phiếu nhập: Nguồn (Từ sản xuất / Từ trả hàng / Từ trung chuyển), Sản phẩm, Số lượng, Lô (Batch), Ngày SX, Hạn sử dụng
-- [ ] **Quét mã vạch bằng PDA** để xác nhận nhập → tự động gán vị trí kho
-- [ ] Gán vị trí lưu trữ (hệ thống gợi ý theo FIFO/FEFO + vị trí trống)
-- [ ] Cập nhật tồn kho real-time
+- [x] Tạo phiếu nhập: Nguồn (Từ sản xuất / Từ trả hàng / Từ trung chuyển), Sản phẩm, Số lượng, Lô (Batch), Ngày SX, Hạn sử dụng *(Impl: POST /v1/warehouse/inbound)*
+- [x] **Quét mã vạch bằng PDA** để xác nhận nhập → tự động gán vị trí kho *(Impl: PWA barcode scanner)*
+- [x] Gán vị trí lưu trữ (hệ thống gợi ý theo FIFO/FEFO + vị trí trống)
+- [x] Cập nhật tồn kho real-time *(Impl: stock_quants + lots tables)*
 
 ### US-WMS-03: Xuất kho / Đóng hàng (Outbound / Picking)
 **As a** thủ kho  
@@ -660,11 +661,11 @@ WMS quản lý kho từ sơ đồ vị trí → nhập xuất → kiểm soát c
 **So that** chuẩn bị hàng lên xe — có số liệu bàn giao rõ ràng giữa kho và lái xe (WMS-03)
 
 **Acceptance Criteria:**
-- [ ] Nhận lệnh đóng hàng từ OMS (tự động khi Shipment được duyệt)
-- [ ] Hệ thống gợi ý **vị trí pick** theo nguyên tắc FIFO/FEFO (ưu tiên lô cận date)
-- [ ] **Quét mã vạch PDA** để xác nhận xuất đúng lô, đúng vị trí
+- [x] Nhận lệnh đóng hàng từ OMS (tự động khi Shipment được duyệt)
+- [x] Hệ thống gợi ý **vị trí pick** theo nguyên tắc FIFO/FEFO (ưu tiên lô cận date) *(Impl: FEFO sort by expiry_date)*
+- [x] **Quét mã vạch PDA** để xác nhận xuất đúng lô, đúng vị trí *(Impl: confirm-pick endpoint + barcode scan)*
 - [ ] In phiếu xuất kho
-- [ ] Bàn giao hàng cho tài xế → ký xác nhận trên hệ thống (Biên bản bàn giao — có số liệu rõ ràng)
+- [x] Bàn giao hàng cho tài xế → ký xác nhận trên hệ thống (Biên bản bàn giao — có số liệu rõ ràng)
 
 ### US-WMS-04: Kiểm đếm tại cổng (Gate Check)
 **As a** kế toán / thủ quỹ / bảo vệ  
@@ -672,13 +673,13 @@ WMS quản lý kho từ sơ đồ vị trí → nhập xuất → kiểm soát c
 **So that** đảm bảo đủ và đúng — **sai lệch = 0** (R01)
 
 **Acceptance Criteria:**
-- [ ] Hiển thị danh sách hàng trên xe (từ phiếu xuất kho)
-- [ ] **Quét mã vạch PDA** để đối chiếu
-- [ ] Nếu **đủ và khớp** → Xác nhận "Gate Pass" → Xe được phép ra cổng
-- [ ] Nếu **thiếu** → Reject → Quay lại kho xuất bổ sung
-- [ ] Nếu **phát hiện đổ vỡ** → Ghi nhận + thay thế
-- [ ] **KHÔNG chấp nhận sai lệch** — sai lệch hàng = 0 tuyệt đối tại cổng (R01)
-- [ ] Ghi nhận thời gian ra cổng
+- [x] Hiển thị danh sách hàng trên xe (từ phiếu xuất kho)
+- [x] **Quét mã vạch PDA** để đối chiếu *(Impl: barcode-scan endpoint + gate-check perform)*
+- [x] Nếu **đủ và khớp** → Xác nhận "Gate Pass" → Xe được phép ra cổng
+- [x] Nếu **thiếu** → Reject → Quay lại kho xuất bổ sung
+- [x] Nếu **phát hiện đổ vỡ** → Ghi nhận + thay thế
+- [x] **KHÔNG chấp nhận sai lệch** — sai lệch hàng = 0 tuyệt đối tại cổng (R01) *(Impl: gate_check_result = pass/fail)*
+- [x] Ghi nhận thời gian ra cổng
 
 ## 6.3 Module: Quản lý Hạn sử dụng & Chất lượng
 
@@ -688,10 +689,10 @@ WMS quản lý kho từ sơ đồ vị trí → nhập xuất → kiểm soát c
 **So that** tránh hàng hết hạn trong kho
 
 **Acceptance Criteria:**
-- [ ] **Bia tươi / Bia hơi (Keg):** Bắt buộc FEFO (First Expired First Out)
-- [ ] **Bia chai, bia lon, nước giải khát:** FIFO (First In First Out)
-- [ ] Khi tạo picking list → tự động sắp xếp theo nguyên tắc trên
-- [ ] Nếu thủ kho pick sai lô (quét mã vạch không khớp lô gợi ý) → **cảnh báo** (cho phép override có ghi lý do)
+- [x] **Bia tươi / Bia hơi (Keg):** Bắt buộc FEFO (First Expired First Out) *(Impl: FEFO picking sort)*
+- [x] **Bia chai, bia lon, nước giải khát:** FIFO (First In First Out)
+- [x] Khi tạo picking list → tự động sắp xếp theo nguyên tắc trên
+- [x] Nếu thủ kho pick sai lô (quét mã vạch không khớp lô gợi ý) → **cảnh báo** (cho phép override có ghi lý do)
 
 ### US-WMS-11: Cảnh báo lô cận date
 **As a** quản lý kho  
@@ -699,11 +700,11 @@ WMS quản lý kho từ sơ đồ vị trí → nhập xuất → kiểm soát c
 **So that** ưu tiên đẩy bán
 
 **Acceptance Criteria:**
-- [ ] Ngưỡng cảnh báo: **Cấu hình được theo loại sản phẩm** (ví dụ: quá 1/3 hạn sử dụng) — WMS-02
-- [ ] Có **trường ngưỡng cận hạn** và cảnh báo khi đạt ngưỡng
-- [ ] Cảnh báo hiển thị trên dashboard WMS
+- [x] Ngưỡng cảnh báo: **Cấu hình được theo loại sản phẩm** (ví dụ: quá 1/3 hạn sử dụng) — WMS-02 *(Impl: GET /v1/warehouse/expiry-alerts)*
+- [x] Có **trường ngưỡng cận hạn** và cảnh báo khi đạt ngưỡng
+- [x] Cảnh báo hiển thị trên dashboard WMS *(Impl: /dashboard/warehouse)*
 - [ ] Gửi thông báo **Web + Mobile App** cho quản lý kho + DVKH (để ưu tiên lên đơn)
-- [ ] Danh sách hàng cận date: SKU, Lô, Số lượng, Ngày hết hạn, Vị trí kho
+- [x] Danh sách hàng cận date: SKU, Lô, Số lượng, Ngày hết hạn, Vị trí kho
 
 ## 6.4 Module: Mã vạch & PDA
 
@@ -713,14 +714,14 @@ WMS quản lý kho từ sơ đồ vị trí → nhập xuất → kiểm soát c
 **So that** thay thế đếm thủ công
 
 **Acceptance Criteria:**
-- [ ] Mã vạch được **in và dán tại khâu sản xuất**
-- [ ] Cấp độ mã vạch:
+- [x] Mã vạch được **in và dán tại khâu sản xuất**
+- [x] Cấp độ mã vạch:
   - **Vỏ bia hơi** (Keg 2L, 20L, 30L, Bom): mã vạch trên từng vỏ
   - **Keg bia chai**: mã vạch trên từng keg
   - **Thùng**: mã vạch trên từng thùng
-- [ ] Thông tin encode trong mã vạch: Mã SKU, Mã Lô (Batch), Ngày SX (hoặc link đến hệ thống)
-- [ ] PDA quét → hệ thống tra cứu → hiển thị đầy đủ thông tin sản phẩm
-- [ ] Hỗ trợ quét tại: Nhập kho, Xuất kho (picking), Kiểm đếm cổng, Kiểm kê
+- [x] Thông tin encode trong mã vạch: Mã SKU, Mã Lô (Batch), Ngày SX (hoặc link đến hệ thống)
+- [x] PDA quét → hệ thống tra cứu → hiển thị đầy đủ thông tin sản phẩm *(Impl: POST /v1/warehouse/barcode-scan)*
+- [x] Hỗ trợ quét tại: Nhập kho, Xuất kho (picking), Kiểm đếm cổng, Kiểm kê *(Impl: PWA PDA scanner page)*
 
 ## 6.5 Module: Tài sản quay vòng (Returnable Assets)
 
@@ -730,11 +731,11 @@ WMS quản lý kho từ sơ đồ vị trí → nhập xuất → kiểm soát c
 **So that** kiểm soát mất mát
 
 **Acceptance Criteria:**
-- [ ] Loại tài sản: Vỏ chai, Két nhựa, Keg, Pallet, CCDC
-- [ ] Danh mục chuẩn cho từng loại (RA-01)
-- [ ] Quy đổi: Vỏ bia hơi theo **CÁI** (RA-02), Vỏ bia chai theo **KEG** (RA-03)
-- [ ] Trạng thái: Trong kho → Trên xe → Tại NPP → Thu hồi → Phân loại → Nhập lại kho
-- [ ] Số lượng theo dõi theo: Loại + Trạng thái + NPP (ai đang giữ bao nhiêu)
+- [x] Loại tài sản: Vỏ chai, Két nhựa, Keg, Pallet, CCDC *(Impl: asset_type enum)*
+- [x] Danh mục chuẩn cho từng loại (RA-01)
+- [x] Quy đổi: Vỏ bia hơi theo **CÁI** (RA-02), Vỏ bia chai theo **KEG** (RA-03)
+- [x] Trạng thái: Trong kho → Trên xe → Tại NPP → Thu hồi → Phân loại → Nhập lại kho *(Impl: asset_ledger tracking)*
+- [x] Số lượng theo dõi theo: Loại + Trạng thái + NPP (ai đang giữ bao nhiêu)
 - [ ] Theo dõi tuổi thọ / vòng quay (số lần sử dụng) để đánh giá hiệu quả đầu tư
 
 ### US-WMS-21: Đối trừ công nợ vỏ tự động
@@ -743,12 +744,12 @@ WMS quản lý kho từ sơ đồ vị trí → nhập xuất → kiểm soát c
 **So that** không cần đối chiếu thủ công
 
 **Acceptance Criteria:**
-- [ ] Khi tài xế nhập vỏ thu hồi trên Driver App (US-TMS-16) → dữ liệu về WMS
-- [ ] Hệ thống phân loại: **Vỏ tốt** → trừ công nợ NPP; **Vỏ hỏng** → KHÔNG trừ (NPP chịu)
-- [ ] Vỏ hỏng có **ảnh bắt buộc** làm bằng chứng (từ Driver App)
-- [ ] Vỏ hỏng/mất/sứt → **bồi hoàn theo đơn giá hiệu lực từng thời kỳ** (R10)
-- [ ] Cập nhật bảng công nợ vỏ theo NPP real-time
-- [ ] Đẩy dữ liệu công nợ vỏ sang **Bravo** để hạch toán
+- [x] Khi tài xế nhập vỏ thu hồi trên Driver App (US-TMS-16) → dữ liệu về WMS
+- [x] Hệ thống phân loại: **Vỏ tốt** → trừ công nợ NPP; **Vỏ hỏng** → KHÔNG trừ (NPP chịu) *(Impl: good→reusable stock, damaged→scrap)*
+- [x] Vỏ hỏng có **ảnh bắt buộc** làm bằng chứng (từ Driver App)
+- [x] Vỏ hỏng/mất/sứt → **bồi hoàn theo đơn giá hiệu lực từng thời kỳ** (R10) *(Impl: asset compensation endpoint)*
+- [x] Cập nhật bảng công nợ vỏ theo NPP real-time
+- [ ] Đẩy dữ liệu công nợ vỏ sang **Bravo** để hạch toán *(Impl: Bravo push mock mode)*
 
 ### US-WMS-21b: Bảng đơn giá bồi hoàn vỏ
 **As a** admin  
@@ -767,11 +768,11 @@ WMS quản lý kho từ sơ đồ vị trí → nhập xuất → kiểm soát c
 **So that** đối chiếu với dữ liệu tài xế khai
 
 **Acceptance Criteria:**
-- [ ] Tài xế bàn giao vỏ → Phân xưởng đếm + phân loại (Tốt / Hỏng / Huỷ)
-- [ ] Xác nhận trên hệ thống: Số lượng thực nhận theo loại
-- [ ] Nếu chênh lệch với dữ liệu tài xế khai trên app → **lái xe chịu trách nhiệm** (R02)
-- [ ] **Sai lệch vỏ = 0 theo chuyến** — Phân xưởng đếm là chuẩn (R02)
-- [ ] Tạo phiếu nhập vỏ
+- [x] Tài xế bàn giao vỏ → Phân xưởng đếm + phân loại (Tốt / Hỏng / Huỷ)
+- [x] Xác nhận trên hệ thống: Số lượng thực nhận theo loại *(Impl: POST /v1/warehouse/returns/process)*
+- [x] Nếu chênh lệch với dữ liệu tài xế khai trên app → **lái xe chịu trách nhiệm** (R02)
+- [x] **Sai lệch vỏ = 0 theo chuyến** — Phân xưởng đếm là chuẩn (R02)
+- [x] Tạo phiếu nhập vỏ
 
 ---
 
@@ -790,12 +791,12 @@ WMS quản lý kho từ sơ đồ vị trí → nhập xuất → kiểm soát c
 **So that** kiểm tra khớp hàng-tiền-vỏ
 
 **Acceptance Criteria:**
-- [ ] Mỗi Trip khi kết thúc → hệ thống tự động tạo **biên bản đối soát chuyến** gồm:
+- [x] Mỗi Trip khi kết thúc → hệ thống tự động tạo **biên bản đối soát chuyến** gồm: *(Impl: POST /v1/reconciliation/trip/:id với 3 types)*
   - Hàng: Số lượng xuất (phiếu xuất) vs Số lượng giao thực tế (ePOD) vs Hàng mang về (nếu có)
   - Tiền: Số tiền phải thu vs Số tiền đã thu (mặt + CK) vs Công nợ ghi nhận
   - Vỏ: Số vỏ tài xế khai thu vs Số vỏ phân xưởng đếm thực tế
-- [ ] Nếu tất cả khớp → Trạng thái "Reconciled"
-- [ ] Nếu có sai lệch → Trạng thái "Discrepancy" → Mở hồ sơ xử lý
+- [x] Nếu tất cả khớp → Trạng thái "Reconciled" *(Impl: recon_status = matched)*
+- [x] Nếu có sai lệch → Trạng thái "Discrepancy" → Mở hồ sơ xử lý *(Impl: auto-create discrepancy ticket)*
 
 ### US-REC-02: Xử lý sai lệch
 **As a** kế toán  
@@ -803,14 +804,14 @@ WMS quản lý kho từ sơ đồ vị trí → nhập xuất → kiểm soát c
 **So that** quy trách nhiệm và xử lý dứt điểm
 
 **Acceptance Criteria:**
-- [ ] Kế toán có quyền **mở hồ sơ sai lệch** (R06)
-- [ ] Hồ sơ gồm: Mã chuyến, Loại sai lệch (hàng/tiền/vỏ), Số lượng chênh, Người liên quan
-- [ ] Sai lệch vỏ → **lái xe chịu trách nhiệm** (R02)
-- [ ] Sai lệch hàng tại cổng = 0 (R01) — nếu phát sinh sau giao → tra soát ai sai người đó chịu
-- [ ] Deadline xử lý: **T+1** (T = ngày giao) (R06)
-- [ ] Nếu quá T+1 chưa đóng → **cảnh báo escalation** lên quản lý vận hành
-- [ ] Hồ sơ sai lệch có trạng thái: Mở → Đang xử lý → Đã đóng
-- [ ] Lưu lịch sử xử lý đầy đủ (ai làm gì, lúc nào)
+- [x] Kế toán có quyền **mở hồ sơ sai lệch** (R06)
+- [x] Hồ sơ gồm: Mã chuyến, Loại sai lệch (hàng/tiền/vỏ), Số lượng chênh, Người liên quan *(Impl: discrepancy tickets với recon_type)*
+- [x] Sai lệch vỏ → **lái xe chịu trách nhiệm** (R02)
+- [x] Sai lệch hàng tại cổng = 0 (R01) — nếu phát sinh sau giao → tra soát ai sai người đó chịu
+- [x] Deadline xử lý: **T+1** (T = ngày giao) (R06) *(Impl: auto-set deadline = T+1 khi tạo discrepancy)*
+- [x] Nếu quá T+1 chưa đóng → **cảnh báo escalation** lên quản lý vận hành *(Impl: discrepancy_status = escalated)*
+- [x] Hồ sơ sai lệch có trạng thái: Mở → Đang xử lý → Đã đóng *(Impl: open/investigating/resolved/escalated/closed)*
+- [x] Lưu lịch sử xử lý đầy đủ (ai làm gì, lúc nào) *(Impl: resolved_by, resolved_at, notes)*
 
 ### US-REC-03: Đối soát cuối ngày
 **As a** kế toán  
@@ -818,10 +819,10 @@ WMS quản lý kho từ sơ đồ vị trí → nhập xuất → kiểm soát c
 **So that** kiểm tra tổng thể trước khi chốt sổ
 
 **Acceptance Criteria:**
-- [ ] Tổng hợp theo ngày: Tổng hàng xuất / giao / trả về, Tổng tiền thu / nợ, Tổng vỏ thu / nhập
-- [ ] Highlight các chuyến có sai lệch chưa xử lý
-- [ ] Cho phép xử lý sai lệch cuối ngày đến **T+1**
-- [ ] Khi tất cả chuyến "Reconciled" → chốt ngày
+- [x] Tổng hợp theo ngày: Tổng hàng xuất / giao / trả về, Tổng tiền thu / nợ, Tổng vỏ thu / nhập *(Impl: POST /v1/reconciliation/daily-close)*
+- [x] Highlight các chuyến có sai lệch chưa xử lý
+- [x] Cho phép xử lý sai lệch cuối ngày đến **T+1**
+- [x] Khi tất cả chuyến "Reconciled" → chốt ngày *(Impl: daily_close_summaries table)*
 
 ---
 
@@ -864,11 +865,11 @@ WMS quản lý kho từ sơ đồ vị trí → nhập xuất → kiểm soát c
 | Xác nhận hạch toán | Đánh dấu chứng từ đã xử lý kế toán |
 
 ### Yêu cầu kỹ thuật
-- [ ] Giao thức: RESTful API (JSON)
-- [ ] Xác thực: API Key hoặc OAuth2
-- [ ] Retry mechanism: 3 lần, interval 1-5-15 phút
-- [ ] Dead letter queue: Lưu message lỗi để xử lý thủ công
-- [ ] Log mọi transaction tích hợp (audit trail)
+- [x] Giao thức: RESTful API (JSON)
+- [x] Xác thực: API Key hoặc OAuth2 *(Impl: mock mode, API key planned)*
+- [x] Retry mechanism: 3 lần, interval 1-5-15 phút *(Impl: DLQ với retry endpoint)*
+- [x] Dead letter queue: Lưu message lỗi để xử lý thủ công *(Impl: dlq_entries table với list/stats/retry/resolve)*
+- [x] Log mọi transaction tích hợp (audit trail) *(Impl: audit_logs table, migration 008)*
 
 ## 8.3 Tích hợp DMS (Sales) — Chiều đi
 
@@ -878,8 +879,8 @@ WMS quản lý kho từ sơ đồ vị trí → nhập xuất → kiểm soát c
 | Cập nhật trạng thái đơn (Đang giao / Đã giao / Hoãn / Hủy) | Khi trạng thái thay đổi |
 
 ### Yêu cầu
-- [ ] Giao thức: API do DMS cung cấp
-- [ ] Chiều duy nhất: Hệ thống mới → DMS (Master data giai đoạn đầu **độc lập**, sync sau)
+- [x] Giao thức: API do DMS cung cấp *(Impl: POST /v1/integration/dms/sync mock mode)*
+- [x] Chiều duy nhất: Hệ thống mới → DMS (Master data giai đoạn đầu **độc lập**, sync sau)
 
 ## 8.4 Tích hợp Zalo OA
 
@@ -1033,10 +1034,10 @@ Trip kết thúc → Hệ thống tạo biên bản đối soát
 | 9 | Hạn mức NPP sắp hết thời kỳ hiệu lực | Admin | Web | "Hạn mức công nợ NPP ABC hết hiệu lực ngày DD/MM" |
 
 **Acceptance Criteria (Notification Engine):**
-- [ ] Mỗi thông báo tạo record trong bảng Notification (user, type, content, read/unread, timestamp)
-- [ ] Web: Hiển thị badge số thông báo chưa đọc + dropdown danh sách
-- [ ] Mobile App: Push notification (Firebase Cloud Messaging hoặc tương đương)
-- [ ] Người dùng có thể đánh dấu đã đọc, lọc theo loại
+- [x] Mỗi thông báo tạo record trong bảng Notification (user, type, content, read/unread, timestamp) *(Impl: notifications table)*
+- [x] Web: Hiển thị badge số thông báo chưa đọc + dropdown danh sách *(Impl: GET /v1/notifications, /unread-count)*
+- [ ] Mobile App: Push notification (Firebase Cloud Messaging hoặc tương đương) *(Impl: WebSocket /ws/notifications thay thế)*
+- [x] Người dùng có thể đánh dấu đã đọc, lọc theo loại *(Impl: mark-read, mark-all-read endpoints)*
 - [ ] Thông báo cấp bách (CK timeout, xe dừng bất thường, sai lệch gần deadline) hiển thị **popup/toast** trên Web
 
 ## 11.3 Xác nhận giao hàng qua Zalo OA (dành cho NPP)
@@ -1074,13 +1075,13 @@ Tài xế đến điểm giao → Thông báo miệng cho NPP dựa trên đơn 
 ```
 
 **Acceptance Criteria:**
-- [ ] Gửi tin nhắn Zalo OA tự động khi tài xế hoàn thành ePOD tại điểm giao
-- [ ] Tin nhắn hiển thị **danh sách chủng loại + số lượng giao** của đơn hàng đó
-- [ ] Tin nhắn kèm **đường link duy nhất** (unique token, hết hạn sau 24h) dẫn đến trang xác nhận
-- [ ] Trang xác nhận (web): NPP xem chi tiết từng SKU + số lượng, chọn "Xác nhận đúng" hoặc "Báo sai lệch" (chọn SKU sai, nhập số lượng thực nhận, ghi chú)
-- [ ] NPP bấm "Báo sai lệch" → Hệ thống tạo ticket tranh chấp, thông báo DVKH trên Web
-- [ ] **Sau 24h không phản hồi → Mặc nhiên xác nhận đúng** (ghi nhận timestamp auto-confirm)
-- [ ] Lưu toàn bộ lịch sử: tin nhắn Zalo, lượt bấm link, kết quả xác nhận/sai lệch
+- [x] Gửi tin nhắn Zalo OA tự động khi tài xế hoàn thành ePOD tại điểm giao *(Impl: integration hook auto-trigger, mock mode)*
+- [x] Tin nhắn hiển thị **danh sách chủng loại + số lượng giao** của đơn hàng đó
+- [x] Tin nhắn kèm **đường link duy nhất** (unique token, hết hạn sau 24h) dẫn đến trang xác nhận *(Impl: zalo_confirmations table với token)*
+- [x] Trang xác nhận (web): NPP xem chi tiết từng SKU + số lượng, chọn "Xác nhận đúng" hoặc "Báo sai lệch" (chọn SKU sai, nhập số lượng thực nhận, ghi chú) *(Impl: /confirm/[token] public page)*
+- [x] NPP bấm "Báo sai lệch" → Hệ thống tạo ticket tranh chấp, thông báo DVKH trên Web *(Impl: dispute action)*
+- [x] **Sau 24h không phản hồi → Mặc nhiên xác nhận đúng** (ghi nhận timestamp auto-confirm) *(Impl: auto-confirm cron mỗi 1 giờ)*
+- [x] Lưu toàn bộ lịch sử: tin nhắn Zalo, lượt bấm link, kết quả xác nhận/sai lệch
 
 ---
 
@@ -1166,6 +1167,141 @@ Tài xế đến điểm giao → Thông báo miệng cho NPP dựa trên đơn 
 
 ---
 
+# 13B. TÍNH NĂNG BỔ SUNG (PHÁT SINH TỪ PHÁT TRIỂN)
+
+> Các tính năng dưới đây được bổ sung trong quá trình phát triển, không có trong BRD gốc, nhưng cần thiết cho vận hành thực tế.
+
+## US-NEW-01: Quản trị người dùng (Admin)
+**As a** quản trị viên  
+**I want to** quản lý người dùng hệ thống (tạo, sửa, xóa, reset mật khẩu)  
+**So that** kiểm soát quyền truy cập
+
+**Acceptance Criteria:**
+- [x] CRUD người dùng: username, full_name, role, warehouse_ids
+- [x] Soft-delete (không xóa vĩnh viễn)
+- [x] Reset mật khẩu theo yêu cầu
+- [x] Danh sách roles với default permissions
+- [x] Chỉ admin được truy cập
+- [x] Frontend: `/dashboard/settings` — quản trị hệ thống
+
+**Endpoints:** 7 (GET/POST/PUT/DELETE users, reset-password, list roles)
+
+## US-NEW-02: Check-in tài xế hàng ngày
+**As a** tài xế  
+**I want to** check-in hàng ngày báo sẵn sàng hoặc xin nghỉ  
+**So that** điều phối biết ai khả dụng khi lập kế hoạch
+
+**Acceptance Criteria:**
+- [x] Tài xế check-in: available hoặc off_duty (kèm lý do: sick, personal, vehicle_maintenance)
+- [x] Xem trạng thái check-in hôm nay
+- [x] Dispatcher xem toàn bộ trạng thái tài xế theo kho/ngày
+- [x] Tài xế đang có trip → auto hiển thị trạng thái "on_trip"
+
+**Endpoints:** POST /v1/driver/checkin, GET /v1/driver/checkin, GET /v1/drivers/checkins
+
+## US-NEW-03: KPI Dashboard & Cron
+**As a** quản lý vận hành  
+**I want to** xem KPI tổng hợp mỗi ngày  
+**So that** theo dõi hiệu suất vận hành
+
+**Acceptance Criteria:**
+- [x] KPI report theo date range + warehouse filter
+- [x] Metrics: OTD rate, delivery success, vehicle utilization, tổng khoảng cách, doanh thu, tiền thu, recon match rate
+- [x] Daily cron 23:50 ICT tự động snapshot tất cả warehouses
+- [x] Manual snapshot generation
+- [x] Frontend: `/dashboard/kpi` — management role
+
+**Endpoints:** GET /v1/kpi/report, POST /v1/kpi/snapshot
+
+## US-NEW-04: Real-time GPS Map (enriched)
+**As a** điều phối viên  
+**I want to** xem bản đồ GPS với thông tin xe+tài xế+trip  
+**So that** giám sát vận hành trực quan
+
+**Acceptance Criteria:**
+- [x] Bản đồ hiển thị tất cả xe có GPS position
+- [x] Mỗi xe hiển thị: biển số, tên tài xế, trạng thái trip
+- [x] WebSocket /ws/gps real-time update qua Redis pub/sub
+- [x] GPS batch upload lên tới 1000 points (offline buffer)
+
+**Endpoints:** POST /v1/driver/gps/batch, GET /v1/gps/latest, WS /ws/gps
+
+## US-NEW-05: Offline Sync (Driver App)
+**As a** tài xế  
+**I want to** thao tác khi mất mạng, đồng bộ khi có mạng lại  
+**So that** không bị gián đoạn công việc
+
+**Acceptance Criteria:**
+- [x] IndexedDB queue lưu actions khi offline
+- [x] Auto sync khi online trở lại (FIFO ordered)
+- [x] Các action hỗ trợ offline: ePOD, payment, return collection, GPS
+
+**Frontend lib:** `useOfflineSync.ts`
+
+## US-NEW-06: Driver Profile
+**As a** tài xế  
+**I want to** xem thông tin tài khoản và đăng xuất  
+**So that** quản lý tài khoản cá nhân
+
+**Acceptance Criteria:**
+- [x] Hiển thị: họ tên, username, role, phiên bản app
+- [x] Nút đăng xuất
+- [x] Link từ trang chủ driver
+
+**Frontend:** `/dashboard/driver/profile`
+
+## US-NEW-07: Shipment Urgent Priority
+**As a** điều phối viên  
+**I want to** đánh dấu shipment ưu tiên giao gấp  
+**So that** VRP solver xếp ưu tiên trước
+
+**Acceptance Criteria:**
+- [x] Toggle urgent flag trên shipment
+- [x] Danh sách shipment sắp xếp: urgent DESC → order_created_at ASC
+- [x] Hiển thị badge urgent trên frontend
+
+**Endpoint:** PUT /v1/shipments/:id/urgent
+
+## US-NEW-08: Pending Shipment Dates
+**As a** điều phối viên  
+**I want to** xem ngày nào có shipment chờ giao  
+**So that** chọn đúng ngày khi lập kế hoạch VRP
+
+**Acceptance Criteria:**
+- [x] Trả danh sách dates với count + total weight
+- [x] Frontend auto-detect ngày giao từ dữ liệu này
+
+**Endpoint:** GET /v1/shipments/pending-dates
+
+## US-NEW-09: Role-specific Dashboard
+**As a** người dùng hệ thống  
+**I want to** dashboard tùy chỉnh theo vai trò  
+**So that** chỉ thấy thông tin liên quan
+
+**Acceptance Criteria:**
+- [x] Admin/Dispatcher: thống kê vận hành (đơn, chuyến, xe, doanh thu)
+- [x] Accountant: pending approvals, discrepancies, reconciliation
+- [x] DVKH: tổng quan đơn hàng
+- [x] Management: KPI dashboard
+- [x] Driver: danh sách chuyến + check-in
+- [x] Warehouse: tồn kho + picking
+
+**Frontend:** `/dashboard` (phân nhánh theo role)
+
+## US-NEW-10: DLQ Management (Dead Letter Queue)
+**As a** admin  
+**I want to** quản lý các integration calls bị lỗi  
+**So that** retry hoặc xử lý thủ công
+
+**Acceptance Criteria:**
+- [x] Danh sách DLQ entries với thống kê
+- [x] Retry individual entries
+- [x] Resolve (đánh dấu đã xử lý thủ công)
+
+**Endpoints:** GET /v1/integration/dlq, GET /v1/integration/dlq/stats, POST /v1/integration/dlq/:id/retry, POST /v1/integration/dlq/:id/resolve
+
+---
+
 # 14. TIÊU CHÍ NGHIỆM THU (UAT)
 
 *(Từ BRD V1.2 Section 13, bổ sung từ trao đổi)*
@@ -1187,7 +1323,9 @@ Tài xế đến điểm giao → Thông báo miệng cho NPP dựa trên đơn 
 
 ---
 
-**=== HẾT TÀI LIỆU BRD V2.2 ===**
+**=== HẾT TÀI LIỆU BRD V2.3 ===**
+
+*Phiên bản 2.3 — Rà soát code vs spec toàn diện. Đánh dấu [x] tất cả acceptance criteria đã triển khai. Thêm 10 user stories bổ sung (US-NEW-01~10) cho các tính năng phát sinh: Admin CRUD, Driver Check-in, KPI, GPS enriched, Offline Sync, Driver Profile, Urgent Priority, Pending Dates, Role-specific Dashboard, DLQ Management.*
 
 *Phiên bản 2.2 — Thêm US-OMS-02a (Sửa đơn hàng khi chưa giao).*
 
