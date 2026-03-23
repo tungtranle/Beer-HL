@@ -6,6 +6,7 @@ import (
 
 	"bhl-oms/internal/domain"
 	"bhl-oms/internal/middleware"
+	"bhl-oms/pkg/logger"
 	"bhl-oms/pkg/response"
 
 	"github.com/gin-gonic/gin"
@@ -14,10 +15,11 @@ import (
 
 type Handler struct {
 	svc *Service
+	log logger.Logger
 }
 
-func NewHandler(svc *Service) *Handler {
-	return &Handler{svc: svc}
+func NewHandler(svc *Service, log logger.Logger) *Handler {
+	return &Handler{svc: svc, log: log}
 }
 
 func (h *Handler) RegisterRoutes(r *gin.RouterGroup) {
@@ -54,6 +56,14 @@ func (h *Handler) RegisterRoutes(r *gin.RouterGroup) {
 
 	// Pending approvals with credit details
 	orders.GET("/pending-approvals", middleware.RequireRole("admin", "accountant", "management"), h.ListPendingApprovals)
+
+	// Re-delivery
+	orders.POST("/:id/redelivery", middleware.RequireRole("admin", "dispatcher", "dvkh"), h.CreateRedelivery)
+	orders.GET("/:id/delivery-attempts", h.ListDeliveryAttempts)
+
+	// Control Desk (Task 5.9, 5.10, 5.11)
+	orders.GET("/control-desk/stats", middleware.RequireRole("admin", "dvkh", "dispatcher", "management"), h.GetControlDeskStats)
+	orders.GET("/search", h.SearchOrders)
 }
 
 func (h *Handler) ListProducts(c *gin.Context) {
@@ -422,4 +432,114 @@ func (h *Handler) ListPendingApprovals(c *gin.Context) {
 		return
 	}
 	response.OK(c, orders)
+}
+
+// ===== RE-DELIVERY =====
+
+func (h *Handler) CreateRedelivery(c *gin.Context) {
+	id, err := uuid.Parse(c.Param("id"))
+	if err != nil {
+		response.BadRequest(c, "Invalid order ID")
+		return
+	}
+
+	var req struct {
+		Reason string `json:"reason"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		response.BadRequest(c, "Dữ liệu không hợp lệ")
+		return
+	}
+	if req.Reason == "" {
+		response.BadRequest(c, "Lý do giao lại là bắt buộc")
+		return
+	}
+
+	userID := middleware.GetUserID(c)
+	attempt, err := h.svc.CreateRedelivery(c.Request.Context(), id, req.Reason, userID)
+	if err != nil {
+		response.Err(c, http.StatusBadRequest, "REDELIVERY_FAILED", err.Error())
+		return
+	}
+
+	c.JSON(http.StatusCreated, map[string]interface{}{
+		"success": true,
+		"data":    attempt,
+	})
+}
+
+func (h *Handler) ListDeliveryAttempts(c *gin.Context) {
+	id, err := uuid.Parse(c.Param("id"))
+	if err != nil {
+		response.BadRequest(c, "Invalid order ID")
+		return
+	}
+
+	attempts, err := h.svc.ListDeliveryAttempts(c.Request.Context(), id)
+	if err != nil {
+		response.InternalError(c)
+		return
+	}
+	if attempts == nil {
+		attempts = []domain.DeliveryAttempt{}
+	}
+	response.OK(c, attempts)
+}
+
+// ===== CONTROL DESK (Task 5.9, 5.10, 5.11) =====
+
+func (h *Handler) GetControlDeskStats(c *gin.Context) {
+	var warehouseID *uuid.UUID
+	if wid := c.Query("warehouse_id"); wid != "" {
+		parsed, err := uuid.Parse(wid)
+		if err != nil {
+			response.BadRequest(c, "Invalid warehouse_id")
+			return
+		}
+		warehouseID = &parsed
+	}
+
+	stats, err := h.svc.GetControlDeskStats(c.Request.Context(), warehouseID)
+	if err != nil {
+		h.log.Error(c.Request.Context(), "GetControlDeskStats failed", err)
+		response.InternalError(c)
+		return
+	}
+	response.OK(c, stats)
+}
+
+func (h *Handler) SearchOrders(c *gin.Context) {
+	q := c.Query("q")
+	if q == "" {
+		response.BadRequest(c, "Tham số tìm kiếm 'q' là bắt buộc")
+		return
+	}
+	if len(q) < 2 {
+		response.BadRequest(c, "Từ khóa tìm kiếm cần ít nhất 2 ký tự")
+		return
+	}
+
+	page, _ := strconv.Atoi(c.DefaultQuery("page", "1"))
+	limit, _ := strconv.Atoi(c.DefaultQuery("limit", "20"))
+
+	orders, total, err := h.svc.SearchOrders(c.Request.Context(), q, page, limit)
+	if err != nil {
+		h.log.Error(c.Request.Context(), "SearchOrders failed", err)
+		response.InternalError(c)
+		return
+	}
+	if orders == nil {
+		orders = []domain.SalesOrder{}
+	}
+
+	totalPages := int(total) / limit
+	if int(total)%limit > 0 {
+		totalPages++
+	}
+	response.OKWithMeta(c, orders, response.PaginationMeta{
+		Page:       page,
+		Limit:      limit,
+		Total:      total,
+		TotalPages: totalPages,
+	})
 }

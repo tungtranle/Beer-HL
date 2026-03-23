@@ -2,6 +2,7 @@ const CACHE_NAME = 'bhl-v1';
 const STATIC_ASSETS = [
   '/dashboard',
   '/dashboard/driver',
+  '/dashboard/warehouse',
   '/dashboard/pda-scanner',
 ];
 
@@ -37,6 +38,6 @@ self.addEventListener('fetch', (event) => {
 
   // Cache-first for static assets
   event.respondWith(
-    caches.match(request).then((cached) => cached || fetch(request))
+    caches.match(request).then((cached) => cached || fetch(request)).catch(() => caches.match('/dashboard'))
   );
 });

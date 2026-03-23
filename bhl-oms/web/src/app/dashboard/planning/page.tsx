@@ -1,8 +1,9 @@
 'use client'
 
-import { useEffect, useState, useRef, useCallback } from 'react'
+import React, { useEffect, useState, useRef, useCallback, useMemo } from 'react'
 import { useRouter } from 'next/navigation'
 import { apiFetch, getUser } from '@/lib/api'
+import SearchableSelect from '@/lib/SearchableSelect'
 
 // ─── OSRM routing helper ─────────────────────────────
 async function fetchOSRMRoute(points: [number, number][]): Promise<{ geometry: [number, number][]; legs: { distance_km: number; duration_min: number }[]; total_km: number; total_min: number } | null> {
@@ -161,7 +162,7 @@ function TripDetailModal({ trip, tripIdx, vehicles, warehouse, onClose }: {
       }`}
         onClick={e => e.stopPropagation()}>
         {/* Header */}
-        <div className="bg-gradient-to-r from-blue-600 to-blue-700 text-white px-6 py-4 flex items-center justify-between">
+        <div className="bg-gradient-to-r from-brand-500 to-brand-600 text-white px-6 py-4 flex items-center justify-between">
           <div>
             <h2 className="text-lg font-bold">
               Chuyến {tripIdx + 1}: {trip.plate_number || trip.vehicle_id.slice(0, 8)}
@@ -289,7 +290,7 @@ function VehicleStatusModal({ vehicles, onClose }: { vehicles: Vehicle[]; onClos
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4" onClick={onClose}>
       <div className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl max-h-[80vh] overflow-hidden flex flex-col" onClick={e => e.stopPropagation()}>
-        <div className="bg-gradient-to-r from-blue-600 to-blue-700 text-white px-6 py-4 flex items-center justify-between">
+        <div className="bg-gradient-to-r from-brand-500 to-brand-600 text-white px-6 py-4 flex items-center justify-between">
           <h2 className="text-lg font-bold">🚛 Trạng thái xe ({vehicles.length} xe)</h2>
           <button onClick={onClose} className="w-8 h-8 rounded-full bg-white/20 hover:bg-white/30 flex items-center justify-center text-lg">✕</button>
         </div>
@@ -543,6 +544,11 @@ export default function PlanningPage() {
   const [showVehicleStatusModal, setShowVehicleStatusModal] = useState(false)
   const [showDriverStatusModal, setShowDriverStatusModal] = useState(false)
 
+  // Planning mode: VRP auto or manual
+  const [planMode, setPlanMode] = useState<'vrp' | 'manual'>('vrp')
+  const [manualAssign, setManualAssign] = useState<Record<string, string[]>>({}) // vehicleId → shipmentId[]
+  const [poolSort, setPoolSort] = useState<'default' | 'region' | 'weight-desc' | 'weight-asc' | 'urgent' | 'customer'>('default')
+
   // ─── Init ──────────────────────────────────────────
   useEffect(() => {
     apiFetch<any>('/warehouses').then(r => setWarehouses(r.data || [])).catch(console.error)
@@ -656,12 +662,7 @@ export default function PlanningPage() {
     }, 600)
 
     try {
-      // Auto-limit: if more vehicles than available drivers, only send enough vehicles for drivers
-      let vehicleIdsToSend = Array.from(selectedVehicleIds)
-      const availableDriverCount = driverCheckins.filter((d: any) => d.checkin_status === 'available' || d.status === 'available').length || drivers.length
-      if (vehicleIdsToSend.length > availableDriverCount && availableDriverCount > 0) {
-        vehicleIdsToSend = vehicleIdsToSend.slice(0, availableDriverCount)
-      }
+      const vehicleIdsToSend = Array.from(selectedVehicleIds)
 
       const res: any = await apiFetch('/planning/run-vrp', {
         method: 'POST',
@@ -739,6 +740,131 @@ export default function PlanningPage() {
     setVrpResult({ ...vrpResult, trips: recalcTrips(filtered) })
   }, [vrpResult, recalcTrips])
 
+  // ─── Manual Planning helpers ────────────────────────
+  const manualUnassignedRaw = activeShipments.filter(s => !Object.values(manualAssign).flat().includes(s.id))
+
+  // Extract district/ward from Vietnamese address for region grouping
+  const extractDistrict = useCallback((addr?: string): string => {
+    if (!addr) return 'Không rõ'
+    const m = addr.match(/(?:Quận|Huyện|Thành phố|Thị xã|TP\.?)\s+[^,]+/i)
+    return m ? m[0].trim() : addr.split(',').slice(-2, -1)[0]?.trim() || 'Không rõ'
+  }, [])
+
+  const manualUnassigned = useMemo(() => {
+    const list = [...manualUnassignedRaw]
+    switch (poolSort) {
+      case 'region':
+        return list.sort((a, b) => extractDistrict(a.customer_address).localeCompare(extractDistrict(b.customer_address), 'vi'))
+      case 'weight-desc':
+        return list.sort((a, b) => (b.total_weight_kg || 0) - (a.total_weight_kg || 0))
+      case 'weight-asc':
+        return list.sort((a, b) => (a.total_weight_kg || 0) - (b.total_weight_kg || 0))
+      case 'urgent':
+        return list.sort((a, b) => (b.is_urgent ? 1 : 0) - (a.is_urgent ? 1 : 0))
+      case 'customer':
+        return list.sort((a, b) => (a.customer_name || '').localeCompare(b.customer_name || '', 'vi'))
+      default:
+        return list
+    }
+  }, [manualUnassignedRaw, poolSort, extractDistrict])
+
+  const handleManualDrop = useCallback((vehicleId: string, shipmentId: string) => {
+    setManualAssign(prev => {
+      const next = { ...prev }
+      // Remove from any existing vehicle
+      for (const vid of Object.keys(next)) {
+        next[vid] = next[vid].filter(sid => sid !== shipmentId)
+      }
+      // Add to target vehicle
+      if (!next[vehicleId]) next[vehicleId] = []
+      next[vehicleId] = [...next[vehicleId], shipmentId]
+      return next
+    })
+  }, [])
+
+  const handleManualRemove = useCallback((vehicleId: string, shipmentId: string) => {
+    setManualAssign(prev => ({
+      ...prev,
+      [vehicleId]: (prev[vehicleId] || []).filter(sid => sid !== shipmentId),
+    }))
+  }, [])
+
+  const handleManualReorder = useCallback((vehicleId: string, fromIdx: number, toIdx: number) => {
+    setManualAssign(prev => {
+      const list = [...(prev[vehicleId] || [])]
+      const [moved] = list.splice(fromIdx, 1)
+      list.splice(toIdx, 0, moved)
+      return { ...prev, [vehicleId]: list }
+    })
+  }, [])
+
+  const autoDistribute = useCallback(() => {
+    const vIds = Array.from(selectedVehicleIds)
+    if (vIds.length === 0) return
+    const assign: Record<string, string[]> = {}
+    vIds.forEach(vid => { assign[vid] = [] })
+    // Round-robin distribution
+    activeShipments.forEach((s, i) => {
+      const vid = vIds[i % vIds.length]
+      assign[vid].push(s.id)
+    })
+    setManualAssign(assign)
+  }, [selectedVehicleIds, activeShipments])
+
+  const buildManualVRPResult = useCallback((): VRPResult | null => {
+    const trips: VRPTrip[] = []
+    let totalAssigned = 0
+    for (const [vehicleId, shipmentIds] of Object.entries(manualAssign)) {
+      if (shipmentIds.length === 0) continue
+      const vehicle = vehicles.find(v => v.id === vehicleId)
+      let cumWeight = 0
+      const stops: VRPStop[] = shipmentIds.map((sid, i) => {
+        const s = shipments.find(sh => sh.id === sid)
+        cumWeight += s?.total_weight_kg || 0
+        return {
+          stop_order: i + 1,
+          shipment_id: sid,
+          customer_name: s?.customer_name || '',
+          customer_id: '',
+          customer_address: s?.customer_address || '',
+          latitude: 0,
+          longitude: 0,
+          cumulative_load_kg: cumWeight,
+        }
+      })
+      totalAssigned += stops.length
+      trips.push({
+        vehicle_id: vehicleId,
+        plate_number: vehicle?.plate_number || '',
+        vehicle_type: vehicle?.vehicle_type || '',
+        stops,
+        total_distance_km: 0,
+        total_weight_kg: cumWeight,
+        total_duration_min: 0,
+      })
+    }
+    const unassignedIds = activeShipments.filter(s => !Object.values(manualAssign).flat().includes(s.id)).map(s => s.id)
+    return {
+      job_id: 'manual',
+      status: 'completed',
+      solve_time_ms: 0,
+      trips,
+      unassigned_shipments: unassignedIds,
+      summary: {
+        total_trips: trips.length,
+        total_vehicles: trips.length,
+        total_shipments_assigned: totalAssigned,
+        total_unassigned: unassignedIds.length,
+        total_distance_km: 0,
+        total_duration_min: 0,
+        total_weight_kg: trips.reduce((s, t) => s + t.total_weight_kg, 0),
+        avg_capacity_util_pct: 0,
+        avg_stops_per_trip: totalAssigned / (trips.length || 1),
+        solve_time_ms: 0,
+      },
+    }
+  }, [manualAssign, vehicles, shipments, activeShipments])
+
   // ─── Approve ────────────────────────────────────────
   const approvePlan = async () => {
     if (!vrpResult?.trips) return
@@ -750,9 +876,28 @@ export default function PlanningPage() {
         driver_id: driverAssign[t.vehicle_id] || undefined,
         shipment_ids: t.stops.map(s => s.shipment_id),
       }))
+      // Always include trips data so backend can work even if VRP job expired from memory
+      const tripsPayload = vrpResult.trips.map(t => ({
+        vehicle_id: t.vehicle_id,
+        stops: t.stops.map(s => ({
+          shipment_id: s.shipment_id,
+          stop_order: s.stop_order,
+          customer_name: s.customer_name || '',
+          cumulative_load_kg: s.cumulative_load_kg || 0,
+        })),
+        total_weight_kg: t.total_weight_kg || 0,
+        total_distance_km: t.total_distance_km || 0,
+        total_duration_min: t.total_duration_min || 0,
+      }))
       await apiFetch('/planning/approve', {
         method: 'POST',
-        body: { job_id: jobId, warehouse_id: warehouseId, delivery_date: deliveryDate, assignments },
+        body: {
+          job_id: planMode === 'manual' ? 'manual' : jobId,
+          warehouse_id: warehouseId,
+          delivery_date: deliveryDate,
+          assignments,
+          trips: tripsPayload,
+        },
       })
       setApproved(true)
     } catch (err: any) {
@@ -807,7 +952,12 @@ export default function PlanningPage() {
     if (step === 0) return shipments.length > 0
     if (step === 1) return selectedVehicleIds.size > 0
     if (step === 2) return activeShipments.length > 0
-    if (step === 3) return vrpResult !== null && !running
+    if (step === 3) {
+      if (planMode === 'manual') {
+        return Object.values(manualAssign).some(ids => ids.length > 0)
+      }
+      return vrpResult !== null && !running
+    }
     return true
   }
 
@@ -1189,6 +1339,213 @@ export default function PlanningPage() {
          ═══════════════════════════════════════════════ */}
       {step === 3 && (
         <div className="space-y-6">
+          {/* Mode toggle */}
+          <div className="bg-white rounded-xl shadow-sm p-4">
+            <div className="flex items-center justify-between">
+              <h2 className="font-bold text-gray-800">Phương thức lập kế hoạch</h2>
+              <div className="flex bg-gray-100 rounded-lg p-1">
+                <button onClick={() => setPlanMode('vrp')}
+                  className={`px-4 py-2 rounded-lg text-sm font-medium transition ${planMode === 'vrp' ? 'bg-white shadow text-brand-600' : 'text-gray-500 hover:text-gray-700'}`}>
+                  🤖 VRP Tự động
+                </button>
+                <button onClick={() => setPlanMode('manual')}
+                  className={`px-4 py-2 rounded-lg text-sm font-medium transition ${planMode === 'manual' ? 'bg-white shadow text-brand-600' : 'text-gray-500 hover:text-gray-700'}`}>
+                  ✋ Lập thủ công
+                </button>
+              </div>
+            </div>
+            <p className="text-xs text-gray-400 mt-2">
+              {planMode === 'vrp'
+                ? 'Hệ thống tự tối ưu phân bổ đơn hàng vào xe — phù hợp khi có nhiều đơn hàng'
+                : 'Kéo thả đơn hàng vào từng xe — phù hợp khi ít đơn hoặc cần điều phối đặc biệt'}
+            </p>
+          </div>
+
+          {/* ─── MANUAL PLANNING MODE ─── */}
+          {planMode === 'manual' && (
+            <>
+              <div className="flex items-center justify-between">
+                <div className="text-sm text-gray-600">
+                  <span className="font-semibold text-amber-700">{manualUnassigned.length}</span> đơn chưa xếp
+                  {' · '}
+                  <span className="font-semibold text-blue-700">{selectedVehicleIds.size}</span> xe đã chọn
+                </div>
+                <div className="flex gap-2">
+                  <button onClick={autoDistribute}
+                    className="px-3 py-1.5 bg-blue-50 text-blue-700 rounded-lg text-xs font-medium hover:bg-blue-100 transition">
+                    ⚡ Tự gán đều
+                  </button>
+                  <button onClick={() => setManualAssign({})}
+                    className="px-3 py-1.5 bg-gray-50 text-gray-600 rounded-lg text-xs font-medium hover:bg-gray-100 transition">
+                    🗑️ Xóa tất cả
+                  </button>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 lg:grid-cols-3 gap-4" style={{ minHeight: '60vh' }}>
+                {/* LEFT: Shipment pool */}
+                <div className="lg:col-span-1 bg-white rounded-xl shadow-sm p-4 overflow-y-auto" style={{ maxHeight: '70vh' }}>
+                  <h3 className="font-semibold text-gray-700 mb-3 sticky top-0 bg-white pb-2 border-b text-sm">
+                    📦 Đơn hàng chưa xếp ({manualUnassigned.length})
+                  </h3>
+                  {/* Sort tools */}
+                  <div className="flex flex-wrap gap-1 mb-3 sticky top-8 bg-white pb-2 z-10">
+                    {([
+                      ['default', 'Mặc định'],
+                      ['region', '🗺️ Khu vực'],
+                      ['weight-desc', '⬇️ Nặng trước'],
+                      ['weight-asc', '⬆️ Nhẹ trước'],
+                      ['urgent', '⚡ Gấp trước'],
+                      ['customer', '👤 Khách hàng'],
+                    ] as const).map(([key, label]) => (
+                      <button key={key} onClick={() => setPoolSort(key as typeof poolSort)}
+                        className={`px-2 py-1 rounded text-xs font-medium transition ${poolSort === key ? 'bg-[#F68634] text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}>
+                        {label}
+                      </button>
+                    ))}
+                  </div>
+                  {manualUnassigned.length === 0 ? (
+                    <div className="text-center py-8 text-gray-400 text-sm">
+                      ✅ Tất cả đơn đã được xếp vào xe
+                    </div>
+                  ) : (
+                    <div className="space-y-2">
+                      {manualUnassigned.map((s, idx) => {
+                        // Show region group header when sorted by region
+                        const showRegionHeader = poolSort === 'region' && (idx === 0 ||
+                          extractDistrict(s.customer_address) !== extractDistrict(manualUnassigned[idx - 1]?.customer_address))
+                        return (
+                          <React.Fragment key={s.id}>
+                            {showRegionHeader && (
+                              <div className="bg-blue-50 text-blue-700 text-xs font-semibold px-2 py-1.5 rounded mt-1">
+                                🗺️ {extractDistrict(s.customer_address)}
+                              </div>
+                            )}
+                            <div
+                              draggable
+                              onDragStart={e => {
+                                e.dataTransfer.setData('application/shipment-id', s.id)
+                                e.dataTransfer.effectAllowed = 'move'
+                              }}
+                              className={`p-3 rounded-lg border cursor-move hover:shadow-md transition ${s.is_urgent ? 'bg-red-50 border-red-200' : 'bg-gray-50 border-gray-200 hover:border-amber-300'}`}
+                            >
+                              <div className="flex items-center justify-between">
+                                <span className="font-medium text-sm">{s.shipment_number}</span>
+                                <span className="text-xs font-semibold text-gray-500">{s.total_weight_kg?.toFixed(0)} kg</span>
+                              </div>
+                              <div className="text-xs text-gray-500 truncate mt-1">{s.customer_name}</div>
+                              {poolSort === 'region' && s.customer_address && (
+                                <div className="text-xs text-blue-500 truncate mt-0.5">📍 {s.customer_address}</div>
+                              )}
+                              {s.is_urgent && <span className="text-xs text-red-600 font-semibold">⚡ Gấp</span>}
+                            </div>
+                          </React.Fragment>
+                        )
+                      })}
+                    </div>
+                  )}
+                </div>
+
+                {/* RIGHT: Vehicle drop zones */}
+                <div className="lg:col-span-2 space-y-4 overflow-y-auto" style={{ maxHeight: '70vh' }}>
+                  {Array.from(selectedVehicleIds).map(vehicleId => {
+                    const vehicle = vehicles.find(v => v.id === vehicleId)
+                    const assignedIds = manualAssign[vehicleId] || []
+                    const assignedShipments = assignedIds.map(sid => shipments.find(s => s.id === sid)).filter(Boolean) as Shipment[]
+                    const totalWeight = assignedShipments.reduce((sum, s) => sum + (s.total_weight_kg || 0), 0)
+                    const cap = vehicle?.capacity_kg || 15000
+                    const pct = Math.min((totalWeight / cap) * 100, 100)
+                    const overloaded = totalWeight > cap
+
+                    return (
+                      <div key={vehicleId}
+                        onDragOver={e => { e.preventDefault(); e.currentTarget.classList.add('ring-2', 'ring-amber-400') }}
+                        onDragLeave={e => { e.currentTarget.classList.remove('ring-2', 'ring-amber-400') }}
+                        onDrop={e => {
+                          e.preventDefault()
+                          e.currentTarget.classList.remove('ring-2', 'ring-amber-400')
+                          const sid = e.dataTransfer.getData('application/shipment-id')
+                          if (sid) handleManualDrop(vehicleId, sid)
+                        }}
+                        className={`bg-white rounded-xl shadow-sm p-4 transition ${overloaded ? 'ring-2 ring-red-400' : ''}`}
+                      >
+                        <div className="flex items-center justify-between mb-3">
+                          <h4 className="font-semibold text-sm">
+                            🚛 {vehicle?.plate_number || vehicleId.slice(0, 8)}
+                            {vehicle?.vehicle_type && <span className="text-gray-400 ml-1">({vehicle.vehicle_type})</span>}
+                            {overloaded && <span className="ml-2 text-xs bg-red-100 text-red-600 px-2 py-0.5 rounded-full">⚠ Quá tải!</span>}
+                          </h4>
+                          <div className="text-xs text-gray-500">
+                            {assignedShipments.length} điểm · {totalWeight.toFixed(0)}/{cap.toFixed(0)} kg
+                          </div>
+                        </div>
+
+                        {/* Capacity bar */}
+                        <div className="bg-gray-200 rounded-full h-2.5 mb-3 overflow-hidden">
+                          <div className={`h-full rounded-full transition-all duration-300 ${overloaded ? 'bg-red-500' : pct > 70 ? 'bg-amber-500' : 'bg-green-500'}`}
+                            style={{ width: `${pct}%` }} />
+                        </div>
+
+                        {assignedShipments.length === 0 ? (
+                          <div className="border-2 border-dashed border-gray-300 rounded-lg p-6 text-center text-gray-400 text-sm">
+                            Kéo đơn hàng thả vào đây
+                          </div>
+                        ) : (
+                          <div className="space-y-1.5">
+                            {assignedShipments.map((s, idx) => (
+                              <div key={s.id}
+                                draggable
+                                onDragStart={e => {
+                                  e.dataTransfer.setData('application/shipment-id', s.id)
+                                  e.dataTransfer.effectAllowed = 'move'
+                                }}
+                                className={`flex items-center gap-2 px-3 py-2 rounded-lg text-sm group ${s.is_urgent ? 'bg-red-50 border border-red-200' : 'bg-gray-50 border border-gray-200'}`}
+                              >
+                                <span className="text-gray-400 text-xs w-5 text-center">{idx + 1}</span>
+                                <div className="flex-1 min-w-0">
+                                  <span className="font-medium">{s.shipment_number}</span>
+                                  <span className="text-gray-400 ml-2 text-xs">{s.customer_name}</span>
+                                </div>
+                                <span className="text-xs text-gray-500 whitespace-nowrap">{s.total_weight_kg?.toFixed(0)} kg</span>
+                                <div className="opacity-0 group-hover:opacity-100 flex items-center gap-1">
+                                  <button title="Lên" disabled={idx === 0}
+                                    onClick={() => handleManualReorder(vehicleId, idx, idx - 1)}
+                                    className="w-5 h-5 text-xs bg-gray-200 rounded hover:bg-gray-300 disabled:opacity-30">↑</button>
+                                  <button title="Xuống" disabled={idx === assignedShipments.length - 1}
+                                    onClick={() => handleManualReorder(vehicleId, idx, idx + 1)}
+                                    className="w-5 h-5 text-xs bg-gray-200 rounded hover:bg-gray-300 disabled:opacity-30">↓</button>
+                                  <button title="Bỏ ra"
+                                    onClick={() => handleManualRemove(vehicleId, s.id)}
+                                    className="w-5 h-5 text-xs bg-red-100 text-red-600 rounded hover:bg-red-200">✕</button>
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    )
+                  })}
+                </div>
+              </div>
+
+              {/* Manual summary */}
+              {Object.values(manualAssign).some(ids => ids.length > 0) && (
+                <div className="bg-green-50 border border-green-200 rounded-xl p-4 text-sm">
+                  <div className="flex items-center justify-between">
+                    <span className="font-semibold text-green-800">
+                      ✅ Đã xếp {Object.values(manualAssign).flat().length}/{activeShipments.length} đơn vào {Object.values(manualAssign).filter(ids => ids.length > 0).length} chuyến
+                    </span>
+                    {manualUnassigned.length > 0 && (
+                      <span className="text-amber-700 text-xs">⚠️ Còn {manualUnassigned.length} đơn chưa xếp</span>
+                    )}
+                  </div>
+                </div>
+              )}
+            </>
+          )}
+
+          {/* ─── VRP MODE ─── */}
+          {planMode === 'vrp' && (<>
           {/* Pre-run info */}
           {!vrpResult && !running && (
             <div className="bg-white rounded-xl shadow-sm p-6 text-center">
@@ -1260,7 +1617,7 @@ export default function PlanningPage() {
                 </div>
               </div>
               <button onClick={runVRP}
-                className="px-8 py-3 bg-amber-600 text-white rounded-xl hover:bg-amber-700 transition font-medium text-lg shadow-lg shadow-amber-200">
+                className="px-8 py-3 bg-brand-500 text-white rounded-xl hover:bg-brand-600 transition font-medium text-lg shadow-lg shadow-brand-200">
                 🗺️ Tạo kế hoạch giao hàng
               </button>
               <p className="text-xs text-gray-400 mt-3">Thời gian giải tùy thuộc số lượng đơn, có thể mất 10-60 giây</p>
@@ -1283,8 +1640,20 @@ export default function PlanningPage() {
             </div>
           )}
 
+          {/* VRP Failed */}
+          {vrpResult && !vrpResult.trips && !running && (
+            <div className="bg-red-50 border border-red-200 rounded-xl p-5 text-center">
+              <p className="text-red-700 font-medium text-lg mb-2">❌ Không tạo được kế hoạch</p>
+              <p className="text-red-600 text-sm mb-4">VRP solver không tìm được phương án phù hợp. Hãy thử điều chỉnh xe hoặc đơn hàng.</p>
+              <button onClick={() => { setVrpResult(null); setJobId(''); }}
+                className="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 text-sm">
+                ← Quay lại chỉnh sửa
+              </button>
+            </div>
+          )}
+
           {/* VRP Results */}
-          {vrpResult && !running && (
+          {vrpResult?.trips && !running && (
             <>
               {/* Summary KPI */}
               <div className="bg-gradient-to-r from-green-50 to-emerald-50 border border-green-200 rounded-xl p-5">
@@ -1499,6 +1868,7 @@ export default function PlanningPage() {
               </div>
             </>
           )}
+          </>)}
         </div>
       )}
 
@@ -1523,18 +1893,19 @@ export default function PlanningPage() {
               <div className="bg-white rounded-xl shadow-sm p-5">
                 <h2 className="font-bold text-gray-800 mb-4">Gán tài xế cho từng chuyến xe</h2>
                 {(() => {
-                  const availableDrivers = driverCheckins.filter((c: any) => c.checkin_status === 'available')
+                  const checkedInIds = new Set(driverCheckins.filter((c: any) => c.checkin_status === 'available').map((c: any) => c.driver_id || c.id))
                   const notCheckedIn = driverCheckins.filter((c: any) => c.checkin_status === 'not_checked_in').length
                   return (
                     <>
                       <p className="text-sm text-gray-500 mb-2">
                         Chọn tài xế cho mỗi chuyến. Tài xế đã được gán sẽ hiển thị màu xanh.
-                        Còn <strong className="text-green-700">{availableDrivers.length}</strong> tài xế sẵn sàng
-                        cho <strong className="text-amber-700">{vrpResult.trips.length}</strong> chuyến.
+                        Có <strong className="text-green-700">{drivers.length}</strong> tài xế khả dụng
+                        {checkedInIds.size > 0 && <> (<strong className="text-green-600">{checkedInIds.size}</strong> đã check-in)</>}
+                        {' '}cho <strong className="text-amber-700">{vrpResult.trips.length}</strong> chuyến.
                       </p>
                       {notCheckedIn > 0 && (
                         <div className="bg-yellow-50 border border-yellow-200 text-yellow-700 text-xs px-3 py-2 rounded-lg mb-4">
-                          ⚠️ Còn {notCheckedIn} tài xế chưa check-in. Chỉ tài xế đã check-in sẵn sàng mới hiển thị trong danh sách chọn.
+                          ⚠️ Còn {notCheckedIn} tài xế chưa check-in. Tài xế đã check-in sẽ hiện ưu tiên đầu danh sách.
                         </div>
                       )}
                     </>
@@ -1562,34 +1933,28 @@ export default function PlanningPage() {
                             {trip.stops.length} điểm · {trip.total_distance_km?.toFixed(1)}km · {trip.total_weight_kg?.toFixed(0)}kg
                           </div>
                         </div>
-                        <select
-                          value={assignedDriverId || ''}
-                          onChange={e => setDriverAssign({ ...driverAssign, [trip.vehicle_id]: e.target.value })}
-                          className={`px-3 py-2 border rounded-lg text-sm min-w-[220px] ${assignedDriverId ? 'border-green-300 bg-white' : 'border-yellow-300 bg-white'}`}
-                        >
-                          <option value="">-- Chọn tài xế --</option>
-                          {(() => {
-                            // Only show drivers with 'available' check-in status
-                            const availableCheckinIds = new Set(driverCheckins.filter((c: any) => c.checkin_status === 'available').map((c: any) => c.driver_id || c.id))
+                        <div className="min-w-[220px]">
+                        <SearchableSelect
+                          options={(() => {
+                            const checkedInIds = new Set(driverCheckins.filter((c: any) => c.checkin_status === 'available').map((c: any) => c.driver_id || c.id))
                             return [...drivers]
-                              .filter(d => availableCheckinIds.has(d.id) || d.id === assignedDriverId)
+                              .filter(d => d.id === assignedDriverId || !usedDriverIds.has(d.id))
                               .sort((a, b) => {
-                                const aUsed = usedDriverIds.has(a.id) && a.id !== assignedDriverId
-                                const bUsed = usedDriverIds.has(b.id) && b.id !== assignedDriverId
-                                if (aUsed && !bUsed) return 1
-                                if (!aUsed && bUsed) return -1
-                                return a.full_name.localeCompare(b.full_name)
+                                const aChecked = checkedInIds.has(a.id) ? 0 : 1
+                                const bChecked = checkedInIds.has(b.id) ? 0 : 1
+                                return aChecked - bChecked || a.full_name.localeCompare(b.full_name)
                               })
-                              .map(d => {
-                                const isUsedElsewhere = usedDriverIds.has(d.id) && d.id !== assignedDriverId
-                                return (
-                                  <option key={d.id} value={d.id} disabled={isUsedElsewhere}>
-                                    {d.full_name} ({d.phone}){isUsedElsewhere ? ' — đã gán' : ''}
-                                  </option>
-                                )
-                              })
+                              .map(d => ({
+                                value: d.id,
+                                label: checkedInIds.has(d.id) ? `✅ ${d.full_name}` : d.full_name,
+                                sublabel: d.phone || ''
+                              }))
                           })()}
-                        </select>
+                          value={assignedDriverId || ''}
+                          onChange={val => setDriverAssign({ ...driverAssign, [trip.vehicle_id]: val })}
+                          placeholder="🔍 Chọn tài xế..."
+                        />
+                        </div>
                         {assignedDriver && (
                           <span className="text-green-600 text-sm">✓</span>
                         )}
@@ -1677,8 +2042,24 @@ export default function PlanningPage() {
             ← Quay lại
           </button>
           {step < 4 && (
-            <button onClick={() => setStep(step + 1)} disabled={!canGoNext()}
-              className="px-6 py-2.5 bg-amber-600 text-white rounded-lg hover:bg-amber-700 transition font-medium disabled:opacity-30 disabled:cursor-not-allowed">
+            <button onClick={() => {
+              // When going from step 3 → 4 in manual mode, build VRP result
+              if (step === 3 && planMode === 'manual') {
+                const result = buildManualVRPResult()
+                if (result) {
+                  setVrpResult(result)
+                  setJobId('manual')
+                  // Auto-assign drivers
+                  const init: Record<string, string> = {}
+                  result.trips.forEach((t, i) => {
+                    if (drivers[i]) init[t.vehicle_id] = drivers[i].id
+                  })
+                  setDriverAssign(init)
+                }
+              }
+              setStep(step + 1)
+            }} disabled={!canGoNext()}
+              className="px-6 py-2.5 bg-brand-500 text-white rounded-lg hover:bg-brand-600 transition font-medium disabled:opacity-30 disabled:cursor-not-allowed">
               Tiếp theo →
             </button>
           )}

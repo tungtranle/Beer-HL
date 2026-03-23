@@ -11,6 +11,12 @@ services:
       - "5434:5432"
     volumes:
       - pg-data:/var/lib/postgresql/data
+    command: >
+      postgres
+        -c shared_preload_libraries=pg_stat_statements
+        -c pg_stat_statements.track=all
+        -c log_min_duration_statement=500
+        -c log_statement=none
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U bhl"]
       interval: 5s
@@ -52,5 +58,51 @@ services:
       timeout: 5s
       retries: 3
 
+  # ===== MONITORING =====
+  prometheus:
+    image: prom/prometheus:v2.53.0
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./monitoring/prometheus.yml:/etc/prometheus/prometheus.yml
+      - prometheus-data:/prometheus
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    profiles: ["monitoring"]
+
+  grafana:
+    image: grafana/grafana:11.1.0
+    ports:
+      - "3030:3000"
+    environment:
+      GF_SECURITY_ADMIN_USER: admin
+      GF_SECURITY_ADMIN_PASSWORD: bhl_dev
+      GF_USERS_ALLOW_SIGN_UP: "false"
+    volumes:
+      - ./monitoring/grafana/provisioning:/etc/grafana/provisioning
+      - ./monitoring/grafana/dashboards:/var/lib/grafana/dashboards
+      - grafana-data:/var/lib/grafana
+    depends_on:
+      - prometheus
+    profiles: ["monitoring"]
+
+  postgres-exporter:
+    image: prometheuscommunity/postgres-exporter:v0.15.0
+    environment:
+      DATA_SOURCE_NAME: "postgresql://bhl:bhl_dev@postgres:5432/bhl_dev?sslmode=disable"
+    depends_on:
+      - postgres
+    profiles: ["monitoring"]
+
+  redis-exporter:
+    image: oliver006/redis_exporter:v1.62.0
+    environment:
+      REDIS_ADDR: "redis://redis:6379"
+    depends_on:
+      - redis
+    profiles: ["monitoring"]
+
 volumes:
   pg-data:
+  prometheus-data:
+  grafana-data:

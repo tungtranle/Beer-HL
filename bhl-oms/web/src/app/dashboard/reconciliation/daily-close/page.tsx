@@ -2,6 +2,8 @@
 
 import { useEffect, useState } from 'react'
 import { apiFetch } from '@/lib/api'
+import { toast } from '@/lib/useToast'
+import { formatVND } from '@/lib/status-config'
 
 interface DailyCloseRecord {
   id: string; close_date: string; warehouse_id: string; warehouse_name: string
@@ -42,7 +44,7 @@ export default function DailyClosePage() {
       const res: any = await apiFetch('/reconciliation/daily-close')
       setCloses(res.data || [])
     } catch (err: any) {
-      alert('Lỗi: ' + err.message)
+      toast.error('Lỗi: ' + err.message)
     } finally {
       setClosing(false)
     }
@@ -58,13 +60,13 @@ export default function DailyClosePage() {
       const res: any = await apiFetch('/reconciliation/discrepancies')
       setDiscrepancies(res.data || [])
     } catch (err: any) {
-      alert('Lỗi: ' + err.message)
+      toast.error('Lỗi: ' + err.message)
     } finally {
       setResolving(null)
     }
   }
 
-  const formatMoney = (n: number) => new Intl.NumberFormat('vi-VN', { style: 'currency', currency: 'VND' }).format(n)
+  // formatVND imported from status-config (single source of truth)
 
   if (loading) return <div className="flex items-center justify-center h-64"><div className="animate-spin w-8 h-8 border-4 border-blue-500 border-t-transparent rounded-full" /></div>
 
@@ -88,7 +90,7 @@ export default function DailyClosePage() {
           <button
             onClick={generateClose}
             disabled={closing}
-            className="px-6 py-2 bg-amber-600 text-white rounded-lg hover:bg-amber-700 transition text-sm disabled:opacity-50"
+            className="px-6 py-2 bg-brand-500 text-white rounded-lg hover:bg-brand-600 transition text-sm disabled:opacity-50"
           >
             {closing ? 'Đang xử lý...' : '📊 Chốt sổ cuối ngày'}
           </button>
@@ -105,7 +107,7 @@ export default function DailyClosePage() {
                 <div>
                   <div className="font-medium text-sm">{d.trip_number} · {d.driver_name}</div>
                   <div className="text-xs text-gray-500">{d.type}: {d.description}</div>
-                  {d.amount > 0 && <div className="text-xs text-red-600 font-medium mt-1">Chênh lệch: {formatMoney(d.amount)}</div>}
+                  {d.amount > 0 && <div className="text-xs text-red-600 font-medium mt-1">Chênh lệch: {formatVND(d.amount)}</div>}
                 </div>
                 <button
                   onClick={() => resolveDiscrepancy(d.id)}
@@ -136,7 +138,7 @@ export default function DailyClosePage() {
                   </div>
                 </div>
                 <div className="text-right">
-                  <div className="font-medium text-sm">{formatMoney(c.total_cash_collected)}</div>
+                  <div className="font-medium text-sm">{formatVND(c.total_cash_collected)}</div>
                   <div className={`text-xs ${c.total_discrepancies > 0 ? 'text-red-600' : 'text-green-600'}`}>
                     {c.total_discrepancies > 0 ? `${c.total_discrepancies} sai lệch` : '✓ Không sai lệch'}
                   </div>

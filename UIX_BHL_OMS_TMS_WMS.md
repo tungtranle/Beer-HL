@@ -194,12 +194,29 @@
 │ │                           Tổng:   │ 40,000,000 ₫ │ │
 │ └───────────────────────────────────┴──────────────┘ │
 ├──────────────────────────────────────────────────────┤
-│  Timeline                                            │
-│  08:00 Tạo đơn (Dispatcher Nguyễn A)                │
-│  08:15 Kiểm tra hạn mức: OK                         │
-│  08:20 Gom vào Shipment SHP-001                     │
+│  Timeline (Updated Session 22/03 — world-class redesign)  │
+│  ┌──────────────────────────────────────────────────┐     │
+│  │ Tabs: [Tất cả] [Trạng thái] [Giao hàng] [Ghi chú]│   │
+│  │ ── Hôm nay ──                                     │   │
+│  │ 📝 15:48 Tạo đơn (DVKH Nguyễn A)                │   │
+│  │    ⏱ 30 phút sau                                  │   │
+│  │ ✅ 16:18 KH xác nhận qua Zalo                    │   │
+│  │    ⏱ 2 giờ sau                                    │   │
+│  │ 📋 18:20 Đã xếp xe — Trip #TRP-001               │   │
+│  │ ── Hôm qua ──                                     │   │
+│  │ 🏭 08:00 Kho bắt đầu soạn hàng                   │   │
+│  │ 🚛 09:15 Xe xuất phát — Nguyễn Văn B             │   │
+│  └──────────────────────────────────────────────────┘     │
+│                                                           │
+│  OrderStatusStepper (MỚI Session 22/03):                  │
+│  ┌─────┐   ┌─────┐   ┌─────┐   ┌─────┐   ┌─────┐       │
+│  │✓ Tạo│───│✓ KH │───│● Kho│───│○ V/c│───│○ Done│       │
+│  │ đơn │   │xác  │   │xử lý│   │     │   │     │        │
+│  └─────┘   └─────┘   └─────┘   └─────┘   └─────┘       │
+│  (✓=done, ●=current #F68634, ○=pending)                   │
 ├──────────────────────────────────────────────────────┤
 │  [Sửa đơn]  [Huỷ đơn]  [Duyệt hạn mức]            │
+│  [📦 Giao bổ sung] ← chỉ hiện khi partially_delivered/failed │
 └──────────────────────────────────────────────────────┘
 ```
 
@@ -776,15 +793,38 @@ WEB-OMS-03 (Create) → WEB-OMS-01 (List, status=new)
 
 ## 14.1 Design System
 
+> **Tham chiếu:** Tuân thủ UXUI.md — Brand color ratio ≤ 10% diện tích màn hình.
+
+### Brand & Semantic Colors
+
+| Token | Value | Ghi chú |
+|-------|-------|---------|
+| **Primary (Brand)** | `#F68634` / `rgb(246, 134, 52)` | Orange — dùng cho primary actions, highlights, active states |
+| Success | `#34A853` (Green) | |
+| Warning | `#FBBC05` (Yellow) | |
+| Error | `#EA4335` (Red) | |
+| Info | `#1A73E8` (Blue) | |
+
+### Neutral Colors
+
 | Token | Value |
 |-------|-------|
-| Primary color | #1A73E8 (Blue) |
-| Success | #34A853 (Green) |
-| Warning | #FBBC05 (Yellow) |
-| Error | #EA4335 (Red) |
-| Font | Inter (Web), System default (App) |
+| Background | `#FFFFFF` |
+| Secondary Background | `#F7F8FA` |
+| Border | `#E5E6EB` |
+| Text Primary | `#1F1F1F` |
+| Text Secondary | `#595959` |
+| Disabled | `#BFBFBF` |
+
+### Typography & Layout
+
+| Token | Value |
+|-------|-------|
+| Font | Roboto (Web), System default (App) |
+| Fallback | `'Roboto', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif` |
 | Border radius | 8px |
 | Spacing unit | 4px (base) |
+| Spacing scale | 4, 8, 12, 16, 24, 32, 48 px |
 
 ## 14.2 Shared Components (Next.js)
 
@@ -796,7 +836,7 @@ WEB-OMS-03 (Create) → WEB-OMS-01 (List, status=new)
 | `DateRangePicker` | Date range cho filters/reports |
 | `FileUpload` | Drag-drop + camera, pre-signed URL upload |
 | `ConfirmDialog` | Approve/delete confirmation modal |
-| `Notification Bell` | Header bell with unread count + dropdown |
+| `Notification Bell` | Topbar bell with unread count + right-side slide panel |
 | `MapView` | Google Maps / Leaflet wrapper with vehicle markers |
 | `KPICard` | Dashboard metric card with trend arrow |
 | `Timeline` | Order/trip event timeline vertical display |

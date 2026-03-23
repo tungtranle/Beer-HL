@@ -3,6 +3,9 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { useParams, useRouter } from 'next/navigation'
 import { apiFetch, getUser } from '@/lib/api'
+import { toast } from '@/lib/useToast'
+import { formatVND } from '@/lib/status-config'
+import SearchableSelect from '@/lib/SearchableSelect'
 
 interface Product {
   id: string; sku: string; name: string; price: number; deposit_price: number;
@@ -195,9 +198,9 @@ export default function EditOrderPage() {
 
       const updated = res.data
       if (updated.status === 'pending_approval') {
-        alert(`Đơn ${updated.order_number} đã cập nhật — VƯỢT HẠN MỨC → Chờ kế toán duyệt`)
+        toast.warning(`Đơn ${updated.order_number} đã cập nhật — VƯỢT HẠN MỨC → Chờ kế toán duyệt`)
       } else {
-        alert(`Đơn ${updated.order_number} đã cập nhật thành công! (Đã xác nhận)`)
+        toast.success(`Đơn ${updated.order_number} đã cập nhật thành công! (Đã xác nhận)`)
       }
       router.push(`/dashboard/orders/${params.id}`)
     } catch (err: any) {
@@ -207,19 +210,18 @@ export default function EditOrderPage() {
     }
   }
 
-  const formatMoney = (n: number) =>
-    new Intl.NumberFormat('vi-VN', { style: 'currency', currency: 'VND' }).format(n)
+  // formatVND imported from status-config (single source of truth)
 
   const formatNumber = (n: number) =>
     new Intl.NumberFormat('vi-VN').format(n)
 
-  if (loading) return <div className="flex justify-center py-20"><div className="animate-spin rounded-full h-10 w-10 border-b-2 border-amber-600"></div></div>
+  if (loading) return <div className="flex justify-center py-20"><div className="animate-spin rounded-full h-10 w-10 border-b-2 border-brand-500"></div></div>
 
   const canEdit = order && ['draft', 'confirmed', 'pending_approval'].includes(order.status)
   if (!canEdit) return (
     <div className="text-center py-20">
       <p className="text-gray-500 mb-4">Không thể sửa đơn hàng ở trạng thái hiện tại</p>
-      <button onClick={() => router.back()} className="text-amber-600 hover:underline">← Quay lại</button>
+      <button onClick={() => router.back()} className="text-brand-500 hover:underline">← Quay lại</button>
     </div>
   )
 
@@ -237,10 +239,16 @@ export default function EditOrderPage() {
           <div className="grid grid-cols-2 gap-4">
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">Khách hàng (NPP)</label>
-              <select value={customerId} onChange={(e) => setCustomerId(e.target.value)} className="w-full px-3 py-2 border rounded-lg text-sm" required>
-                <option value="">-- Chọn NPP --</option>
-                {customers.map((c: any) => <option key={c.id} value={c.id}>{c.code} - {c.name}</option>)}
-              </select>
+              <SearchableSelect
+                options={customers.map((c: any) => ({
+                  value: c.id,
+                  label: `${c.code} - ${c.name}`,
+                  sublabel: c.phone || c.address?.substring(0, 50) || undefined
+                }))}
+                value={customerId}
+                onChange={setCustomerId}
+                placeholder="🔍 Tìm NPP theo mã hoặc tên..."
+              />
             </div>
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">Kho xuất</label>
@@ -271,16 +279,16 @@ export default function EditOrderPage() {
                 <div className="grid grid-cols-3 gap-4 text-sm">
                   <div>
                     <span className="text-gray-500">Hạn mức tổng</span>
-                    <p className="font-semibold text-gray-800">{formatMoney(creditInfo.credit_limit)}</p>
+                    <p className="font-semibold text-gray-800">{formatVND(creditInfo.credit_limit)}</p>
                   </div>
                   <div>
                     <span className="text-gray-500">Đang nợ</span>
-                    <p className="font-semibold text-orange-600">{formatMoney(creditInfo.current_balance)}</p>
+                    <p className="font-semibold text-orange-600">{formatVND(creditInfo.current_balance)}</p>
                   </div>
                   <div>
                     <span className="text-gray-500">Hạn mức khả dụng</span>
                     <p className={`font-semibold ${creditInfo.available_limit > 0 ? 'text-green-600' : 'text-red-600'}`}>
-                      {formatMoney(creditInfo.available_limit)}
+                      {formatVND(creditInfo.available_limit)}
                     </p>
                   </div>
                 </div>
@@ -303,9 +311,9 @@ export default function EditOrderPage() {
                     creditExceeded ? 'bg-red-50 text-red-700 border border-red-200' : 'bg-green-50 text-green-700 border border-green-200'
                   }`}>
                     {creditExceeded ? (
-                      <>⚠️ Đơn hàng <strong>{formatMoney(totalAmount)}</strong> VƯỢT hạn mức khả dụng <strong>{formatMoney(creditInfo.available_limit)}</strong> → Đơn sẽ ở trạng thái <strong>"Chờ duyệt"</strong></>
+                      <>⚠️ Đơn hàng <strong>{formatVND(totalAmount)}</strong> VƯỢT hạn mức khả dụng <strong>{formatVND(creditInfo.available_limit)}</strong> → Đơn sẽ ở trạng thái <strong>"Chờ duyệt"</strong></>
                     ) : (
-                      <>✅ Đơn hàng <strong>{formatMoney(totalAmount)}</strong> trong hạn mức khả dụng <strong>{formatMoney(creditInfo.available_limit)}</strong> → Đơn sẽ <strong>"Đã xác nhận"</strong></>
+                      <>✅ Đơn hàng <strong>{formatVND(totalAmount)}</strong> trong hạn mức khả dụng <strong>{formatVND(creditInfo.available_limit)}</strong> → Đơn sẽ <strong>"Đã xác nhận"</strong></>
                     )}
                   </div>
                 )}
@@ -318,7 +326,7 @@ export default function EditOrderPage() {
         <div className="bg-white rounded-xl shadow-sm p-6">
           <div className="flex items-center justify-between mb-4">
             <h2 className="font-semibold">Sản phẩm</h2>
-            <button type="button" onClick={addItem} className="px-3 py-1 bg-blue-600 text-white text-sm rounded-lg hover:bg-blue-700">+ Thêm sản phẩm</button>
+            <button type="button" onClick={addItem} className="px-3 py-1 bg-brand-500 text-white text-sm rounded-lg hover:bg-brand-600">+ Thêm sản phẩm</button>
           </div>
 
           {items.length === 0 ? (
@@ -344,17 +352,23 @@ export default function EditOrderPage() {
                   return (
                     <tr key={idx} className={`border-t ${!atpOk ? 'bg-red-50' : ''}`}>
                       <td className="py-2 px-3">
-                        <select value={item.product_id} onChange={(e) => updateItem(idx, 'product_id', e.target.value)} className="w-full px-2 py-1 border rounded text-sm">
-                          <option value="">-- Chọn SP --</option>
-                          {products.map((p) => <option key={p.id} value={p.id}>{p.sku} — {p.name} ({formatMoney(p.price)}/{p.unit})</option>)}
-                        </select>
+                        <SearchableSelect
+                          options={products.map((p) => ({
+                            value: p.id,
+                            label: `${p.sku} — ${p.name}`,
+                            sublabel: `${formatVND(p.price)}/${p.unit}`
+                          }))}
+                          value={item.product_id}
+                          onChange={(val) => updateItem(idx, 'product_id', val)}
+                          placeholder="🔍 Tìm sản phẩm..."
+                        />
                       </td>
                       <td className="py-2 px-3">
-                        <input type="number" min={1} value={item.quantity} onChange={(e) => updateItem(idx, 'quantity', Number(e.target.value))}
+                        <input type="number" min={1} value={item.quantity || ''} onChange={(e) => updateItem(idx, 'quantity', Number(e.target.value) || 0)}
                           className={`w-full px-2 py-1 border rounded text-right text-sm ${!atpOk ? 'border-red-400 bg-red-50 text-red-700' : ''}`} />
                       </td>
-                      <td className="py-2 px-3 text-right">{item.price ? formatMoney(item.price) : '-'}</td>
-                      <td className="py-2 px-3 text-right font-medium">{item.amount ? formatMoney(item.amount) : '-'}</td>
+                      <td className="py-2 px-3 text-right">{item.price ? formatVND(item.price) : '-'}</td>
+                      <td className="py-2 px-3 text-right font-medium">{item.amount ? formatVND(item.amount) : '-'}</td>
                       <td className="py-2 px-3 text-center">
                         {!item.product_id ? (
                           <span className="text-gray-400 text-xs">—</span>
@@ -382,19 +396,19 @@ export default function EditOrderPage() {
               <tfoot>
                 <tr className="border-t">
                   <td colSpan={3} className="py-2 px-3 text-right text-gray-600">Tiền hàng:</td>
-                  <td className="py-2 px-3 text-right font-medium">{formatMoney(totalAmount)}</td>
+                  <td className="py-2 px-3 text-right font-medium">{formatVND(totalAmount)}</td>
                   <td colSpan={2}></td>
                 </tr>
                 {totalDeposit > 0 && (
                   <tr>
                     <td colSpan={3} className="py-1 px-3 text-right text-gray-600">Phí vỏ/két:</td>
-                    <td className="py-1 px-3 text-right font-medium">{formatMoney(totalDeposit)}</td>
+                    <td className="py-1 px-3 text-right font-medium">{formatVND(totalDeposit)}</td>
                     <td colSpan={2}></td>
                   </tr>
                 )}
                 <tr className="border-t-2 font-bold">
                   <td colSpan={3} className="py-3 px-3 text-right">Tổng cộng:</td>
-                  <td className="py-3 px-3 text-right text-lg text-amber-700">{formatMoney(grandTotal)}</td>
+                  <td className="py-3 px-3 text-right text-lg text-brand-600">{formatVND(grandTotal)}</td>
                   <td colSpan={2}></td>
                 </tr>
               </tfoot>
@@ -452,14 +466,14 @@ export default function EditOrderPage() {
                     {creditExceeded ? (
                       <div className="text-sm text-yellow-700 mt-1">
                         <p>
-                          Tiền hàng <strong>{formatMoney(totalAmount)}</strong> vượt hạn mức khả dụng <strong>{formatMoney(creditInfo.available_limit)}</strong>
-                          {' '}(vượt {formatMoney(totalAmount - creditInfo.available_limit)})
+                          Tiền hàng <strong>{formatVND(totalAmount)}</strong> vượt hạn mức khả dụng <strong>{formatVND(creditInfo.available_limit)}</strong>
+                          {' '}(vượt {formatVND(totalAmount - creditInfo.available_limit)})
                         </p>
                         <p className="mt-1">→ Đơn sẽ chuyển về trạng thái <strong className="text-orange-700">"Chờ duyệt"</strong> — cần quản lý/kế toán phê duyệt.</p>
                       </div>
                     ) : (
                       <p className="text-sm text-green-600 mt-1">
-                        Tiền hàng {formatMoney(totalAmount)} trong hạn mức khả dụng {formatMoney(creditInfo.available_limit)} → Đơn sẽ <strong>"Đã xác nhận"</strong> ✓
+                        Tiền hàng {formatVND(totalAmount)} trong hạn mức khả dụng {formatVND(creditInfo.available_limit)} → Đơn sẽ <strong>"Đã xác nhận"</strong> ✓
                       </p>
                     )}
                   </div>
@@ -489,7 +503,7 @@ export default function EditOrderPage() {
 
         <div className="flex gap-3 items-center">
           <button type="submit" disabled={submitting || items.length === 0 || hasAtpIssue}
-            className="px-6 py-2.5 bg-amber-600 text-white rounded-lg hover:bg-amber-700 transition disabled:opacity-50 disabled:cursor-not-allowed">
+            className="px-6 py-2.5 bg-brand-500 text-white rounded-lg hover:bg-brand-600 transition disabled:opacity-50 disabled:cursor-not-allowed">
             {submitting ? 'Đang lưu...' : hasAtpIssue ? '🚫 Không đủ tồn kho' : '💾 Lưu thay đổi'}
           </button>
           <button type="button" onClick={() => router.back()} className="px-6 py-2.5 bg-gray-200 text-gray-700 rounded-lg hover:bg-gray-300 transition">Hủy</button>

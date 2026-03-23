@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"bhl-oms/internal/domain"
+	"bhl-oms/pkg/logger"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
@@ -13,11 +14,12 @@ import (
 )
 
 type Repository struct {
-	db *pgxpool.Pool
+	db  *pgxpool.Pool
+	log logger.Logger
 }
 
-func NewRepository(db *pgxpool.Pool) *Repository {
-	return &Repository{db: db}
+func NewRepository(db *pgxpool.Pool, log logger.Logger) *Repository {
+	return &Repository{db: db, log: log}
 }
 
 // ===== SHIPMENTS =====
@@ -84,6 +86,27 @@ func (r *Repository) ListPendingShipments(ctx context.Context, warehouseID uuid.
 func (r *Repository) ToggleUrgent(ctx context.Context, shipmentID uuid.UUID, isUrgent bool) error {
 	_, err := r.db.Exec(ctx, `UPDATE shipments SET is_urgent = $1, updated_at = now() WHERE id = $2`, isUrgent, shipmentID)
 	return err
+}
+
+// GetShipmentCustomerMap returns a map of shipment_id -> customer_id for the given IDs
+func (r *Repository) GetShipmentCustomerMap(ctx context.Context, shipmentIDs []uuid.UUID) (map[uuid.UUID]uuid.UUID, error) {
+	result := make(map[uuid.UUID]uuid.UUID)
+	if len(shipmentIDs) == 0 {
+		return result, nil
+	}
+	rows, err := r.db.Query(ctx, `SELECT id, customer_id FROM shipments WHERE id = ANY($1)`, shipmentIDs)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var sid, cid uuid.UUID
+		if err := rows.Scan(&sid, &cid); err != nil {
+			return nil, err
+		}
+		result[sid] = cid
+	}
+	return result, nil
 }
 
 // ===== VEHICLES =====
@@ -203,6 +226,13 @@ func (r *Repository) GetDriver(ctx context.Context, id uuid.UUID) (*domain.Drive
 		return nil, err
 	}
 	return &d, nil
+}
+
+// GetDriverUserID returns the user_id for a given driver ID.
+func (r *Repository) GetDriverUserID(ctx context.Context, driverID uuid.UUID) (uuid.UUID, error) {
+	var userID uuid.UUID
+	err := r.db.QueryRow(ctx, `SELECT user_id FROM drivers WHERE id = $1`, driverID).Scan(&userID)
+	return userID, err
 }
 
 func (r *Repository) CreateDriver(ctx context.Context, d *domain.Driver) error {
@@ -703,12 +733,14 @@ func (r *Repository) CreateEPOD(ctx context.Context, epod *domain.EPOD) error {
 	return r.db.QueryRow(ctx, `
 		INSERT INTO epod (trip_stop_id, driver_id, customer_id, delivered_items,
 			receiver_name, receiver_phone, signature_url, photo_urls,
-			total_amount, deposit_amount, delivery_status, notes)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+			total_amount, deposit_amount, delivery_status, notes,
+			reject_reason, reject_detail, reject_photos)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
 		RETURNING id, created_at, updated_at
 	`, epod.TripStopID, epod.DriverID, epod.CustomerID, epod.DeliveredItems,
 		epod.ReceiverName, epod.ReceiverPhone, epod.SignatureURL, epod.PhotoURLs,
 		epod.TotalAmount, epod.DepositAmount, epod.DeliveryStatus, epod.Notes,
+		epod.RejectReason, epod.RejectDetail, epod.RejectPhotos,
 	).Scan(&epod.ID, &epod.CreatedAt, &epod.UpdatedAt)
 }
 
@@ -718,11 +750,13 @@ func (r *Repository) GetEPODByStopID(ctx context.Context, stopID uuid.UUID) (*do
 		SELECT id, trip_stop_id, driver_id, customer_id, delivered_items,
 		       receiver_name, receiver_phone, signature_url, photo_urls,
 		       total_amount, deposit_amount, delivery_status, notes,
+		       reject_reason, reject_detail, reject_photos,
 		       created_at, updated_at
 		FROM epod WHERE trip_stop_id = $1
 	`, stopID).Scan(&e.ID, &e.TripStopID, &e.DriverID, &e.CustomerID, &e.DeliveredItems,
 		&e.ReceiverName, &e.ReceiverPhone, &e.SignatureURL, &e.PhotoURLs,
 		&e.TotalAmount, &e.DepositAmount, &e.DeliveryStatus, &e.Notes,
+		&e.RejectReason, &e.RejectDetail, &e.RejectPhotos,
 		&e.CreatedAt, &e.UpdatedAt)
 	if err != nil {
 		return nil, err
@@ -757,6 +791,32 @@ func (r *Repository) CreatePayment(ctx context.Context, p *domain.Payment) error
 	`, p.TripStopID, p.EPODID, p.CustomerID, p.DriverID, p.OrderID,
 		p.PaymentMethod, p.Amount, p.Status, p.ReferenceNumber, p.Notes,
 	).Scan(&p.ID, &p.CollectedAt, &p.CreatedAt, &p.UpdatedAt)
+}
+
+func (r *Repository) GetPaymentsByStopID(ctx context.Context, stopID uuid.UUID) ([]domain.Payment, error) {
+	rows, err := r.db.Query(ctx, `
+		SELECT id, trip_stop_id, epod_id, customer_id, driver_id, order_id,
+		       payment_method::text, amount, status::text, reference_number, notes,
+		       collected_at, confirmed_at, confirmed_by, created_at, updated_at
+		FROM payments WHERE trip_stop_id = $1
+		ORDER BY created_at
+	`, stopID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var results []domain.Payment
+	for rows.Next() {
+		var p domain.Payment
+		if err := rows.Scan(&p.ID, &p.TripStopID, &p.EPODID, &p.CustomerID, &p.DriverID, &p.OrderID,
+			&p.PaymentMethod, &p.Amount, &p.Status, &p.ReferenceNumber, &p.Notes,
+			&p.CollectedAt, &p.ConfirmedAt, &p.ConfirmedBy, &p.CreatedAt, &p.UpdatedAt); err != nil {
+			return nil, err
+		}
+		results = append(results, p)
+	}
+	return results, nil
 }
 
 func (r *Repository) CreateCreditLedgerEntry(ctx context.Context, customerID, orderID uuid.UUID, amount float64, createdBy uuid.UUID) error {
@@ -810,5 +870,351 @@ func (r *Repository) CreateAssetLedgerEntry(ctx context.Context, customerID uuid
 			reference_type, reference_id, created_by)
 		VALUES ($1, $2::asset_type, $3::asset_direction, $4, $5::asset_condition, $6, $7, $8)
 	`, customerID, assetType, direction, quantity, condition, refType, refID, createdBy)
+	return err
+}
+
+// ===== VEHICLE DOCUMENTS =====
+
+func (r *Repository) ListVehicleDocuments(ctx context.Context, vehicleID uuid.UUID) ([]domain.VehicleDocument, error) {
+	rows, err := r.db.Query(ctx, `
+		SELECT vd.id, vd.vehicle_id, vd.doc_type, COALESCE(vd.doc_number,''), 
+		       vd.issued_date::text, vd.expiry_date::text, vd.notes, vd.created_by,
+		       vd.created_at, vd.updated_at,
+		       v.plate_number, (vd.expiry_date - CURRENT_DATE) as days_to_expiry
+		FROM vehicle_documents vd
+		JOIN vehicles v ON v.id = vd.vehicle_id
+		WHERE vd.vehicle_id = $1
+		ORDER BY vd.expiry_date ASC
+	`, vehicleID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var docs []domain.VehicleDocument
+	for rows.Next() {
+		var d domain.VehicleDocument
+		if err := rows.Scan(&d.ID, &d.VehicleID, &d.DocType, &d.DocNumber,
+			&d.IssuedDate, &d.ExpiryDate, &d.Notes, &d.CreatedBy,
+			&d.CreatedAt, &d.UpdatedAt, &d.PlateNumber, &d.DaysToExpiry); err != nil {
+			return nil, err
+		}
+		docs = append(docs, d)
+	}
+	return docs, nil
+}
+
+func (r *Repository) CreateVehicleDocument(ctx context.Context, doc *domain.VehicleDocument) error {
+	return r.db.QueryRow(ctx, `
+		INSERT INTO vehicle_documents (vehicle_id, doc_type, doc_number, issued_date, expiry_date, notes, created_by)
+		VALUES ($1, $2, $3, $4, $5, $6, $7)
+		RETURNING id, created_at, updated_at
+	`, doc.VehicleID, doc.DocType, doc.DocNumber, doc.IssuedDate, doc.ExpiryDate, doc.Notes, doc.CreatedBy).Scan(&doc.ID, &doc.CreatedAt, &doc.UpdatedAt)
+}
+
+func (r *Repository) UpdateVehicleDocument(ctx context.Context, doc *domain.VehicleDocument) error {
+	_, err := r.db.Exec(ctx, `
+		UPDATE vehicle_documents SET doc_type=$1, doc_number=$2, issued_date=$3, expiry_date=$4, notes=$5, updated_at=NOW()
+		WHERE id = $6
+	`, doc.DocType, doc.DocNumber, doc.IssuedDate, doc.ExpiryDate, doc.Notes, doc.ID)
+	return err
+}
+
+func (r *Repository) DeleteVehicleDocument(ctx context.Context, id uuid.UUID) error {
+	_, err := r.db.Exec(ctx, `DELETE FROM vehicle_documents WHERE id = $1`, id)
+	return err
+}
+
+func (r *Repository) ListExpiringVehicleDocs(ctx context.Context, days int) ([]domain.VehicleDocument, error) {
+	rows, err := r.db.Query(ctx, `
+		SELECT vd.id, vd.vehicle_id, vd.doc_type, COALESCE(vd.doc_number,''),
+		       vd.issued_date::text, vd.expiry_date::text, vd.notes, vd.created_by,
+		       vd.created_at, vd.updated_at,
+		       v.plate_number, (vd.expiry_date - CURRENT_DATE) as days_to_expiry
+		FROM vehicle_documents vd
+		JOIN vehicles v ON v.id = vd.vehicle_id
+		WHERE vd.expiry_date <= CURRENT_DATE + $1
+		ORDER BY vd.expiry_date ASC
+	`, days)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var docs []domain.VehicleDocument
+	for rows.Next() {
+		var d domain.VehicleDocument
+		if err := rows.Scan(&d.ID, &d.VehicleID, &d.DocType, &d.DocNumber,
+			&d.IssuedDate, &d.ExpiryDate, &d.Notes, &d.CreatedBy,
+			&d.CreatedAt, &d.UpdatedAt, &d.PlateNumber, &d.DaysToExpiry); err != nil {
+			return nil, err
+		}
+		docs = append(docs, d)
+	}
+	return docs, nil
+}
+
+// ===== DRIVER DOCUMENTS =====
+
+func (r *Repository) ListDriverDocuments(ctx context.Context, driverID uuid.UUID) ([]domain.DriverDocument, error) {
+	rows, err := r.db.Query(ctx, `
+		SELECT dd.id, dd.driver_id, dd.doc_type, COALESCE(dd.doc_number,''),
+		       dd.issued_date::text, dd.expiry_date::text, dd.license_class, dd.notes, dd.created_by,
+		       dd.created_at, dd.updated_at,
+		       d.name, (dd.expiry_date - CURRENT_DATE) as days_to_expiry
+		FROM driver_documents dd
+		JOIN drivers d ON d.id = dd.driver_id
+		WHERE dd.driver_id = $1
+		ORDER BY dd.expiry_date ASC
+	`, driverID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var docs []domain.DriverDocument
+	for rows.Next() {
+		var d domain.DriverDocument
+		if err := rows.Scan(&d.ID, &d.DriverID, &d.DocType, &d.DocNumber,
+			&d.IssuedDate, &d.ExpiryDate, &d.LicenseClass, &d.Notes, &d.CreatedBy,
+			&d.CreatedAt, &d.UpdatedAt, &d.DriverName, &d.DaysToExpiry); err != nil {
+			return nil, err
+		}
+		docs = append(docs, d)
+	}
+	return docs, nil
+}
+
+func (r *Repository) CreateDriverDocument(ctx context.Context, doc *domain.DriverDocument) error {
+	return r.db.QueryRow(ctx, `
+		INSERT INTO driver_documents (driver_id, doc_type, doc_number, issued_date, expiry_date, license_class, notes, created_by)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+		RETURNING id, created_at, updated_at
+	`, doc.DriverID, doc.DocType, doc.DocNumber, doc.IssuedDate, doc.ExpiryDate, doc.LicenseClass, doc.Notes, doc.CreatedBy).Scan(&doc.ID, &doc.CreatedAt, &doc.UpdatedAt)
+}
+
+func (r *Repository) UpdateDriverDocument(ctx context.Context, doc *domain.DriverDocument) error {
+	_, err := r.db.Exec(ctx, `
+		UPDATE driver_documents SET doc_type=$1, doc_number=$2, issued_date=$3, expiry_date=$4, license_class=$5, notes=$6, updated_at=NOW()
+		WHERE id = $7
+	`, doc.DocType, doc.DocNumber, doc.IssuedDate, doc.ExpiryDate, doc.LicenseClass, doc.Notes, doc.ID)
+	return err
+}
+
+func (r *Repository) DeleteDriverDocument(ctx context.Context, id uuid.UUID) error {
+	_, err := r.db.Exec(ctx, `DELETE FROM driver_documents WHERE id = $1`, id)
+	return err
+}
+
+func (r *Repository) ListExpiringDriverDocs(ctx context.Context, days int) ([]domain.DriverDocument, error) {
+	rows, err := r.db.Query(ctx, `
+		SELECT dd.id, dd.driver_id, dd.doc_type, COALESCE(dd.doc_number,''),
+		       dd.issued_date::text, dd.expiry_date::text, dd.license_class, dd.notes, dd.created_by,
+		       dd.created_at, dd.updated_at,
+		       d.name, (dd.expiry_date - CURRENT_DATE) as days_to_expiry
+		FROM driver_documents dd
+		JOIN drivers d ON d.id = dd.driver_id
+		WHERE dd.expiry_date <= CURRENT_DATE + $1
+		ORDER BY dd.expiry_date ASC
+	`, days)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var docs []domain.DriverDocument
+	for rows.Next() {
+		var d domain.DriverDocument
+		if err := rows.Scan(&d.ID, &d.DriverID, &d.DocType, &d.DocNumber,
+			&d.IssuedDate, &d.ExpiryDate, &d.LicenseClass, &d.Notes, &d.CreatedBy,
+			&d.CreatedAt, &d.UpdatedAt, &d.DriverName, &d.DaysToExpiry); err != nil {
+			return nil, err
+		}
+		docs = append(docs, d)
+	}
+	return docs, nil
+}
+
+// ─── Dispatcher Control Tower ────────────────────────
+
+func (r *Repository) GetControlTowerStats(ctx context.Context) (*domain.ControlTowerStats, error) {
+	var s domain.ControlTowerStats
+	err := r.db.QueryRow(ctx, `
+		SELECT
+			COUNT(*) FILTER (WHERE 1=1),
+			COUNT(*) FILTER (WHERE t.status = 'in_transit'),
+			COUNT(*) FILTER (WHERE t.status = 'completed'),
+			COUNT(*) FILTER (WHERE t.status IN ('planned','assigned','ready')),
+			COALESCE(SUM(t.total_stops), 0),
+			COALESCE(SUM(t.total_weight_kg), 0),
+			COALESCE(SUM(t.total_distance_km), 0)
+		FROM trips t
+		WHERE t.planned_date = CURRENT_DATE
+	`).Scan(&s.TotalTripsToday, &s.InTransit, &s.Completed, &s.Planned,
+		&s.TotalStopsToday, &s.TotalWeightKg, &s.TotalDistanceKm)
+	if err != nil {
+		return nil, fmt.Errorf("control_tower_stats: %w", err)
+	}
+
+	// Stop-level stats for today's trips
+	r.db.QueryRow(ctx, `
+		SELECT
+			COUNT(*) FILTER (WHERE ts.status = 'delivered'),
+			COUNT(*) FILTER (WHERE ts.status IN ('failed','skipped')),
+			COUNT(*) FILTER (WHERE ts.status = 'pending')
+		FROM trip_stops ts
+		JOIN trips t ON t.id = ts.trip_id
+		WHERE t.planned_date = CURRENT_DATE
+	`).Scan(&s.StopsDelivered, &s.StopsFailed, &s.StopsPending)
+
+	// Vehicle activity
+	r.db.QueryRow(ctx, `
+		SELECT
+			COUNT(DISTINCT t.vehicle_id) FILTER (WHERE t.status = 'in_transit'),
+			COUNT(DISTINCT t.vehicle_id) FILTER (WHERE t.status IN ('planned','assigned','ready'))
+		FROM trips t
+		WHERE t.planned_date = CURRENT_DATE AND t.vehicle_id IS NOT NULL
+	`).Scan(&s.ActiveVehicles, &s.IdleVehicles)
+
+	// On-time rate
+	total := s.StopsDelivered + s.StopsFailed
+	if total > 0 {
+		s.OnTimeRate = float64(s.StopsDelivered) / float64(total) * 100
+	}
+
+	return &s, nil
+}
+
+func (r *Repository) ListExceptions(ctx context.Context) ([]domain.TripException, error) {
+	rows, err := r.db.Query(ctx, `
+		SELECT t.id, t.trip_number, COALESCE(v.plate_number,''), COALESCE(d.full_name,''),
+		       ts.id, ts.status::text, COALESCE(ts.customer_name,''),
+		       ts.estimated_arrival, ts.actual_arrival,
+		       t.status::text AS trip_status, t.started_at
+		FROM trips t
+		LEFT JOIN vehicles v ON v.id = t.vehicle_id
+		LEFT JOIN drivers d ON d.id = t.driver_id
+		LEFT JOIN trip_stops ts ON ts.trip_id = t.id
+		WHERE t.planned_date = CURRENT_DATE
+		  AND (
+		    ts.status IN ('failed','skipped')
+		    OR (t.status = 'in_transit' AND ts.status = 'pending'
+		        AND ts.estimated_arrival IS NOT NULL AND ts.estimated_arrival < now())
+		    OR (t.status IN ('assigned','ready') AND ts.stop_order = 1
+		        AND ts.estimated_arrival IS NOT NULL
+		        AND ts.estimated_arrival < now() - interval '2 hours')
+		  )
+		ORDER BY
+		  CASE WHEN ts.status IN ('failed','skipped') THEN 0
+		       WHEN t.status IN ('assigned','ready') THEN 1
+		       ELSE 2 END,
+		  ts.estimated_arrival ASC NULLS LAST
+	`)
+	if err != nil {
+		return nil, fmt.Errorf("list_exceptions: %w", err)
+	}
+	defer rows.Close()
+
+	var exceptions []domain.TripException
+	for rows.Next() {
+		var tripID uuid.UUID
+		var tripNumber, plate, driverName, stopStatus, customerName, tripStatus string
+		var stopID *uuid.UUID
+		var estimatedArrival, actualArrival, startedAt *time.Time
+
+		if err := rows.Scan(&tripID, &tripNumber, &plate, &driverName,
+			&stopID, &stopStatus, &customerName,
+			&estimatedArrival, &actualArrival, &tripStatus, &startedAt); err != nil {
+			return nil, fmt.Errorf("scan_exception: %w", err)
+		}
+
+		exc := domain.TripException{
+			TripID:       tripID,
+			TripNumber:   tripNumber,
+			VehiclePlate: plate,
+			DriverName:   driverName,
+			StopID:       stopID,
+			CustomerName: customerName,
+			CreatedAt:    time.Now().Format(time.RFC3339),
+		}
+		exc.ID = uuid.New()
+
+		switch {
+		case stopStatus == "failed" || stopStatus == "skipped":
+			exc.Type = "failed_stop"
+			exc.Priority = "P0"
+			exc.Title = "Giao thất bại: " + customerName
+			exc.Description = fmt.Sprintf("Chuyến %s — %s (%s) — điểm %s bị %s",
+				tripNumber, plate, driverName, customerName, stopStatus)
+		case tripStatus == "assigned" || tripStatus == "ready":
+			exc.Type = "idle_vehicle"
+			exc.Priority = "P1"
+			exc.Title = "Xe chưa xuất bến: " + plate
+			exc.Description = fmt.Sprintf("Chuyến %s — %s (%s) — chưa bắt đầu sau 2h",
+				tripNumber, plate, driverName)
+		default:
+			exc.Type = "late_eta"
+			exc.Priority = "P1"
+			exc.Title = "Trễ ETA: " + customerName
+			exc.Description = fmt.Sprintf("Chuyến %s — %s (%s) — điểm %s trễ ETA",
+				tripNumber, plate, driverName, customerName)
+		}
+
+		exceptions = append(exceptions, exc)
+	}
+	if exceptions == nil {
+		exceptions = []domain.TripException{}
+	}
+	return exceptions, nil
+}
+
+func (r *Repository) MoveStop(ctx context.Context, fromTripID, stopID, toTripID uuid.UUID) error {
+	// Verify stop belongs to source trip and is pending
+	var currentStatus string
+	err := r.db.QueryRow(ctx, `
+		SELECT status::text FROM trip_stops WHERE id = $1 AND trip_id = $2
+	`, stopID, fromTripID).Scan(&currentStatus)
+	if err != nil {
+		return fmt.Errorf("stop not found in source trip: %w", err)
+	}
+	if currentStatus != "pending" {
+		return fmt.Errorf("can only move pending stops (current: %s)", currentStatus)
+	}
+
+	// Get max stop_order in target trip
+	var maxOrder int
+	r.db.QueryRow(ctx, `SELECT COALESCE(MAX(stop_order), 0) FROM trip_stops WHERE trip_id = $1`, toTripID).Scan(&maxOrder)
+
+	// Move the stop
+	_, err = r.db.Exec(ctx, `
+		UPDATE trip_stops SET trip_id = $1, stop_order = $2 WHERE id = $3
+	`, toTripID, maxOrder+1, stopID)
+	if err != nil {
+		return fmt.Errorf("move stop: %w", err)
+	}
+
+	// Recalculate total_stops for both trips
+	r.db.Exec(ctx, `UPDATE trips SET total_stops = (SELECT COUNT(*) FROM trip_stops WHERE trip_id = trips.id) WHERE id IN ($1, $2)`, fromTripID, toTripID)
+	return nil
+}
+
+func (r *Repository) CancelTrip(ctx context.Context, tripID uuid.UUID, reason string) error {
+	// Only cancel planned/assigned/ready trips
+	var currentStatus string
+	err := r.db.QueryRow(ctx, `SELECT status::text FROM trips WHERE id = $1`, tripID).Scan(&currentStatus)
+	if err != nil {
+		return fmt.Errorf("trip not found: %w", err)
+	}
+	if currentStatus != "planned" && currentStatus != "assigned" && currentStatus != "ready" {
+		return fmt.Errorf("cannot cancel trip in status %s", currentStatus)
+	}
+
+	_, err = r.db.Exec(ctx, `UPDATE trips SET status = 'cancelled' WHERE id = $1`, tripID)
+	if err != nil {
+		return fmt.Errorf("cancel trip: %w", err)
+	}
+
+	// Cancel all pending stops
+	_, err = r.db.Exec(ctx, `UPDATE trip_stops SET status = 'skipped' WHERE trip_id = $1 AND status = 'pending'`, tripID)
 	return err
 }

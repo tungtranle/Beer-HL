@@ -5,30 +5,32 @@ import (
 	"fmt"
 
 	"bhl-oms/internal/domain"
+	"bhl-oms/pkg/logger"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 type Repository struct {
-	db *pgxpool.Pool
+	db  *pgxpool.Pool
+	log logger.Logger
 }
 
-func NewRepository(db *pgxpool.Pool) *Repository {
-	return &Repository{db: db}
+func NewRepository(db *pgxpool.Pool, log logger.Logger) *Repository {
+	return &Repository{db: db, log: log}
 }
 
 func (r *Repository) Create(ctx context.Context, n *domain.Notification) error {
 	return r.db.QueryRow(ctx, `
-		INSERT INTO notifications (user_id, title, body, category, link)
-		VALUES ($1, $2, $3, $4, $5)
+		INSERT INTO notifications (user_id, title, body, category, link, priority, entity_type, entity_id)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
 		RETURNING id, created_at
-	`, n.UserID, n.Title, n.Body, n.Category, n.Link,
+	`, n.UserID, n.Title, n.Body, n.Category, n.Link, n.Priority, n.EntityType, n.EntityID,
 	).Scan(&n.ID, &n.CreatedAt)
 }
 
 func (r *Repository) GetByUser(ctx context.Context, userID uuid.UUID, unreadOnly bool, limit int) ([]domain.Notification, error) {
-	query := `SELECT id, user_id, title, body, category, link, is_read, created_at
+	query := `SELECT id, user_id, title, body, category, COALESCE(priority,'normal'), link, entity_type, entity_id, is_read, created_at
 		FROM notifications WHERE user_id = $1`
 	args := []interface{}{userID}
 	argIdx := 2
@@ -49,7 +51,7 @@ func (r *Repository) GetByUser(ctx context.Context, userID uuid.UUID, unreadOnly
 	var results []domain.Notification
 	for rows.Next() {
 		var n domain.Notification
-		if err := rows.Scan(&n.ID, &n.UserID, &n.Title, &n.Body, &n.Category, &n.Link, &n.IsRead, &n.CreatedAt); err != nil {
+		if err := rows.Scan(&n.ID, &n.UserID, &n.Title, &n.Body, &n.Category, &n.Priority, &n.Link, &n.EntityType, &n.EntityID, &n.IsRead, &n.CreatedAt); err != nil {
 			return nil, err
 		}
 		results = append(results, n)

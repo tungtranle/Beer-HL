@@ -4,6 +4,7 @@ import (
 	"net/http"
 	"strconv"
 
+	"bhl-oms/pkg/logger"
 	"bhl-oms/pkg/response"
 
 	"github.com/gin-gonic/gin"
@@ -12,10 +13,11 @@ import (
 
 type Handler struct {
 	svc *Service
+	log logger.Logger
 }
 
-func NewHandler(svc *Service) *Handler {
-	return &Handler{svc: svc}
+func NewHandler(svc *Service, log logger.Logger) *Handler {
+	return &Handler{svc: svc, log: log}
 }
 
 func (h *Handler) RegisterRoutes(r *gin.RouterGroup) {
@@ -32,6 +34,7 @@ func (h *Handler) RegisterRoutes(r *gin.RouterGroup) {
 		// Discrepancies (Task 3.10)
 		rg.GET("/discrepancies", h.ListDiscrepancies)
 		rg.POST("/discrepancies/:id/resolve", h.ResolveDiscrepancy)
+		rg.GET("/discrepancies/:id/history", h.GetDiscrepancyHistory)
 
 		// Daily close (Task 3.11)
 		rg.POST("/daily-close", h.GenerateDailyClose)
@@ -150,6 +153,17 @@ func (h *Handler) ResolveDiscrepancy(c *gin.Context) {
 	userID, _ := c.Get("user_id")
 	uid, _ := userID.(uuid.UUID)
 
+	// Action-level RBAC: check is_chief_accountant or admin role (Task 6.16)
+	role, _ := c.Get("role")
+	userRole, _ := role.(string)
+	if userRole != "admin" {
+		isChief, checkErr := h.svc.IsChiefAccountant(c.Request.Context(), uid)
+		if checkErr != nil || !isChief {
+			response.Err(c, http.StatusForbidden, "FORBIDDEN", "Chỉ Kế toán trưởng hoặc Admin mới được xử lý sai lệch")
+			return
+		}
+	}
+
 	if err := h.svc.ResolveDiscrepancy(c.Request.Context(), id, uid, req.Resolution); err != nil {
 		response.InternalError(c)
 		return
@@ -216,4 +230,20 @@ func (h *Handler) GetDailyClose(c *gin.Context) {
 		return
 	}
 	response.OK(c, summary)
+}
+
+// GET /v1/reconciliation/discrepancies/:id/history (Task 6.3)
+func (h *Handler) GetDiscrepancyHistory(c *gin.Context) {
+	id, err := uuid.Parse(c.Param("id"))
+	if err != nil {
+		response.BadRequest(c, "Invalid discrepancy ID")
+		return
+	}
+
+	events, err := h.svc.GetDiscrepancyHistory(c.Request.Context(), id)
+	if err != nil {
+		response.InternalError(c)
+		return
+	}
+	response.OK(c, events)
 }

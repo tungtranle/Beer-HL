@@ -3,8 +3,9 @@ package integration
 import (
 	"context"
 	"fmt"
-	"log"
 	"time"
+
+	"bhl-oms/pkg/logger"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -20,16 +21,18 @@ type Hooks struct {
 	dlq        *DLQService
 	db         *pgxpool.Pool
 	baseURL    string
+	log        logger.Logger
 }
 
-func NewHooks(bravo *BravoAdapter, dms *DMSAdapter, confirmSvc *ConfirmService, db *pgxpool.Pool, baseURL string) *Hooks {
+func NewHooks(bravo *BravoAdapter, dms *DMSAdapter, confirmSvc *ConfirmService, db *pgxpool.Pool, baseURL string, log logger.Logger) *Hooks {
 	return &Hooks{
 		bravo:      bravo,
 		dms:        dms,
 		confirmSvc: confirmSvc,
-		dlq:        NewDLQService(db),
+		dlq:        NewDLQService(db, log),
 		db:         db,
 		baseURL:    baseURL,
+		log:        log,
 	}
 }
 
@@ -71,18 +74,27 @@ func (h *Hooks) OnDeliveryCompleted(ctx context.Context, evt DeliveryEvent) {
 		}
 		result, err := h.bravo.PushDeliveryDocument(context.Background(), doc)
 		if err != nil {
-			log.Printf("[Integration] Bravo push-document failed for %s: %v", evt.OrderNumber, err)
+			h.log.Error(context.Background(), "integration_call_failed", err,
+				logger.F("target", "bravo"), logger.F("op", "PushDeliveryDocument"),
+				logger.F("order_number", evt.OrderNumber),
+			)
 			refType := "order"
 			h.dlq.Record(context.Background(), "bravo", "push_document", doc, err.Error(), &refType, &evt.OrderID)
 		} else {
-			log.Printf("[Integration] Bravo push-document OK for %s → %s", evt.OrderNumber, result.DocumentID)
+			h.log.Info(context.Background(), "integration_call",
+				logger.F("target", "bravo"), logger.F("op", "PushDeliveryDocument"),
+				logger.F("order_number", evt.OrderNumber), logger.F("document_id", result.DocumentID),
+			)
 		}
 	}()
 
 	// Send Zalo confirmation (Tasks 3.5/3.6)
 	go func() {
 		if evt.CustomerPhone == "" {
-			log.Printf("[Integration] Zalo confirm skipped for %s — no customer phone", evt.OrderNumber)
+			h.log.Info(context.Background(), "integration_skip",
+				logger.F("target", "zalo"), logger.F("reason", "no_customer_phone"),
+				logger.F("order_number", evt.OrderNumber),
+			)
 			return
 		}
 		stopID := evt.StopID
@@ -93,11 +105,60 @@ func (h *Hooks) OnDeliveryCompleted(ctx context.Context, evt DeliveryEvent) {
 			evt.OrderNumber, evt.CustomerName, h.baseURL,
 		)
 		if err != nil {
-			log.Printf("[Integration] Zalo confirm send failed for %s: %v", evt.OrderNumber, err)
+			h.log.Error(context.Background(), "integration_call_failed", err,
+				logger.F("target", "zalo"), logger.F("op", "SendConfirmation"),
+				logger.F("order_number", evt.OrderNumber),
+			)
 			refType := "order"
 			h.dlq.Record(context.Background(), "zalo", "send_confirmation", evt, err.Error(), &refType, &evt.OrderID)
 		} else {
-			log.Printf("[Integration] Zalo confirm sent for %s → token=%s", evt.OrderNumber, confirm.Token)
+			h.log.Info(context.Background(), "integration_call",
+				logger.F("target", "zalo"), logger.F("op", "SendConfirmation"),
+				logger.F("order_number", evt.OrderNumber), logger.F("token", confirm.Token),
+			)
+		}
+	}()
+}
+
+// OrderCreatedEvent carries data for Zalo order confirmation after DVKH creates order.
+type OrderCreatedEvent struct {
+	OrderID       uuid.UUID
+	CustomerID    uuid.UUID
+	OrderNumber   string
+	CustomerName  string
+	CustomerPhone string
+	DeliveryDate  string
+	TotalAmount   float64
+}
+
+// OnOrderCreated sends Zalo order confirmation to customer (2h timeout).
+func (h *Hooks) OnOrderCreated(ctx context.Context, evt OrderCreatedEvent) {
+	go func() {
+		if evt.CustomerPhone == "" {
+			h.log.Info(context.Background(), "integration_skip",
+				logger.F("target", "zalo"), logger.F("reason", "no_customer_phone"),
+				logger.F("order_number", evt.OrderNumber),
+			)
+			return
+		}
+		confirm, err := h.confirmSvc.SendOrderConfirmation(
+			context.Background(),
+			evt.OrderID, evt.CustomerID,
+			evt.CustomerPhone, evt.TotalAmount,
+			evt.OrderNumber, evt.CustomerName, evt.DeliveryDate, h.baseURL,
+		)
+		if err != nil {
+			h.log.Error(context.Background(), "integration_call_failed", err,
+				logger.F("target", "zalo"), logger.F("op", "SendOrderConfirmation"),
+				logger.F("order_number", evt.OrderNumber),
+			)
+			refType := "order"
+			h.dlq.Record(context.Background(), "zalo", "send_order_confirmation", evt, err.Error(), &refType, &evt.OrderID)
+		} else {
+			h.log.Info(context.Background(), "integration_call",
+				logger.F("target", "zalo"), logger.F("op", "SendOrderConfirmation"),
+				logger.F("order_number", evt.OrderNumber), logger.F("token", confirm.Token),
+			)
 		}
 	}()
 }
@@ -127,11 +188,17 @@ func (h *Hooks) OnOrderStatusChanged(ctx context.Context, evt OrderStatusEvent) 
 		}
 		result, err := h.dms.PushOrderStatus(context.Background(), sync)
 		if err != nil {
-			log.Printf("[Integration] DMS sync failed for %s: %v", evt.OrderNumber, err)
+			h.log.Error(context.Background(), "integration_call_failed", err,
+				logger.F("target", "dms"), logger.F("op", "PushOrderStatus"),
+				logger.F("order_number", evt.OrderNumber),
+			)
 			refType := "order"
 			h.dlq.Record(context.Background(), "dms", "sync_order", sync, err.Error(), &refType, nil)
 		} else {
-			log.Printf("[Integration] DMS sync OK for %s → %s", evt.OrderNumber, result.DMSOrderID)
+			h.log.Info(context.Background(), "integration_call",
+				logger.F("target", "dms"), logger.F("op", "PushOrderStatus"),
+				logger.F("order_number", evt.OrderNumber), logger.F("dms_order_id", result.DMSOrderID),
+			)
 		}
 	}()
 }
@@ -187,7 +254,7 @@ func (h *Hooks) BuildDeliveryEvent(ctx context.Context, stopID, shipmentID uuid.
 // RunNightlyReconcileCron starts the Bravo credit reconciliation cron (Task 3.2).
 // Runs once daily at approximately midnight (checks every hour, executes at 0h).
 func (h *Hooks) RunNightlyReconcileCron(ctx context.Context) {
-	log.Println("[Bravo] Nightly reconcile cron started (every hour, executes at midnight)")
+	h.log.Info(ctx, "cron_started", logger.F("cron", "bravo_nightly_reconcile"))
 
 	ticker := make(chan struct{})
 	go func() {
@@ -207,7 +274,7 @@ func (h *Hooks) RunNightlyReconcileCron(ctx context.Context) {
 	for {
 		select {
 		case <-ctx.Done():
-			log.Println("[Bravo] Nightly reconcile cron stopped")
+			h.log.Info(ctx, "cron_stopped", logger.F("cron", "bravo_nightly_reconcile"))
 			return
 		case <-ticker:
 			h.runReconcileIfMidnight(ctx)
@@ -226,7 +293,7 @@ func (h *Hooks) runReconcileIfMidnight(ctx context.Context) {
 	// Fetch all active customer codes
 	rows, err := h.db.Query(ctx, `SELECT code FROM customers WHERE is_active = true`)
 	if err != nil {
-		log.Printf("[Bravo] reconcile: fetch customers failed: %v", err)
+		h.log.Error(ctx, "db_query_failed", err, logger.F("op", "reconcile_fetch_customers"))
 		return
 	}
 	defer rows.Close()
@@ -245,10 +312,13 @@ func (h *Hooks) runReconcileIfMidnight(ctx context.Context) {
 
 	discrepancies, err := h.bravo.NightlyReconcile(ctx, codes)
 	if err != nil {
-		log.Printf("[Bravo] Nightly reconcile error: %v", err)
+		h.log.Error(ctx, "integration_call_failed", err, logger.F("target", "bravo"), logger.F("op", "NightlyReconcile"))
 		return
 	}
-	log.Printf("[Bravo] Nightly reconcile completed: %d customers, %d discrepancies", len(codes), len(discrepancies))
+	h.log.Info(ctx, "integration_call",
+		logger.F("target", "bravo"), logger.F("op", "NightlyReconcile"),
+		logger.F("customers", len(codes)), logger.F("discrepancies", len(discrepancies)),
+	)
 }
 
 // --- time helpers ---

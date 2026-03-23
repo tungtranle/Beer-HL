@@ -1,11 +1,13 @@
 package tms
 
 import (
+	"fmt"
 	"net/http"
 	"strconv"
 
 	"bhl-oms/internal/domain"
 	"bhl-oms/internal/middleware"
+	"bhl-oms/pkg/logger"
 	"bhl-oms/pkg/response"
 
 	"github.com/gin-gonic/gin"
@@ -14,10 +16,11 @@ import (
 
 type Handler struct {
 	svc *Service
+	log logger.Logger
 }
 
-func NewHandler(svc *Service) *Handler {
-	return &Handler{svc: svc}
+func NewHandler(svc *Service, log logger.Logger) *Handler {
+	return &Handler{svc: svc, log: log}
 }
 
 func (h *Handler) RegisterRoutes(r *gin.RouterGroup) {
@@ -36,20 +39,30 @@ func (h *Handler) RegisterRoutes(r *gin.RouterGroup) {
 	vehicles := r.Group("/vehicles")
 	vehicles.GET("", h.ListAllVehicles)
 	vehicles.GET("/available", h.ListAvailableVehicles)
+	vehicles.GET("/expiring-documents", middleware.RequireRole("admin", "dispatcher"), h.ListExpiringVehicleDocs)
 	vehicles.GET("/:id", h.GetVehicle)
 	vehicles.POST("", middleware.RequireRole("admin", "dispatcher"), h.CreateVehicle)
 	vehicles.PUT("/:id", middleware.RequireRole("admin", "dispatcher"), h.UpdateVehicle)
 	vehicles.DELETE("/:id", middleware.RequireRole("admin"), h.DeleteVehicle)
+	vehicles.GET("/:id/documents", h.ListVehicleDocuments)
+	vehicles.POST("/:id/documents", middleware.RequireRole("admin", "dispatcher"), h.CreateVehicleDocument)
+	vehicles.PUT("/:id/documents/:docId", middleware.RequireRole("admin", "dispatcher"), h.UpdateVehicleDocument)
+	vehicles.DELETE("/:id/documents/:docId", middleware.RequireRole("admin"), h.DeleteVehicleDocument)
 
 	// Resources - Drivers
 	drivers := r.Group("/drivers")
 	drivers.GET("", h.ListAllDrivers)
 	drivers.GET("/available", h.ListAvailableDrivers)
 	drivers.GET("/checkins", h.ListDriverCheckins)
+	drivers.GET("/expiring-documents", middleware.RequireRole("admin", "dispatcher"), h.ListExpiringDriverDocs)
 	drivers.GET("/:id", h.GetDriver)
 	drivers.POST("", middleware.RequireRole("admin", "dispatcher"), h.CreateDriver)
 	drivers.PUT("/:id", middleware.RequireRole("admin", "dispatcher"), h.UpdateDriver)
 	drivers.DELETE("/:id", middleware.RequireRole("admin"), h.DeleteDriver)
+	drivers.GET("/:id/documents", h.ListDriverDocuments)
+	drivers.POST("/:id/documents", middleware.RequireRole("admin", "dispatcher"), h.CreateDriverDocument)
+	drivers.PUT("/:id/documents/:docId", middleware.RequireRole("admin", "dispatcher"), h.UpdateDriverDocument)
+	drivers.DELETE("/:id/documents/:docId", middleware.RequireRole("admin"), h.DeleteDriverDocument)
 
 	// Trips
 	trips := r.Group("/trips")
@@ -57,6 +70,10 @@ func (h *Handler) RegisterRoutes(r *gin.RouterGroup) {
 	trips.GET("/:id", h.GetTrip)
 	trips.PUT("/:id/status", middleware.RequireRole("admin", "dispatcher"), h.UpdateTripStatus)
 	trips.PUT("/:id/stops/:stopId/status", middleware.RequireRole("admin", "dispatcher"), h.UpdateStopStatusDispatcher)
+	trips.POST("/:id/stops/:stopId/move", middleware.RequireRole("admin", "dispatcher"), h.MoveStop)
+	trips.POST("/:id/cancel", middleware.RequireRole("admin", "dispatcher"), h.CancelTrip)
+	trips.GET("/exceptions", middleware.RequireRole("admin", "dispatcher"), h.ListExceptions)
+	trips.GET("/control-tower/stats", middleware.RequireRole("admin", "dispatcher", "management"), h.GetControlTowerStats)
 
 	// Driver endpoints
 	driver := r.Group("/driver")
@@ -76,6 +93,7 @@ func (h *Handler) RegisterRoutes(r *gin.RouterGroup) {
 
 	// Payment
 	driver.POST("/trips/:id/stops/:stopId/payment", h.RecordPayment)
+	driver.GET("/trips/:id/stops/:stopId/payments", h.GetPayments)
 
 	// Return collection
 	driver.POST("/trips/:id/stops/:stopId/returns", h.RecordReturns)
@@ -351,12 +369,22 @@ func (h *Handler) GetVRPResult(c *gin.Context) {
 func (h *Handler) ApprovePlan(c *gin.Context) {
 	var req ApprovePlanRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		response.BadRequest(c, "job_id là bắt buộc")
+		h.log.Error(c.Request.Context(), "approve_plan_bind_error", err)
+		response.BadRequest(c, fmt.Sprintf("Dữ liệu không hợp lệ: %v", err))
 		return
 	}
 
+	h.log.Info(c.Request.Context(), "approve_plan_request",
+		logger.F("job_id", req.JobID),
+		logger.F("warehouse_id", req.WarehouseID.String()),
+		logger.F("delivery_date", req.DeliveryDate),
+		logger.F("trips_count", len(req.Trips)),
+		logger.F("assignments_count", len(req.Assignments)),
+	)
+
 	trips, err := h.svc.ApprovePlan(c.Request.Context(), req)
 	if err != nil {
+		h.log.Error(c.Request.Context(), "approve_plan_service_error", err)
 		response.BadRequest(c, err.Error())
 		return
 	}
@@ -654,6 +682,21 @@ func (h *Handler) RecordPayment(c *gin.Context) {
 	response.Created(c, payment)
 }
 
+func (h *Handler) GetPayments(c *gin.Context) {
+	stopID, err := uuid.Parse(c.Param("stopId"))
+	if err != nil {
+		response.BadRequest(c, "Invalid stop ID")
+		return
+	}
+
+	payments, err := h.svc.GetPaymentsByStopID(c.Request.Context(), stopID)
+	if err != nil {
+		response.NotFound(c, "Chưa có thanh toán cho điểm giao này")
+		return
+	}
+	response.OK(c, payments)
+}
+
 // ===== RETURN COLLECTION HANDLERS =====
 
 func (h *Handler) RecordReturns(c *gin.Context) {
@@ -750,4 +793,265 @@ func (h *Handler) ListDriverCheckins(c *gin.Context) {
 		return
 	}
 	response.OK(c, checkins)
+}
+
+// ===== VEHICLE DOCUMENT HANDLERS =====
+
+func (h *Handler) ListVehicleDocuments(c *gin.Context) {
+	vehicleID, err := uuid.Parse(c.Param("id"))
+	if err != nil {
+		response.BadRequest(c, "Invalid vehicle ID")
+		return
+	}
+	docs, err := h.svc.ListVehicleDocuments(c.Request.Context(), vehicleID)
+	if err != nil {
+		response.InternalError(c)
+		return
+	}
+	if docs == nil {
+		docs = []domain.VehicleDocument{}
+	}
+	response.OK(c, docs)
+}
+
+func (h *Handler) CreateVehicleDocument(c *gin.Context) {
+	vehicleID, err := uuid.Parse(c.Param("id"))
+	if err != nil {
+		response.BadRequest(c, "Invalid vehicle ID")
+		return
+	}
+	var doc domain.VehicleDocument
+	if err := c.ShouldBindJSON(&doc); err != nil {
+		response.BadRequest(c, "Dữ liệu không hợp lệ")
+		return
+	}
+	doc.VehicleID = vehicleID
+	userID := middleware.GetUserID(c)
+	doc.CreatedBy = &userID
+
+	if err := h.svc.CreateVehicleDocument(c.Request.Context(), &doc); err != nil {
+		response.Err(c, http.StatusBadRequest, "CREATE_DOC_FAILED", err.Error())
+		return
+	}
+	response.Created(c, doc)
+}
+
+func (h *Handler) UpdateVehicleDocument(c *gin.Context) {
+	_, err := uuid.Parse(c.Param("id"))
+	if err != nil {
+		response.BadRequest(c, "Invalid vehicle ID")
+		return
+	}
+	docID, err := uuid.Parse(c.Param("docId"))
+	if err != nil {
+		response.BadRequest(c, "Invalid document ID")
+		return
+	}
+	var doc domain.VehicleDocument
+	if err := c.ShouldBindJSON(&doc); err != nil {
+		response.BadRequest(c, "Dữ liệu không hợp lệ")
+		return
+	}
+	doc.ID = docID
+	if err := h.svc.UpdateVehicleDocument(c.Request.Context(), &doc); err != nil {
+		response.Err(c, http.StatusBadRequest, "UPDATE_DOC_FAILED", err.Error())
+		return
+	}
+	response.OK(c, doc)
+}
+
+func (h *Handler) DeleteVehicleDocument(c *gin.Context) {
+	docID, err := uuid.Parse(c.Param("docId"))
+	if err != nil {
+		response.BadRequest(c, "Invalid document ID")
+		return
+	}
+	if err := h.svc.DeleteVehicleDocument(c.Request.Context(), docID); err != nil {
+		response.Err(c, http.StatusBadRequest, "DELETE_DOC_FAILED", err.Error())
+		return
+	}
+	response.OK(c, nil)
+}
+
+func (h *Handler) ListExpiringVehicleDocs(c *gin.Context) {
+	daysStr := c.DefaultQuery("days", "30")
+	days, err := strconv.Atoi(daysStr)
+	if err != nil || days < 0 {
+		days = 30
+	}
+	docs, err := h.svc.ListExpiringVehicleDocs(c.Request.Context(), days)
+	if err != nil {
+		response.InternalError(c)
+		return
+	}
+	if docs == nil {
+		docs = []domain.VehicleDocument{}
+	}
+	response.OK(c, docs)
+}
+
+// ===== DRIVER DOCUMENT HANDLERS =====
+
+func (h *Handler) ListDriverDocuments(c *gin.Context) {
+	driverID, err := uuid.Parse(c.Param("id"))
+	if err != nil {
+		response.BadRequest(c, "Invalid driver ID")
+		return
+	}
+	docs, err := h.svc.ListDriverDocuments(c.Request.Context(), driverID)
+	if err != nil {
+		response.InternalError(c)
+		return
+	}
+	if docs == nil {
+		docs = []domain.DriverDocument{}
+	}
+	response.OK(c, docs)
+}
+
+func (h *Handler) CreateDriverDocument(c *gin.Context) {
+	driverID, err := uuid.Parse(c.Param("id"))
+	if err != nil {
+		response.BadRequest(c, "Invalid driver ID")
+		return
+	}
+	var doc domain.DriverDocument
+	if err := c.ShouldBindJSON(&doc); err != nil {
+		response.BadRequest(c, "Dữ liệu không hợp lệ")
+		return
+	}
+	doc.DriverID = driverID
+	userID := middleware.GetUserID(c)
+	doc.CreatedBy = &userID
+
+	if err := h.svc.CreateDriverDocument(c.Request.Context(), &doc); err != nil {
+		response.Err(c, http.StatusBadRequest, "CREATE_DOC_FAILED", err.Error())
+		return
+	}
+	response.Created(c, doc)
+}
+
+func (h *Handler) UpdateDriverDocument(c *gin.Context) {
+	_, err := uuid.Parse(c.Param("id"))
+	if err != nil {
+		response.BadRequest(c, "Invalid driver ID")
+		return
+	}
+	docID, err := uuid.Parse(c.Param("docId"))
+	if err != nil {
+		response.BadRequest(c, "Invalid document ID")
+		return
+	}
+	var doc domain.DriverDocument
+	if err := c.ShouldBindJSON(&doc); err != nil {
+		response.BadRequest(c, "Dữ liệu không hợp lệ")
+		return
+	}
+	doc.ID = docID
+	if err := h.svc.UpdateDriverDocument(c.Request.Context(), &doc); err != nil {
+		response.Err(c, http.StatusBadRequest, "UPDATE_DOC_FAILED", err.Error())
+		return
+	}
+	response.OK(c, doc)
+}
+
+func (h *Handler) DeleteDriverDocument(c *gin.Context) {
+	docID, err := uuid.Parse(c.Param("docId"))
+	if err != nil {
+		response.BadRequest(c, "Invalid document ID")
+		return
+	}
+	if err := h.svc.DeleteDriverDocument(c.Request.Context(), docID); err != nil {
+		response.Err(c, http.StatusBadRequest, "DELETE_DOC_FAILED", err.Error())
+		return
+	}
+	response.OK(c, nil)
+}
+
+func (h *Handler) ListExpiringDriverDocs(c *gin.Context) {
+	daysStr := c.DefaultQuery("days", "30")
+	days, err := strconv.Atoi(daysStr)
+	if err != nil || days < 0 {
+		days = 30
+	}
+	docs, err := h.svc.ListExpiringDriverDocs(c.Request.Context(), days)
+	if err != nil {
+		response.InternalError(c)
+		return
+	}
+	if docs == nil {
+		docs = []domain.DriverDocument{}
+	}
+	response.OK(c, docs)
+}
+
+// ─── Dispatcher Control Tower ────────────────────────
+
+func (h *Handler) ListExceptions(c *gin.Context) {
+	exceptions, err := h.svc.ListExceptions(c.Request.Context())
+	if err != nil {
+		h.log.Error(c.Request.Context(), "list_exceptions_failed", err)
+		response.InternalError(c)
+		return
+	}
+	response.OK(c, exceptions)
+}
+
+func (h *Handler) GetControlTowerStats(c *gin.Context) {
+	stats, err := h.svc.GetControlTowerStats(c.Request.Context())
+	if err != nil {
+		h.log.Error(c.Request.Context(), "control_tower_stats_failed", err)
+		response.InternalError(c)
+		return
+	}
+	response.OK(c, stats)
+}
+
+func (h *Handler) MoveStop(c *gin.Context) {
+	tripID, err := uuid.Parse(c.Param("id"))
+	if err != nil {
+		response.BadRequest(c, "invalid trip id")
+		return
+	}
+	stopID, err := uuid.Parse(c.Param("stopId"))
+	if err != nil {
+		response.BadRequest(c, "invalid stop id")
+		return
+	}
+	var body struct {
+		TargetTripID string `json:"target_trip_id" binding:"required"`
+	}
+	if err := c.ShouldBindJSON(&body); err != nil {
+		response.BadRequest(c, err.Error())
+		return
+	}
+	targetID, err := uuid.Parse(body.TargetTripID)
+	if err != nil {
+		response.BadRequest(c, "invalid target_trip_id")
+		return
+	}
+	if err := h.svc.MoveStop(c.Request.Context(), tripID, stopID, targetID); err != nil {
+		h.log.Error(c.Request.Context(), "move_stop_failed", err)
+		response.InternalError(c)
+		return
+	}
+	response.OK(c, gin.H{"message": "stop moved"})
+}
+
+func (h *Handler) CancelTrip(c *gin.Context) {
+	tripID, err := uuid.Parse(c.Param("id"))
+	if err != nil {
+		response.BadRequest(c, "invalid trip id")
+		return
+	}
+	var body struct {
+		Reason string `json:"reason"`
+	}
+	c.ShouldBindJSON(&body)
+	if err := h.svc.CancelTrip(c.Request.Context(), tripID, body.Reason); err != nil {
+		h.log.Error(c.Request.Context(), "cancel_trip_failed", err)
+		response.InternalError(c)
+		return
+	}
+	response.OK(c, gin.H{"message": "trip cancelled"})
 }

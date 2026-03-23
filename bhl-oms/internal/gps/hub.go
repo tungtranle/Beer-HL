@@ -3,12 +3,12 @@ package gps
 import (
 	"context"
 	"encoding/json"
-	"log"
 	"net/http"
 	"sync"
 	"time"
 
 	"bhl-oms/internal/auth"
+	"bhl-oms/pkg/logger"
 
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
@@ -54,6 +54,7 @@ type GPSUpdate struct {
 type Hub struct {
 	rdb     *redis.Client
 	authSvc *auth.Service
+	log     logger.Logger
 
 	// Connected dispatcher WebSocket clients
 	mu      sync.RWMutex
@@ -76,10 +77,11 @@ var upgrader = websocket.Upgrader{
 }
 
 // NewHub creates a GPS hub with Redis pub/sub.
-func NewHub(rdb *redis.Client, authSvc *auth.Service) *Hub {
+func NewHub(rdb *redis.Client, authSvc *auth.Service, log logger.Logger) *Hub {
 	return &Hub{
 		rdb:     rdb,
 		authSvc: authSvc,
+		log:     log,
 		clients: make(map[*wsClient]bool),
 	}
 }
@@ -179,7 +181,7 @@ func (h *Hub) HandleWebSocket(c *gin.Context) {
 
 	conn, err := upgrader.Upgrade(c.Writer, c.Request, nil)
 	if err != nil {
-		log.Printf("WebSocket upgrade failed: %v", err)
+		h.log.Error(c.Request.Context(), "websocket_upgrade_failed", err)
 		return
 	}
 
@@ -200,7 +202,7 @@ func (h *Hub) addClient(c *wsClient) {
 	h.mu.Lock()
 	h.clients[c] = true
 	h.mu.Unlock()
-	log.Printf("GPS WS: client connected (user=%s, role=%s, total=%d)", c.userID, c.role, len(h.clients))
+	h.log.Info(context.Background(), "websocket_client_connected", logger.F("user_id", c.userID.String()), logger.F("role", c.role), logger.F("total_clients", len(h.clients)))
 }
 
 func (h *Hub) removeClient(c *wsClient) {

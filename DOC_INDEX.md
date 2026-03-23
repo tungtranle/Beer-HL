@@ -11,10 +11,10 @@
 
 | # | Tài liệu | File | Trạng thái | Mục đích |
 |---|----------|------|-----------|----------|
-| 1 | **BRD** — Business Requirements Document | `BRD_BHL_OMS_TMS_WMS.md` | ✅ v2.0 Final | Yêu cầu nghiệp vụ, user stories, acceptance criteria |
+| 1 | **BRD** — Business Requirements Document | `BRD_BHL_OMS_TMS_WMS.md` | ✅ v3.0 | Yêu cầu nghiệp vụ, user stories, acceptance criteria |
 | 2 | **SAD** — System Architecture Document | `SAD_BHL_OMS_TMS_WMS.md` | ✅ v2.1 | Kiến trúc, tech stack, ADR, component design |
-| 3 | **DBS** — Database Schema Design | `DBS_BHL_OMS_TMS_WMS.md` | ✅ v1.0 | DDL chi tiết, indexes, partitioning, migration |
-| 4 | **API** — API Contract Specification | `API_BHL_OMS_TMS_WMS.md` | ✅ v1.0 | REST endpoints, request/response, error codes |
+| 3 | **DBS** — Database Schema Design | `DBS_BHL_OMS_TMS_WMS.md` | ✅ v1.1 | DDL chi tiết, indexes, partitioning, migration |
+| 4 | **API** — API Contract Specification | `API_BHL_OMS_TMS_WMS.md` | ✅ v1.2 | REST endpoints, request/response, error codes |
 | 5 | **PEP** — Project Execution Plan | `PEP_BHL_OMS_TMS_WMS.md` | ✅ v1.0 | Phase breakdown, task checklist, milestones, progress tracking |
 | 6 | **TST** — Test Strategy & Plan | `TST_BHL_OMS_TMS_WMS.md` | ✅ v1.0 | Unit/integration/E2E/load test, UAT checklist |
 | 7 | **INT** — Integration Specification | `INT_BHL_OMS_TMS_WMS.md` | ✅ v1.0 | Bravo/DMS/Zalo chi tiết: payload, error handling, sequence |
@@ -32,6 +32,7 @@
 | 14 | **DECISIONS** — Quyết định kỹ thuật | `DECISIONS.md` | WHY code viết theo cách này, không phải cách khác |
 | 15 | **KNOWN_ISSUES** — Bugs & workarounds | `KNOWN_ISSUES.md` | AI check trước khi code để tránh lặp lỗi |
 | 16 | **TECH_DEBT** — Nợ kỹ thuật | `TECH_DEBT.md` | Hoạt động nhưng chưa chuẩn — AI KHÔNG tự sửa |
+| 16B | **ROADMAP** — Ecosystem & Phase Plan | `ROADMAP.md` | 20 Ecosystem components, phase plan, chi phí ước tính |
 
 ### Specs chi tiết (docs/specs/)
 

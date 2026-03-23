@@ -4,20 +4,28 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"log"
 	"time"
 
 	"bhl-oms/internal/domain"
+	"bhl-oms/pkg/logger"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 type Service struct {
 	repo *Repository
+	log  logger.Logger
+	db   *pgxpool.Pool
 }
 
-func NewService(repo *Repository) *Service {
-	return &Service{repo: repo}
+func NewService(repo *Repository, log logger.Logger) *Service {
+	return &Service{repo: repo, log: log}
+}
+
+// SetDB injects the database pool (for discrepancy history queries).
+func (s *Service) SetDB(db *pgxpool.Pool) {
+	s.db = db
 }
 
 // ── Auto Reconcile Trip (Task 3.9) ─────────────────
@@ -142,7 +150,7 @@ func (s *Service) AutoReconcileTrip(ctx context.Context, tripID uuid.UUID) ([]do
 				Deadline:      &deadline,
 			}
 			if err := s.repo.CreateDiscrepancy(ctx, &disc); err != nil {
-				log.Printf("[Reconciliation] Failed to create discrepancy for trip %s type %s: %v", tripID, rec.ReconType, err)
+				s.log.Error(ctx, "create_discrepancy_failed", err, logger.F("trip_id", tripID.String()), logger.F("type", rec.ReconType))
 			}
 		}
 	}
@@ -182,8 +190,35 @@ func (s *Service) ListDiscrepancies(ctx context.Context, tripID *uuid.UUID, stat
 	return s.repo.ListDiscrepancies(ctx, tripID, status, page, limit)
 }
 
+// IsChiefAccountant checks if a user has is_chief_accountant flag (Task 6.16)
+func (s *Service) IsChiefAccountant(ctx context.Context, userID uuid.UUID) (bool, error) {
+	if s.db == nil {
+		return true, nil // fallback: allow if DB not set
+	}
+	var isChief bool
+	err := s.db.QueryRow(ctx,
+		`SELECT COALESCE(is_chief_accountant, false) FROM users WHERE id = $1`, userID,
+	).Scan(&isChief)
+	if err != nil {
+		return false, err
+	}
+	return isChief, nil
+}
+
 func (s *Service) ResolveDiscrepancy(ctx context.Context, id, userID uuid.UUID, resolution string) error {
-	return s.repo.ResolveDiscrepancy(ctx, id, userID, resolution)
+	err := s.repo.ResolveDiscrepancy(ctx, id, userID, resolution)
+	if err != nil {
+		return err
+	}
+	// Record event for action history (Task 6.3)
+	if s.db != nil {
+		detail, _ := json.Marshal(map[string]string{"resolution": resolution})
+		s.db.Exec(ctx, `
+			INSERT INTO entity_events (entity_type, entity_id, event_type, actor_type, actor_id, title, detail)
+			VALUES ('discrepancy', $1, 'resolved', 'user', $2, 'Đã xử lý sai lệch', $3)
+		`, id, userID, detail)
+	}
+	return nil
 }
 
 // ── Daily Close Summary (Task 3.11) ─────────────────
@@ -199,7 +234,7 @@ func (s *Service) GenerateDailyClose(ctx context.Context, warehouseID uuid.UUID,
 
 	for _, tripID := range tripIDs {
 		if _, err := s.AutoReconcileTrip(ctx, tripID); err != nil {
-			log.Printf("[Reconciliation] auto-reconcile trip %s failed: %v", tripID, err)
+			s.log.Error(ctx, "auto_reconcile_failed", err, logger.F("trip_id", tripID.String()))
 		}
 	}
 
@@ -226,4 +261,37 @@ func (s *Service) ListDailyCloseSummaries(ctx context.Context, warehouseID *uuid
 		limit = 30
 	}
 	return s.repo.ListDailyCloseSummaries(ctx, warehouseID, limit)
+}
+
+// GetDiscrepancyHistory returns action history from entity_events for a discrepancy (Task 6.3).
+func (s *Service) GetDiscrepancyHistory(ctx context.Context, discID uuid.UUID) ([]domain.EntityEvent, error) {
+	if s.db == nil {
+		return []domain.EntityEvent{}, nil
+	}
+	rows, err := s.db.Query(ctx, `
+		SELECT id, entity_type, entity_id, event_type, actor_type, actor_id,
+		       COALESCE(actor_name, ''), title, COALESCE(detail, '{}'), created_at
+		FROM entity_events
+		WHERE entity_type = 'discrepancy' AND entity_id = $1
+		ORDER BY created_at DESC
+		LIMIT 50
+	`, discID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var events []domain.EntityEvent
+	for rows.Next() {
+		var e domain.EntityEvent
+		if err := rows.Scan(&e.ID, &e.EntityType, &e.EntityID, &e.EventType,
+			&e.ActorType, &e.ActorID, &e.ActorName, &e.Title, &e.Detail, &e.CreatedAt); err != nil {
+			continue
+		}
+		events = append(events, e)
+	}
+	if events == nil {
+		events = []domain.EntityEvent{}
+	}
+	return events, nil
 }

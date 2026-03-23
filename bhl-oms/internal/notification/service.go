@@ -3,10 +3,10 @@ package notification
 import (
 	"context"
 	"encoding/json"
-	"log"
 	"sync"
 
 	"bhl-oms/internal/domain"
+	"bhl-oms/pkg/logger"
 
 	"github.com/google/uuid"
 )
@@ -14,10 +14,11 @@ import (
 type Service struct {
 	repo *Repository
 	hub  *Hub
+	log  logger.Logger
 }
 
-func NewService(repo *Repository, hub *Hub) *Service {
-	return &Service{repo: repo, hub: hub}
+func NewService(repo *Repository, hub *Hub, log logger.Logger) *Service {
+	return &Service{repo: repo, hub: hub, log: log}
 }
 
 // Send creates a notification and pushes it via WebSocket to the user.
@@ -27,6 +28,7 @@ func (s *Service) Send(ctx context.Context, userID uuid.UUID, title, body, categ
 		Title:    title,
 		Body:     body,
 		Category: category,
+		Priority: "normal",
 		Link:     link,
 	}
 
@@ -39,15 +41,49 @@ func (s *Service) Send(ctx context.Context, userID uuid.UUID, title, body, categ
 	return nil
 }
 
+// SendWithPriority creates a notification with priority and entity reference.
+func (s *Service) SendWithPriority(ctx context.Context, userID uuid.UUID, title, body, category, priority string, link *string, entityType *string, entityID *uuid.UUID) error {
+	n := &domain.Notification{
+		UserID:     userID,
+		Title:      title,
+		Body:       body,
+		Category:   category,
+		Priority:   priority,
+		Link:       link,
+		EntityType: entityType,
+		EntityID:   entityID,
+	}
+
+	if err := s.repo.Create(ctx, n); err != nil {
+		return err
+	}
+
+	s.hub.SendToUser(userID, n)
+	return nil
+}
+
 // SendToRole sends a notification to all users with the given role.
 func (s *Service) SendToRole(ctx context.Context, role, title, body, category string, link *string) error {
 	ids, err := s.repo.GetUserIDsByRole(ctx, role)
 	if err != nil {
-		log.Printf("notification: failed to get users by role %s: %v", role, err)
+		s.log.Error(ctx, "get_users_by_role_failed", err, logger.F("role", role))
 		return err
 	}
 	for _, uid := range ids {
 		_ = s.Send(ctx, uid, title, body, category, link)
+	}
+	return nil
+}
+
+// SendToRoleWithEntity sends a notification with entity reference to all users with the given role.
+func (s *Service) SendToRoleWithEntity(ctx context.Context, role, title, body, category string, link *string, entityType *string, entityID *uuid.UUID) error {
+	ids, err := s.repo.GetUserIDsByRole(ctx, role)
+	if err != nil {
+		s.log.Error(ctx, "get_users_by_role_failed", err, logger.F("role", role))
+		return err
+	}
+	for _, uid := range ids {
+		_ = s.SendWithPriority(ctx, uid, title, body, category, "normal", link, entityType, entityID)
 	}
 	return nil
 }

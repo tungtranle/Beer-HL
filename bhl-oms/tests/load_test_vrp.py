@@ -26,7 +26,7 @@ BASE_URL = "http://localhost:8080"
 USERNAME = "dispatcher01"
 PASSWORD = "demo123"
 WAREHOUSE_HL = "a0000000-0000-0000-0000-000000000001"
-DELIVERY_DATE = "2026-03-16"
+DELIVERY_DATE = "2026-03-22"
 
 
 def login(base_url: str) -> str:
@@ -37,7 +37,7 @@ def login(base_url: str) -> str:
         timeout=10,
     )
     resp.raise_for_status()
-    return resp.json()["tokens"]["access_token"]
+    return resp.json()["data"]["tokens"]["access_token"]
 
 
 def run_vrp(base_url: str, token: str) -> dict:

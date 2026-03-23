@@ -2,13 +2,16 @@
 
 | Thông tin | Giá trị |
 |-----------|---------|
-| Phiên bản | **v1.0** |
-| Dựa trên | SAD v2.1, BRD v2.0 Final |
+| Phiên bản | **v1.1** |
+| Cập nhật | 20/03/2026 (session 18) |
+| Dựa trên | SAD v2.1, BRD v2.3 |
 | Database | PostgreSQL 16 |
 | Encoding | UTF-8 |
 | Timezone | Tất cả `timestamptz` lưu UTC. App convert Asia/Ho_Chi_Minh |
 | Naming | snake_case, singular (trừ `stock_quants`), UUID v7 cho PK |
-| DB Access | sqlc + pgx v5 (type-safe generated Go code) |
+| DB Access | Raw pgx v5 queries (DEC-004, không dùng sqlc) |
+
+> **⚠️ DRIFT NOTICE (v1.1):** File spec gốc mô tả schema thiết kế. Code thực tế có 37 tables (12 migration files). Xem APPENDIX cuối file cho các bảng mới (migration 008-011). Một số bảng trong spec chưa implement (delivery_windows, priority_rules, forbidden_zones, devices, gps_locations). Code thực tế dùng raw pgx (DEC-004), không phải sqlc.
 
 ---
 
@@ -1111,6 +1114,118 @@ migrations/
 
 ---
 
-**=== HẾT TÀI LIỆU DBS v1.0 ===**
+**=== HẾT TÀI LIỆU DBS v1.1 ===**
 
-*Database Schema Design v1.0 — 35+ tables, PostgreSQL 16, optimized for sqlc code generation.*
+*Database Schema Design v1.1 — 37 tables, PostgreSQL 16. Cập nhật 20/03/2026.*
+
+---
+
+# APPENDIX — TABLES MỚI (Migration 008-011) [NEW]
+
+> Các bảng bổ sung sau DBS v1.0 gốc. Đã implement trong code, migration 008-011.
+
+## A.1 audit_logs (Migration 008)
+
+```sql
+CREATE TABLE audit_logs (
+    id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    user_id     UUID REFERENCES users(id),
+    action      VARCHAR(100) NOT NULL,
+    table_name  VARCHAR(100),
+    record_id   UUID,
+    old_value   JSONB,
+    new_value   JSONB,
+    ip_address  VARCHAR(45),
+    created_at  TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+```
+
+## A.2 driver_checkins (Migration 009)
+
+```sql
+CREATE TABLE driver_checkins (
+    id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    driver_id   UUID NOT NULL REFERENCES drivers(id),
+    checkin_date DATE NOT NULL,
+    status      VARCHAR(20) NOT NULL DEFAULT 'checked_in',
+    reason      TEXT,
+    note        TEXT,
+    checked_in_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    CONSTRAINT unq_driver_checkin_date UNIQUE (driver_id, checkin_date)
+);
+```
+
+## A.3 order_confirmations (Migration 010)
+
+```sql
+CREATE TABLE order_confirmations (
+    id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    order_id        UUID NOT NULL REFERENCES sales_orders(id),
+    order_number    VARCHAR(50),
+    customer_id     UUID NOT NULL REFERENCES customers(id),
+    customer_name   VARCHAR(200),
+    token           UUID NOT NULL DEFAULT gen_random_uuid(),
+    phone           VARCHAR(20),
+    status          VARCHAR(20) NOT NULL DEFAULT 'pending',
+    total_amount    NUMERIC(15,2),
+    zalo_msg_id     VARCHAR(100),
+    pdf_url         TEXT,
+    sent_at         TIMESTAMPTZ,
+    confirmed_at    TIMESTAMPTZ,
+    rejected_at     TIMESTAMPTZ,
+    reject_reason   TEXT,
+    auto_confirmed_at TIMESTAMPTZ,
+    expires_at      TIMESTAMPTZ NOT NULL,
+    created_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
+    CONSTRAINT unq_order_confirm_token UNIQUE (token)
+);
+```
+
+## A.4 entity_events (Migration 011) — Immutable audit log
+
+```sql
+CREATE TABLE entity_events (
+    id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    entity_type VARCHAR(50) NOT NULL,    -- 'order', 'trip', etc.
+    entity_id   UUID NOT NULL,
+    event_type  VARCHAR(100) NOT NULL,   -- 'order.created', 'order.rejected_by_customer', etc.
+    actor_type  VARCHAR(20) NOT NULL DEFAULT 'user',  -- 'user', 'system', 'customer'
+    actor_id    UUID,
+    actor_name  VARCHAR(200),
+    title       VARCHAR(500) NOT NULL,
+    detail      JSONB,                   -- Event-specific data: {order_number, reason, ...}
+    created_at  TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE INDEX idx_entity_events_entity ON entity_events (entity_type, entity_id, created_at DESC);
+```
+
+## A.5 order_notes (Migration 011)
+
+```sql
+CREATE TABLE order_notes (
+    id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    order_id    UUID NOT NULL REFERENCES sales_orders(id) ON DELETE CASCADE,
+    user_id     UUID NOT NULL REFERENCES users(id),
+    user_name   VARCHAR(200),
+    content     TEXT NOT NULL,
+    created_at  TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE INDEX idx_order_notes_order ON order_notes (order_id, created_at DESC);
+```
+
+## A.6 notifications (Enhanced — Migration 007 + 011)
+
+> notifications table đã có từ migration 007 nhưng migration 011 bổ sung columns mới.
+
+```sql
+-- Columns mới từ migration 011:
+ALTER TABLE notifications ADD COLUMN priority VARCHAR(20) NOT NULL DEFAULT 'normal';
+ALTER TABLE notifications ADD COLUMN entity_type VARCHAR(50);
+ALTER TABLE notifications ADD COLUMN entity_id UUID;
+```
+
+**Priority levels:** `urgent`, `high`, `normal`, `low`  
+**Entity linking:** notification → entity (order, trip, etc.) cho navigation

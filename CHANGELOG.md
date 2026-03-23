@@ -5,7 +5,527 @@
 
 ---
 
+## [Unreleased] — Phase 6 complete + UX Overhaul v4 + UX v5 full
+
+### 2026-03-22 — Session: UX v5 full — §17-§23 implementation
+
+#### Added — 7 remaining v5 features
+- **§22 note_type fix:** Migration 014 (note_type VARCHAR, is_pinned BOOLEAN on order_notes), backend supports 4 note types (internal/npp_feedback/driver_note/system), pin/unpin endpoints
+- **§17 PinnedNotesBar:** Component showing top-3 pinned notes with amber styling, unpin button
+- **§19 WaitingForBanner:** Sticky banner showing "Đang chờ ai" per order status (10 statuses mapped)
+- **§20 CreditAgingChip:** Credit aging indicator (>7d amber, >14d light red, >30d solid red)
+- **§23 TimelineKPIBar:** 4 KPI cards (processing time, cutoff, trip info, recon status)
+- **§18 Notes inline Timeline:** OrderTimeline merged events+notes, inline note composer, pin toggle, NOTE_STYLE per type
+- **§21 Duration Chips Enhanced:** Color-coded duration chips (gray <30min, amber 30min-2h, red >2h)
+
+#### Changed
+- Order detail page: removed separate "Ghi chú" tab → notes now inline in "Lịch sử & Ghi chú" tab
+- Order detail page: added WaitingForBanner + PinnedNotesBar above order info, CreditAgingChip next to StatusChip, TimelineKPIBar in timeline tab
+
+#### New endpoints
+- `PUT /v1/orders/:id/notes/:noteId/pin` — pin a note
+- `DELETE /v1/orders/:id/notes/:noteId/pin` — unpin a note
+
+#### Docs Updated
+- `CURRENT_STATE.md` — migration 014, new endpoints, new components
+- `CHANGELOG.md` — this entry
+
+### 2026-03-22 — Session: UX v5 delta — Picking by Vehicle + Spec
+
+#### Added — UX Vibe Coding Spec v5 (8 new features from UX Analysis)
+- **Picking by Vehicle (Backend):** `GET /v1/warehouse/picking-by-vehicle?date=` — aggregated products per vehicle with FEFO, per-stop orders, progress percentage
+- **Picking by Vehicle (Frontend):** `/dashboard/warehouse/picking-by-vehicle` — 4 KPI cards, filter tabs, expandable vehicle cards, FEFO badges (🔥 Pick trước!), progress bars, per-stop order breakdown
+- **Warehouse dashboard nav:** Added "🚛 Soạn theo xe" shortcut with brand border (#F68634)
+- **UX Vibe Coding Spec v5:** `docs/specs/BHL_UX_VIBE_CODING_SPEC_v5.md` — §16-§23: Picking by Vehicle, PinnedNotes, Notes inline Timeline, "Đang chờ ai" banner, Credit Aging Chip, Duration Chips, note_type fix, Timeline KPI Bar
+
+#### Docs Updated
+- `CURRENT_STATE.md` — WMS endpoints 27→28, new Picking by Vehicle page
+- `CHANGELOG.md` — this entry
+- `docs/specs/BHL_UX_VIBE_CODING_SPEC_v5.md` — NEW file (delta from v4)
+
+### 2026-03-22 — Session: UX Overhaul v4 (6 phases)
+
+#### Added — UX Overhaul theo BHL_UX_VIBE_CODING_SPEC_v4
+- **Phase 1:** `useToast` hook + `ToastContainer` thay thế tất cả `alert()` | `formatVND()` thay `formatMoney()` toàn bộ
+- **Phase 2:** Toast + traceRef across 20+ pages (orders, planning, trips, warehouse, drivers, kpi, reconciliation, gate-check, approvals, control-tower)
+- **Phase 3:** Driver UX — h-12/h-14 tap targets, anti double-submit pattern
+- **Phase 4:** Brand color #F68634 consistency — 83+ violations fixed (bg-amber-600/bg-blue-600 → bg-[#F68634])
+- **Phase 5:** T+1 countdown (approvals page), FEFO "Pick trước" badge (warehouse page)
+- **Phase 6:** Role-aware empty states (driver, warehouse, gate-check, approvals, orders, reconciliation)
+- **New components:** `StatusChip.tsx`, `CountdownDisplay.tsx`, `InteractionModal.tsx`
+- **Backend:** `pkg/safego/safego.go` — goroutine wrapper with panic recovery
+- **Files modified:** 20+ dashboard pages, 4 new components, status-config.ts expanded to 16 statuses
+- **next.config.js:** Proxy → localhost:8083
+
+#### Docs Updated (UX Overhaul)
+- `CURRENT_STATE.md`: Ports 8083/3005, UX components section
+- `CHANGELOG.md`: This entry
+- `CLAUDE.md`: Updated earlier with v4 spec references
+
+---
+
+### 2026-03-22 — Session: Bug fixes + Order Timeline Redesign + Status Sync
+
+#### Fixed — CompleteTrip silent failure
+- **Bug:** `CompleteTrip` backend rejected `partially_delivered` stop status → frontend caught error but only logged to console (no UI feedback)
+- **Fix:** Added `partially_delivered` to terminal statuses set in `tms/service.go`
+- **Fix:** Frontend `handleCompleteTrip` now shows alert on error instead of silent `console.error`
+- **File:** `internal/tms/service.go`, `web/src/app/dashboard/driver/[id]/page.tsx`
+
+#### Fixed — Order status stays at "Đang xử lý" during delivery
+- **Bug:** `StartTrip` didn't update order statuses from `processing` to `in_transit` → orders stayed at "Đang xử lý" on the list page even when driver was delivering
+- **Fix:** `StartTrip` now updates all trip’s order statuses to `in_transit` + records entity events
+- **File:** `internal/tms/service.go`
+
+#### Added — Event Recorder in TMS
+- **TMS Service** now has `evtRecorder *events.Recorder` field + `SetEventRecorder()` setter
+- **CompleteTrip** records `order.status_changed` events for each order when trip completes
+- **StartTrip** records `order.in_transit` events with driver name + trip number
+- **Wired** in `cmd/server/main.go`: `tmsSvc.SetEventRecorder(eventRecorder)`
+
+#### Redesigned — Order Timeline (world-class)
+- **Grouped by date:** Events grouped into "Hôm nay", "Hôm qua", dated sections
+- **Filter tabs:** Tất cả / Trạng thái / Giao hàng / Ghi chú (with counts)
+- **Summary banner:** Total events count, date range, total duration
+- **Duration chips:** Time elapsed between consecutive events ("⏱ 15 phút sau")
+- **Rich detail cards:** Actor role badges, status transition pills (old → new with Vietnamese labels), financial amounts, redelivery indicators, note content in amber cards
+- **Absolute + relative timestamps:** Full datetime + "5 phút trước" indicator
+- **File:** `web/src/components/OrderTimeline.tsx`
+
+#### Docs Updated
+- `CURRENT_STATE.md`: Updated frontend sections with new components
+- `CHANGELOG.md`: This entry
+
+#### Changed — "Tạo giao lại" → "Giao bổ sung" (Audit Session 22/03)
+- **Bỏ:** `rejected` và `delivered` khỏi danh sách trạng thái cho phép giao bổ sung
+- **Lý do:** Đơn hàng bị KH từ chối (rejected) → nên hủy hẳn và tạo đơn mới. Đơn đã giao (delivered) → không cần giao lại.
+- **Chỉ còn:** `partially_delivered` (giao thiếu → giao bổ sung) và `failed` (giao thất bại → giao lại)
+- **UI:** Button đổi từ "🔄 Tạo giao lại" (rose-600) → "📦 Giao bổ sung" (brand #F68634), context message theo trạng thái
+- **Files:** `internal/oms/service.go`, `web/src/app/dashboard/orders/[id]/page.tsx`
+
+#### Added — Code Compliance Audit (TD-018 ~ TD-025)
+- **Kiểm tra toàn bộ codebase:** 200+ vi phạm phát hiện trong 37 files
+- **TECH_DEBT.md:** Ghi nhận 8 mục mới (TD-018 đến TD-025)
+- **CURRENT_STATE.md:** Thêm section "Code Compliance Audit" 
+- **Quy tắc:** Sẽ dần fix khi chạm vào file liên quan trong features mới, KHÔNG refactor riêng lẻ
+
+#### Added — Localhost verification rule
+- **CLAUDE.md:** Rule #11 — BẮT BUỘC verify localhost sau mỗi code change
+- **doc-update-rules.instructions.md:** Mục #0 cuối session — verify trước khi báo "đã xong"
+- **User memory:** Ghi nhớ vĩnh viễn qua mọi session
+
+#### Docs Updated (Audit)
+- `CURRENT_STATE.md`: Cập nhật toàn diện — port 8081/3003, 16 migrations, 32 OMS endpoints, 50+ TMS endpoints, 27 WMS endpoints, 42 frontend pages, code compliance section
+- `TECH_DEBT.md`: TD-018~TD-025 (float64, testportal, console.error, fetch, timezone, ::text, logging, repository)
+- `CLAUDE.md`: Rule #11 localhost verify, checklist mục #0, compounding engineering
+- `CHANGELOG.md`: This entry
+
+---
+
+### 2026-03-21 — Session 19g (cont): Phase 6 Implementation (18/18 tasks)
+
+#### Added — P0: Kế toán Recon Workbench (6.1–6.3)
+- **T+1 countdown badge:** Discrepancy table shows deadline countdown, red animated pulse when < 2h, auto-refresh every 60s
+- **Split view tiền-hàng-vỏ:** Sub-tabs (Tất cả/💰Tiền/📦Hàng/🏷️Vỏ) with per-type count badges
+- **Action history:** Backend `GET /reconciliation/discrepancies/:id/history` endpoint, 📜 button opens history modal, entity_events recorded on resolve
+
+#### Added — P0: Workshop Role (6.4–6.5)
+- **Migration 010:** `bottle_classifications` table, `is_chief_accountant` BOOLEAN on users
+- **Workshop role:** New role with `bottles:read`, `bottles:write` permissions in admin/service.go
+- **Bottle classification:** `POST /warehouse/bottles/classify`, `GET /warehouse/bottles/summary` endpoints
+- **Workshop page:** Full frontend `/dashboard/workshop` with classify form + summary view
+
+#### Added — P1: Admin Improvements (6.6–6.7)
+- **Audit log diff:** `UpdateConfigs` records before/after values to entity_events; `ConfigDiffView` component shows red strikethrough → green highlight per key
+- **Credit limit expiry cron:** `RunCreditLimitExpiryCron()` (6h ticker), `GET /admin/credit-limits/expiring` API, entity_events alerts for expiring limits
+
+#### Added — P1: BGĐ + DVKH (6.8–6.10)
+- **KPI drill links:** Clickable KPI cards → `router.push` to filtered views (planning, orders?status=rejected, reconciliation)
+- **Zalo link:** `https://zalo.me/{phone}` in order detail customer info section
+- **ePOD photos tab:** New tab in order detail showing image grid of ePOD photos
+
+#### Added — P1: Warehouse + Security (6.11–6.13)
+- **Picking queue view:** Priority badge "Soạn trước" (brand-colored) for first pending item, ring highlight
+- **Gate check queue:** `GET /warehouse/gate-check-queue` endpoint + frontend queue display with amber count badge + pulse animation
+- **Mandatory fail reason:** Dropdown required on gate check fail (6 types: Thiếu hàng/Thừa hàng/Hàng hư hỏng/Sai sản phẩm/Sai số lượng/Khác)
+
+#### Added — P2: Dispatcher + RBAC (6.14–6.17)
+- **Exception descriptions:** Vietnamese `exceptionTypeDescription` map (late_eta, idle_vehicle, failed_stop, no_checkin) shown as italic gray text in control tower alerts
+- **Bulk move stops:** Multi-select checkboxes on stops list + "Chuyển N điểm →" button + bulk move modal with trip selector
+- **Action-level RBAC:** `IsChiefAccountant(ctx, userID)` check in ResolveDiscrepancy handler; 403 for non-chief accountants
+- **Fleet tab:** Trips/fleet toggle in dispatcher left column; fleet view shows vehicles with speed, status dot (green/amber/gray), click opens driver modal
+
+#### Evaluated — P3 (6.18)
+- **Native mobile:** Evaluated — PWA đủ cho go-live, native app đánh giá lại sau 3 tháng production
+
+#### Docs Updated
+- `TASK_TRACKER.md`: All 18 Phase 6 tasks marked ☑, 119/128 (93.0%)
+- `CHANGELOG.md`: This entry
+- `CURRENT_STATE.md`: Updated (pending)
+
+---
+
+### 2026-03-21 — Session 19g: Gap Analysis → Phase 6 Planning
+
+#### Analysis
+- **UX Gap Analysis:** Phản biện 11 role gaps từ bảng đề xuất. Điều chỉnh priorities: 6 items hạ mức (Admin P0→P1, Dispatcher P0→P2, DVKH P0→P1, KT Trưởng P0→P2, Đội trưởng P1→P2, Tài xế P0→P3), 2 giữ P0 (Kế toán recon, Phân xưởng).
+- **Phase 6 created:** 18 tasks (5 P0 + 8 P1 + 5 P2/P3). Tổng tasks: 110 → 128.
+- **Key decisions:** DEC-010 (priority adjustments), DEC-011 (workshop sub-role).
+
+#### Added
+- **GPS Simulation Test Portal (Session 19f cont.):**
+  - 5 backend endpoints: GET scenarios, GET vehicles, POST start, POST stop, GET status
+  - 7 predefined scenarios: normal delivery (5 xe), rush hour (10 xe), GPS lost signal, idle vehicle, speed violation, long route QN→HP, from active DB trips
+  - Frontend tab "📡 Giả lập GPS" in Test Portal: scenario cards, vehicle multi-select, interval slider, live status panel
+  - Data flow: Test Portal → Redis HSET + PUBLISH → WebSocket hub → Control Tower map
+
+#### Docs Updated
+- `TASK_TRACKER.md`: Added Phase 6 (18 tasks), updated totals (128 tasks, 78.9%)
+- `DECISIONS.md`: Added DEC-010 (gap priority adjustments), DEC-011 (workshop sub-role)
+- `TECH_DEBT.md`: Added TD-014 (action-level RBAC), TD-015 (data-scoping), TD-016 (phân xưởng), TD-017 (đội trưởng)
+- `UXUI_SPEC.md`: Added §9b WORKSHOP role spec
+- `CURRENT_STATE.md`: Added GPS test portal section, Phase 6 overview
+- `CLAUDE.md`: Added gap analysis lessons learned
+
+### 2026-03-21 — Session 19f: KPI Reports + GPS Simulator + Monitoring Enhancements
+
+#### Fixed
+- **Routes page TypeError:** `admin/handler.go` `ListRoutes` was double-wrapping data (`response.OK(c, gin.H{"data": routes})` → `response.OK(c, routes)`). Frontend `routes.map()` was failing because `.data` was an object, not array.
+- **PWA icon 404:** Created SVG icons (`icon-192.svg`, `icon-512.svg`) with BHL brand #F68634. Updated `manifest.json` refs.
+- **SystemHealth double-wrapping:** Fixed same `gin.H{"data": health}` pattern in health endpoint.
+
+#### Added
+- **KPI Issues Report:** `GET /v1/kpi/issues?from=&to=&limit=` — Failed deliveries, discrepancies with summary counts. Handler + service + SQL queries against `trip_stops`, `discrepancies`, `sales_orders`.
+- **KPI Cancellations Report:** `GET /v1/kpi/cancellations?from=&to=&limit=` — Cancelled, rejected, on_credit, pending_approval orders with total debt summary.
+- **KPI Frontend tabs:** "Tổng quan" / "Có vấn đề" / "Hủy/Nợ" tabs in KPI dashboard with summary cards + detail tables.
+- **GPS Simulator:** `cmd/gps_simulator/main.go` — Comprehensive GPS simulation:
+  - Auto-loads active trips from DB (vehicle+stops), falls back to 5 demo routes
+  - Realistic movement: 30-55 km/h, delivery stops 15-45s, heading calculation, ±5m GPS jitter
+  - Publishes via Redis HSET `gps:latest` + PUBLISH `gps:updates` (same format as WebSocket hub)
+  - Graceful shutdown with Ctrl+C
+- **Enhanced System Health:** `admin/service.go` now checks Redis, VRP Solver (HTTP health), GPS tracking (active/stale vehicles from Redis), recent operations (orders today, active trips, audit logs 24h, notifications).
+- **Health Dashboard enhanced:** GPS tracking section, recent operations cards, service status with color-coded borders, monitoring tools links (Prometheus/Grafana), auto-refresh indicator.
+
+#### Changed
+- `internal/admin/service.go`: Service now receives `*redis.Client` for health checks.
+- `internal/admin/handler.go`: Fixed double-wrapping in `ListRoutes` and `SystemHealth`.
+- `cmd/server/main.go`: Pass `rdb` to `admin.NewService()`.
+- `web/src/app/dashboard/kpi/page.tsx`: Complete rewrite with 3-tab layout.
+- `web/src/app/dashboard/settings/health/page.tsx`: Enhanced with GPS, ops, and monitoring sections.
+
+#### Docs Updated
+- `CURRENT_STATE.md`: Updated KPI (4 endpoints), GPS (simulator), Admin (14 endpoints)
+- `CHANGELOG.md`: This entry
+
+### 2026-03-21 — Session 19e: Load Test + Bug Fix + Monitoring + Prod Docker
+
+#### Fixed (Critical)
+- **Order number race condition (4.13):** `generateOrderNumber()` used `time.Now().UnixNano()%10000` — caused duplicate key violations under concurrent load (28% error rate). Replaced with PostgreSQL sequence `order_number_seq` via `nextval()`. Migration `010_order_number_seq.up.sql` auto-sets start from max existing order number. Fixed in `oms/service.go`, `oms/repository.go`, and `testportal/handler.go`.
+
+#### Added (Infrastructure)
+- **Prometheus metrics middleware (4.17):** `internal/middleware/metrics.go` — HTTP request counter/histogram/gauge + business metrics (OrdersCreatedTotal, TripsCompletedTotal, StopsDeliveredTotal, DBQueryDuration, etc.). `/metrics` endpoint exposed via promhttp.
+- **Monitoring stack (4.17):** `monitoring/prometheus.yml`, `monitoring/grafana/` provisioning + dashboard JSON (10 panels: HTTP rate, latency p95, in-flight, orders, trips, delivery success rate, DB query latency, GPS WebSocket, integration calls, error rate). Docker Compose services: prometheus, grafana, postgres-exporter, redis-exporter (profile: monitoring).
+- **Production Docker Compose (4.15):** `docker-compose.prod.yml` — full stack (api, web, postgres, redis, vrp, osrm, monitoring, nginx). Resource limits, healthchecks, production PostgreSQL tuning (max_connections=200, shared_buffers=256MB).
+- **Nginx reverse proxy (4.15):** `nginx/nginx.conf` — rate limiting (30r/s API, 5r/m login), SSL termination, WebSocket upgrade for /ws/, /metrics restricted to internal IPs.
+- **Deployment scripts (4.15):** `deploy/bhl-oms.service` (systemd), `deploy/deploy.sh` (5-step), `deploy/.env.example`.
+- **Load test: Orders (4.11):** `tests/load_test_orders/main.go` — Go-based, configurable count/concurrency/host. Result: 3000 orders, 20 workers, 183.2 orders/sec, 0.17% errors, p95=148ms. ✅ PASSED.
+- **Load test: VRP (4.12):** `tests/load_test_vrp/main.go` — Go-based VRP test + `tests/seed_vrp_test.sql` seed script. Result: 3000+ shipments, VRP solved in 70.2s, 50 trips/185 stops. ✅ PASSED.
+- **Migration 010:** `order_number_seq` — PostgreSQL sequence for atomic order number generation.
+
+#### Changed
+- `cmd/server/main.go`: Added Prometheus middleware + /metrics endpoint.
+- `docker-compose.yml`: Added monitoring services (prometheus, grafana, postgres-exporter, redis-exporter) with profiles.
+- `internal/oms/service.go`: `generateOrderNumber()` replaced with `s.repo.NextOrderNumber(ctx)`.
+- `internal/oms/repository.go`: Added `NextOrderNumber()` using DB sequence.
+- `internal/testportal/handler.go`: Two instances of inline order number generation replaced with DB sequence.
+
+#### Docs Updated
+- TASK_TRACKER.md (4.11-4.13, 4.15, 4.17 marked done, 96→101, 87.3%→91.8%)
+- CURRENT_STATE.md (monitoring components, port 3001, migration count)
+- CHANGELOG.md (this entry)
+
+---
+
+### 2026-03-21 — Session 19: UXUI_SPEC.md + Phase 5 Restructure
+
+#### Added (Documentation)
+- **docs/specs/UXUI_SPEC.md:** Per-role UX/UI specification (~700 lines). Covers 8 role layouts (Dispatcher 3-column cockpit, DVKH 2-column form/preview, Driver mobile thumb-zone, Accountant T+1 countdown, Warehouse PDA scan-first, Management 5-second view, Security green/red, Admin config panel). Design system: brand #F68634, semantic colors, typography scale, spacing.
+- **DEC-009:** UXUI_SPEC.md per-role specification formalized as architectural decision.
+- **Phase 5 — UX Overhaul & Admin Console (32 tasks):** Added to TASK_TRACKER.md. Sub-phases: 5A Admin Console (8), 5B DVKH Control Desk (8), 5C Dispatcher Control Tower (10), 5D Driver Enforcement (6). Priority: B→A→C→D.
+
+#### Changed (Documentation)
+- **CLAUDE.md:** Added UX/UI world-class section (8 role table, 5 UX rules, brand color, formatVND), DEC-007/008/009 decisions, expanded lessons learned.
+- **.github/instructions/frontend-patterns.instructions.md:** Complete rewrite — added 5 UX rules (UX-01 to UX-05), semantic color constants, formatVND/formatVNDCompact, notification priority mapping (P0-P3).
+- **TASK_TRACKER.md:** Restructured from 78→110 tasks. Added Phase 5 with 32 new tasks. Updated progress from 82.1% to 58.2%.
+- **CURRENT_STATE.md:** Updated date to Session 19, added UX/UI Design System section documenting UXUI_SPEC.md creation.
+- **DECISIONS.md:** Added DEC-009.
+
+#### Docs Updated
+- CLAUDE.md, CURRENT_STATE.md, TASK_TRACKER.md, DECISIONS.md, CHANGELOG.md, .github/instructions/frontend-patterns.instructions.md, docs/specs/UXUI_SPEC.md (new)
+
+---
+
 ## [Unreleased] — Phase 4 in progress
+
+### 2026-03-20 — Session 18c: Uncoded Feature Implementation
+
+#### Added (Backend)
+- **Migration 012:** `delivery_attempts`, `vehicle_documents`, `driver_documents` tables + ALTER vehicles (is_external, supplier_name) + ALTER sales_orders (re_delivery_count, original_order_id)
+- **Re-delivery flow (US-TMS-14b):** Full OMS implementation — CreateRedelivery + ListDeliveryAttempts (handler/service/repository). Validates order status, tracks attempt count, creates shipment, resets to "confirmed", fires event + notification.
+- **Vehicle document CRUD:** TMS handler/service/repository — 5 endpoints (list, create, update, delete per vehicle + list expiring across all vehicles). doc_type: registration/inspection/insurance.
+- **Driver document CRUD:** TMS handler/service/repository — 5 endpoints parallel to vehicle docs. doc_type: license/health_check with license_class (B2/C/D/E).
+- **Document expiry cron:** Daily 07:00 ICT check for vehicle/driver docs expiring within 7 days. Sends notifications to dispatchers via existing notification service.
+- **Domain models:** DeliveryAttempt, VehicleDocument, DriverDocument structs
+- **Event:** `order.redelivery_created` event type + builder function
+
+#### Added (Frontend)
+- **Order detail:** "Tạo giao lại" button with reason modal for orders in partially_delivered/rejected/failed/delivered status. New "Giao lại" tab showing delivery attempts.
+- **DeliveryAttempts component:** Shows attempt history with attempt number, previous status/reason, timestamps.
+- **Vehicle documents page:** `/dashboard/vehicles/[id]/documents` — Full CRUD with expiry badges (red/orange/yellow/green). "Giấy tờ" link on vehicles list.
+- **Driver documents page:** `/dashboard/drivers-list/[id]/documents` — Full CRUD with license class selector + expiry badges. "Giấy tờ" link on drivers list.
+
+#### Docs Updated
+- CURRENT_STATE.md: Updated endpoint counts (OMS 23, TMS 40+), added re-delivery + document sections, migration count 13, cron jobs, frontend 36 pages.
+- CHANGELOG.md: This entry.
+
+### 2026-03-20 — Session 18: Notification System Fixes + UI Redesign
+
+#### Fixed
+- **404 on /dashboard/notifications** — Page file was missing (not saved from session 17). Created `web/src/app/dashboard/notifications/page.tsx` with full filter (all/unread), priority badges, time formatting, click navigation.
+- **Reject reason not showing in order timeline** — `CancelOrderByCustomer` now accepts `reason string` parameter. Updated `OrderConfirmCallback` interface + `integration/handler.go` to pass reason from Zalo rejection through to `entity_events` JSONB detail. `OrderTimeline` component already renders `evt.detail.reason` — now populated.
+
+#### Changed
+- **Notification Bell → Right-side slide panel** — Replaced cramped w-80 dropdown in sidebar with full-height right-side panel (max-w-md). Features: backdrop overlay, ESC key close, body scroll lock, styled-scrollbar, panel-slide-in animation.
+- **Dashboard layout → Topbar** — Moved NotificationBell from sidebar header to a new topbar in main content area (`<header>` with greeting + bell). Better positioning context for the right-side panel.
+- **globals.css** — Added `panel-slide-in`, `fade-in`, `slide-in-right`, `slide-out-right` animations + `.styled-scrollbar` utility class.
+
+#### Docs Updated
+#### Docs Updated
+- **Comprehensive doc audit** (10+ files): CURRENT_STATE.md, TASK_TRACKER.md, API_BHL_OMS_TMS_WMS.md (v1.2 + Appendix A/B), DBS_BHL_OMS_TMS_WMS.md (v1.1 + Appendix), BRD_BHL_OMS_TMS_WMS.md (v2.4 + US-NEW-11~13), KNOWN_ISSUES.md (+6 resolved), DECISIONS.md (DEC-007/008), TECH_DEBT.md (TD-011~013), DOC_INDEX.md, CLAUDE.md, CHANGELOG.md
+
+### 2026-03-20 — Session 18b: BRD v3.0 Restructuring + ROADMAP.md
+
+#### Changed (Docs)
+- **BRD v2.4 → v3.0** — Major restructuring, merge business content from BRD v4.0 gap analysis:
+  - Section 1: KPI mục tiêu (table format), vai trò data flow (4-col table), quy mô (80 users, 300 NPP future, 180 concurrent)
+  - Section 9: 3-layer RBAC (screen/action/data-scope), 11 roles with platform column, action matrix (8 functions × 8 roles)
+  - Section 11: Expanded 13 → 33 notification events with P0-P3 priority tiers (Critical/Urgent/Important/Digest)
+  - NEW Section 12: Timeline Đơn Hàng 10 Lớp (vertical stepper, UX features, acceptance criteria)
+  - Renumbered: old 12→13 (Quy mô), old 13→14 (Phụ lục), old 13B→14B (Bổ sung), old 14→15 (UAT)
+  - Section 9.3→9.4 Approval Flow (renumbered after new 9.3 Action Matrix)
+- **UXUI.md** — Changed AntD → Tailwind CSS references (sections 3, 4)
+- **UIX_BHL_OMS_TMS_WMS.md** — Section 14.1: brand colors (#F68634), font (Roboto), neutral palette, NotificationBell → slide panel
+- **CLAUDE.md** — Removed "Boris" references (2 occurrences)
+- **DOC_INDEX.md** — BRD v2.4 → v3.0, added ROADMAP.md entry
+
+#### Added (Docs)
+- **ROADMAP.md** — NEW file: 20 Ecosystem components (rated for BHL practicality: 6 practical, 8 defer, 6 not suitable), Phase plan (P0-P4), chi phí ước tính, tech stack bổ sung, UAT ecosystem criteria. Sourced from BRD v4.0 sections 14-18.
+
+---
+
+### 2026-03-20 — Session 17: Notification + Timeline System (Phase 1+2)
+
+#### Added
+- **Migration 011_entity_events** — New tables: `entity_events` (immutable event log), `order_notes` (internal staff notes). Enhanced `notifications` with `priority`, `entity_type`, `entity_id` columns.
+- **`internal/events/` package** — EventRecorder service (`recorder.go`), event type constants + builders (`types.go`), HTTP handler (`handler.go`)
+  - 20+ event type constants (order.created, order.confirmed_by_customer, order.rejected_by_customer, order.approved, order.cancelled, etc.)
+  - Vietnamese titles for all events
+  - Async event recording (fire-and-forget goroutines)
+- **Timeline API:** GET `/v1/orders/:id/timeline` — immutable event history for orders
+- **Notes API:** GET `/v1/orders/:id/notes`, POST `/v1/orders/:id/notes` — internal staff notes
+- **Notification enhancements:**
+  - `SendWithPriority()` — priority-aware notifications with entity references
+  - `SendToRoleWithEntity()` — broadcast to role with entity_type/entity_id
+  - Notifications now carry `priority`, `entity_type`, `entity_id` for linking to source entities
+- **OMS event triggers:**
+  - CreateOrder → record `order.created` + notify accountant (pending_approval) or dvkh (pending_customer_confirm)
+  - ConfirmOrderByCustomer → record `order.confirmed_by_customer`
+  - CancelOrderByCustomer → record `order.rejected_by_customer`
+  - CancelOrder → record `order.cancelled`
+  - ApproveOrder → record `order.approved` + notify dvkh
+- **Auth/Middleware:** `FullName` field in JWT Claims, `FullNameFromCtx()` for context propagation
+- **Frontend components:**
+  - `NotificationProvider` — React context with WebSocket auto-connect/reconnect
+  - `NotificationBell` — Bell icon with unread badge, dropdown with 10 latest
+  - `NotificationToast` — Slide-in toast for real-time notifications, auto-dismiss 6s
+  - `OrderTimeline` — Vertical timeline with event icons/colors per event type
+  - `OrderNotes` — Notes list + textarea with Ctrl+Enter submit
+  - `/dashboard/notifications` page — Full notification list with filter (all/unread), priority colors
+  - Order detail tabs: 📦 Sản phẩm / 📜 Lịch sử / 💬 Ghi chú
+  - Dashboard layout: NotificationBell in sidebar header (moved to topbar in session 18), NotificationToast overlay
+- **Domain models:** `EntityEvent`, `OrderNote` structs; `Notification` enhanced with Priority/EntityType/EntityID
+
+#### Fixed
+- **actor_name empty** in entity_events — Added `middleware.FullNameFromCtx(ctx)` propagation from JWT → context → service layer
+
+#### Docs Updated
+- CURRENT_STATE.md, CHANGELOG.md
+
+---
+
+### 2026-03-20 — Session 16 (continued-2): Import Real NPP Data
+
+#### Changed
+- **customers table** — Replaced 945 old NPPs (20 real + 780 generated) with **218 real NPPs** from `danh sach NPP.txt`
+  - 15 tỉnh/thành: Quảng Ninh (40), Hải Dương (33), Hải Phòng (26), Bắc Giang (22), Thái Bình (22), Hưng Yên (16), Nam Định (15), Bắc Ninh (12), Thái Nguyên (10), Hà Nội (6), Ninh Bình (6), Lạng Sơn (5), Thanh Hóa (3), Phú Thọ (1), TP.HCM (1)
+  - Real addresses, coordinates, province data
+- **credit_limits** — Auto-generated for all 218 NPPs (range 150M-800M based on province)
+- **import_real_npp.sql** — Regenerated with UTF-16 LE decoder from TXT file
+- **cmd/import_npp/main.go** — Updated: UTF-16 LE decoder (was Windows-1252), tab-separated (was CSV), simplified province fixer
+- **seed_test_ready.sql** — Updated: use customer code subqueries instead of hardcoded UUIDs, 6 new test NPPs (NPP-001, HP-4745, TB-127, HD-59, BG-1, NPP-063)
+- **HUONG_DAN_TEST_NGHIEP_VU.md** — Updated NPP references and credit amounts
+
+#### Docs Updated
+- CURRENT_STATE.md, CHANGELOG.md, docs/guides/HUONG_DAN_TEST_NGHIEP_VU.md
+
+---
+
+### 2026-03-20 — Session 16 (continued): Test Data Audit + Bug Fixes + Test Guide
+
+#### Fixed
+- **handler.go ListCreditBalances** — JOIN `credit_limits` table with date range (was referencing non-existent `customers.credit_limit` column)
+- **handler.go ListCustomers** — Same fix: JOIN credit_limits instead of customers.credit_limit
+- **handler.go CreateTestOrder credit check** — Fixed credit calculation: `SUM(CASE WHEN ledger_type='debit' THEN amount ELSE -amount END)` matching OMS logic
+- **handler.go ResetTestData** — Fixed wrong table names: removed `epod_items` (non-existent), `dlq_entries` → `integration_dlq`, `reconciliation_tickets` → `reconciliations`, `kpi_snapshots` → `daily_kpi_snapshots`; added missing: `trip_checklists`, `discrepancies`, `driver_checkins`, `asset_ledger`
+- **reset_test_data.sql** — Synced table names with handler.go fixes
+
+#### Added
+- **seed_test_ready.sql** — Comprehensive 6-phase reset+seed script:
+  - Phase 1: Delete ALL transactional data (25+ tables)
+  - Phase 2: Create WH-HP location bins (A/B zones)
+  - Phase 3: Lots for all 30 products (main + near-expiry FEFO + returnable containers)
+  - Phase 4: Stock quants WH-HL (all 30 products, realistic quantities)
+  - Phase 5: Stock quants WH-HP (12 popular products)
+  - Phase 6: Receivable ledger debits for 6 NPPs (150M–500M)
+- **Test Guide** (`docs/guides/HUONG_DAN_TEST_NGHIEP_VU.md`) — 5 kịch bản test từng bước:
+  1. Happy path: tạo đơn → KH xác nhận
+  2. KH từ chối → stock hoàn lại
+  3. Vượt hạn mức → pending_approval → kế toán duyệt
+  4. Kiểm tra ATP + FEFO
+
+#### Docs Updated
+- CURRENT_STATE.md (test portal bug fixes + seed_test_ready.sql + test guide)
+- CHANGELOG.md (this entry)
+- docs/guides/HUONG_DAN_TEST_NGHIEP_VU.md (new file)
+
+---
+
+### 2026-03-20 — Session 16: Test Portal + Test Cases
+
+#### Added
+- **Test Portal Backend** (`internal/testportal/handler.go`) — 11 API endpoints, no auth:
+  - GET orders, order-confirmations, delivery-confirmations, stock, credit-balances, customers, products
+  - POST reset-data, create-test-order, simulate-delivery
+- **Test Portal Frontend** (`web/src/app/test-portal/page.tsx`) — Standalone page with 6 tabs:
+  - Đơn hàng (order list), Xác nhận đơn Zalo (confirm/reject as customer), Xác nhận giao hàng, Tồn kho/ATP, Dư nợ/Credit, Tạo đơn test
+- **Reset Test Data SQL** (`migrations/reset_test_data.sql`) — Standalone SQL to clear transactional data, keep NPP/products/stock
+- **Test Cases Document** (`docs/TEST_CASES.md`) — 20+ test cases covering OMS, Credit, Zalo Confirm, ATP, Delivery, E2E flows
+- **Docs organization** — Moved guide .md files to `docs/guides/` (HUONG_DAN_CHAY_HE_THONG, README_BHL_OMS, INTEGRATION_MOCKS)
+
+#### Changed
+- `cmd/server/main.go` — Added testportal handler registration on v1 (public, no auth)
+
+#### Docs Updated
+- CURRENT_STATE.md (test portal module, frontend test portal page)
+- CHANGELOG.md (this entry)
+- docs/TEST_CASES.md (new file)
+- docs/guides/ (new folder with moved files)
+
+### 2026-03-20 — Session 15: Zalo Order Confirmation + Operational Guides
+
+#### Added
+- **Zalo Order Confirmation Flow** — After DVKH creates order, system sends Zalo ZNS to customer with PDF link + confirmation button. Customer has 2h to confirm/reject before auto-confirm kicks in.
+  - New migration: `010_order_confirmation.up.sql` — `order_confirmations` table + `pending_customer_confirm` enum value
+  - New domain model: `OrderConfirmation` struct
+  - New `ZaloAdapter.SendOrderConfirmation()` method (template: `order_confirmation`)
+  - New `ConfirmService` methods: `SendOrderConfirmation`, `GetOrderConfirmByToken`, `ConfirmOrder`, `RejectOrder`, `AutoConfirmExpiredOrders`, `RunOrderAutoConfirmCron` (5-min ticker)
+  - New `Hooks.OnOrderCreated()` — fires async Zalo order confirmation
+  - New OMS methods: `ConfirmOrderByCustomer` (creates shipment + debit), `CancelOrderByCustomer` (releases stock)
+  - Public endpoints: `GET /v1/order-confirm/:token`, `GET .../pdf`, `POST .../confirm`, `POST .../reject`
+  - `OrderConfirmCallback` interface to avoid circular dependency between integration handler and OMS service
+- **HUONG_DAN_CHAY_HE_THONG.md** — Comprehensive Vietnamese guide covering: system startup, mock server usage, Zalo test scenarios, Bravo inventory test scenarios, troubleshooting
+
+#### Changed
+- **`CreateOrder`** — Status now `pending_customer_confirm` (was `confirmed`), shipment/debit deferred until customer confirms
+- **`ApproveOrder`** — Now transitions `pending_approval → pending_customer_confirm` (was `→ confirmed`), fires Zalo confirmation
+- **`UpdateOrder`** — Now allows editing orders in `pending_customer_confirm` status
+- **`CancelOrder`** — Now allows cancelling orders in `pending_customer_confirm` status
+- **Mock Server** — Zalo mock now logs order confirmation templates distinctly with confirm URL
+- **`start-demo.ps1`** — Migration list updated to include `009_driver_checkin`, `009_urgent_priority`, `010_order_confirmation`
+
+#### Docs Updated
+- CURRENT_STATE.md (OMS order confirmation, integration 18 endpoints, cron jobs)
+- CHANGELOG.md (this entry)
+- HUONG_DAN_CHAY_HE_THONG.md (new file)
+
+### 2026-03-20 — Session 14: Quality Infrastructure + Operational Tooling
+
+#### Added
+- **DB Slow Query Monitoring** — `pg_stat_statements` extension enabled in docker-compose.yml. Admin API: `GET /admin/slow-queries` (top N by total exec time, hit rate), `POST /admin/slow-queries/reset`. PostgreSQL also logs queries >500ms (`log_min_duration_statement=500`).
+- **Quick Start Script** — `start.ps1` (lightweight restart, skips migrations/seeds) + `START_HERE.bat` (double-click). Supports flags: `-NoFrontend`, `-NoVRP`, `-MockServer`. Auto-kills old processes on ports 8080/3000, auto-starts Docker if needed.
+- **Mock Server for External APIs** — `cmd/mock_server/main.go`. Three mock servers in one process:
+  - Bravo ERP (:9001): `POST /api/documents/delivery`, `GET /api/credit-balance`, `POST /api/payment-receipt`
+  - DMS (:9002): `POST /api/orders/sync`
+  - Zalo OA (:9003): `POST /message/template`
+  - Usage: `go run cmd/mock_server/main.go` then set `INTEGRATION_MOCK=false`
+- **Zalo configurable base URL** — `ZaloAdapter` now accepts `baseURL` param (env: `ZALO_BASE_URL`). Defaults to `https://business.openapi.zalo.me` when empty.
+- **Unit tests — OMS** (`internal/oms/service_test.go`) — 16 test cases
+- **Unit tests — TMS** (`internal/tms/service_test.go`) — 19 test cases
+- **Unit tests — WMS** (`internal/wms/service_test.go`) — 12 test cases
+- **Logging instruction files split** — `logging-tracing.instructions.md` (650 lines) replaced by 3 focused files
+
+#### Changed
+- **`docker-compose.yml`** — PostgreSQL now starts with `shared_preload_libraries=pg_stat_statements`, `pg_stat_statements.track=all`, `log_min_duration_statement=500`
+- **`internal/config/config.go`** — Added `ZaloBaseURL` field (env: `ZALO_BASE_URL`)
+- **`internal/integration/zalo.go`** — `NewZaloAdapter` now takes `baseURL` as first param
+- **`cmd/server/main.go`** — Passes `cfg.ZaloBaseURL` to `NewZaloAdapter`
+- **`internal/admin/handler.go`** — Added `/admin/slow-queries` and `/admin/slow-queries/reset` routes
+- **`internal/admin/service.go`** — Added `GetSlowQueries()` and `ResetSlowQueries()` methods
+- **All `.instructions.md` files** — Fixed `applyTo` from YAML array `[]` to string format
+
+#### Docs Updated
+- CURRENT_STATE.md (pg_stat_statements, mock server, admin 9 endpoints)
+- CHANGELOG.md (this entry)
+- TECH_DEBT.md (TD-010 status)
+
+### 2026-03-22 — Session 13: Real NPP Data Import
+
+#### Added
+- **`cmd/import_npp/main.go`** — Go script to parse BHL NPP CSV file (Latin-1 encoded) and generate SQL import. Includes `fixProvince()` function to map garbled province names to correct Vietnamese UTF-8.
+- **`migrations/import_real_npp.sql`** — Generated SQL: TRUNCATE CASCADE customers + 218 INSERT statements with real coordinates
+
+#### Changed
+- **customers table** — Replaced 800 test NPPs with 218 real BHL NPPs across 15 provinces (Quảng Ninh 40, Hải Dương 33, Hải Phòng 26, Thái Bình 22, Bắc Giang 22, Hưng Yên 16, Nam Định 15, Bắc Ninh 12, Thái Nguyên 10, Hà Nội 6, Ninh Bình 6, Lạng Sơn 5, Thanh Hóa 3, Phú Thọ 1, TP.HCM 1)
+- **All dependent tables truncated** — sales_orders, shipments, trip_stops, payments, epod, etc. cascaded from customers truncate
+
+#### Known Issues
+- NPP names and addresses have partial `?` characters due to Latin-1 encoding limitation in source CSV (characters like ả, ễ, ứ lost). Province names fixed via `fixProvince()`. Proper CSV re-export from BHL needed for clean names.
+
+#### Docs Updated
+- CURRENT_STATE.md (session 13, customers count updated to 218)
+- CHANGELOG.md (this entry)
+
+### 2026-03-21 — Session 12: Structured Logging & Tracing
+
+#### Added
+- **`pkg/logger/` package** — Logger interface, Field struct, Level enum, JSON structured logger implementation (3 files: logger.go, context.go, json_logger.go)
+- **TracingMiddleware** — `internal/middleware/tracing.go` — Reads/creates `X-Trace-ID` header, injects into context, logs every HTTP request with method/path/status/duration_ms
+- **LOG_LEVEL env var** — Configurable log level via environment variable (default: INFO)
+- **Frontend X-Trace-ID** — `apiFetch` generates UUID per request, sends as `X-Trace-ID` header, includes trace ID in error messages
+
+#### Changed
+- **All module constructors** — Every Handler, Service, Repository now accepts `logger.Logger` via constructor injection (26+ files modified)
+- **All `log.Printf` replaced** — Replaced with structured `s.log.Info/Error/Warn` calls across all internal modules (oms, tms, wms, kpi, reconciliation, notification, admin, integration, gps)
+- **main.go rewired** — All constructor calls pass `appLog`, TracingMiddleware added to Gin router, startup/shutdown use structured logger
+- **CORS updated** — Added `X-Trace-ID` to `Access-Control-Allow-Headers` and `Access-Control-Expose-Headers`
+- **JWTAuth middleware** — Injects `user_id` into logger context after token validation
+- **`.github/instructions/logging-tracing.instructions.md`** — New instruction file defining logging/tracing standards for AI coding
+
+#### Docs Updated
+- CURRENT_STATE.md (session 12, added Logging & Tracing section)
+- CHANGELOG.md (this entry)
+- CLAUDE.md (rules 7-9: Logger injection, Trace ID, I/O boundary logging)
+- coding-standards.instructions.md (3 logging checklist items added)
 
 ### 2026-03-16 — Session 11: Dashboard & Data Fixes + Driver App BRD Compliance + Doc Sync
 

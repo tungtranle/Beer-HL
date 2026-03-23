@@ -9,14 +9,16 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"bhl-oms/internal/domain"
+	"bhl-oms/pkg/logger"
 )
 
 type Repository struct {
-	db *pgxpool.Pool
+	db  *pgxpool.Pool
+	log logger.Logger
 }
 
-func NewRepository(db *pgxpool.Pool) *Repository {
-	return &Repository{db: db}
+func NewRepository(db *pgxpool.Pool, log logger.Logger) *Repository {
+	return &Repository{db: db, log: log}
 }
 
 // ── Stock ───────────────────────────────────────────
@@ -158,6 +160,50 @@ func (r *Repository) GetStockMovesByWarehouse(ctx context.Context, warehouseID u
 
 // ── Picking ─────────────────────────────────────────
 
+// NextPickNumber generates pick number like PICK-20260321-001
+func (r *Repository) NextPickNumber(ctx context.Context, dateStr string) (string, error) {
+	var seq int
+	err := r.db.QueryRow(ctx, `
+		SELECT COALESCE(MAX(CAST(SUBSTRING(pick_number FROM '.{3}$') AS INTEGER)), 0) + 1
+		FROM picking_orders WHERE pick_number LIKE 'PICK-' || $1 || '-%'
+	`, dateStr).Scan(&seq)
+	if err != nil {
+		return "", err
+	}
+	return fmt.Sprintf("PICK-%s-%03d", dateStr, seq), nil
+}
+
+// ShipmentItem represents one item from a shipment's items JSONB.
+type ShipmentItem struct {
+	ProductID uuid.UUID `json:"product_id"`
+	Quantity  int       `json:"quantity"`
+}
+
+// GetShipmentWithItems returns shipment data needed for picking order creation.
+func (r *Repository) GetShipmentWithItems(ctx context.Context, shipmentID uuid.UUID) (warehouseID, orderID uuid.UUID, items []ShipmentItem, err error) {
+	var itemsJSON json.RawMessage
+	err = r.db.QueryRow(ctx,
+		`SELECT warehouse_id, order_id, items FROM shipments WHERE id = $1`, shipmentID,
+	).Scan(&warehouseID, &orderID, &itemsJSON)
+	if err != nil {
+		return
+	}
+	err = json.Unmarshal(itemsJSON, &items)
+	return
+}
+
+// UpdateShipmentStatus updates shipment status (non-transactional).
+func (r *Repository) UpdateShipmentStatus(ctx context.Context, shipmentID uuid.UUID, status string) error {
+	_, err := r.db.Exec(ctx, `UPDATE shipments SET status = $2, updated_at = now() WHERE id = $1`, shipmentID, status)
+	return err
+}
+
+// UpdateOrderStatus updates order status (non-transactional).
+func (r *Repository) UpdateOrderStatus(ctx context.Context, orderID uuid.UUID, status string) error {
+	_, err := r.db.Exec(ctx, `UPDATE sales_orders SET status = $2, updated_at = now() WHERE id = $1`, orderID, status)
+	return err
+}
+
 func (r *Repository) CreatePickingOrder(ctx context.Context, po domain.PickingOrder) (uuid.UUID, error) {
 	var id uuid.UUID
 	err := r.db.QueryRow(ctx,
@@ -166,6 +212,38 @@ func (r *Repository) CreatePickingOrder(ctx context.Context, po domain.PickingOr
 		po.PickNumber, po.ShipmentID, po.WarehouseID, po.Status, po.Items, po.AssignedTo,
 	).Scan(&id)
 	return id, err
+}
+
+func (r *Repository) GetAllPickingOrders(ctx context.Context, status string) ([]domain.PickingOrder, error) {
+	query := `SELECT id, pick_number, shipment_id, warehouse_id, status, items, assigned_to, started_at, completed_at, created_at, updated_at
+		FROM picking_orders WHERE 1=1`
+	args := []interface{}{}
+
+	if status != "" {
+		query += " AND status = $1"
+		args = append(args, status)
+	}
+	query += " ORDER BY created_at DESC LIMIT 100"
+
+	rows, err := r.db.Query(ctx, query, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var orders []domain.PickingOrder
+	for rows.Next() {
+		var po domain.PickingOrder
+		if err := rows.Scan(
+			&po.ID, &po.PickNumber, &po.ShipmentID, &po.WarehouseID,
+			&po.Status, &po.Items, &po.AssignedTo,
+			&po.StartedAt, &po.CompletedAt, &po.CreatedAt, &po.UpdatedAt,
+		); err != nil {
+			return nil, err
+		}
+		orders = append(orders, po)
+	}
+	return orders, nil
 }
 
 func (r *Repository) GetPickingOrders(ctx context.Context, warehouseID uuid.UUID, status string) ([]domain.PickingOrder, error) {

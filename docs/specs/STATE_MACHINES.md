@@ -24,13 +24,24 @@
    ┌─────────┐                       ┌─────────────────┐
    │  DRAFT  │                       │ PENDING_APPROVAL│ ◄── Kế toán nhận alert
    └────┬────┘                       └────────┬────────┘
-        │ Auto confirm                         │         │
-        │ (ATP OK + credit OK)            Duyệt │    Từ chối │
+        │ ATP OK + credit OK                   │         │
+        │                                 Duyệt │    Từ chối │
         ▼                                    ▼         ▼
-   ┌───────────┐                      ┌──────────┐ ┌──────────┐
-   │ CONFIRMED │◄─────────────────────┤ CONFIRMED│ │CANCELLED │
-   └─────┬─────┘                      └──────────┘ └──────────┘
-         │
+   ┌──────────────────────────┐       ┌──────────────────────────┐  ┌──────────┐
+   │ PENDING_CUSTOMER_CONFIRM │       │ PENDING_CUSTOMER_CONFIRM │  │CANCELLED │
+   └───────────┬──────────────┘       └───────────┬──────────────┘  └──────────┘
+               │                                  │
+        ┌──────┴──────┐                    ┌──────┴──────┐
+        │             │                    │             │
+   NPP xác nhận  NPP từ chối         NPP xác nhận  NPP từ chối
+   hoặc 2h auto      │               hoặc 2h auto      │
+        │             │                    │             │
+        ▼             ▼                    ▼             ▼
+   ┌───────────┐ ┌──────────┐       ┌───────────┐ ┌──────────┐
+   │ CONFIRMED │ │CANCELLED │       │ CONFIRMED │ │CANCELLED │
+   └─────┬─────┘ └──────────┘       └───────────┘ └──────────┘
+         │                               │
+         ◄───────────────────────────────┘
          │ [Dispatcher lập KH + VRP approve]
          ▼
    ┌──────────┐
@@ -64,9 +75,13 @@
 │ PARTIAL_DELIVERED│
 └──────────────────┘
 
-[Hủy đơn] → CANCELLED (từ: draft, pending_approval, confirmed, planned)
+[Hủy đơn] → CANCELLED (từ: draft, pending_approval, pending_customer_confirm, confirmed, planned)
 [Từ chối delivery] → REJECTED (từ: in_transit — NPP từ chối nhận hàng)
 [Credit công nợ] → ON_CREDIT (giao nhưng chưa thu tiền, ghi nợ)
+
+> LƯU Ý: Đơn đi qua 2 lần xác nhận Zalo với NPP:
+> 1. Xác nhận ĐẶT HÀNG (pending_customer_confirm → confirmed/cancelled, timeout 2h)
+> 2. Xác nhận NHẬN HÀNG (delivered → Zalo 24h silent consent)
 ```
 
 ### Transition Table — Chi tiết
@@ -74,10 +89,12 @@
 | From | To | Actor | Điều kiện | Side Effects |
 |------|----|-------|-----------|--------------|
 | *(new)* | `draft` | dvkh | Điền đủ thông tin bắt buộc | Tạo order_number, reserve ATP |
-| `draft` | `confirmed` | system | ATP đủ AND credit không vượt | Trừ ATP, tạo shipment |
+| `draft` | `pending_customer_confirm` | system | ATP đủ AND credit không vượt | Gửi Zalo ZNS cho NPP kèm link xác nhận đơn (token 2h) |
 | `draft` | `pending_approval` | system | Credit vượt hạn mức | Trừ ATP, NOT tạo shipment, notify accountant |
-| `pending_approval` | `confirmed` | accountant | Kế toán duyệt | Tạo shipment, record approval_log |
+| `pending_approval` | `pending_customer_confirm` | accountant | Kế toán duyệt | Gửi Zalo ZNS cho NPP kèm link xác nhận đơn (token 2h) |
 | `pending_approval` | `cancelled` | accountant | Kế toán từ chối | Restore ATP, clear credit reserve |
+| `pending_customer_confirm` | `confirmed` | customer/system | NPP bấm "Xác nhận" hoặc 2h auto-confirm | Tạo shipment, ghi nợ |
+| `pending_customer_confirm` | `cancelled` | customer | NPP bấm "Từ chối" | Restore ATP, notify DVKH |
 | `confirmed` | `planned` | system | VRP plan approved + shipment assigned to trip | — |
 | `confirmed` | `cancelled` | dvkh, admin | Trước khi planned | Restore ATP, restore credit reserve |
 | `planned` | `picking` | warehouse | WMS tạo picking task | — |
@@ -98,9 +115,10 @@
 type OrderStatus string
 
 const (
-    OrderStatusDraft           OrderStatus = "draft"
-    OrderStatusPendingApproval OrderStatus = "pending_approval"
-    OrderStatusConfirmed       OrderStatus = "confirmed"
+    OrderStatusDraft                  OrderStatus = "draft"
+    OrderStatusPendingApproval        OrderStatus = "pending_approval"
+    OrderStatusPendingCustomerConfirm OrderStatus = "pending_customer_confirm"
+    OrderStatusConfirmed              OrderStatus = "confirmed"
     OrderStatusPlanned         OrderStatus = "planned"
     OrderStatusPicking         OrderStatus = "picking"
     OrderStatusLoaded          OrderStatus = "loaded"
@@ -114,9 +132,10 @@ const (
 )
 
 var AllowedOrderTransitions = map[OrderStatus][]OrderStatus{
-    OrderStatusDraft:           {OrderStatusConfirmed, OrderStatusPendingApproval, OrderStatusCancelled},
-    OrderStatusPendingApproval: {OrderStatusConfirmed, OrderStatusCancelled},
-    OrderStatusConfirmed:       {OrderStatusPlanned, OrderStatusCancelled},
+    OrderStatusDraft:                  {OrderStatusPendingCustomerConfirm, OrderStatusPendingApproval, OrderStatusCancelled},
+    OrderStatusPendingApproval:        {OrderStatusPendingCustomerConfirm, OrderStatusCancelled},
+    OrderStatusPendingCustomerConfirm: {OrderStatusConfirmed, OrderStatusCancelled},
+    OrderStatusConfirmed:              {OrderStatusPlanned, OrderStatusCancelled},
     OrderStatusPlanned:         {OrderStatusPicking},
     OrderStatusPicking:         {OrderStatusLoaded},
     OrderStatusLoaded:          {OrderStatusInTransit},

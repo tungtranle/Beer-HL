@@ -4,7 +4,9 @@ import { useEffect, useState } from 'react'
 import { useParams, useRouter } from 'next/navigation'
 import Link from 'next/link'
 import { apiFetch, getUser } from '@/lib/api'
+import { toast } from '@/lib/useToast'
 import { useGpsTracker } from '@/lib/useGpsTracker'
+import { useOnlineStatus } from '@/lib/useOnlineStatus'
 
 interface Stop {
   id: string
@@ -33,6 +35,11 @@ interface EPODData {
   total_amount: number
   deposit_amount: number
   notes: string | null
+  photo_urls: string[] | null
+  signature_url: string | null
+  reject_reason: string | null
+  reject_detail: string | null
+  reject_photos: string[] | null
   created_at: string
 }
 
@@ -54,7 +61,7 @@ interface ReturnData {
   notes: string | null
 }
 
-type ModalType = 'epod' | 'payment' | 'returns' | 'checklist' | 'incident' | 'trip_summary' | 'post_checklist' | null
+type ModalType = 'epod' | 'payment' | 'returns' | 'checklist' | 'incident' | 'trip_summary' | 'post_checklist' | 'reject' | 'reject_confirm' | null
 
 interface Checklist {
   id: string
@@ -142,6 +149,7 @@ export default function DriverTripDetailPage() {
 
   // Start GPS tracking for driver
   useGpsTracker()
+  const isOnline = useOnlineStatus()
 
   // Modal state
   const [activeModal, setActiveModal] = useState<ModalType>(null)
@@ -161,7 +169,7 @@ export default function DriverTripDetailPage() {
   const [paymentRef, setPaymentRef] = useState('')
 
   // Returns form state
-  const [returnItems, setReturnItems] = useState<{ asset_type: string; quantity: number; condition: string; notes: string }[]>([])
+  const [returnItems, setReturnItems] = useState<{ asset_type: string; quantity: number; condition: string; notes: string; photo: string }[]>([])
   const [existingReturns, setExistingReturns] = useState<ReturnData[]>([])
 
   // Checklist form state
@@ -175,9 +183,17 @@ export default function DriverTripDetailPage() {
   // Incident form state
   const [incidentType, setIncidentType] = useState<string>('address_wrong')
   const [incidentDesc, setIncidentDesc] = useState('')
+  const [incidentPhotos, setIncidentPhotos] = useState<string[]>([])
 
   // ePOD photo state (base64 previews)
   const [epodPhotos, setEpodPhotos] = useState<string[]>([])
+
+  // NPP Rejection form state
+  const [rejectReason, setRejectReason] = useState<string>('wrong_product')
+  const [rejectDetail, setRejectDetail] = useState('')
+  const [rejectPhotos, setRejectPhotos] = useState<string[]>([])
+  // Payment/Returns display state for ePOD view
+  const [existingPayments, setExistingPayments] = useState<PaymentData[]>([])
 
   // Post-trip checklist state (US-TMS-18)
   const [postChecklist, setPostChecklist] = useState({
@@ -210,7 +226,9 @@ export default function DriverTripDetailPage() {
     try {
       await apiFetch(`/driver/trips/${tripId}/complete`, { method: 'PUT' })
       await loadTrip()
-    } catch (err) { console.error(err) }
+    } catch (err: any) {
+      toast.error(err?.message || 'Không thể hoàn thành chuyến xe. Vui lòng thử lại.')
+    }
     finally { setActionLoading(false) }
   }
 
@@ -248,6 +266,27 @@ export default function DriverTripDetailPage() {
       await loadTrip()
     } catch (err) { console.error(err) }
     finally { setActionLoading(false) }
+  }
+
+  // --- Multi-stop navigation ---
+  const buildNavUrl = (currentStop: Stop): string => {
+    if (!trip) return '#'
+    const sorted = [...trip.stops].sort((a, b) => a.stop_order - b.stop_order)
+    const remaining = sorted.filter(
+      s => s.stop_order >= currentStop.stop_order && (s.status === 'pending' || s.status === 'arrived')
+    ).filter(s => s.latitude && s.longitude)
+    if (remaining.length === 0) {
+      return currentStop.latitude && currentStop.longitude
+        ? `https://www.google.com/maps/dir/?api=1&destination=${currentStop.latitude},${currentStop.longitude}`
+        : `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(currentStop.customer_address)}`
+    }
+    const dest = remaining[remaining.length - 1]
+    const waypoints = remaining.slice(0, -1)
+    let url = `https://www.google.com/maps/dir/?api=1&destination=${dest.latitude},${dest.longitude}`
+    if (waypoints.length > 0) {
+      url += `&waypoints=${waypoints.map(s => `${s.latitude},${s.longitude}`).join('|')}`
+    }
+    return url
   }
 
   // --- Incident ---
@@ -303,6 +342,20 @@ export default function DriverTripDetailPage() {
       if (res.data) setExistingEpod(res.data)
     } catch { /* no existing epod */ }
 
+    // Fetch existing payments for this stop
+    try {
+      const res: any = await apiFetch(`/driver/trips/${tripId}/stops/${stop.id}/payments`)
+      if (res.data?.length) setExistingPayments(res.data)
+      else setExistingPayments([])
+    } catch { setExistingPayments([]) }
+
+    // Fetch returns for ePOD view
+    try {
+      const res: any = await apiFetch(`/driver/trips/${tripId}/stops/${stop.id}/returns`)
+      if (res.data?.length) setExistingReturns(res.data)
+      else setExistingReturns([])
+    } catch { setExistingReturns([]) }
+
     setActiveModal('epod')
   }
 
@@ -317,6 +370,7 @@ export default function DriverTripDetailPage() {
           delivered_items: epodItems,
           receiver_name: epodReceiverName,
           receiver_phone: epodReceiverPhone,
+          photo_urls: epodPhotos,
           notes: epodNotes || undefined,
         },
       })
@@ -356,7 +410,7 @@ export default function DriverTripDetailPage() {
   // --- Returns ---
   const openReturnsModal = async (stop: Stop) => {
     setSelectedStop(stop)
-    setReturnItems([{ asset_type: 'crate', quantity: 0, condition: 'good', notes: '' }])
+    setReturnItems([{ asset_type: 'crate', quantity: 0, condition: 'good', notes: '', photo: '' }])
     setExistingReturns([])
 
     try {
@@ -371,11 +425,14 @@ export default function DriverTripDetailPage() {
     if (!selectedStop) return
     const validItems = returnItems.filter(i => i.quantity > 0)
     if (!validItems.length) return
+    // Block if damaged/lost items have no photo
+    const missingPhoto = validItems.some(i => (i.condition === 'damaged' || i.condition === 'lost') && !i.photo)
+    if (missingPhoto) { toast.warning('Vui lòng chụp ảnh cho các mục hư hỏng/mất'); return }
     setActionLoading(true)
     try {
       await apiFetch(`/driver/trips/${tripId}/stops/${selectedStop.id}/returns`, {
         method: 'POST',
-        body: { items: validItems },
+        body: { items: validItems.map(i => ({ ...i, photo_url: i.photo || undefined })) },
       })
       setActiveModal(null)
       await loadTrip()
@@ -384,15 +441,63 @@ export default function DriverTripDetailPage() {
   }
 
   const addReturnItem = () => {
-    setReturnItems([...returnItems, { asset_type: 'crate', quantity: 0, condition: 'good', notes: '' }])
+    setReturnItems([...returnItems, { asset_type: 'crate', quantity: 0, condition: 'good', notes: '', photo: '' }])
   }
 
   const removeReturnItem = (idx: number) => {
     setReturnItems(returnItems.filter((_, i) => i !== idx))
   }
 
+  // --- NPP Rejection ---
+  const rejectReasonLabels: Record<string, string> = {
+    wrong_product: 'Sai sản phẩm',
+    quality_issue: 'Hàng lỗi/hết hạn',
+    wrong_quantity: 'Sai số lượng',
+    not_ordered: 'Không đặt hàng',
+    closed: 'NPP đóng cửa/không có người nhận',
+    other: 'Khác',
+  }
+
+  const openRejectModal = (stop: Stop) => {
+    setSelectedStop(stop)
+    setRejectReason('wrong_product')
+    setRejectDetail('')
+    setRejectPhotos([])
+    setActiveModal('reject')
+  }
+
+  const handleConfirmReject = async () => {
+    if (!selectedStop) return
+    if (rejectReason === 'other' && !rejectDetail.trim()) return
+    if (rejectPhotos.length === 0) return
+    setActionLoading(true)
+    try {
+      await apiFetch(`/driver/trips/${tripId}/stops/${selectedStop.id}/epod`, {
+        method: 'POST',
+        body: {
+          delivery_status: 'rejected',
+          delivered_items: selectedStop.order_items?.map(item => ({
+            product_id: item.product_id,
+            product_name: item.product_name,
+            ordered_qty: item.quantity,
+            delivered_qty: 0,
+            reason: rejectReasonLabels[rejectReason] || rejectReason,
+          })) || [],
+          reject_reason: rejectReason,
+          reject_detail: rejectDetail || undefined,
+          reject_photos: rejectPhotos,
+          photo_urls: rejectPhotos,
+          notes: `NPP từ chối: ${rejectReasonLabels[rejectReason]}${rejectDetail ? ' — ' + rejectDetail : ''}`,
+        },
+      })
+      setActiveModal(null)
+      await loadTrip()
+    } catch (err) { console.error(err) }
+    finally { setActionLoading(false) }
+  }
+
   if (loading) {
-    return <div className="flex justify-center items-center min-h-screen"><div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600"></div></div>
+    return <div className="flex justify-center items-center min-h-screen"><div className="animate-spin rounded-full h-12 w-12 border-b-2 border-brand-500"></div></div>
   }
 
   if (!trip) {
@@ -401,6 +506,13 @@ export default function DriverTripDetailPage() {
 
   return (
     <div className="max-w-2xl mx-auto p-4 space-y-4">
+      {/* Offline Banner */}
+      {!isOnline && (
+        <div className="bg-red-500 text-white text-center text-sm py-2 rounded-lg sticky top-0 z-50">
+          📡 Bạn đang offline — dữ liệu sẽ tự đồng bộ khi có mạng
+        </div>
+      )}
+
       {/* Header */}
       <div className="flex items-center gap-3">
         <Link href="/dashboard/driver" className="text-2xl">←</Link>
@@ -416,7 +528,7 @@ export default function DriverTripDetailPage() {
       {/* Trip Summary */}
       <div className="grid grid-cols-4 gap-2 text-center">
         <div className="bg-white rounded-lg p-3 shadow-sm">
-          <div className="text-lg font-bold text-blue-600">{trip.total_stops}</div>
+          <div className="text-lg font-bold text-brand-500">{trip.total_stops}</div>
           <div className="text-xs text-gray-500">Điểm giao</div>
         </div>
         <div className="bg-white rounded-lg p-3 shadow-sm">
@@ -465,7 +577,7 @@ export default function DriverTripDetailPage() {
             setPostChecklist({ vehicle_clean: false, vehicle_no_damage: false, fuel_noted: false, cash_ready: false, returns_collected: false, keys_ready: false })
             setActiveModal('post_checklist')
           }} disabled={actionLoading}
-            className="w-full bg-blue-600 text-white py-3 rounded-lg font-medium hover:bg-blue-700 disabled:opacity-50">
+            className="w-full bg-brand-500 text-white py-3 rounded-lg font-medium hover:bg-brand-600 disabled:opacity-50">
             {actionLoading ? 'Đang xử lý...' : '✅ Hoàn thành chuyến xe'}
           </button>
         </div>
@@ -480,7 +592,7 @@ export default function DriverTripDetailPage() {
               <div className="flex items-start justify-between">
                 <div className="flex-1">
                   <div className="flex items-center gap-2">
-                    <span className="w-6 h-6 rounded-full bg-blue-600 text-white text-xs flex items-center justify-center font-bold">
+                    <span className="w-7 h-7 rounded-full bg-brand-500 text-white text-xs flex items-center justify-center font-bold">
                       {stop.stop_order}
                     </span>
                     <span className="font-medium">{stop.customer_name}</span>
@@ -520,15 +632,17 @@ export default function DriverTripDetailPage() {
               )}
 
               {/* Stop Actions */}
-              {/* Navigation button for all pending/arrived stops */}
+              {/* Navigation button — multi-stop chain with remaining waypoints */}
               {trip.status === 'in_transit' && (stop.status === 'pending' || stop.status === 'arrived') && (
                 <div className="mt-2 ml-8">
-                  <a href={stop.latitude && stop.longitude
-                    ? `https://www.google.com/maps/dir/?api=1&destination=${stop.latitude},${stop.longitude}`
-                    : `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(stop.customer_address)}`}
+                  <a href={buildNavUrl(stop)}
                     target="_blank" rel="noopener noreferrer"
-                    className="inline-flex items-center gap-1 px-3 py-1.5 bg-emerald-50 text-emerald-700 text-sm rounded hover:bg-emerald-100 transition">
-                    🗺️ Chỉ đường
+                    className="inline-flex items-center gap-1 px-4 h-12 bg-emerald-50 text-emerald-700 text-sm rounded-lg hover:bg-emerald-100 transition font-medium">
+                    🗺️ Chỉ đường ({(() => {
+                      const sorted = [...trip.stops].sort((a, b) => a.stop_order - b.stop_order)
+                      const rem = sorted.filter(s => s.stop_order >= stop.stop_order && (s.status === 'pending' || s.status === 'arrived')).length
+                      return `${rem} điểm còn lại`
+                    })()})
                   </a>
                 </div>
               )}
@@ -536,7 +650,7 @@ export default function DriverTripDetailPage() {
               {trip.status === 'in_transit' && stop.status === 'pending' && (
                 <div className="mt-2 ml-8 flex gap-2">
                   <button onClick={() => handleUpdateStop(stop.id, 'arrive')} disabled={actionLoading}
-                    className="px-3 py-1.5 bg-blue-600 text-white text-sm rounded hover:bg-blue-700 disabled:opacity-50">
+                    className="px-4 h-12 bg-brand-500 text-white text-sm rounded-lg hover:bg-brand-600 disabled:opacity-50 font-medium">
                     📍 Đã đến nơi
                   </button>
                 </div>
@@ -544,11 +658,11 @@ export default function DriverTripDetailPage() {
               {trip.status === 'in_transit' && stop.status === 'arrived' && (
                 <div className="mt-2 ml-8 flex flex-wrap gap-2">
                   <button onClick={() => handleUpdateStop(stop.id, 'delivering')} disabled={actionLoading}
-                    className="px-3 py-1.5 bg-amber-600 text-white text-sm rounded hover:bg-amber-700 disabled:opacity-50">
+                    className="px-4 h-12 bg-brand-500 text-white text-sm rounded-lg hover:bg-brand-600 disabled:opacity-50 font-medium">
                     📦 Bắt đầu hạ hàng
                   </button>
                   <button onClick={() => openIncidentModal(stop)} disabled={actionLoading}
-                    className="px-3 py-1.5 bg-orange-100 text-orange-700 text-sm rounded hover:bg-orange-200 disabled:opacity-50">
+                    className="px-4 h-12 bg-orange-100 text-orange-700 text-sm rounded-lg hover:bg-orange-200 disabled:opacity-50 font-medium">
                     ⚠️ Báo sự cố
                   </button>
                 </div>
@@ -556,15 +670,15 @@ export default function DriverTripDetailPage() {
               {trip.status === 'in_transit' && stop.status === 'delivering' && (
                 <div className="mt-2 ml-8 flex flex-wrap gap-2">
                   <button onClick={() => openEpodModal(stop)} disabled={actionLoading}
-                    className="px-3 py-1.5 bg-green-600 text-white text-sm rounded hover:bg-green-700 disabled:opacity-50">
+                    className="px-4 h-14 bg-green-600 text-white text-sm rounded-lg hover:bg-green-700 disabled:opacity-50 font-medium">
                     📝 Xác nhận giao hàng (ePOD)
                   </button>
-                  <button onClick={() => handleUpdateStop(stop.id, 'fail')} disabled={actionLoading}
-                    className="px-3 py-1.5 bg-red-600 text-white text-sm rounded hover:bg-red-700 disabled:opacity-50">
+                  <button onClick={() => openRejectModal(stop)} disabled={actionLoading}
+                    className="px-4 h-12 bg-red-600 text-white text-sm rounded-lg hover:bg-red-700 disabled:opacity-50 font-medium">
                     ❌ NPP từ chối nhận
                   </button>
                   <button onClick={() => openIncidentModal(stop)} disabled={actionLoading}
-                    className="px-3 py-1.5 bg-orange-100 text-orange-700 text-sm rounded hover:bg-orange-200 disabled:opacity-50">
+                    className="px-4 h-12 bg-orange-100 text-orange-700 text-sm rounded-lg hover:bg-orange-200 disabled:opacity-50 font-medium">
                     ⚠️ Sự cố
                   </button>
                 </div>
@@ -572,15 +686,15 @@ export default function DriverTripDetailPage() {
               {trip.status === 'in_transit' && (stop.status === 'delivered' || stop.status === 'partially_delivered') && (
                 <div className="mt-2 ml-8 flex flex-wrap gap-2">
                   <button onClick={() => openPaymentModal(stop)} disabled={actionLoading}
-                    className="px-3 py-1.5 bg-yellow-600 text-white text-sm rounded hover:bg-yellow-700 disabled:opacity-50">
+                    className="px-4 h-12 bg-yellow-600 text-white text-sm rounded-lg hover:bg-yellow-700 disabled:opacity-50 font-medium">
                     💰 Thu tiền
                   </button>
                   <button onClick={() => openReturnsModal(stop)} disabled={actionLoading}
-                    className="px-3 py-1.5 bg-purple-600 text-white text-sm rounded hover:bg-purple-700 disabled:opacity-50">
+                    className="px-4 h-12 bg-purple-600 text-white text-sm rounded-lg hover:bg-purple-700 disabled:opacity-50 font-medium">
                     📦 Thu hồi vỏ
                   </button>
                   <button onClick={() => openEpodModal(stop)} disabled={actionLoading}
-                    className="px-3 py-1.5 bg-gray-200 text-gray-700 text-sm rounded hover:bg-gray-300 disabled:opacity-50">
+                    className="px-4 h-12 bg-gray-200 text-gray-700 text-sm rounded-lg hover:bg-gray-300 disabled:opacity-50 font-medium">
                     👁 Xem biên bản
                   </button>
                 </div>
@@ -630,8 +744,23 @@ export default function DriverTripDetailPage() {
             </p>
 
             {existingEpod ? (
-              /* View existing ePOD */
+              /* ===== BIÊN BẢN GIAO HÀNG (Delivery Receipt) ===== */
               <div className="space-y-3">
+                {/* Header biên bản */}
+                <div className="bg-gray-50 border rounded-lg p-3 space-y-1">
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs font-medium text-gray-500">BIÊN BẢN GIAO HÀNG</span>
+                    <span className="text-xs text-gray-400">#{selectedStop.order_number}</span>
+                  </div>
+                  <div className="grid grid-cols-2 gap-x-4 gap-y-1 text-xs text-gray-600">
+                    <div>NPP: <strong className="text-gray-900">{selectedStop.customer_name}</strong></div>
+                    <div>Ngày giao: <strong className="text-gray-900">{new Date().toLocaleDateString('vi-VN')}</strong></div>
+                    <div>Tài xế: <strong className="text-gray-900">—</strong></div>
+                    <div>Biển số: <strong className="text-gray-900">{trip?.vehicle_plate || '-'}</strong></div>
+                  </div>
+                </div>
+
+                {/* Trạng thái giao */}
                 <div className={`px-3 py-2 rounded text-sm font-medium ${
                   existingEpod.delivery_status === 'delivered' ? 'bg-green-100 text-green-700' :
                   existingEpod.delivery_status === 'partial' ? 'bg-yellow-100 text-yellow-700' :
@@ -640,18 +769,123 @@ export default function DriverTripDetailPage() {
                   {existingEpod.delivery_status === 'delivered' ? '✅ Giao đủ' :
                    existingEpod.delivery_status === 'partial' ? '⚠️ Giao một phần' : '❌ Từ chối'}
                 </div>
-                {existingEpod.delivered_items?.map((item, idx) => (
-                  <div key={idx} className="flex justify-between text-sm border-b pb-1">
-                    <span>{item.product_name}</span>
-                    <span>{item.delivered_qty}/{item.ordered_qty}</span>
+
+                {/* Rejection details */}
+                {existingEpod.delivery_status === 'rejected' && (
+                  <div className="bg-red-50 border border-red-200 rounded-lg p-3 space-y-2">
+                    <p className="text-sm font-medium text-red-700">Lý do từ chối:</p>
+                    <p className="text-sm text-red-600">{existingEpod.reject_reason && ({
+                      wrong_product: 'Sai sản phẩm', quality_issue: 'Hàng lỗi/hết hạn',
+                      wrong_quantity: 'Sai số lượng', not_ordered: 'Không đặt hàng',
+                      closed: 'NPP đóng cửa/không có người nhận', other: 'Khác',
+                    } as Record<string, string>)[existingEpod.reject_reason] || existingEpod.reject_reason}</p>
+                    {existingEpod.reject_detail && <p className="text-sm text-gray-600">Chi tiết: {existingEpod.reject_detail}</p>}
+                    {existingEpod.reject_photos && existingEpod.reject_photos.length > 0 && (
+                      <div className="flex gap-2 flex-wrap">
+                        {existingEpod.reject_photos.map((photo, idx) => (
+                          <img key={idx} src={photo} alt={`Từ chối ${idx + 1}`} className="w-20 h-20 object-cover rounded border border-red-300" />
+                        ))}
+                      </div>
+                    )}
                   </div>
-                ))}
-                <div className="text-sm space-y-1">
-                  <div>Người nhận: <strong>{existingEpod.receiver_name}</strong></div>
-                  <div>SĐT: {existingEpod.receiver_phone}</div>
-                  <div>Tổng tiền: <strong>{existingEpod.total_amount?.toLocaleString('vi-VN')}đ</strong></div>
-                  {existingEpod.notes && <div>Ghi chú: {existingEpod.notes}</div>}
+                )}
+
+                {/* Chi tiết sản phẩm - dạng bảng */}
+                <div className="border rounded-lg overflow-hidden">
+                  <table className="w-full text-xs">
+                    <thead className="bg-gray-50">
+                      <tr>
+                        <th className="text-left py-2 px-2">Sản phẩm</th>
+                        <th className="text-right py-2 px-2 w-16">Đặt</th>
+                        <th className="text-right py-2 px-2 w-16">Giao</th>
+                        <th className="text-right py-2 px-2 w-16">Lệch</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y">
+                      {existingEpod.delivered_items?.map((item, idx) => {
+                        const diff = item.delivered_qty - item.ordered_qty
+                        return (
+                          <tr key={idx}>
+                            <td className="py-1.5 px-2">{item.product_name}</td>
+                            <td className="py-1.5 px-2 text-right">{item.ordered_qty}</td>
+                            <td className="py-1.5 px-2 text-right font-medium">{item.delivered_qty}</td>
+                            <td className={`py-1.5 px-2 text-right font-medium ${diff < 0 ? 'text-red-600' : diff > 0 ? 'text-blue-600' : 'text-green-600'}`}>
+                              {diff === 0 ? '✓' : diff > 0 ? `+${diff}` : diff}
+                            </td>
+                          </tr>
+                        )
+                      })}
+                    </tbody>
+                    <tfoot className="bg-gray-50 font-medium">
+                      <tr>
+                        <td className="py-1.5 px-2">Tổng</td>
+                        <td className="py-1.5 px-2 text-right">{existingEpod.delivered_items?.reduce((s, i) => s + i.ordered_qty, 0)}</td>
+                        <td className="py-1.5 px-2 text-right">{existingEpod.delivered_items?.reduce((s, i) => s + i.delivered_qty, 0)}</td>
+                        <td className="py-1.5 px-2 text-right">
+                          {(() => {
+                            const d = (existingEpod.delivered_items?.reduce((s, i) => s + i.delivered_qty, 0) || 0)
+                              - (existingEpod.delivered_items?.reduce((s, i) => s + i.ordered_qty, 0) || 0)
+                            return d === 0 ? '✓' : d
+                          })()}
+                        </td>
+                      </tr>
+                    </tfoot>
+                  </table>
                 </div>
+
+                {/* Thông tin người nhận + thanh toán */}
+                <div className="bg-gray-50 rounded-lg p-3 space-y-1.5">
+                  <div className="text-sm"><span className="text-gray-500">Người nhận:</span> <strong>{existingEpod.receiver_name}</strong></div>
+                  <div className="text-sm"><span className="text-gray-500">SĐT:</span> {existingEpod.receiver_phone}</div>
+                  <div className="text-sm"><span className="text-gray-500">Tổng tiền:</span> <strong className="text-[#F68634]">{existingEpod.total_amount?.toLocaleString('vi-VN')} ₫</strong></div>
+                  {existingEpod.notes && <div className="text-sm"><span className="text-gray-500">Ghi chú:</span> {existingEpod.notes}</div>}
+                </div>
+
+                {/* Ảnh xác nhận giao hàng */}
+                {existingEpod.photo_urls && existingEpod.photo_urls.length > 0 && (
+                  <div>
+                    <p className="text-xs font-medium text-gray-500 mb-1">📷 Ảnh giao hàng ({existingEpod.photo_urls.length})</p>
+                    <div className="flex gap-2 flex-wrap">
+                      {existingEpod.photo_urls.map((photo: string, idx: number) => (
+                        <img key={idx} src={photo} alt={`ePOD ${idx + 1}`} className="w-20 h-20 object-cover rounded border" />
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {/* Chữ ký */}
+                {existingEpod.signature_url && (
+                  <div>
+                    <p className="text-xs font-medium text-gray-500 mb-1">✍️ Chữ ký người nhận</p>
+                    <img src={existingEpod.signature_url} alt="Chữ ký" className="h-16 border rounded" />
+                  </div>
+                )}
+
+                {/* Payment info */}
+                {existingPayments.length > 0 && (
+                  <div className="bg-green-50 border border-green-200 rounded-lg p-3">
+                    <h3 className="text-sm font-medium text-green-700 mb-2">💰 Thông tin thu tiền</h3>
+                    {existingPayments.map((p, idx) => (
+                      <div key={idx} className="flex justify-between text-sm">
+                        <span>{{cash: 'Tiền mặt', transfer: 'Chuyển khoản', credit: 'Công nợ', cod: 'COD', partial: 'Thu một phần'}[p.payment_method] || p.payment_method}</span>
+                        <span className="font-medium">{p.amount?.toLocaleString('vi-VN')}đ</span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+                {/* Return collection info */}
+                {existingReturns.length > 0 && (
+                  <div className="bg-purple-50 border border-purple-200 rounded-lg p-3">
+                    <h3 className="text-sm font-medium text-purple-700 mb-2">📦 Thu hồi vỏ</h3>
+                    {existingReturns.map((r, idx) => (
+                      <div key={idx} className="flex justify-between text-sm">
+                        <span>{assetTypeLabels[r.asset_type] || r.asset_type} ({conditionLabels[r.condition] || r.condition})</span>
+                        <span className="font-medium">×{r.quantity}</span>
+                      </div>
+                    ))}
+                  </div>
+                )}
               </div>
             ) : (
               /* ePOD submission form */
@@ -663,7 +897,7 @@ export default function DriverTripDetailPage() {
                     {(['delivered', 'partial', 'rejected'] as const).map(s => (
                       <button key={s} onClick={() => setEpodDeliveryStatus(s)}
                         className={`px-3 py-1.5 text-sm rounded ${
-                          epodDeliveryStatus === s ? 'bg-blue-600 text-white' : 'bg-gray-100 text-gray-700'
+                          epodDeliveryStatus === s ? 'bg-brand-500 text-white' : 'bg-gray-100 text-gray-700'
                         }`}>
                         {s === 'delivered' ? 'Giao đủ' : s === 'partial' ? 'Giao một phần' : 'Từ chối'}
                       </button>
@@ -684,7 +918,7 @@ export default function DriverTripDetailPage() {
                         <div className="flex items-center gap-2 mt-1">
                           <label className="text-xs text-gray-500">Giao:</label>
                           <input type="number" min={0} max={item.ordered_qty}
-                            value={item.delivered_qty}
+                            value={item.delivered_qty || ''}
                             onChange={e => {
                               const updated = [...epodItems]
                               updated[idx].delivered_qty = parseInt(e.target.value) || 0
@@ -760,7 +994,7 @@ export default function DriverTripDetailPage() {
                 </div>
 
                 <button onClick={handleSubmitEpod} disabled={actionLoading || !epodReceiverName || epodPhotos.length === 0}
-                  className="w-full py-2.5 bg-green-600 text-white rounded-lg font-medium hover:bg-green-700 disabled:opacity-50">
+                  className="w-full h-14 bg-green-600 text-white rounded-lg font-medium hover:bg-green-700 disabled:opacity-50">
                   {actionLoading ? 'Đang gửi...' : '✅ Xác nhận giao hàng'}
                 </button>
                 {epodPhotos.length === 0 && (
@@ -797,7 +1031,7 @@ export default function DriverTripDetailPage() {
                   ] as const).map(m => (
                     <button key={m.v} onClick={() => setPaymentMethod(m.v as typeof paymentMethod)}
                       className={`px-3 py-2 text-sm rounded-lg border transition ${
-                        paymentMethod === m.v ? 'bg-blue-600 text-white border-blue-600' : 'bg-white text-gray-700 border-gray-200 hover:border-blue-300'
+                        paymentMethod === m.v ? 'bg-brand-500 text-white border-brand-500' : 'bg-white text-gray-700 border-gray-200 hover:border-brand-300'
                       }`}>
                       {m.l}
                     </button>
@@ -809,7 +1043,7 @@ export default function DriverTripDetailPage() {
               {paymentMethod !== 'credit' && (
                 <div>
                   <label className="text-sm font-medium text-gray-700">Số tiền thu</label>
-                  <input type="number" value={paymentAmount}
+                  <input type="number" value={paymentAmount || ''}
                     onChange={e => setPaymentAmount(parseFloat(e.target.value) || 0)}
                     className="w-full mt-1 px-3 py-2 border rounded-lg text-lg font-bold" />
                   <p className="text-xs text-gray-400 mt-1">
@@ -838,7 +1072,7 @@ export default function DriverTripDetailPage() {
 
               <button onClick={handleSubmitPayment}
                 disabled={actionLoading || (paymentMethod !== 'credit' && paymentAmount <= 0)}
-                className="w-full py-2.5 bg-yellow-600 text-white rounded-lg font-medium hover:bg-yellow-700 disabled:opacity-50">
+                className="w-full h-12 bg-yellow-600 text-white rounded-lg font-medium hover:bg-yellow-700 disabled:opacity-50">
                 {actionLoading ? 'Đang gửi...' : paymentMethod === 'credit' ? '📝 Xác nhận ghi nợ' : '💰 Xác nhận thu tiền'}
               </button>
             </div>
@@ -899,7 +1133,7 @@ export default function DriverTripDetailPage() {
                     </div>
                     <div>
                       <label className="text-xs text-gray-500">Số lượng</label>
-                      <input type="number" min={0} value={item.quantity}
+                      <input type="number" min={0} value={item.quantity || ''}
                         onChange={e => {
                           const updated = [...returnItems]
                           updated[idx].quantity = parseInt(e.target.value) || 0
@@ -918,7 +1152,7 @@ export default function DriverTripDetailPage() {
                           setReturnItems(updated)
                         }}
                           className={`px-2 py-1 text-xs rounded ${
-                            item.condition === c ? 'bg-blue-600 text-white' : 'bg-gray-200 text-gray-700'
+                            item.condition === c ? 'bg-brand-500 text-white' : 'bg-gray-200 text-gray-700'
                           }`}>
                           {conditionLabels[c]}
                         </button>
@@ -929,10 +1163,31 @@ export default function DriverTripDetailPage() {
                   {(item.condition === 'damaged' || item.condition === 'lost') && (
                     <div className="mt-1">
                       <label className="text-xs text-red-500 font-medium">📷 Ảnh bắt buộc (hư hỏng/mất)</label>
-                      <label className="mt-1 block w-full py-2 border-2 border-dashed border-red-300 rounded text-center text-sm text-red-500 cursor-pointer hover:border-red-400">
-                        📷 Chụp ảnh minh chứng
-                        <input type="file" accept="image/*" capture="environment" className="hidden" onChange={() => {}} />
-                      </label>
+                      {item.photo ? (
+                        <div className="relative w-20 h-20 mt-1">
+                          <img src={item.photo} alt="Minh chứng" className="w-full h-full object-cover rounded border border-red-300" />
+                          <button onClick={() => { const next = [...returnItems]; next[idx] = { ...next[idx], photo: '' }; setReturnItems(next) }}
+                            className="absolute -top-1 -right-1 w-5 h-5 bg-red-500 text-white rounded-full text-xs flex items-center justify-center">×</button>
+                        </div>
+                      ) : (
+                        <label className="mt-1 block w-full py-2 border-2 border-dashed border-red-300 rounded text-center text-sm text-red-500 cursor-pointer hover:border-red-400">
+                          📷 Chụp ảnh minh chứng
+                          <input type="file" accept="image/*" capture="environment" className="hidden" onChange={e => {
+                            const file = e.target.files?.[0]
+                            if (!file) return
+                            const reader = new FileReader()
+                            reader.onload = () => {
+                              if (reader.result) {
+                                const next = [...returnItems]
+                                next[idx] = { ...next[idx], photo: reader.result as string }
+                                setReturnItems(next)
+                              }
+                            }
+                            reader.readAsDataURL(file)
+                            e.target.value = ''
+                          }} />
+                        </label>
+                      )}
                     </div>
                   )}
                 </div>
@@ -943,10 +1198,13 @@ export default function DriverTripDetailPage() {
               </button>
             </div>
 
-            <button onClick={handleSubmitReturns} disabled={actionLoading || !returnItems.some(i => i.quantity > 0)}
-              className="w-full py-2.5 bg-purple-600 text-white rounded-lg font-medium hover:bg-purple-700 disabled:opacity-50">
+            <button onClick={handleSubmitReturns} disabled={actionLoading || !returnItems.some(i => i.quantity > 0) || returnItems.some(i => i.quantity > 0 && (i.condition === 'damaged' || i.condition === 'lost') && !i.photo)}
+              className="w-full h-12 bg-purple-600 text-white rounded-lg font-medium hover:bg-purple-700 disabled:opacity-50">
               {actionLoading ? 'Đang gửi...' : '📦 Xác nhận thu hồi'}
             </button>
+            {returnItems.some(i => i.quantity > 0 && (i.condition === 'damaged' || i.condition === 'lost') && !i.photo) && (
+              <p className="text-xs text-red-500 text-center">Vui lòng chụp ảnh cho các mục hư hỏng/mất</p>
+            )}
           </div>
         </div>
       )}
@@ -994,7 +1252,7 @@ export default function DriverTripDetailPage() {
               <div className="bg-gray-50 rounded-lg px-3 py-2.5">
                 <div className="flex items-center justify-between">
                   <span className="text-sm">⛽ Mức nhiên liệu</span>
-                  <span className="text-sm font-bold text-blue-600">{checklistForm.fuel_level}%</span>
+                  <span className="text-sm font-bold text-brand-500">{checklistForm.fuel_level}%</span>
                 </div>
                 <input type="range" min={0} max={100} step={5} value={checklistForm.fuel_level}
                   onChange={e => setChecklistForm(prev => ({ ...prev, fuel_level: parseInt(e.target.value) }))}
@@ -1031,7 +1289,7 @@ export default function DriverTripDetailPage() {
               )}
 
               <button onClick={handleSubmitChecklist} disabled={actionLoading}
-                className="w-full py-2.5 bg-purple-600 text-white rounded-lg font-medium hover:bg-purple-700 disabled:opacity-50">
+                className="w-full h-12 bg-purple-600 text-white rounded-lg font-medium hover:bg-purple-700 disabled:opacity-50">
                 {actionLoading ? 'Đang gửi...' : '📋 Gửi kiểm tra xe'}
               </button>
             </div>
@@ -1084,14 +1342,31 @@ export default function DriverTripDetailPage() {
               {/* Photo evidence */}
               <div>
                 <label className="text-sm font-medium text-gray-700">📷 Ảnh minh chứng</label>
-                <label className="mt-1 block w-full py-3 border-2 border-dashed border-orange-300 rounded-lg text-center text-sm text-orange-500 cursor-pointer hover:border-orange-400">
-                  📷 Chụp ảnh hiện trường
-                  <input type="file" accept="image/*" capture="environment" className="hidden" onChange={() => {}} />
-                </label>
+                <div className="flex gap-2 flex-wrap mt-1">
+                  {incidentPhotos.map((photo, idx) => (
+                    <div key={idx} className="relative w-20 h-20">
+                      <img src={photo} alt={`Sự cố ${idx + 1}`} className="w-full h-full object-cover rounded border" />
+                      <button onClick={() => setIncidentPhotos(incidentPhotos.filter((_, i) => i !== idx))}
+                        className="absolute -top-1 -right-1 w-5 h-5 bg-red-500 text-white rounded-full text-xs flex items-center justify-center">×</button>
+                    </div>
+                  ))}
+                  <label className="w-20 h-20 border-2 border-dashed border-orange-300 rounded-lg flex flex-col items-center justify-center cursor-pointer hover:border-orange-400">
+                    <span className="text-2xl text-orange-400">📷</span>
+                    <span className="text-xs text-orange-400">Thêm ảnh</span>
+                    <input type="file" accept="image/*" capture="environment" className="hidden" onChange={e => {
+                      const file = e.target.files?.[0]
+                      if (!file) return
+                      const reader = new FileReader()
+                      reader.onload = () => { if (reader.result) setIncidentPhotos(prev => [...prev, reader.result as string]) }
+                      reader.readAsDataURL(file)
+                      e.target.value = ''
+                    }} />
+                  </label>
+                </div>
               </div>
 
               <button onClick={handleSubmitIncident} disabled={actionLoading || !incidentDesc.trim()}
-                className="w-full py-2.5 bg-orange-600 text-white rounded-lg font-medium hover:bg-orange-700 disabled:opacity-50">
+                className="w-full h-14 bg-orange-600 text-white rounded-lg font-medium hover:bg-orange-700 disabled:opacity-50">
                 {actionLoading ? 'Đang gửi...' : '⚠️ Gửi báo sự cố'}
               </button>
               <p className="text-xs text-gray-400 text-center">Điều phối viên sẽ nhận thông báo và hướng dẫn bạn</p>
@@ -1124,7 +1399,7 @@ export default function DriverTripDetailPage() {
                   <input type="checkbox"
                     checked={(postChecklist as any)[item.key]}
                     onChange={(e) => setPostChecklist(prev => ({ ...prev, [item.key]: e.target.checked }))}
-                    className="w-5 h-5 text-blue-600 rounded" />
+                    className="w-5 h-5 text-brand-500 rounded" />
                   <span className="text-sm">{item.label}</span>
                 </label>
               ))}
@@ -1133,7 +1408,7 @@ export default function DriverTripDetailPage() {
             <button
               onClick={() => { setActiveModal(null); openTripSummary() }}
               disabled={!Object.values(postChecklist).every(Boolean)}
-              className="w-full py-3 bg-blue-600 text-white rounded-lg font-bold hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed text-lg">
+              className="w-full py-3 bg-brand-500 text-white rounded-lg font-bold hover:bg-brand-600 disabled:opacity-50 disabled:cursor-not-allowed text-lg">
               {Object.values(postChecklist).every(Boolean) ? '→ Xem tổng kết chuyến xe' : '⬜ Vui lòng check hết các mục'}
             </button>
           </div>
@@ -1206,8 +1481,132 @@ export default function DriverTripDetailPage() {
               </div>
 
               <button onClick={async () => { setActiveModal(null); await handleCompleteTrip() }} disabled={actionLoading}
-                className="w-full py-3 bg-blue-600 text-white rounded-lg font-bold hover:bg-blue-700 disabled:opacity-50 text-lg">
+                className="w-full py-3 bg-brand-500 text-white rounded-lg font-bold hover:bg-brand-600 disabled:opacity-50 text-lg">
                 {actionLoading ? 'Đang xử lý...' : '✅ Xác nhận hoàn thành chuyến xe'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ==================== NPP REJECTION MODAL — Step 1 ==================== */}
+      {activeModal === 'reject' && selectedStop && (
+        <div className="fixed inset-0 bg-black/50 z-50 flex items-end justify-center">
+          <div className="bg-white w-full max-w-lg rounded-t-2xl max-h-[90vh] overflow-y-auto p-4 space-y-4">
+            <div className="flex items-center justify-between">
+              <h2 className="text-lg font-bold text-red-700">❌ NPP từ chối nhận hàng</h2>
+              <button onClick={() => setActiveModal(null)} className="text-2xl text-gray-400 hover:text-gray-600">×</button>
+            </div>
+            <p className="text-sm text-gray-500">{selectedStop.customer_name} · {selectedStop.order_number}</p>
+
+            <div className="space-y-4">
+              {/* Rejection Reason */}
+              <div>
+                <label className="text-sm font-medium text-gray-700">Lý do từ chối <span className="text-red-500">*</span></label>
+                <div className="grid grid-cols-1 gap-2 mt-1">
+                  {[
+                    { v: 'wrong_product', l: '📦 Sai sản phẩm' },
+                    { v: 'quality_issue', l: '⚠️ Hàng lỗi/hết hạn' },
+                    { v: 'wrong_quantity', l: '🔢 Sai số lượng' },
+                    { v: 'not_ordered', l: '🚫 Không đặt hàng' },
+                    { v: 'closed', l: '🔒 NPP đóng cửa/không có người nhận' },
+                    { v: 'other', l: '📋 Khác' },
+                  ].map(r => (
+                    <button key={r.v} onClick={() => setRejectReason(r.v)}
+                      className={`px-3 py-2.5 text-sm text-left rounded-lg border transition ${
+                        rejectReason === r.v ? 'bg-red-50 border-red-400 text-red-700 font-medium' : 'bg-white border-gray-200 hover:border-red-300'
+                      }`}>
+                      {r.l}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* Detail (required if "other") */}
+              <div>
+                <label className="text-sm font-medium text-gray-700">
+                  Mô tả chi tiết {rejectReason === 'other' && <span className="text-red-500">*</span>}
+                </label>
+                <textarea value={rejectDetail} onChange={e => setRejectDetail(e.target.value)}
+                  rows={3} className="w-full mt-1 px-3 py-2 border rounded-lg text-sm"
+                  placeholder={rejectReason === 'other' ? 'Bắt buộc — mô tả lý do cụ thể...' : 'Mô tả thêm (nếu có)...'} />
+              </div>
+
+              {/* Photo evidence (required, min 1) */}
+              <div>
+                <label className="text-sm font-medium text-gray-700">📷 Ảnh bằng chứng <span className="text-red-500">* (tối thiểu 1, tối đa 3)</span></label>
+                <div className="flex gap-2 flex-wrap mt-2">
+                  {rejectPhotos.map((photo, idx) => (
+                    <div key={idx} className="relative w-24 h-24">
+                      <img src={photo} alt={`Từ chối ${idx + 1}`} className="w-full h-full object-cover rounded-lg border-2 border-red-300" />
+                      <button onClick={() => setRejectPhotos(rejectPhotos.filter((_, i) => i !== idx))}
+                        className="absolute -top-2 -right-2 w-6 h-6 bg-red-500 text-white rounded-full text-xs flex items-center justify-center shadow">×</button>
+                    </div>
+                  ))}
+                  {rejectPhotos.length < 3 && (
+                    <label className="w-24 h-24 border-2 border-dashed border-red-300 rounded-lg flex flex-col items-center justify-center cursor-pointer hover:border-red-400 hover:bg-red-50 transition">
+                      <span className="text-3xl text-red-400">📷</span>
+                      <span className="text-xs text-red-400 mt-1">Chụp ảnh</span>
+                      <input type="file" accept="image/*" capture="environment" className="hidden" onChange={e => {
+                        const file = e.target.files?.[0]
+                        if (!file) return
+                        const reader = new FileReader()
+                        reader.onload = () => { if (reader.result) setRejectPhotos(prev => [...prev, reader.result as string]) }
+                        reader.readAsDataURL(file)
+                        e.target.value = ''
+                      }} />
+                    </label>
+                  )}
+                </div>
+                {rejectPhotos.length === 0 && (
+                  <p className="text-xs text-red-500 mt-1">Vui lòng chụp ít nhất 1 ảnh bằng chứng</p>
+                )}
+              </div>
+
+              <button
+                onClick={() => setActiveModal('reject_confirm')}
+                disabled={rejectPhotos.length === 0 || (rejectReason === 'other' && !rejectDetail.trim())}
+                className="w-full h-14 bg-red-600 text-white rounded-lg font-medium hover:bg-red-700 disabled:opacity-50 text-base">
+                Tiếp tục xác nhận →
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ==================== NPP REJECTION CONFIRM — Step 2 (Full-screen red) ==================== */}
+      {activeModal === 'reject_confirm' && selectedStop && (
+        <div className="fixed inset-0 bg-red-600 z-50 flex flex-col items-center justify-center p-6 text-white">
+          <div className="max-w-lg w-full space-y-6 text-center">
+            <div className="text-6xl">❌</div>
+            <h2 className="text-2xl font-bold">Xác nhận NPP từ chối nhận hàng?</h2>
+            <div className="bg-red-700/50 rounded-xl p-4 space-y-3 text-left">
+              <div className="text-lg font-medium">{selectedStop.customer_name}</div>
+              <div className="text-sm opacity-90">{selectedStop.order_number} · {selectedStop.order_amount?.toLocaleString('vi-VN')}đ</div>
+              <div className="text-sm">
+                <span className="opacity-75">Lý do:</span>{' '}
+                <span className="font-medium">{rejectReasonLabels[rejectReason] || rejectReason}</span>
+              </div>
+              {rejectDetail && (
+                <div className="text-sm">
+                  <span className="opacity-75">Chi tiết:</span> {rejectDetail}
+                </div>
+              )}
+              <div className="flex gap-2">
+                {rejectPhotos.map((photo, idx) => (
+                  <img key={idx} src={photo} alt={`Ảnh ${idx + 1}`} className="w-16 h-16 object-cover rounded border-2 border-white/50" />
+                ))}
+              </div>
+            </div>
+
+            <div className="space-y-3 pt-2">
+              <button onClick={handleConfirmReject} disabled={actionLoading}
+                className="w-full h-14 bg-white text-red-700 rounded-xl font-bold text-lg hover:bg-red-50 disabled:opacity-50">
+                {actionLoading ? 'Đang xử lý...' : '❌ Xác nhận từ chối'}
+              </button>
+              <button onClick={() => setActiveModal('reject')}
+                className="w-full h-14 border-2 border-white/50 text-white rounded-xl font-medium text-base hover:bg-red-700">
+                ← Quay lại
               </button>
             </div>
           </div>

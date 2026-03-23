@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"bhl-oms/internal/auth"
+	"bhl-oms/pkg/logger"
 	"bhl-oms/pkg/response"
 
 	"github.com/gin-gonic/gin"
@@ -17,10 +18,11 @@ type Handler struct {
 	svc     *Service
 	hub     *Hub
 	authSvc *auth.Service
+	log     logger.Logger
 }
 
-func NewHandler(svc *Service, hub *Hub, authSvc *auth.Service) *Handler {
-	return &Handler{svc: svc, hub: hub, authSvc: authSvc}
+func NewHandler(svc *Service, hub *Hub, authSvc *auth.Service, log logger.Logger) *Handler {
+	return &Handler{svc: svc, hub: hub, authSvc: authSvc, log: log}
 }
 
 func (h *Handler) RegisterRoutes(r *gin.RouterGroup) {

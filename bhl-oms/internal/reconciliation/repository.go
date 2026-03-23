@@ -6,17 +6,19 @@ import (
 	"fmt"
 
 	"bhl-oms/internal/domain"
+	"bhl-oms/pkg/logger"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 type Repository struct {
-	db *pgxpool.Pool
+	db  *pgxpool.Pool
+	log logger.Logger
 }
 
-func NewRepository(db *pgxpool.Pool) *Repository {
-	return &Repository{db: db}
+func NewRepository(db *pgxpool.Pool, log logger.Logger) *Repository {
+	return &Repository{db: db, log: log}
 }
 
 // ── Reconciliation CRUD ─────────────────────────────

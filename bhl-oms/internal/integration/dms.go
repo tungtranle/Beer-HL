@@ -6,9 +6,10 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"log"
 	"net/http"
 	"time"
+
+	"bhl-oms/pkg/logger"
 )
 
 // DMSAdapter syncs order status to the DMS system (Task 3.4)
@@ -17,14 +18,16 @@ type DMSAdapter struct {
 	apiKey     string
 	httpClient *http.Client
 	mockMode   bool
+	log        logger.Logger
 }
 
-func NewDMSAdapter(baseURL, apiKey string, mockMode bool) *DMSAdapter {
+func NewDMSAdapter(baseURL, apiKey string, mockMode bool, log logger.Logger) *DMSAdapter {
 	return &DMSAdapter{
 		baseURL:    baseURL,
 		apiKey:     apiKey,
 		httpClient: &http.Client{Timeout: 30 * time.Second},
 		mockMode:   mockMode,
+		log:        log,
 	}
 }
 
@@ -89,6 +92,6 @@ func (a *DMSAdapter) PushOrderStatus(ctx context.Context, order DMSOrderSync) (*
 		return &result, fmt.Errorf("DMS_SYNC_ERROR: %s", result.ErrorCode)
 	}
 
-	log.Printf("[DMS] Order synced: %s → %s", order.OrderNumber, result.DMSOrderID)
+	a.log.Info(ctx, "dms_order_synced", logger.F("order_number", order.OrderNumber), logger.F("dms_order_id", result.DMSOrderID))
 	return &result, nil
 }

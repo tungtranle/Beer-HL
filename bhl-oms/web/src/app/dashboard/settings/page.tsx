@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react'
 import { apiFetch, getUser } from '@/lib/api'
+import { toast } from '@/lib/useToast'
 import { useRouter } from 'next/navigation'
 
 interface UserItem {
@@ -121,13 +122,13 @@ export default function AdminSettingsPage() {
       })
       await loadData()
     } catch (err: any) {
-      alert('Lỗi: ' + err.message)
+      toast.error('Lỗi: ' + err.message)
     }
   }
 
   const handleResetPassword = async () => {
     if (!newPassword || newPassword.length < 6) {
-      alert('Mật khẩu phải có ít nhất 6 ký tự')
+      toast.warning('Mật khẩu phải có ít nhất 6 ký tự')
       return
     }
     try {
@@ -137,9 +138,9 @@ export default function AdminSettingsPage() {
       })
       setShowResetModal(false)
       setNewPassword('')
-      alert('Đặt lại mật khẩu thành công')
+      toast.success('Đặt lại mật khẩu thành công')
     } catch (err: any) {
-      alert('Lỗi: ' + err.message)
+      toast.error('Lỗi: ' + err.message)
     }
   }
 
@@ -171,11 +172,11 @@ export default function AdminSettingsPage() {
       {/* Tabs */}
       <div className="flex gap-2 mb-6">
         <button onClick={() => setTab('users')}
-          className={`px-4 py-2 rounded-lg text-sm font-medium transition ${tab === 'users' ? 'bg-amber-600 text-white' : 'bg-white text-gray-600 hover:bg-gray-100'}`}>
+          className={`px-4 py-2 rounded-lg text-sm font-medium transition ${tab === 'users' ? 'bg-brand-500 text-white' : 'bg-white text-gray-600 hover:bg-gray-100'}`}>
           👤 Người dùng ({users.length})
         </button>
         <button onClick={() => setTab('roles')}
-          className={`px-4 py-2 rounded-lg text-sm font-medium transition ${tab === 'roles' ? 'bg-amber-600 text-white' : 'bg-white text-gray-600 hover:bg-gray-100'}`}>
+          className={`px-4 py-2 rounded-lg text-sm font-medium transition ${tab === 'roles' ? 'bg-brand-500 text-white' : 'bg-white text-gray-600 hover:bg-gray-100'}`}>
           🔑 Vai trò & Phân quyền
         </button>
       </div>
@@ -342,7 +343,7 @@ export default function AdminSettingsPage() {
             </div>
             <div className="flex gap-3 mt-6">
               <button onClick={handleSave} disabled={saving}
-                className="flex-1 py-2 bg-amber-600 text-white rounded-lg hover:bg-amber-700 transition text-sm font-medium disabled:opacity-50">
+                className="flex-1 py-2 bg-brand-500 text-white rounded-lg hover:bg-brand-600 transition text-sm font-medium disabled:opacity-50">
                 {saving ? 'Đang lưu...' : 'Lưu'}
               </button>
               <button onClick={() => setShowModal(false)}
@@ -367,7 +368,7 @@ export default function AdminSettingsPage() {
             </div>
             <div className="flex gap-3 mt-4">
               <button onClick={handleResetPassword}
-                className="flex-1 py-2 bg-amber-600 text-white rounded-lg hover:bg-amber-700 transition text-sm font-medium">
+                className="flex-1 py-2 bg-brand-500 text-white rounded-lg hover:bg-brand-600 transition text-sm font-medium">
                 Xác nhận
               </button>
               <button onClick={() => setShowResetModal(false)}

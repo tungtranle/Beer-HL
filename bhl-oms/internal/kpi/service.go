@@ -4,21 +4,22 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"log"
 	"time"
 
 	"bhl-oms/internal/domain"
+	"bhl-oms/pkg/logger"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 type Repository struct {
-	db *pgxpool.Pool
+	db  *pgxpool.Pool
+	log logger.Logger
 }
 
-func NewRepository(db *pgxpool.Pool) *Repository {
-	return &Repository{db: db}
+func NewRepository(db *pgxpool.Pool, log logger.Logger) *Repository {
+	return &Repository{db: db, log: log}
 }
 
 func (r *Repository) CreateSnapshot(ctx context.Context, s *domain.DailyKPISnapshot) error {
@@ -240,10 +241,11 @@ func (r *Repository) ComputeKPI(ctx context.Context, warehouseID uuid.UUID, date
 
 type Service struct {
 	repo *Repository
+	log  logger.Logger
 }
 
-func NewService(repo *Repository) *Service {
-	return &Service{repo: repo}
+func NewService(repo *Repository, log logger.Logger) *Service {
+	return &Service{repo: repo, log: log}
 }
 
 func (s *Service) GetKPIReport(ctx context.Context, warehouseID *uuid.UUID, from, to string, limit int) ([]domain.DailyKPISnapshot, error) {
@@ -264,9 +266,160 @@ func (s *Service) GenerateSnapshot(ctx context.Context, warehouseID uuid.UUID, d
 	return snap, nil
 }
 
+// IssueItem represents an order/trip with issues.
+type IssueItem struct {
+	ID           string  `json:"id"`
+	Type         string  `json:"type"` // failed_delivery, discrepancy, late_delivery
+	OrderNumber  string  `json:"order_number"`
+	CustomerName string  `json:"customer_name"`
+	Status       string  `json:"status"`
+	Reason       string  `json:"reason"`
+	Amount       float64 `json:"amount"`
+	Date         string  `json:"date"`
+}
+
+// CancellationItem represents a cancelled or on-credit order.
+type CancellationItem struct {
+	ID           string  `json:"id"`
+	Type         string  `json:"type"` // cancelled, rejected, on_credit, pending_approval
+	OrderNumber  string  `json:"order_number"`
+	CustomerName string  `json:"customer_name"`
+	Status       string  `json:"status"`
+	Reason       string  `json:"reason"`
+	TotalAmount  float64 `json:"total_amount"`
+	CreditStatus string  `json:"credit_status"`
+	Date         string  `json:"date"`
+}
+
+// IssuesReport wraps issue items with summary counts.
+type IssuesReport struct {
+	Summary struct {
+		FailedDeliveries int `json:"failed_deliveries"`
+		Discrepancies    int `json:"discrepancies"`
+		LateDeliveries   int `json:"late_deliveries"`
+		Total            int `json:"total"`
+	} `json:"summary"`
+	Items []IssueItem `json:"items"`
+}
+
+// CancellationsReport wraps cancellation items with summary counts.
+type CancellationsReport struct {
+	Summary struct {
+		Cancelled       int     `json:"cancelled"`
+		Rejected        int     `json:"rejected"`
+		OnCredit        int     `json:"on_credit"`
+		PendingApproval int     `json:"pending_approval"`
+		TotalDebt       float64 `json:"total_debt"`
+	} `json:"summary"`
+	Items []CancellationItem `json:"items"`
+}
+
+func (s *Service) GetIssuesReport(ctx context.Context, from, to string, limit int) (*IssuesReport, error) {
+	report := &IssuesReport{}
+
+	// Failed deliveries
+	rows, err := s.repo.db.Query(ctx, `
+		SELECT so.id::text, so.order_number, COALESCE(c.name,''), so.status::text,
+			COALESCE(ts.failure_reason,'Không rõ nguyên nhân'), COALESCE(so.grand_total,0), so.delivery_date::text
+		FROM trip_stops ts
+		JOIN shipments sh ON sh.id = ts.shipment_id
+		JOIN sales_orders so ON so.id = sh.order_id
+		JOIN customers c ON c.id = so.customer_id
+		WHERE ts.status = 'failed'
+		  AND so.delivery_date::text >= $1 AND so.delivery_date::text <= $2
+		ORDER BY so.delivery_date DESC LIMIT $3
+	`, from, to, limit)
+	if err != nil {
+		return nil, fmt.Errorf("query failed deliveries: %w", err)
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var item IssueItem
+		if err := rows.Scan(&item.ID, &item.OrderNumber, &item.CustomerName, &item.Status, &item.Reason, &item.Amount, &item.Date); err != nil {
+			continue
+		}
+		item.Type = "failed_delivery"
+		report.Items = append(report.Items, item)
+		report.Summary.FailedDeliveries++
+	}
+
+	// Discrepancies
+	rows2, err := s.repo.db.Query(ctx, `
+		SELECT so.id::text, so.order_number, COALESCE(c.name,''), so.status::text,
+			COALESCE(d.discrepancy_type::text,'qty_mismatch'), COALESCE(so.grand_total,0), so.delivery_date::text
+		FROM discrepancies d
+		JOIN trips t ON t.id = d.trip_id
+		JOIN trip_stops ts ON ts.trip_id = t.id
+		JOIN shipments sh ON sh.id = ts.shipment_id
+		JOIN sales_orders so ON so.id = sh.order_id
+		JOIN customers c ON c.id = so.customer_id
+		WHERE so.delivery_date::text >= $1 AND so.delivery_date::text <= $2
+		ORDER BY so.delivery_date DESC LIMIT $3
+	`, from, to, limit)
+	if err == nil {
+		defer rows2.Close()
+		for rows2.Next() {
+			var item IssueItem
+			if err := rows2.Scan(&item.ID, &item.OrderNumber, &item.CustomerName, &item.Status, &item.Reason, &item.Amount, &item.Date); err != nil {
+				continue
+			}
+			item.Type = "discrepancy"
+			report.Items = append(report.Items, item)
+			report.Summary.Discrepancies++
+		}
+	}
+
+	report.Summary.Total = report.Summary.FailedDeliveries + report.Summary.Discrepancies + report.Summary.LateDeliveries
+	return report, nil
+}
+
+func (s *Service) GetCancellationsReport(ctx context.Context, from, to string, limit int) (*CancellationsReport, error) {
+	report := &CancellationsReport{}
+
+	rows, err := s.repo.db.Query(ctx, `
+		SELECT so.id::text, so.order_number, COALESCE(c.name,''), so.status::text,
+			COALESCE(so.notes,''), COALESCE(so.grand_total,0), COALESCE(so.credit_status::text,''),
+			so.delivery_date::text
+		FROM sales_orders so
+		JOIN customers c ON c.id = so.customer_id
+		WHERE so.status::text IN ('cancelled','rejected','on_credit','pending_approval')
+		  AND so.created_at::date >= $1::date AND so.created_at::date <= $2::date
+		ORDER BY so.created_at DESC LIMIT $3
+	`, from, to, limit)
+	if err != nil {
+		return nil, fmt.Errorf("query cancellations: %w", err)
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var item CancellationItem
+		if err := rows.Scan(&item.ID, &item.OrderNumber, &item.CustomerName, &item.Status, &item.Reason, &item.TotalAmount, &item.CreditStatus, &item.Date); err != nil {
+			continue
+		}
+		switch item.Status {
+		case "cancelled":
+			item.Type = "cancelled"
+			report.Summary.Cancelled++
+		case "rejected":
+			item.Type = "rejected"
+			report.Summary.Rejected++
+		case "on_credit":
+			item.Type = "on_credit"
+			report.Summary.OnCredit++
+			report.Summary.TotalDebt += item.TotalAmount
+		case "pending_approval":
+			item.Type = "pending_approval"
+			report.Summary.PendingApproval++
+			report.Summary.TotalDebt += item.TotalAmount
+		}
+		report.Items = append(report.Items, item)
+	}
+
+	return report, nil
+}
+
 // RunDailySnapshotCron runs at 23:50 daily, generating KPI snapshots for all warehouses.
 func (s *Service) RunDailySnapshotCron(ctx context.Context) {
-	log.Println("📊 KPI daily snapshot cron started")
+	s.log.Info(ctx, "cron_started", logger.F("cron", "kpi_daily_snapshot"))
 	for {
 		now := time.Now().In(time.FixedZone("ICT", 7*3600))
 		// Next 23:50
@@ -275,7 +428,7 @@ func (s *Service) RunDailySnapshotCron(ctx context.Context) {
 			next = next.Add(24 * time.Hour)
 		}
 		waitDuration := time.Until(next)
-		log.Printf("📊 KPI snapshot cron: next run at %s (in %s)", next.Format("2006-01-02 15:04"), waitDuration.Round(time.Minute))
+		s.log.Info(ctx, "cron_next_run", logger.F("cron", "kpi_daily_snapshot"), logger.F("next_run", next.Format("2006-01-02 15:04")), logger.F("wait", waitDuration.Round(time.Minute).String()))
 
 		select {
 		case <-ctx.Done():
@@ -286,17 +439,16 @@ func (s *Service) RunDailySnapshotCron(ctx context.Context) {
 		date := time.Now().In(time.FixedZone("ICT", 7*3600)).Format("2006-01-02")
 		warehouseIDs, err := s.repo.GetWarehouseIDs(ctx)
 		if err != nil {
-			log.Printf("❌ KPI cron: failed to get warehouses: %v", err)
+			s.log.Error(ctx, "cron_get_warehouses_failed", err, logger.F("cron", "kpi_daily_snapshot"))
 			continue
 		}
 
 		for _, whID := range warehouseIDs {
 			snap, err := s.GenerateSnapshot(ctx, whID, date)
 			if err != nil {
-				log.Printf("❌ KPI cron: snapshot failed for warehouse %s: %v", whID, err)
+				s.log.Error(ctx, "cron_snapshot_failed", err, logger.F("cron", "kpi_daily_snapshot"), logger.F("warehouse_id", whID))
 			} else {
-				log.Printf("📊 KPI snapshot: warehouse=%s date=%s orders=%d delivered=%d rate=%.1f%%",
-					whID, date, snap.TotalOrders, snap.DeliveredOrders, snap.DeliverySuccessRate)
+				s.log.Info(ctx, "kpi_snapshot_done", logger.F("warehouse_id", whID), logger.F("date", date), logger.F("total_orders", snap.TotalOrders), logger.F("delivered_orders", snap.DeliveredOrders), logger.F("delivery_rate", snap.DeliverySuccessRate))
 			}
 		}
 	}

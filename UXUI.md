@@ -25,15 +25,14 @@ Interfaces should avoid unnecessary visual complexity and prioritize **clarity a
 
 ### Mandatory UI Library
 
-All UI components must use **Ant Design (AntD)**.
-Reference: https://ant.design/components/overview/
+All UI components must use **Tailwind CSS** utility classes with **Next.js 14** (DEC-005).
 
 ### Rules
 
-1. Only use **existing Ant Design components whenever possible**.
-2. Do **NOT create custom UI elements** if an Ant Design component already exists.
-3. Prefer **composition of Ant Design components** instead of custom implementation.
-4. Follow Ant Design interaction patterns and spacing guidelines.
+1. Use **Tailwind CSS utility classes** for all styling — no separate CSS files unless for animations/keyframes.
+2. Do **NOT add Ant Design or other heavy UI frameworks** — Tailwind keeps bundle lightweight.
+3. Prefer **composition of HTML + Tailwind** instead of custom CSS.
+4. Follow consistent spacing and color token patterns via Tailwind config.
 
 ---
 
@@ -41,9 +40,9 @@ Reference: https://ant.design/components/overview/
 
 AI must follow this hierarchy when creating UI:
 
-1. Use **existing Ant Design component**
-2. Combine multiple Ant Design components
-3. Only create new UI patterns if **no Ant Design component can solve the problem**
+1. Use **Tailwind CSS utility classes** directly on HTML/JSX elements
+2. Compose smaller components with consistent Tailwind patterns
+3. Only create custom CSS (in `globals.css`) for **animations/keyframes** that Tailwind can't handle
 
 Never create new UI controls that duplicate: **dropdown, dialog, form inputs, pagination, table, or tab navigation.**
 

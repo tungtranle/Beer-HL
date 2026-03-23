@@ -149,7 +149,7 @@ export default function PDABarcodeScannerPage() {
         className={`w-full py-2.5 rounded-lg font-medium ${
           scanning
             ? 'bg-red-600 text-white hover:bg-red-700'
-            : 'bg-blue-600 text-white hover:bg-blue-700'
+            : 'bg-brand-500 text-white hover:bg-brand-600'
         }`}>
         {scanning ? '⏹ Dừng camera' : '📷 Bật camera quét'}
       </button>

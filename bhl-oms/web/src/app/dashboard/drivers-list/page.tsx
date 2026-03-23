@@ -1,7 +1,9 @@
 'use client'
 
 import { useEffect, useState } from 'react'
+import Link from 'next/link'
 import { apiFetch } from '@/lib/api'
+import { toast } from '@/lib/useToast'
 
 interface Driver {
   id: string
@@ -77,7 +79,7 @@ export default function DriversListPage() {
       setModal(null)
       load()
     } catch (e: any) {
-      alert(e.message)
+      toast.error(e.message)
     } finally {
       setSaving(false)
     }
@@ -89,7 +91,7 @@ export default function DriversListPage() {
       await apiFetch(`/drivers/${id}`, { method: 'DELETE' })
       load()
     } catch (e: any) {
-      alert(e.message)
+      toast.error(e.message)
     }
   }
 
@@ -112,9 +114,9 @@ export default function DriversListPage() {
             placeholder="Tìm theo tên, SĐT..."
             value={search}
             onChange={e => setSearch(e.target.value)}
-            className="px-4 py-2 border rounded-lg text-sm w-64 focus:ring-2 focus:ring-amber-500 focus:border-amber-500 outline-none"
+            className="px-4 py-2 border rounded-lg text-sm w-64 focus:ring-2 focus:ring-brand-500 focus:border-brand-500 outline-none"
           />
-          <button onClick={openCreate} className="px-4 py-2 bg-amber-600 text-white rounded-lg text-sm font-medium hover:bg-amber-700">
+          <button onClick={openCreate} className="px-4 py-2 bg-brand-500 text-white rounded-lg text-sm font-medium hover:bg-brand-600">
             + Thêm tài xế
           </button>
         </div>
@@ -143,7 +145,8 @@ export default function DriversListPage() {
                   </span>
                 </td>
                 <td className="px-4 py-3 text-center">
-                  <button onClick={() => openEdit(d)} className="text-blue-600 hover:underline text-xs mr-2">Sửa</button>
+                  <Link href={`/dashboard/drivers-list/${d.id}/documents`} className="text-brand-500 hover:underline text-xs mr-2">Giấy tờ</Link>
+                  <button onClick={() => openEdit(d)} className="text-brand-500 hover:underline text-xs mr-2">Sửa</button>
                   <button onClick={() => handleDelete(d.id, d.full_name)} className="text-red-600 hover:underline text-xs">Xóa</button>
                 </td>
               </tr>
@@ -184,7 +187,7 @@ export default function DriversListPage() {
             </div>
             <div className="flex justify-end gap-3 mt-6">
               <button onClick={() => setModal(null)} className="px-4 py-2 border rounded-lg text-sm">Hủy</button>
-              <button onClick={handleSave} disabled={saving} className="px-4 py-2 bg-amber-600 text-white rounded-lg text-sm font-medium hover:bg-amber-700 disabled:opacity-50">
+              <button onClick={handleSave} disabled={saving} className="px-4 py-2 bg-brand-500 text-white rounded-lg text-sm font-medium hover:bg-brand-600 disabled:opacity-50">
                 {saving ? 'Đang lưu...' : 'Lưu'}
               </button>
             </div>

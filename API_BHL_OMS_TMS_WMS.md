@@ -2,12 +2,15 @@
 
 | Thông tin | Giá trị |
 |-----------|---------|
-| Phiên bản | **v1.1** |
+| Phiên bản | **v1.2** |
+| Cập nhật | 20/03/2026 (session 18) |
 | Dựa trên | SAD v2.1, BRD v2.3, DBS v1.0 |
 | Base URL | `https://api.bhl-ops.vn/v1` |
 | Auth | Bearer JWT RS256 |
 | Content-Type | `application/json` |
 | Timezone | UTC (ISO 8601). Client convert Asia/Ho_Chi_Minh |
+
+> **⚠️ DRIFT NOTICE (v1.2):** File này được cập nhật session 18 để bổ sung các sections còn thiếu. Một số endpoint trong spec gốc chưa implement (đánh dấu `[SPEC-ONLY]`), một số endpoint mới chỉ có trong code (đánh dấu `[NEW]`). Xem CURRENT_STATE.md cho trạng thái thực tế.
 
 ---
 
@@ -28,6 +31,8 @@
 13. [KPI Endpoints](#13-kpi-endpoints)
 14. [GPS Endpoints](#14-gps-endpoints)
 15. [Error Codes](#15-error-codes)
+16. [Appendix A — Endpoints mới (Session 15-18)](#appendix-a--endpoints-mới-session-15-18-new)
+17. [Appendix B — Spec-only Endpoints (chưa implement)](#appendix-b--spec-only-endpoints-chưa-implement)
 
 ---
 
@@ -1440,6 +1445,176 @@ Auth: ?token=<jwt>
 
 ---
 
-**=== HẾT TÀI LIỆU API v1.0 ===**
+**=== HẾT TÀI LIỆU API v1.2 ===**
 
-*API Contract Specification v1.0 — 80+ endpoints, RESTful JSON, JWT RS256, đầy đủ request/response mẫu.*
+*API Contract Specification v1.2 — 140+ endpoints, RESTful JSON, JWT RS256.*
+
+---
+
+# APPENDIX A — ENDPOINTS MỚI (Session 15-18) [NEW]
+
+> Các endpoints bổ sung sau v1.0 gốc. Đã implement trong code, chưa có trong spec gốc.
+
+## A.1 Order Pending Approvals [NEW — Session 9]
+
+### GET /v1/orders/pending-approvals
+**Danh sách đơn chờ duyệt công nợ** — Enriched with credit details + order items
+
+| | |
+|-|---|
+| Roles | `admin`, `accountant`, `management` |
+
+**Response:** Array of orders with `credit_status: "exceeded"`, kèm `credit_limit`, `current_balance`, `available_limit`, `items[]`
+
+## A.2 Products CRUD [NEW — Session 1]
+
+### GET /v1/products
+### GET /v1/products/:id
+### POST /v1/products
+### PUT /v1/products/:id
+### DELETE /v1/products/:id
+**CRUD sản phẩm** — Public routes (authenticated, not admin-only like spec 9.1)
+
+| | |
+|-|---|
+| Roles | `admin`, `dispatcher`, `dvkh` |
+
+## A.3 Customers CRUD [NEW — Session 1]
+
+### GET /v1/customers
+### GET /v1/customers/:id
+### POST /v1/customers
+### PUT /v1/customers/:id
+### DELETE /v1/customers/:id
+**CRUD khách hàng** — Includes credit info in detail
+
+| | |
+|-|---|
+| Roles | `admin`, `dispatcher`, `dvkh` |
+
+## A.4 Warehouses [NEW]
+
+### GET /v1/warehouses
+**Danh sách kho** — Active warehouses with child locations
+
+## A.5 ATP Batch [NEW — Session 1]
+
+### POST /v1/atp/batch
+**Batch ATP check** — Up to 20 products at once
+
+**Request:** `{ "items": [{ "product_id": "uuid", "warehouse_id": "uuid" }] }`
+
+## A.6 Dashboard Stats [NEW — Session 7]
+
+### GET /v1/dashboard/stats
+**Dashboard widgets** — 5 metrics: total_orders, total_trips, delivery_rate, revenue, discrepancies
+
+| | |
+|-|---|
+| Roles | All authenticated roles |
+
+## A.7 Order Timeline & Notes [NEW — Session 17]
+
+### GET /v1/orders/:id/timeline
+**Lịch sử sự kiện đơn hàng** — Immutable event log từ bảng `entity_events`
+
+**Response:**
+```json
+{
+  "success": true,
+  "data": [
+    {
+      "id": "uuid",
+      "event_type": "order.created",
+      "title": "Đơn hàng được tạo",
+      "actor_name": "Nguyễn Văn A",
+      "detail": { "order_number": "SO-20260320-0001" },
+      "created_at": "2026-03-20T08:00:00Z"
+    }
+  ]
+}
+```
+
+### GET /v1/orders/:id/notes
+**Ghi chú nội bộ đơn hàng**
+
+### POST /v1/orders/:id/notes
+**Thêm ghi chú nội bộ**
+
+**Request:** `{ "content": "Đã liên hệ KH xác nhận địa chỉ" }`
+
+## A.8 Order Confirmation — Zalo [NEW — Session 15]
+
+> Public endpoints — Token-based auth (không cần JWT)
+
+### GET /v1/order-confirm/:token
+**Trang xác nhận đơn hàng từ Zalo** — Hiển thị chi tiết đơn cho KH
+
+### GET /v1/order-confirm/:token/pdf
+**Download PDF đơn hàng**
+
+### POST /v1/order-confirm/:token/confirm
+**KH xác nhận đơn hàng** — Triggers: tạo shipment + debit entry
+
+### POST /v1/order-confirm/:token/reject
+**KH từ chối đơn hàng** — Triggers: hủy đơn + hoàn tồn kho
+
+**Request:** `{ "reason": "Lý do từ chối" }`
+
+**Timeout:** 2 giờ → auto-confirm (cron 5 phút)
+
+## A.9 Admin Slow Queries [NEW — Session 14]
+
+### GET /v1/admin/slow-queries
+**Log truy vấn chậm** — pg_stat_statements
+
+### POST /v1/admin/slow-queries/reset
+**Reset log truy vấn chậm**
+
+| | |
+|-|---|
+| Roles | `admin` |
+
+## A.10 Test Portal [NEW — Session 16] (No auth — QA only)
+
+> Development/QA endpoints. Không nên expose trong production.
+
+### GET /v1/test-portal/orders
+### GET /v1/test-portal/orders/:id
+### GET /v1/test-portal/order-confirmations
+### GET /v1/test-portal/delivery-confirmations
+### GET /v1/test-portal/stock
+### GET /v1/test-portal/credit-balances
+### GET /v1/test-portal/customers
+### GET /v1/test-portal/products
+### POST /v1/test-portal/reset-data
+### POST /v1/test-portal/create-test-order
+### POST /v1/test-portal/simulate-delivery
+### POST /v1/test-portal/run-scenario
+### GET /v1/test-portal/zalo-inbox
+
+---
+
+# APPENDIX B — SPEC-ONLY ENDPOINTS (chưa implement)
+
+> Endpoints trong spec gốc nhưng chưa có trong code. Sẽ implement khi cần.
+
+| Endpoint | Status | Ghi chú |
+|----------|--------|---------|
+| `POST /v1/auth/logout` | Chưa implement | Client tự xóa token |
+| `POST /v1/planning/manual-adjust` | Chưa implement | VRP kết quả adjust trực tiếp |
+| `GET /v1/trips/:id/timeline` | Chưa implement | Order timeline có, trip chưa |
+| `POST /v1/trips/:id/assign` | Chưa implement | VRP tự assign |
+| `GET /v1/trips/active-map` | Chưa implement | Dùng GPS WebSocket thay thế |
+| `POST /v1/driver/incident` | Chưa implement | Dùng notes thay thế |
+| `POST /v1/driver/sync` | Chưa implement | Offline sync chưa triển khai |
+| `GET /v1/driver/upload-url` | Chưa implement | Upload trực tiếp qua multipart |
+| `GET /v1/assets/ledger-by-customer` | Path khác | Code: `/warehouse/asset-compensation` |
+| `GET /v1/assets/outstanding` | Path khác | Code: `/warehouse/asset-compensation/trip/:tripId` |
+| `GET /v1/reports/kpi-otd` | Gộp lại | Code: `/kpi/report` trả tất cả metrics |
+| `GET /v1/reports/receivable-by-customer` | Chưa implement | Dùng test-portal credit-balances |
+| `GET/PUT /v1/admin/configs` | Chưa implement | system_settings quản lý qua SQL |
+| `CRUD /v1/admin/credit-limits` | Chưa implement | Quản lý qua SQL seed |
+| `CRUD /v1/admin/delivery-windows` | Chưa implement | |
+| `CRUD /v1/admin/priority-rules` | Chưa implement | |
+| `CRUD /v1/admin/forbidden-zones` | Chưa implement | |

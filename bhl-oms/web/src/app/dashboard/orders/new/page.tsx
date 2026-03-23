@@ -1,8 +1,11 @@
-'use client'
+﻿'use client'
 
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { apiFetch, getUser } from '@/lib/api'
+import { formatVND } from '@/lib/status-config'
+import { toast } from '@/lib/useToast'
+import SearchableSelect from '@/lib/SearchableSelect'
 
 interface Product {
   id: string; sku: string; name: string; price: number; deposit_price: number;
@@ -67,7 +70,7 @@ export default function NewOrderPage() {
     apiFetch<any>(`/customers/${customerId}`).then((r) => setCreditInfo(r.data)).catch(console.error)
   }, [customerId])
 
-  // ATP batch check — debounced, triggers on product/quantity/warehouse changes
+  // ATP batch check â€” debounced, triggers on product/quantity/warehouse changes
   const fetchATP = useCallback((wId: string, orderItems: OrderItem[]) => {
     if (atpTimerRef.current) clearTimeout(atpTimerRef.current)
 
@@ -159,7 +162,7 @@ export default function NewOrderPage() {
 
     // Frontend validation
     if (hasAtpIssue) {
-      setError('Không thể tạo đơn: có sản phẩm vượt tồn kho khả dụng (ATP). Vui lòng điều chỉnh số lượng.')
+      setError('KhÃ´ng thá»ƒ táº¡o Ä‘Æ¡n: cÃ³ sáº£n pháº©m vÆ°á»£t tá»“n kho kháº£ dá»¥ng (ATP). Vui lÃ²ng Ä‘iá»u chá»‰nh sá»‘ lÆ°á»£ng.')
       return
     }
 
@@ -179,9 +182,9 @@ export default function NewOrderPage() {
 
       const order = res.data
       if (order.status === 'pending_approval') {
-        alert(`Đơn ${order.order_number} đã tạo nhưng VƯỢT HẠN MỨC → Chờ kế toán duyệt`)
+        toast.warning(`ÄÆ¡n ${order.order_number} Ä‘Ã£ táº¡o nhÆ°ng VÆ¯á»¢T Háº N Má»¨C â†’ Chá» káº¿ toÃ¡n duyá»‡t`)
       } else {
-        alert(`Đơn ${order.order_number} đã tạo thành công! (Đã xác nhận)`)
+        toast.success(`ÄÆ¡n ${order.order_number} Ä‘Ã£ táº¡o thÃ nh cÃ´ng!`)
       }
       router.push('/dashboard/orders')
     } catch (err: any) {
@@ -191,47 +194,48 @@ export default function NewOrderPage() {
     }
   }
 
-  const formatMoney = (n: number) =>
-    new Intl.NumberFormat('vi-VN', { style: 'currency', currency: 'VND' }).format(n)
+  // formatVND imported from status-config (single source of truth)
 
   const formatNumber = (n: number) =>
     new Intl.NumberFormat('vi-VN').format(n)
 
+  // Find selected customer
+  const selectedCustomer = customers.find(c => c.id === customerId)
+
   return (
-    <div className="max-w-5xl">
-      <h1 className="text-2xl font-bold text-gray-800 mb-6">Tạo đơn hàng mới</h1>
+    <div className="flex gap-6">
+      {/* LEFT: Order Form (60%) */}
+      <div className="flex-[3] min-w-0">
+      <h1 className="text-2xl font-bold text-gray-800 mb-6">Táº¡o Ä‘Æ¡n hÃ ng má»›i</h1>
 
       <form onSubmit={handleSubmit} className="space-y-6">
         {/* Customer + Warehouse + Date */}
         <div className="bg-white rounded-xl shadow-sm p-6">
-          <h2 className="font-semibold mb-4">Thông tin đơn hàng</h2>
+          <h2 className="font-semibold mb-4">ThÃ´ng tin Ä‘Æ¡n hÃ ng</h2>
           <div className="grid grid-cols-2 gap-4">
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Khách hàng (NPP)</label>
-              <select
+              <label className="block text-sm font-medium text-gray-700 mb-1">KhÃ¡ch hÃ ng (NPP)</label>
+              <SearchableSelect
+                options={customers.map((c: any) => ({
+                  value: c.id,
+                  label: `${c.code} - ${c.name}`,
+                  sublabel: c.phone || c.address?.substring(0, 50) || undefined
+                }))}
                 value={customerId}
-                onChange={(e) => setCustomerId(e.target.value)}
-                className="w-full px-3 py-2 border rounded-lg text-sm"
-                required
-              >
-                <option value="">-- Chọn NPP --</option>
-                {customers.map((c) => (
-                  <option key={c.id} value={c.id}>
-                    {c.code} - {c.name}
-                  </option>
-                ))}
-              </select>
+                onChange={setCustomerId}
+                placeholder="ðŸ” TÃ¬m NPP theo mÃ£ hoáº·c tÃªn..."
+              />
             </div>
 
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Kho xuất</label>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Kho xuáº¥t</label>
               <select
                 value={warehouseId}
                 onChange={(e) => setWarehouseId(e.target.value)}
                 className="w-full px-3 py-2 border rounded-lg text-sm"
                 required
               >
-                <option value="">-- Chọn kho --</option>
+                <option value="">-- Chá»n kho --</option>
                 {warehouses.map((w: any) => (
                   <option key={w.id} value={w.id}>
                     {w.name}
@@ -241,7 +245,7 @@ export default function NewOrderPage() {
             </div>
 
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Ngày giao</label>
+              <label className="block text-sm font-medium text-gray-700 mb-1">NgÃ y giao</label>
               <input
                 type="date"
                 value={deliveryDate}
@@ -252,13 +256,13 @@ export default function NewOrderPage() {
             </div>
 
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Ghi chú</label>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Ghi chÃº</label>
               <input
                 type="text"
                 value={notes}
                 onChange={(e) => setNotes(e.target.value)}
                 className="w-full px-3 py-2 border rounded-lg text-sm"
-                placeholder="Ghi chú (tùy chọn)"
+                placeholder="Ghi chÃº (tÃ¹y chá»n)"
               />
             </div>
           </div>
@@ -272,8 +276,8 @@ export default function NewOrderPage() {
                 onChange={(e) => setIsUrgent(e.target.checked)}
                 className="w-4 h-4 text-red-600 border-gray-300 rounded focus:ring-red-500"
               />
-              <span className="text-sm font-medium text-gray-700">⚡ Đơn gấp</span>
-              {isUrgent && <span className="text-xs text-red-600 bg-red-50 px-2 py-0.5 rounded-full">Ưu tiên giao trước</span>}
+              <span className="text-sm font-medium text-gray-700">âš¡ ÄÆ¡n gáº¥p</span>
+              {isUrgent && <span className="text-xs text-red-600 bg-red-50 px-2 py-0.5 rounded-full">Æ¯u tiÃªn giao trÆ°á»›c</span>}
             </label>
           </div>
 
@@ -283,22 +287,22 @@ export default function NewOrderPage() {
               <div className={`px-4 py-2 text-sm font-semibold ${
                 creditInfo.available_limit > 0 ? 'bg-blue-50 text-blue-800' : 'bg-red-50 text-red-800'
               }`}>
-                💳 Hạn mức nợ — {creditInfo.code}
+                ðŸ’³ Háº¡n má»©c ná»£ â€” {creditInfo.code}
               </div>
               <div className="px-4 py-3 bg-white">
                 <div className="grid grid-cols-3 gap-4 text-sm">
                   <div>
-                    <span className="text-gray-500">Hạn mức tổng</span>
-                    <p className="font-semibold text-gray-800">{formatMoney(creditInfo.credit_limit)}</p>
+                    <span className="text-gray-500">Háº¡n má»©c tá»•ng</span>
+                    <p className="font-semibold text-gray-800">{formatVND(creditInfo.credit_limit)}</p>
                   </div>
                   <div>
-                    <span className="text-gray-500">Đang nợ</span>
-                    <p className="font-semibold text-orange-600">{formatMoney(creditInfo.current_balance)}</p>
+                    <span className="text-gray-500">Äang ná»£</span>
+                    <p className="font-semibold text-orange-600">{formatVND(creditInfo.current_balance)}</p>
                   </div>
                   <div>
-                    <span className="text-gray-500">Hạn mức khả dụng</span>
+                    <span className="text-gray-500">Háº¡n má»©c kháº£ dá»¥ng</span>
                     <p className={`font-semibold ${creditInfo.available_limit > 0 ? 'text-green-600' : 'text-red-600'}`}>
-                      {formatMoney(creditInfo.available_limit)}
+                      {formatVND(creditInfo.available_limit)}
                     </p>
                   </div>
                 </div>
@@ -314,7 +318,7 @@ export default function NewOrderPage() {
                     />
                   </div>
                   <p className="text-xs text-gray-500 mt-1">
-                    Đã sử dụng {((creditInfo.current_balance / creditInfo.credit_limit) * 100).toFixed(1)}% hạn mức
+                    ÄÃ£ sá»­ dá»¥ng {((creditInfo.current_balance / creditInfo.credit_limit) * 100).toFixed(1)}% háº¡n má»©c
                   </p>
                 </div>
                 {/* Order vs available comparison */}
@@ -323,9 +327,9 @@ export default function NewOrderPage() {
                     creditExceeded ? 'bg-red-50 text-red-700 border border-red-200' : 'bg-green-50 text-green-700 border border-green-200'
                   }`}>
                     {creditExceeded ? (
-                      <>⚠️ Đơn hàng <strong>{formatMoney(totalAmount)}</strong> VƯỢT hạn mức khả dụng <strong>{formatMoney(creditInfo.available_limit)}</strong> → Đơn sẽ ở trạng thái <strong>"Chờ duyệt"</strong></>
+                      <>âš ï¸ ÄÆ¡n hÃ ng <strong>{formatVND(totalAmount)}</strong> VÆ¯á»¢T háº¡n má»©c kháº£ dá»¥ng <strong>{formatVND(creditInfo.available_limit)}</strong> â†’ ÄÆ¡n sáº½ á»Ÿ tráº¡ng thÃ¡i <strong>"Chá» duyá»‡t"</strong></>
                     ) : (
-                      <>✅ Đơn hàng <strong>{formatMoney(totalAmount)}</strong> trong hạn mức khả dụng <strong>{formatMoney(creditInfo.available_limit)}</strong> → Đơn sẽ <strong>"Đã xác nhận"</strong></>
+                      <>âœ… ÄÆ¡n hÃ ng <strong>{formatVND(totalAmount)}</strong> trong háº¡n má»©c kháº£ dá»¥ng <strong>{formatVND(creditInfo.available_limit)}</strong> â†’ ÄÆ¡n sáº½ <strong>"ÄÃ£ xÃ¡c nháº­n"</strong></>
                     )}
                   </div>
                 )}
@@ -337,27 +341,27 @@ export default function NewOrderPage() {
         {/* Items */}
         <div className="bg-white rounded-xl shadow-sm p-6">
           <div className="flex items-center justify-between mb-4">
-            <h2 className="font-semibold">Sản phẩm</h2>
+            <h2 className="font-semibold">Sáº£n pháº©m</h2>
             <button
               type="button"
               onClick={addItem}
-              className="px-3 py-1 bg-blue-600 text-white text-sm rounded-lg hover:bg-blue-700"
+              className="px-3 py-1 bg-brand-500 text-white text-sm rounded-lg hover:bg-brand-600"
             >
-              + Thêm sản phẩm
+              + ThÃªm sáº£n pháº©m
             </button>
           </div>
 
           {items.length === 0 ? (
-            <p className="text-gray-400 text-sm text-center py-4">Nhấn "Thêm sản phẩm" để bắt đầu</p>
+            <p className="text-gray-400 text-sm text-center py-4">Nháº¥n "ThÃªm sáº£n pháº©m" Ä‘á»ƒ báº¯t Ä‘áº§u</p>
           ) : (
             <table className="w-full text-sm">
               <thead className="bg-gray-50">
                 <tr>
-                  <th className="text-left py-2 px-3">Sản phẩm</th>
-                  <th className="text-right py-2 px-3 w-24">Số lượng</th>
-                  <th className="text-right py-2 px-3">Đơn giá</th>
-                  <th className="text-right py-2 px-3">Thành tiền</th>
-                  <th className="text-center py-2 px-3 w-40">Tồn kho khả dụng</th>
+                  <th className="text-left py-2 px-3">Sáº£n pháº©m</th>
+                  <th className="text-right py-2 px-3 w-24">Sá»‘ lÆ°á»£ng</th>
+                  <th className="text-right py-2 px-3">ÄÆ¡n giÃ¡</th>
+                  <th className="text-right py-2 px-3">ThÃ nh tiá»n</th>
+                  <th className="text-center py-2 px-3 w-40">Tá»“n kho kháº£ dá»¥ng</th>
                   <th className="w-10"></th>
                 </tr>
               </thead>
@@ -370,52 +374,51 @@ export default function NewOrderPage() {
                   return (
                     <tr key={idx} className={`border-t ${!atpOk ? 'bg-red-50' : ''}`}>
                       <td className="py-2 px-3">
-                        <select
+                        <SearchableSelect
+                          options={products.map((p) => ({
+                            value: p.id,
+                            label: `${p.sku} â€” ${p.name}`,
+                            sublabel: `${formatVND(p.price)}/${p.unit}`
+                          }))}
                           value={item.product_id}
-                          onChange={(e) => updateItem(idx, 'product_id', e.target.value)}
-                          className="w-full px-2 py-1 border rounded text-sm"
-                        >
-                          <option value="">-- Chọn SP --</option>
-                          {products.map((p) => (
-                            <option key={p.id} value={p.id}>
-                              {p.sku} — {p.name} ({formatMoney(p.price)}/{p.unit})
-                            </option>
-                          ))}
-                        </select>
+                          onChange={(val) => updateItem(idx, 'product_id', val)}
+                          placeholder="ðŸ” TÃ¬m sáº£n pháº©m..."
+                        />
                       </td>
                       <td className="py-2 px-3">
                         <input
                           type="number"
                           min={1}
-                          value={item.quantity}
-                          onChange={(e) => updateItem(idx, 'quantity', Number(e.target.value))}
-                          className={`w-full px-2 py-1 border rounded text-right text-sm ${
-                            !atpOk ? 'border-red-400 bg-red-50 text-red-700' : ''
+                          value={item.quantity || ''}
+                          onChange={(e) => updateItem(idx, 'quantity', Number(e.target.value) || 0)}
+                          className={`w-full px-2 py-1 border rounded text-right text-sm transition-colors ${
+                            !atpOk ? 'border-red-400 bg-red-50 text-red-700' :
+                            atpChecked && atp && item.quantity > atp.atp * 0.8 ? 'border-amber-400 bg-amber-50 text-amber-700' : ''
                           }`}
                         />
                       </td>
-                      <td className="py-2 px-3 text-right">{item.price ? formatMoney(item.price) : '-'}</td>
-                      <td className="py-2 px-3 text-right font-medium">{item.amount ? formatMoney(item.amount) : '-'}</td>
+                      <td className="py-2 px-3 text-right">{item.price ? formatVND(item.price) : '-'}</td>
+                      <td className="py-2 px-3 text-right font-medium">{item.amount ? formatVND(item.amount) : '-'}</td>
                       <td className="py-2 px-3 text-center">
                         {!item.product_id ? (
-                          <span className="text-gray-400 text-xs">—</span>
+                          <span className="text-gray-400 text-xs">â€”</span>
                         ) : atpLoading ? (
-                          <span className="text-gray-400 text-xs">Đang kiểm...</span>
+                          <span className="text-gray-400 text-xs">Äang kiá»ƒm...</span>
                         ) : !warehouseId ? (
-                          <span className="text-gray-400 text-xs">Chọn kho để kiểm tra</span>
+                          <span className="text-gray-400 text-xs">Chá»n kho Ä‘á»ƒ kiá»ƒm tra</span>
                         ) : atpChecked ? (
                           <div className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-semibold ${
                             atpOk ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'
                           }`}>
-                            <span>{atpOk ? '✅' : '❌'}</span>
+                            <span>{atpOk ? 'âœ…' : 'âŒ'}</span>
                             <span>ATP: {formatNumber(atp!.atp)}</span>
-                            <span className="text-gray-400">/ Đặt: {formatNumber(item.quantity)}</span>
+                            <span className="text-gray-400">/ Äáº·t: {formatNumber(item.quantity)}</span>
                           </div>
                         ) : (
                           <div className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-semibold bg-red-100 text-red-700">
-                            <span>❌</span>
+                            <span>âŒ</span>
                             <span>ATP: 0</span>
-                            <span className="text-gray-400">/ Đặt: {formatNumber(item.quantity)}</span>
+                            <span className="text-gray-400">/ Äáº·t: {formatNumber(item.quantity)}</span>
                           </div>
                         )}
                       </td>
@@ -425,7 +428,7 @@ export default function NewOrderPage() {
                           onClick={() => removeItem(idx)}
                           className="text-red-500 hover:text-red-700"
                         >
-                          ✕
+                          âœ•
                         </button>
                       </td>
                     </tr>
@@ -434,20 +437,20 @@ export default function NewOrderPage() {
               </tbody>
               <tfoot>
                 <tr className="border-t">
-                  <td colSpan={3} className="py-2 px-3 text-right text-gray-600">Tiền hàng:</td>
-                  <td className="py-2 px-3 text-right font-medium">{formatMoney(totalAmount)}</td>
+                  <td colSpan={3} className="py-2 px-3 text-right text-gray-600">Tiá»n hÃ ng:</td>
+                  <td className="py-2 px-3 text-right font-medium">{formatVND(totalAmount)}</td>
                   <td colSpan={2}></td>
                 </tr>
                 {totalDeposit > 0 && (
                   <tr>
-                    <td colSpan={3} className="py-1 px-3 text-right text-gray-600">Phí vỏ/két:</td>
-                    <td className="py-1 px-3 text-right font-medium">{formatMoney(totalDeposit)}</td>
+                    <td colSpan={3} className="py-1 px-3 text-right text-gray-600">PhÃ­ vá»/kÃ©t:</td>
+                    <td className="py-1 px-3 text-right font-medium">{formatVND(totalDeposit)}</td>
                     <td colSpan={2}></td>
                   </tr>
                 )}
                 <tr className="border-t-2 font-bold">
-                  <td colSpan={3} className="py-3 px-3 text-right">Tổng cộng:</td>
-                  <td className="py-3 px-3 text-right text-lg text-amber-700">{formatMoney(grandTotal)}</td>
+                  <td colSpan={3} className="py-3 px-3 text-right">Tá»•ng cá»™ng:</td>
+                  <td className="py-3 px-3 text-right text-lg text-brand-600">{formatVND(grandTotal)}</td>
                   <td colSpan={2}></td>
                 </tr>
               </tfoot>
@@ -458,37 +461,37 @@ export default function NewOrderPage() {
         {/* Pre-submit validation summary */}
         {itemsWithProduct.length > 0 && (
           <div className="bg-white rounded-xl shadow-sm p-6">
-            <h2 className="font-semibold mb-3">🔍 Kiểm tra trước khi tạo đơn</h2>
+            <h2 className="font-semibold mb-3">ðŸ” Kiá»ƒm tra trÆ°á»›c khi táº¡o Ä‘Æ¡n</h2>
             <div className="space-y-2">
               {/* ATP check summary */}
               <div className={`flex items-start gap-3 px-4 py-3 rounded-lg ${
                 hasAtpIssue ? 'bg-red-50 border border-red-200' : 'bg-green-50 border border-green-200'
               }`}>
-                <span className="text-xl">{hasAtpIssue ? '❌' : '✅'}</span>
+                <span className="text-xl">{hasAtpIssue ? 'âŒ' : 'âœ…'}</span>
                 <div>
                   <p className={`font-semibold text-sm ${hasAtpIssue ? 'text-red-700' : 'text-green-700'}`}>
-                    Kiểm tra tồn kho (ATP)
+                    Kiá»ƒm tra tá»“n kho (ATP)
                   </p>
                   {hasAtpIssue ? (
                     <div className="text-sm text-red-600 mt-1">
-                      <p>Các sản phẩm sau <strong>KHÔNG ĐỦ</strong> tồn kho:</p>
+                      <p>CÃ¡c sáº£n pháº©m sau <strong>KHÃ”NG Äá»¦</strong> tá»“n kho:</p>
                       <ul className="list-disc ml-4 mt-1">
                         {atpIssues.map((item, i) => {
                           const atp = atpResults[item.product_id]
                           return (
                             <li key={i}>
                               <strong>{item.product_name || item.product_id}</strong>: 
-                              cần {formatNumber(item.quantity)}, tồn khả dụng chỉ {formatNumber(atp?.atp || 0)}
-                              {' '}(thiếu {formatNumber(item.quantity - (atp?.atp || 0))})
+                              cáº§n {formatNumber(item.quantity)}, tá»“n kháº£ dá»¥ng chá»‰ {formatNumber(atp?.atp || 0)}
+                              {' '}(thiáº¿u {formatNumber(item.quantity - (atp?.atp || 0))})
                             </li>
                           )
                         })}
                       </ul>
-                      <p className="mt-1 font-semibold">→ Không thể tạo đơn. Vui lòng giảm số lượng hoặc đổi sản phẩm.</p>
+                      <p className="mt-1 font-semibold">â†’ KhÃ´ng thá»ƒ táº¡o Ä‘Æ¡n. Vui lÃ²ng giáº£m sá»‘ lÆ°á»£ng hoáº·c Ä‘á»•i sáº£n pháº©m.</p>
                     </div>
                   ) : (
                     <p className="text-sm text-green-600 mt-1">
-                      Tất cả {itemsWithProduct.length} sản phẩm đều đủ tồn kho khả dụng ✓
+                      Táº¥t cáº£ {itemsWithProduct.length} sáº£n pháº©m Ä‘á»u Ä‘á»§ tá»“n kho kháº£ dá»¥ng âœ“
                     </p>
                   )}
                 </div>
@@ -499,22 +502,22 @@ export default function NewOrderPage() {
                 <div className={`flex items-start gap-3 px-4 py-3 rounded-lg ${
                   creditExceeded ? 'bg-yellow-50 border border-yellow-200' : 'bg-green-50 border border-green-200'
                 }`}>
-                  <span className="text-xl">{creditExceeded ? '⚠️' : '✅'}</span>
+                  <span className="text-xl">{creditExceeded ? 'âš ï¸' : 'âœ…'}</span>
                   <div>
                     <p className={`font-semibold text-sm ${creditExceeded ? 'text-yellow-700' : 'text-green-700'}`}>
-                      Kiểm tra hạn mức nợ
+                      Kiá»ƒm tra háº¡n má»©c ná»£
                     </p>
                     {creditExceeded ? (
                       <div className="text-sm text-yellow-700 mt-1">
                         <p>
-                          Tiền hàng <strong>{formatMoney(totalAmount)}</strong> vượt hạn mức khả dụng <strong>{formatMoney(creditInfo.available_limit)}</strong>
-                          {' '}(vượt {formatMoney(totalAmount - creditInfo.available_limit)})
+                          Tiá»n hÃ ng <strong>{formatVND(totalAmount)}</strong> vÆ°á»£t háº¡n má»©c kháº£ dá»¥ng <strong>{formatVND(creditInfo.available_limit)}</strong>
+                          {' '}(vÆ°á»£t {formatVND(totalAmount - creditInfo.available_limit)})
                         </p>
-                        <p className="mt-1">→ Đơn sẽ được tạo ở trạng thái <strong className="text-orange-700">"Chờ duyệt"</strong> — cần quản lý/kế toán phê duyệt.</p>
+                        <p className="mt-1">â†’ ÄÆ¡n sáº½ Ä‘Æ°á»£c táº¡o á»Ÿ tráº¡ng thÃ¡i <strong className="text-orange-700">"Chá» duyá»‡t"</strong> â€” cáº§n quáº£n lÃ½/káº¿ toÃ¡n phÃª duyá»‡t.</p>
                       </div>
                     ) : (
                       <p className="text-sm text-green-600 mt-1">
-                        Tiền hàng {formatMoney(totalAmount)} trong hạn mức khả dụng {formatMoney(creditInfo.available_limit)} → Đơn sẽ <strong>"Đã xác nhận"</strong> ✓
+                        Tiá»n hÃ ng {formatVND(totalAmount)} trong háº¡n má»©c kháº£ dá»¥ng {formatVND(creditInfo.available_limit)} â†’ ÄÆ¡n sáº½ <strong>"ÄÃ£ xÃ¡c nháº­n"</strong> âœ“
                       </p>
                     )}
                   </div>
@@ -526,13 +529,13 @@ export default function NewOrderPage() {
                 <div className={`flex items-center gap-3 px-4 py-3 rounded-lg ${
                   creditExceeded ? 'bg-orange-50 border border-orange-200' : 'bg-blue-50 border border-blue-200'
                 }`}>
-                  <span className="text-xl">📋</span>
+                  <span className="text-xl">ðŸ“‹</span>
                   <p className="text-sm font-medium">
-                    Dự kiến trạng thái đơn sau khi tạo:{' '}
+                    Dá»± kiáº¿n tráº¡ng thÃ¡i Ä‘Æ¡n sau khi táº¡o:{' '}
                     <span className={`inline-block px-2 py-0.5 rounded text-xs font-bold ${
                       creditExceeded ? 'bg-orange-200 text-orange-800' : 'bg-green-200 text-green-800'
                     }`}>
-                      {creditExceeded ? '⏳ Chờ duyệt (pending_approval)' : '✅ Đã xác nhận (confirmed)'}
+                      {creditExceeded ? 'â³ Chá» duyá»‡t (pending_approval)' : 'âœ… ÄÃ£ xÃ¡c nháº­n (confirmed)'}
                     </span>
                   </p>
                 </div>
@@ -544,7 +547,7 @@ export default function NewOrderPage() {
         {/* Error + Submit */}
         {error && (
           <div className="bg-red-50 text-red-600 text-sm px-4 py-3 rounded-lg border border-red-200">
-            ❌ {error}
+            âŒ {error}
           </div>
         )}
 
@@ -552,24 +555,112 @@ export default function NewOrderPage() {
           <button
             type="submit"
             disabled={submitting || items.length === 0 || hasAtpIssue}
-            className="px-6 py-2.5 bg-amber-600 text-white rounded-lg hover:bg-amber-700 transition disabled:opacity-50 disabled:cursor-not-allowed"
+            className="px-6 py-2.5 bg-brand-500 text-white rounded-lg hover:bg-brand-600 transition disabled:opacity-50 disabled:cursor-not-allowed font-medium"
           >
-            {submitting ? 'Đang tạo...' : hasAtpIssue ? '🚫 Không đủ tồn kho' : '✅ Tạo đơn hàng'}
+            {submitting ? 'Äang táº¡o...' : hasAtpIssue ? 'ðŸš« KhÃ´ng Ä‘á»§ tá»“n kho' : 'âœ… Táº¡o Ä‘Æ¡n hÃ ng'}
           </button>
           <button
             type="button"
             onClick={() => router.back()}
             className="px-6 py-2.5 bg-gray-200 text-gray-700 rounded-lg hover:bg-gray-300 transition"
           >
-            Hủy
+            Há»§y
           </button>
           {hasAtpIssue && (
             <span className="text-sm text-red-600 font-medium">
-              Vui lòng điều chỉnh số lượng để tạo đơn
+              Vui lÃ²ng Ä‘iá»u chá»‰nh sá»‘ lÆ°á»£ng Ä‘á»ƒ táº¡o Ä‘Æ¡n
             </span>
           )}
         </div>
       </form>
+    </div>
+
+      {/* RIGHT: Zalo Preview (40%) */}
+      <div className="flex-[2] min-w-[320px] sticky top-4 self-start">
+        <div className="bg-white rounded-xl shadow-sm p-4 space-y-4">
+          <h3 className="font-semibold text-sm flex items-center gap-2">
+            <span className="w-6 h-6 bg-blue-500 text-white rounded-full flex items-center justify-center text-xs">Z</span>
+            Zalo Preview â€” Tin nháº¯n xÃ¡c nháº­n
+          </h3>
+
+          {/* Mock Zalo message */}
+          <div className="bg-gray-100 rounded-xl p-4 text-sm space-y-2 border">
+            <div className="flex items-center gap-2 pb-2 border-b border-gray-200">
+              <div className="w-8 h-8 bg-brand-500 rounded-full flex items-center justify-center text-white text-xs font-bold">BHL</div>
+              <div>
+                <div className="font-medium text-xs">Beer HÃ  Lá»™i</div>
+                <div className="text-xs text-gray-400">XÃ¡c nháº­n Ä‘Æ¡n hÃ ng</div>
+              </div>
+            </div>
+
+            <div className="space-y-1.5 text-gray-700">
+              <p>Xin chÃ o <strong>{selectedCustomer?.name || '___'}</strong>,</p>
+              <p>ÄÆ¡n hÃ ng cá»§a quÃ½ NPP:</p>
+              <div className="bg-white rounded-lg p-2 text-xs space-y-1">
+                <div className="flex justify-between">
+                  <span className="text-gray-500">NgÃ y giao</span>
+                  <span className="font-medium">{deliveryDate || '___'}</span>
+                </div>
+                {itemsWithProduct.length > 0 ? (
+                  itemsWithProduct.slice(0, 5).map((item, i) => {
+                    const prod = products.find(p => p.id === item.product_id)
+                    return (
+                      <div key={i} className="flex justify-between">
+                        <span className="truncate max-w-[60%]">{prod?.name || 'â€”'}</span>
+                        <span>Ã—{item.quantity}</span>
+                      </div>
+                    )
+                  })
+                ) : (
+                  <div className="text-gray-400 text-center py-2">ChÆ°a cÃ³ sáº£n pháº©m</div>
+                )}
+                {itemsWithProduct.length > 5 && (
+                  <div className="text-gray-400 text-center">... vÃ  {itemsWithProduct.length - 5} sáº£n pháº©m khÃ¡c</div>
+                )}
+                <div className="pt-1 border-t flex justify-between font-medium">
+                  <span>Tá»•ng tiá»n</span>
+                  <span className="text-brand-600">{formatVND(grandTotal)}</span>
+                </div>
+              </div>
+              <p className="text-xs text-gray-500 mt-2">Vui lÃ²ng báº¥m XÃ¡c nháº­n hoáº·c Tá»« chá»‘i bÃªn dÆ°á»›i.</p>
+            </div>
+
+            {/* Action buttons preview */}
+            <div className="flex gap-2 pt-2">
+              <div className="flex-1 py-2 bg-green-500 text-white rounded-lg text-center text-xs font-medium">âœ… XÃ¡c nháº­n</div>
+              <div className="flex-1 py-2 bg-red-100 text-red-600 rounded-lg text-center text-xs font-medium">âŒ Tá»« chá»‘i</div>
+            </div>
+          </div>
+
+          <p className="text-xs text-gray-400 text-center">
+            Tin nháº¯n Zalo sáº½ tá»± Ä‘á»™ng gá»­i sau khi táº¡o Ä‘Æ¡n
+          </p>
+
+          {/* Status indicators */}
+          <div className="space-y-1.5 text-xs">
+            <div className="flex items-center gap-2">
+              <span className={`w-2 h-2 rounded-full ${customerId ? 'bg-green-500' : 'bg-gray-300'}`} />
+              <span className={customerId ? 'text-gray-700' : 'text-gray-400'}>KhÃ¡ch hÃ ng Ä‘Ã£ chá»n</span>
+            </div>
+            <div className="flex items-center gap-2">
+              <span className={`w-2 h-2 rounded-full ${itemsWithProduct.length > 0 ? 'bg-green-500' : 'bg-gray-300'}`} />
+              <span className={itemsWithProduct.length > 0 ? 'text-gray-700' : 'text-gray-400'}>{itemsWithProduct.length} sáº£n pháº©m</span>
+            </div>
+            <div className="flex items-center gap-2">
+              <span className={`w-2 h-2 rounded-full ${!hasAtpIssue && itemsWithProduct.length > 0 ? 'bg-green-500' : hasAtpIssue ? 'bg-red-500' : 'bg-gray-300'}`} />
+              <span className={hasAtpIssue ? 'text-red-600' : 'text-gray-700'}>
+                {hasAtpIssue ? 'Tá»“n kho khÃ´ng Ä‘á»§' : 'ATP OK'}
+              </span>
+            </div>
+            <div className="flex items-center gap-2">
+              <span className={`w-2 h-2 rounded-full ${creditExceeded ? 'bg-amber-500' : creditInfo ? 'bg-green-500' : 'bg-gray-300'}`} />
+              <span className={creditExceeded ? 'text-amber-600' : 'text-gray-700'}>
+                {creditExceeded ? 'VÆ°á»£t háº¡n má»©c â†’ Chá» duyá»‡t' : creditInfo ? 'Háº¡n má»©c OK' : 'ChÆ°a cÃ³ thÃ´ng tin'}
+              </span>
+            </div>
+          </div>
+        </div>
+      </div>
     </div>
   )
 }

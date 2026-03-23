@@ -1,0 +1,76 @@
+{
+  "annotations": { "list": [] },
+  "editable": true,
+  "title": "BHL OMS - Operations Dashboard",
+  "uid": "bhl-oms-ops",
+  "panels": [
+    {
+      "title": "HTTP Requests/sec",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 0 },
+      "targets": [{ "expr": "rate(bhl_http_requests_total[5m])", "legendFormat": "{{method}} {{path}} {{status}}" }]
+    },
+    {
+      "title": "Request Latency (p95)",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 0 },
+      "targets": [{ "expr": "histogram_quantile(0.95, rate(bhl_http_request_duration_seconds_bucket[5m]))", "legendFormat": "p95 {{method}} {{path}}" }]
+    },
+    {
+      "title": "Requests In-Flight",
+      "type": "gauge",
+      "gridPos": { "h": 4, "w": 6, "x": 0, "y": 8 },
+      "targets": [{ "expr": "bhl_http_requests_in_flight" }]
+    },
+    {
+      "title": "Orders Created",
+      "type": "stat",
+      "gridPos": { "h": 4, "w": 6, "x": 6, "y": 8 },
+      "targets": [{ "expr": "bhl_orders_created_total" }]
+    },
+    {
+      "title": "Trips Completed",
+      "type": "stat",
+      "gridPos": { "h": 4, "w": 6, "x": 12, "y": 8 },
+      "targets": [{ "expr": "bhl_trips_completed_total" }]
+    },
+    {
+      "title": "Delivery Success Rate",
+      "type": "gauge",
+      "gridPos": { "h": 4, "w": 6, "x": 18, "y": 8 },
+      "targets": [{ "expr": "bhl_stops_delivered_total / (bhl_stops_delivered_total + bhl_stops_failed_total) * 100" }],
+      "fieldConfig": { "defaults": { "min": 0, "max": 100, "unit": "percent" } }
+    },
+    {
+      "title": "DB Query Latency",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 12 },
+      "targets": [{ "expr": "histogram_quantile(0.95, rate(bhl_db_query_duration_seconds_bucket[5m]))", "legendFormat": "p95 {{query_type}}" }]
+    },
+    {
+      "title": "GPS WebSocket Connections",
+      "type": "stat",
+      "gridPos": { "h": 4, "w": 6, "x": 12, "y": 12 },
+      "targets": [{ "expr": "bhl_gps_websocket_connections" }]
+    },
+    {
+      "title": "Integration Calls",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 12 },
+      "targets": [{ "expr": "rate(bhl_integration_calls_total[5m])", "legendFormat": "{{adapter}} {{status}}" }]
+    },
+    {
+      "title": "HTTP Error Rate",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 24, "x": 0, "y": 20 },
+      "targets": [
+        { "expr": "rate(bhl_http_requests_total{status=~\"5..\"}[5m])", "legendFormat": "5xx {{path}}" },
+        { "expr": "rate(bhl_http_requests_total{status=~\"4..\"}[5m])", "legendFormat": "4xx {{path}}" }
+      ]
+    }
+  ],
+  "time": { "from": "now-1h", "to": "now" },
+  "refresh": "10s",
+  "schemaVersion": 39,
+  "version": 1
+}

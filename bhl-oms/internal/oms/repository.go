@@ -3,20 +3,44 @@ package oms
 import (
 	"context"
 	"fmt"
+	"time"
 
 	"bhl-oms/internal/domain"
+	"bhl-oms/pkg/logger"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
-type Repository struct {
-	db *pgxpool.Pool
+// GetOrderIDByShipmentID returns the order_id for a given shipment_id
+func (r *Repository) GetOrderIDByShipmentID(ctx context.Context, shipmentID uuid.UUID) (uuid.UUID, error) {
+	var orderID uuid.UUID
+	err := r.db.QueryRow(ctx, `SELECT order_id FROM shipments WHERE id = $1`, shipmentID).Scan(&orderID)
+	if err != nil {
+		return uuid.Nil, err
+	}
+	return orderID, nil
 }
 
-func NewRepository(db *pgxpool.Pool) *Repository {
-	return &Repository{db: db}
+type Repository struct {
+	db  *pgxpool.Pool
+	log logger.Logger
+}
+
+func NewRepository(db *pgxpool.Pool, log logger.Logger) *Repository {
+	return &Repository{db: db, log: log}
+}
+
+// NextOrderNumber generates a unique order number using a DB sequence.
+func (r *Repository) NextOrderNumber(ctx context.Context) (string, error) {
+	var seq int64
+	err := r.db.QueryRow(ctx, "SELECT nextval('order_number_seq')").Scan(&seq)
+	if err != nil {
+		return "", fmt.Errorf("nextval order_number_seq: %w", err)
+	}
+	now := time.Now()
+	return fmt.Sprintf("SO-%s-%04d", now.Format("20060102"), seq), nil
 }
 
 // ===== PRODUCTS =====
@@ -262,9 +286,24 @@ func (r *Repository) ListOrders(ctx context.Context, warehouseID *uuid.UUID, sta
 	query := `
 		SELECT so.id, so.order_number, so.customer_id, c.name, so.warehouse_id, so.status::text,
 		       COALESCE(so.cutoff_group, '')::text, so.delivery_date::text, so.total_amount, so.deposit_amount, so.total_weight_kg,
-		       so.atp_status, so.credit_status, so.created_at
+		       so.atp_status, so.credit_status, so.created_at, oc.reject_reason,
+		       oc2.status::text, lt.trip_id, COALESCE(lt.plate_number, ''), COALESCE(lt.driver_name, ''),
+		       COALESCE(c.phone, '')
 		FROM sales_orders so
 		JOIN customers c ON c.id = so.customer_id
+		LEFT JOIN order_confirmations oc ON oc.order_id = so.id
+		LEFT JOIN order_confirmations oc2 ON oc2.order_id = so.id
+		LEFT JOIN LATERAL (
+			SELECT t.id as trip_id, v.plate_number, d.full_name as driver_name
+			FROM shipments sh
+			JOIN trip_stops ts ON ts.shipment_id = sh.id
+			JOIN trips t ON t.id = ts.trip_id
+			LEFT JOIN vehicles v ON v.id = t.vehicle_id
+			LEFT JOIN drivers d ON d.id = t.driver_id
+			WHERE sh.order_id = so.id
+			ORDER BY t.created_at DESC
+			LIMIT 1
+		) lt ON true
 		WHERE 1=1
 	`
 	countQuery := `SELECT COUNT(*) FROM sales_orders so WHERE 1=1`
@@ -317,7 +356,9 @@ func (r *Repository) ListOrders(ctx context.Context, warehouseID *uuid.UUID, sta
 		if err := rows.Scan(
 			&o.ID, &o.OrderNumber, &o.CustomerID, &o.CustomerName, &o.WarehouseID, &o.Status,
 			&o.CutoffGroup, &o.DeliveryDate, &o.TotalAmount, &o.DepositAmount, &o.TotalWeightKg,
-			&o.ATPStatus, &o.CreditStatus, &o.CreatedAt,
+			&o.ATPStatus, &o.CreditStatus, &o.CreatedAt, &o.RejectReason,
+			&o.ZaloStatus, &o.TripID, &o.VehiclePlate, &o.DriverName,
+			&o.CustomerPhone,
 		); err != nil {
 			return nil, 0, err
 		}
@@ -333,10 +374,12 @@ func (r *Repository) GetOrder(ctx context.Context, orderID uuid.UUID) (*domain.S
 		       COALESCE(w.name, '') as warehouse_name, so.status::text,
 		       COALESCE(so.cutoff_group, '')::text, so.delivery_date::text, so.delivery_address,
 		       so.time_window, so.total_amount, so.deposit_amount,
-		       so.total_weight_kg, so.total_volume_m3, so.atp_status, so.credit_status, so.notes, so.created_at
+		       so.total_weight_kg, so.total_volume_m3, so.atp_status, so.credit_status, so.notes, so.created_at,
+		       oc.reject_reason
 		FROM sales_orders so
 		JOIN customers c ON c.id = so.customer_id
 		LEFT JOIN warehouses w ON w.id = so.warehouse_id
+		LEFT JOIN order_confirmations oc ON oc.order_id = so.id
 		WHERE so.id = $1
 	`, orderID).Scan(
 		&o.ID, &o.OrderNumber, &o.CustomerID, &o.CustomerName, &o.CustomerCode, &o.WarehouseID,
@@ -344,6 +387,7 @@ func (r *Repository) GetOrder(ctx context.Context, orderID uuid.UUID) (*domain.S
 		&o.CutoffGroup, &o.DeliveryDate, &o.DeliveryAddress,
 		&o.TimeWindow, &o.TotalAmount, &o.DepositAmount,
 		&o.TotalWeightKg, &o.TotalVolumeM3, &o.ATPStatus, &o.CreditStatus, &o.Notes, &o.CreatedAt,
+		&o.RejectReason,
 	)
 	if err != nil {
 		return nil, err
@@ -376,7 +420,7 @@ func (r *Repository) GetOrder(ctx context.Context, orderID uuid.UUID) (*domain.S
 
 func (r *Repository) UpdateOrderStatus(ctx context.Context, orderID uuid.UUID, status string) error {
 	_, err := r.db.Exec(ctx, `
-		UPDATE sales_orders SET status = $2, updated_at = now() WHERE id = $1
+		UPDATE sales_orders SET status = $2::order_status, updated_at = now() WHERE id = $1
 	`, orderID, status)
 	return err
 }
@@ -428,7 +472,7 @@ func (r *Repository) CreateShipment(ctx context.Context, tx pgx.Tx, order *domai
 }
 
 // CreateDebitEntry adds to receivable ledger when order is confirmed
-func (r *Repository) CreateDebitEntry(ctx context.Context, tx pgx.Tx, customerID, orderID uuid.UUID, amount float64, createdBy uuid.UUID) error {
+func (r *Repository) CreateDebitEntry(ctx context.Context, tx pgx.Tx, customerID, orderID uuid.UUID, amount float64, createdBy *uuid.UUID) error {
 	_, err := tx.Exec(ctx, `
 		INSERT INTO receivable_ledger (customer_id, order_id, ledger_type, amount, description, created_by)
 		VALUES ($1, $2, 'debit', $3, 'Ghi nợ đơn hàng', $4)
@@ -696,4 +740,218 @@ func (r *Repository) ListPendingApprovals(ctx context.Context) ([]map[string]int
 		results = []map[string]interface{}{}
 	}
 	return results, nil
+}
+
+// ===== RE-DELIVERY =====
+
+// CreateDeliveryAttempt records a new delivery attempt for an order
+func (r *Repository) CreateDeliveryAttempt(ctx context.Context, tx pgx.Tx, da *domain.DeliveryAttempt) error {
+	return tx.QueryRow(ctx, `
+		INSERT INTO delivery_attempts (order_id, attempt_number, previous_stop_id, previous_status, previous_reason, status, created_by)
+		VALUES ($1, $2, $3, $4, $5, 'pending', $6)
+		RETURNING id, created_at
+	`, da.OrderID, da.AttemptNumber, da.PreviousStopID, da.PreviousStatus, da.PreviousReason, da.CreatedBy,
+	).Scan(&da.ID, &da.CreatedAt)
+}
+
+// GetDeliveryAttemptCount returns the number of delivery attempts for an order
+func (r *Repository) GetDeliveryAttemptCount(ctx context.Context, orderID uuid.UUID) (int, error) {
+	var count int
+	err := r.db.QueryRow(ctx, `SELECT COUNT(*) FROM delivery_attempts WHERE order_id = $1`, orderID).Scan(&count)
+	return count, err
+}
+
+// ListDeliveryAttempts returns all delivery attempts for an order
+func (r *Repository) ListDeliveryAttempts(ctx context.Context, orderID uuid.UUID) ([]domain.DeliveryAttempt, error) {
+	rows, err := r.db.Query(ctx, `
+		SELECT da.id, da.order_id, da.attempt_number, da.shipment_id, da.previous_stop_id,
+		       COALESCE(da.previous_status, ''), COALESCE(da.previous_reason, ''),
+		       da.status, da.created_by, da.created_at, da.completed_at
+		FROM delivery_attempts da
+		WHERE da.order_id = $1
+		ORDER BY da.attempt_number
+	`, orderID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var attempts []domain.DeliveryAttempt
+	for rows.Next() {
+		var a domain.DeliveryAttempt
+		if err := rows.Scan(&a.ID, &a.OrderID, &a.AttemptNumber, &a.ShipmentID, &a.PreviousStopID,
+			&a.PreviousStatus, &a.PreviousReason, &a.Status, &a.CreatedBy, &a.CreatedAt, &a.CompletedAt); err != nil {
+			return nil, err
+		}
+		attempts = append(attempts, a)
+	}
+	return attempts, nil
+}
+
+// UpdateDeliveryAttemptShipment links a shipment to a delivery attempt
+func (r *Repository) UpdateDeliveryAttemptShipment(ctx context.Context, attemptID, shipmentID uuid.UUID) error {
+	_, err := r.db.Exec(ctx, `
+		UPDATE delivery_attempts SET shipment_id = $2 WHERE id = $1
+	`, attemptID, shipmentID)
+	return err
+}
+
+// IncrementRedeliveryCount increments the re_delivery_count on sales_orders
+func (r *Repository) IncrementRedeliveryCount(ctx context.Context, tx pgx.Tx, orderID uuid.UUID) error {
+	_, err := tx.Exec(ctx, `
+		UPDATE sales_orders SET re_delivery_count = re_delivery_count + 1, updated_at = now() WHERE id = $1
+	`, orderID)
+	return err
+}
+
+// GetLastStopForOrder finds the most recent trip stop for an order (via shipment)
+func (r *Repository) GetLastStopForOrder(ctx context.Context, orderID uuid.UUID) (*domain.TripStop, error) {
+	var ts domain.TripStop
+	err := r.db.QueryRow(ctx, `
+		SELECT ts.id, ts.trip_id, ts.shipment_id, ts.customer_id, ts.status::text, ts.notes
+		FROM trip_stops ts
+		JOIN shipments s ON s.id = ts.shipment_id
+		WHERE s.order_id = $1
+		ORDER BY ts.actual_departure DESC NULLS LAST, ts.created_at DESC
+		LIMIT 1
+	`, orderID).Scan(&ts.ID, &ts.TripID, &ts.ShipmentID, &ts.CustomerID, &ts.Status, &ts.Notes)
+	if err != nil {
+		return nil, err
+	}
+	return &ts, nil
+}
+
+// ===== CONTROL DESK (Task 5.9, 5.10, 5.11) =====
+
+// GetControlDeskStats returns order counts grouped by status
+func (r *Repository) GetControlDeskStats(ctx context.Context, warehouseID *uuid.UUID) (*domain.ControlDeskStats, error) {
+	query := `
+		SELECT so.status::text, COUNT(*) as cnt
+		FROM sales_orders so
+		WHERE 1=1
+	`
+	args := []interface{}{}
+	if warehouseID != nil {
+		query += " AND so.warehouse_id = $1"
+		args = append(args, *warehouseID)
+	}
+	query += " GROUP BY so.status"
+
+	rows, err := r.db.Query(ctx, query, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	stats := &domain.ControlDeskStats{}
+	for rows.Next() {
+		var status string
+		var count int
+		if err := rows.Scan(&status, &count); err != nil {
+			return nil, err
+		}
+		stats.Total += count
+		switch status {
+		case "draft":
+			stats.Draft = count
+		case "pending_customer_confirm":
+			stats.PendingCustomerConfirm = count
+		case "pending_approval":
+			stats.PendingApproval = count
+		case "confirmed":
+			stats.Confirmed = count
+		case "shipment_created":
+			stats.ShipmentCreated = count
+		case "in_transit":
+			stats.InTransit = count
+		case "delivering":
+			stats.Delivering = count
+		case "delivered":
+			stats.Delivered = count
+		case "partially_delivered":
+			stats.PartiallyDelivered = count
+		case "failed":
+			stats.Failed = count
+		case "cancelled":
+			stats.Cancelled = count
+		case "rejected":
+			stats.Rejected = count
+		case "on_credit":
+			stats.OnCredit = count
+		}
+	}
+	return stats, nil
+}
+
+// SearchOrders performs a global search across customer name, phone, order number, and vehicle plate
+func (r *Repository) SearchOrders(ctx context.Context, q string, limit, offset int) ([]domain.SalesOrder, int64, error) {
+	likePattern := "%" + q + "%"
+
+	countQuery := `
+		SELECT COUNT(*)
+		FROM sales_orders so
+		JOIN customers c ON c.id = so.customer_id
+		LEFT JOIN shipments sh ON sh.order_id = so.id
+		LEFT JOIN trip_stops ts ON ts.shipment_id = sh.id
+		LEFT JOIN trips t ON t.id = ts.trip_id
+		LEFT JOIN vehicles v ON v.id = t.vehicle_id
+		WHERE (
+			so.order_number ILIKE $1
+			OR c.name ILIKE $1
+			OR c.phone ILIKE $1
+			OR c.code ILIKE $1
+			OR v.plate_number ILIKE $1
+		)
+	`
+	var total int64
+	if err := r.db.QueryRow(ctx, countQuery, likePattern).Scan(&total); err != nil {
+		return nil, 0, err
+	}
+
+	query := `
+		SELECT DISTINCT ON (so.id)
+		       so.id, so.order_number, so.customer_id, c.name, so.warehouse_id, so.status::text,
+		       COALESCE(so.cutoff_group, '')::text, so.delivery_date::text, so.total_amount, so.deposit_amount, so.total_weight_kg,
+		       so.atp_status, so.credit_status, so.created_at, oc.reject_reason,
+		       oc.status::text, t.id, COALESCE(v.plate_number, ''), COALESCE(d.full_name, ''),
+		       COALESCE(c.phone, '')
+		FROM sales_orders so
+		JOIN customers c ON c.id = so.customer_id
+		LEFT JOIN order_confirmations oc ON oc.order_id = so.id
+		LEFT JOIN shipments sh ON sh.order_id = so.id
+		LEFT JOIN trip_stops ts ON ts.shipment_id = sh.id
+		LEFT JOIN trips t ON t.id = ts.trip_id
+		LEFT JOIN vehicles v ON v.id = t.vehicle_id
+		LEFT JOIN drivers d ON d.id = t.driver_id
+		WHERE (
+			so.order_number ILIKE $1
+			OR c.name ILIKE $1
+			OR c.phone ILIKE $1
+			OR c.code ILIKE $1
+			OR v.plate_number ILIKE $1
+		)
+		ORDER BY so.id, so.created_at DESC
+		LIMIT $2 OFFSET $3
+	`
+	rows, err := r.db.Query(ctx, query, likePattern, limit, offset)
+	if err != nil {
+		return nil, 0, err
+	}
+	defer rows.Close()
+
+	var orders []domain.SalesOrder
+	for rows.Next() {
+		var o domain.SalesOrder
+		if err := rows.Scan(
+			&o.ID, &o.OrderNumber, &o.CustomerID, &o.CustomerName, &o.WarehouseID, &o.Status,
+			&o.CutoffGroup, &o.DeliveryDate, &o.TotalAmount, &o.DepositAmount, &o.TotalWeightKg,
+			&o.ATPStatus, &o.CreditStatus, &o.CreatedAt, &o.RejectReason,
+			&o.ZaloStatus, &o.TripID, &o.VehiclePlate, &o.DriverName,
+			&o.CustomerPhone,
+		); err != nil {
+			return nil, 0, err
+		}
+		orders = append(orders, o)
+	}
+	return orders, total, nil
 }

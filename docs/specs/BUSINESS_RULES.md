@@ -235,4 +235,43 @@ Snapshot: Cron 23:50 daily → daily_kpi_snapshots
 
 ---
 
-*BUSINESS RULES v1.0 — 15/03/2026*
+## MODULE 7: AUTO-CONFIRM (Timing Rules)
+
+### BR-OMS-AUTO: Tự động xác nhận đơn hàng sau 2 giờ
+
+**Trigger:** Sau khi DVKH gửi Zalo OA xác nhận đơn → NPP im lặng 2h → auto-confirm
+
+```sql
+-- Cron job chạy mỗi 15 phút
+UPDATE sales_orders
+SET status = 'confirmed', updated_at = NOW()
+WHERE status = 'pending_customer_confirm'
+  AND zalo_sent_at < NOW() - INTERVAL '2 hours'
+  AND zalo_sent_at IS NOT NULL;
+-- Ghi entity_events: actor_id = 'system', trigger = 'auto_confirm_2h'
+```
+
+**Quy tắc:**
+- Chỉ áp dụng khi `status = pending_customer_confirm` VÀ đã gửi Zalo OA
+- Cron kiểm tra mỗi **15 phút** (không realtime)
+- Ghi log: `actor_type = 'system'`, `trigger = 'auto_confirm_2h'`
+- NPP có thể từ chối trước khi hết 2h → DVKH ghi thay vào modal `record_npp_rejection`
+
+### BR-REC-02 (bổ sung): Auto-confirm giao hàng 24h
+
+> Đã có ở MODULE 5 RECONCILIATION. Bổ sung chi tiết timing:
+
+- **Trigger:** Tài xế giao xong → gửi Zalo OA cho NPP → NPP im lặng 24h → auto-confirm delivery
+- **Cron:** Mỗi **1 giờ** check (khác với 15 phút của đơn hàng)
+- **Ghi log:** `actor_type = 'system'`, `trigger = 'auto_confirm_24h'`
+
+### Bảng tổng hợp Auto-confirm
+
+| Loại | Thời gian | Business rule | Cron interval | Trạng thái nguồn |
+|------|-----------|---------------|---------------|-------------------|
+| Đơn hàng | 2 giờ | BR-OMS-AUTO | 15 phút | `pending_customer_confirm` |
+| Giao hàng | 24 giờ | BR-REC-02 | 1 giờ | `delivered` |
+
+---
+
+*BUSINESS RULES v1.1 — 22/03/2026 — Thêm BR-OMS-AUTO (v4 spec §1)*

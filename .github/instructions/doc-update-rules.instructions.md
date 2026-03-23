@@ -1,6 +1,6 @@
 ---
 description: "MUST run at end of every task/session. After making code changes, update all related documentation files to keep docs in sync with code. Prevents documentation drift."
-applyTo: ["**/*.go", "**/*.ts", "**/*.tsx", "**/*.sql"]
+applyTo: "**/*.{go,ts,tsx,sql}"
 ---
 
 # Quy tắc đồng bộ tài liệu sau mỗi thay đổi
@@ -43,6 +43,7 @@ applyTo: ["**/*.go", "**/*.ts", "**/*.tsx", "**/*.sql"]
 ## Quy trình cuối session
 
 Trước khi kết thúc, AI phải tự kiểm tra:
+0. **[BẮT BUỘC] Localhost hoạt động?** Fetch backend health check + frontend login page. Nếu fail → fix trước khi báo "đã xong". Nếu port bị chiếm → dùng port khác + cập nhật proxy.
 1. Đã cập nhật CURRENT_STATE.md cho mọi thay đổi chưa?
 2. Đã ghi CHANGELOG.md chưa?
 3. TASK_TRACKER.md đã đánh dấu các task hoàn thành chưa?

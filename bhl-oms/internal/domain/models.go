@@ -95,8 +95,15 @@ type SalesOrder struct {
 	CreditStatus    string      `json:"credit_status"`
 	Notes           *string     `json:"notes,omitempty"`
 	CreatedBy       *uuid.UUID  `json:"created_by,omitempty"`
+	RejectReason    *string     `json:"reject_reason,omitempty"`
 	Items           []OrderItem `json:"items,omitempty"`
 	CreatedAt       time.Time   `json:"created_at"`
+	// Enrichment fields (populated by ListOrders when available)
+	ZaloStatus    *string    `json:"zalo_status,omitempty"`
+	TripID        *uuid.UUID `json:"trip_id,omitempty"`
+	VehiclePlate  string     `json:"vehicle_plate,omitempty"`
+	DriverName    string     `json:"driver_name,omitempty"`
+	CustomerPhone string     `json:"customer_phone,omitempty"`
 }
 
 type OrderItem struct {
@@ -109,6 +116,58 @@ type OrderItem struct {
 	UnitPrice     float64   `json:"unit_price"`
 	Amount        float64   `json:"amount"`
 	DepositAmount float64   `json:"deposit_amount"`
+}
+
+// ===== CONTROL DESK =====
+type ControlDeskStats struct {
+	Draft                  int `json:"draft"`
+	PendingCustomerConfirm int `json:"pending_customer_confirm"`
+	PendingApproval        int `json:"pending_approval"`
+	Confirmed              int `json:"confirmed"`
+	ShipmentCreated        int `json:"shipment_created"`
+	InTransit              int `json:"in_transit"`
+	Delivering             int `json:"delivering"`
+	Delivered              int `json:"delivered"`
+	PartiallyDelivered     int `json:"partially_delivered"`
+	Failed                 int `json:"failed"`
+	Cancelled              int `json:"cancelled"`
+	Rejected               int `json:"rejected"`
+	OnCredit               int `json:"on_credit"`
+	Total                  int `json:"total"`
+}
+
+// ===== DISPATCHER CONTROL TOWER =====
+
+type TripException struct {
+	ID           uuid.UUID  `json:"id"`
+	TripID       uuid.UUID  `json:"trip_id"`
+	TripNumber   string     `json:"trip_number"`
+	Type         string     `json:"type"`     // late_eta, idle_vehicle, failed_stop, no_checkin, overloaded
+	Priority     string     `json:"priority"` // P0, P1
+	Title        string     `json:"title"`
+	Description  string     `json:"description"`
+	VehiclePlate string     `json:"vehicle_plate,omitempty"`
+	DriverName   string     `json:"driver_name,omitempty"`
+	StopID       *uuid.UUID `json:"stop_id,omitempty"`
+	CustomerName string     `json:"customer_name,omitempty"`
+	CreatedAt    string     `json:"created_at"`
+}
+
+type ControlTowerStats struct {
+	TotalTripsToday int     `json:"total_trips_today"`
+	InTransit       int     `json:"in_transit"`
+	Completed       int     `json:"completed"`
+	Planned         int     `json:"planned"`
+	TotalStopsToday int     `json:"total_stops_today"`
+	StopsDelivered  int     `json:"stops_delivered"`
+	StopsFailed     int     `json:"stops_failed"`
+	StopsPending    int     `json:"stops_pending"`
+	ActiveVehicles  int     `json:"active_vehicles"`
+	IdleVehicles    int     `json:"idle_vehicles"`
+	ExceptionCount  int     `json:"exception_count"`
+	OnTimeRate      float64 `json:"on_time_rate"`
+	TotalWeightKg   float64 `json:"total_weight_kg"`
+	TotalDistanceKm float64 `json:"total_distance_km"`
 }
 
 // ===== SHIPMENT =====
@@ -412,6 +471,9 @@ type EPOD struct {
 	TotalAmount    float64         `json:"total_amount"`
 	DepositAmount  float64         `json:"deposit_amount"`
 	DeliveryStatus string          `json:"delivery_status"`
+	RejectReason   *string         `json:"reject_reason,omitempty"`
+	RejectDetail   *string         `json:"reject_detail,omitempty"`
+	RejectPhotos   []string        `json:"reject_photos,omitempty"`
 	Notes          *string         `json:"notes,omitempty"`
 	CreatedAt      time.Time       `json:"created_at"`
 	UpdatedAt      time.Time       `json:"updated_at"`
@@ -461,6 +523,29 @@ type ZaloConfirmation struct {
 	DisputedAt      *time.Time `json:"disputed_at,omitempty"`
 	DisputeReason   *string    `json:"dispute_reason,omitempty"`
 	AutoConfirmedAt *time.Time `json:"auto_confirmed_at,omitempty"`
+	CreatedAt       time.Time  `json:"created_at"`
+	UpdatedAt       time.Time  `json:"updated_at"`
+}
+
+// OrderConfirmation tracks Zalo order confirmations from customer (2h timeout)
+type OrderConfirmation struct {
+	ID              uuid.UUID  `json:"id"`
+	OrderID         uuid.UUID  `json:"order_id"`
+	OrderNumber     string     `json:"order_number,omitempty"`
+	CustomerID      uuid.UUID  `json:"customer_id"`
+	CustomerName    string     `json:"customer_name,omitempty"`
+	Token           string     `json:"token"`
+	Phone           string     `json:"phone"`
+	Status          string     `json:"status"`
+	TotalAmount     float64    `json:"total_amount"`
+	ZaloMsgID       *string    `json:"zalo_msg_id,omitempty"`
+	PDFURL          *string    `json:"pdf_url,omitempty"`
+	SentAt          time.Time  `json:"sent_at"`
+	ConfirmedAt     *time.Time `json:"confirmed_at,omitempty"`
+	RejectedAt      *time.Time `json:"rejected_at,omitempty"`
+	RejectReason    *string    `json:"reject_reason,omitempty"`
+	AutoConfirmedAt *time.Time `json:"auto_confirmed_at,omitempty"`
+	ExpiresAt       time.Time  `json:"expires_at"`
 	CreatedAt       time.Time  `json:"created_at"`
 	UpdatedAt       time.Time  `json:"updated_at"`
 }
@@ -543,13 +628,42 @@ type DailyCloseSummary struct {
 
 // ===== NOTIFICATION =====
 type Notification struct {
+	ID         uuid.UUID  `json:"id"`
+	UserID     uuid.UUID  `json:"user_id"`
+	Title      string     `json:"title"`
+	Body       string     `json:"body"`
+	Category   string     `json:"category"`
+	Priority   string     `json:"priority"`
+	Link       *string    `json:"link,omitempty"`
+	EntityType *string    `json:"entity_type,omitempty"`
+	EntityID   *uuid.UUID `json:"entity_id,omitempty"`
+	IsRead     bool       `json:"is_read"`
+	CreatedAt  time.Time  `json:"created_at"`
+}
+
+// ===== ENTITY EVENT (Activity Timeline) =====
+type EntityEvent struct {
+	ID         uuid.UUID       `json:"id"`
+	EntityType string          `json:"entity_type"`
+	EntityID   uuid.UUID       `json:"entity_id"`
+	EventType  string          `json:"event_type"`
+	ActorType  string          `json:"actor_type"`
+	ActorID    *uuid.UUID      `json:"actor_id,omitempty"`
+	ActorName  string          `json:"actor_name"`
+	Title      string          `json:"title"`
+	Detail     json.RawMessage `json:"detail,omitempty"`
+	CreatedAt  time.Time       `json:"created_at"`
+}
+
+// ===== ORDER NOTE =====
+type OrderNote struct {
 	ID        uuid.UUID `json:"id"`
+	OrderID   uuid.UUID `json:"order_id"`
 	UserID    uuid.UUID `json:"user_id"`
-	Title     string    `json:"title"`
-	Body      string    `json:"body"`
-	Category  string    `json:"category"`
-	Link      *string   `json:"link,omitempty"`
-	IsRead    bool      `json:"is_read"`
+	UserName  string    `json:"user_name"`
+	Content   string    `json:"content"`
+	NoteType  string    `json:"note_type"`
+	IsPinned  bool      `json:"is_pinned"`
 	CreatedAt time.Time `json:"created_at"`
 }
 
@@ -584,4 +698,57 @@ type DailyKPISnapshot struct {
 	TotalDiscrepancies    int             `json:"total_discrepancies"`
 	Details               json.RawMessage `json:"details"`
 	CreatedAt             time.Time       `json:"created_at"`
+}
+
+// ===== DELIVERY ATTEMPT (Re-delivery tracking) =====
+type DeliveryAttempt struct {
+	ID             uuid.UUID  `json:"id"`
+	OrderID        uuid.UUID  `json:"order_id"`
+	AttemptNumber  int        `json:"attempt_number"`
+	ShipmentID     *uuid.UUID `json:"shipment_id,omitempty"`
+	PreviousStopID *uuid.UUID `json:"previous_stop_id,omitempty"`
+	PreviousStatus string     `json:"previous_status"`
+	PreviousReason string     `json:"previous_reason"`
+	Status         string     `json:"status"`
+	CreatedBy      *uuid.UUID `json:"created_by,omitempty"`
+	CreatedAt      time.Time  `json:"created_at"`
+	CompletedAt    *time.Time `json:"completed_at,omitempty"`
+	// Joined fields
+	OrderNumber  string `json:"order_number,omitempty"`
+	CustomerName string `json:"customer_name,omitempty"`
+}
+
+// ===== VEHICLE DOCUMENT =====
+type VehicleDocument struct {
+	ID         uuid.UUID  `json:"id"`
+	VehicleID  uuid.UUID  `json:"vehicle_id"`
+	DocType    string     `json:"doc_type"`
+	DocNumber  string     `json:"doc_number,omitempty"`
+	IssuedDate *string    `json:"issued_date,omitempty"`
+	ExpiryDate string     `json:"expiry_date"`
+	Notes      *string    `json:"notes,omitempty"`
+	CreatedBy  *uuid.UUID `json:"created_by,omitempty"`
+	CreatedAt  time.Time  `json:"created_at"`
+	UpdatedAt  time.Time  `json:"updated_at"`
+	// Joined fields
+	PlateNumber  string `json:"plate_number,omitempty"`
+	DaysToExpiry int    `json:"days_to_expiry,omitempty"`
+}
+
+// ===== DRIVER DOCUMENT =====
+type DriverDocument struct {
+	ID           uuid.UUID  `json:"id"`
+	DriverID     uuid.UUID  `json:"driver_id"`
+	DocType      string     `json:"doc_type"`
+	DocNumber    string     `json:"doc_number,omitempty"`
+	IssuedDate   *string    `json:"issued_date,omitempty"`
+	ExpiryDate   string     `json:"expiry_date"`
+	LicenseClass *string    `json:"license_class,omitempty"`
+	Notes        *string    `json:"notes,omitempty"`
+	CreatedBy    *uuid.UUID `json:"created_by,omitempty"`
+	CreatedAt    time.Time  `json:"created_at"`
+	UpdatedAt    time.Time  `json:"updated_at"`
+	// Joined fields
+	DriverName   string `json:"driver_name,omitempty"`
+	DaysToExpiry int    `json:"days_to_expiry,omitempty"`
 }

@@ -3,7 +3,9 @@ package kpi
 import (
 	"net/http"
 	"strconv"
+	"time"
 
+	"bhl-oms/pkg/logger"
 	"bhl-oms/pkg/response"
 
 	"github.com/gin-gonic/gin"
@@ -12,16 +14,19 @@ import (
 
 type Handler struct {
 	svc *Service
+	log logger.Logger
 }
 
-func NewHandler(svc *Service) *Handler {
-	return &Handler{svc: svc}
+func NewHandler(svc *Service, log logger.Logger) *Handler {
+	return &Handler{svc: svc, log: log}
 }
 
 func (h *Handler) RegisterRoutes(r *gin.RouterGroup) {
 	kg := r.Group("/kpi")
 	{
 		kg.GET("/report", h.GetReport)
+		kg.GET("/issues", h.GetIssuesReport)
+		kg.GET("/cancellations", h.GetCancellationsReport)
 		kg.POST("/snapshot", h.GenerateSnapshot)
 	}
 }
@@ -40,6 +45,42 @@ func (h *Handler) GetReport(c *gin.Context) {
 
 	results, err := h.svc.GetKPIReport(c.Request.Context(), warehouseID, from, to, limit)
 	if err != nil {
+		response.InternalError(c)
+		return
+	}
+	response.OK(c, results)
+}
+
+// GET /v1/kpi/issues?from=&to=&limit=
+func (h *Handler) GetIssuesReport(c *gin.Context) {
+	from := c.DefaultQuery("from", time.Now().AddDate(0, 0, -7).Format("2006-01-02"))
+	to := c.DefaultQuery("to", time.Now().Format("2006-01-02"))
+	limit, _ := strconv.Atoi(c.DefaultQuery("limit", "50"))
+	if limit > 200 {
+		limit = 200
+	}
+
+	results, err := h.svc.GetIssuesReport(c.Request.Context(), from, to, limit)
+	if err != nil {
+		h.log.Error(c.Request.Context(), "issues_report_failed", err)
+		response.InternalError(c)
+		return
+	}
+	response.OK(c, results)
+}
+
+// GET /v1/kpi/cancellations?from=&to=&limit=
+func (h *Handler) GetCancellationsReport(c *gin.Context) {
+	from := c.DefaultQuery("from", time.Now().AddDate(0, 0, -7).Format("2006-01-02"))
+	to := c.DefaultQuery("to", time.Now().Format("2006-01-02"))
+	limit, _ := strconv.Atoi(c.DefaultQuery("limit", "50"))
+	if limit > 200 {
+		limit = 200
+	}
+
+	results, err := h.svc.GetCancellationsReport(c.Request.Context(), from, to, limit)
+	if err != nil {
+		h.log.Error(c.Request.Context(), "cancellations_report_failed", err)
 		response.InternalError(c)
 		return
 	}

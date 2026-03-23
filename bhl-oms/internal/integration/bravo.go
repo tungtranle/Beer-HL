@@ -6,9 +6,10 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"log"
 	"net/http"
 	"time"
+
+	"bhl-oms/pkg/logger"
 )
 
 // BravoAdapter pushes delivery documents and reconciles credit with Bravo ERP.
@@ -17,14 +18,16 @@ type BravoAdapter struct {
 	apiKey     string
 	httpClient *http.Client
 	mockMode   bool
+	log        logger.Logger
 }
 
-func NewBravoAdapter(baseURL, apiKey string, mockMode bool) *BravoAdapter {
+func NewBravoAdapter(baseURL, apiKey string, mockMode bool, log logger.Logger) *BravoAdapter {
 	return &BravoAdapter{
 		baseURL:    baseURL,
 		apiKey:     apiKey,
 		httpClient: &http.Client{Timeout: 30 * time.Second},
 		mockMode:   mockMode,
+		log:        log,
 	}
 }
 
@@ -179,7 +182,7 @@ func (a *BravoAdapter) NightlyReconcile(ctx context.Context, customerCodes []str
 		})
 	}
 
-	log.Printf("[Bravo] Nightly reconcile: %d customers checked, %d discrepancies", len(customerCodes), len(discrepancies))
+	a.log.Info(ctx, "bravo_nightly_reconcile_done", logger.F("customers_checked", len(customerCodes)), logger.F("discrepancies", len(discrepancies)))
 	return discrepancies, nil
 }
 
@@ -204,15 +207,16 @@ type BravoWebhookPayload struct {
 
 // HandleWebhook processes incoming Bravo webhooks
 func (a *BravoAdapter) HandleWebhook(payload BravoWebhookPayload) error {
+	ctx := context.Background()
 	switch payload.Event {
 	case "document_posted":
-		log.Printf("[Bravo] Document posted: %s, amount: %.0f", payload.DocumentID, payload.Amount)
+		a.log.Info(ctx, "bravo_webhook_document_posted", logger.F("document_id", payload.DocumentID), logger.F("amount", payload.Amount))
 		return nil
 	case "payment_received":
-		log.Printf("[Bravo] Payment received for doc: %s, amount: %.0f", payload.DocumentID, payload.Amount)
+		a.log.Info(ctx, "bravo_webhook_payment_received", logger.F("document_id", payload.DocumentID), logger.F("amount", payload.Amount))
 		return nil
 	default:
-		log.Printf("[Bravo] Unknown webhook event: %s", payload.Event)
+		a.log.Warn(ctx, "bravo_webhook_unknown_event", logger.F("event", payload.Event))
 		return nil
 	}
 }

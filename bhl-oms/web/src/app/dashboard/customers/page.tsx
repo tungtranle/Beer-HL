@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react'
 import { apiFetch } from '@/lib/api'
+import { toast } from '@/lib/useToast'
 
 interface Customer {
   id: string
@@ -71,7 +72,7 @@ export default function CustomersPage() {
       setModal(null)
       load()
     } catch (e: any) {
-      alert(e.message)
+      toast.error(e.message)
     } finally {
       setSaving(false)
     }
@@ -83,7 +84,7 @@ export default function CustomersPage() {
       await apiFetch(`/customers/${id}`, { method: 'DELETE' })
       load()
     } catch (e: any) {
-      alert(e.message)
+      toast.error(e.message)
     }
   }
 
@@ -104,9 +105,9 @@ export default function CustomersPage() {
             placeholder="Tìm theo tên, mã, địa chỉ..."
             value={search}
             onChange={e => setSearch(e.target.value)}
-            className="px-4 py-2 border rounded-lg text-sm w-64 focus:ring-2 focus:ring-amber-500 focus:border-amber-500 outline-none"
+            className="px-4 py-2 border rounded-lg text-sm w-64 focus:ring-2 focus:ring-brand-500 focus:border-brand-500 outline-none"
           />
-          <button onClick={openCreate} className="px-4 py-2 bg-amber-600 text-white rounded-lg text-sm font-medium hover:bg-amber-700">
+          <button onClick={openCreate} className="px-4 py-2 bg-brand-500 text-white rounded-lg text-sm font-medium hover:bg-brand-600">
             + Thêm khách hàng
           </button>
         </div>
@@ -145,7 +146,7 @@ export default function CustomersPage() {
                   </span>
                 </td>
                 <td className="px-4 py-3 text-center">
-                  <button onClick={() => openEdit(c)} className="text-blue-600 hover:underline text-xs mr-2">Sửa</button>
+                  <button onClick={() => openEdit(c)} className="text-brand-500 hover:underline text-xs mr-2">Sửa</button>
                   <button onClick={() => handleDelete(c.id, c.name)} className="text-red-600 hover:underline text-xs">Xóa</button>
                 </td>
               </tr>
@@ -202,7 +203,7 @@ export default function CustomersPage() {
             </div>
             <div className="flex justify-end gap-3 mt-6">
               <button onClick={() => setModal(null)} className="px-4 py-2 border rounded-lg text-sm">Hủy</button>
-              <button onClick={handleSave} disabled={saving} className="px-4 py-2 bg-amber-600 text-white rounded-lg text-sm font-medium hover:bg-amber-700 disabled:opacity-50">
+              <button onClick={handleSave} disabled={saving} className="px-4 py-2 bg-brand-500 text-white rounded-lg text-sm font-medium hover:bg-brand-600 disabled:opacity-50">
                 {saving ? 'Đang lưu...' : 'Lưu'}
               </button>
             </div>

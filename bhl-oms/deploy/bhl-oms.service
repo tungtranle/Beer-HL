@@ -1,0 +1,16 @@
+[Unit]
+Description=BHL OMS-TMS-WMS Application Stack
+Requires=docker.service
+After=docker.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+WorkingDirectory=/opt/bhl-oms
+ExecStart=/usr/bin/docker compose -f docker-compose.prod.yml up -d
+ExecStop=/usr/bin/docker compose -f docker-compose.prod.yml down
+ExecReload=/usr/bin/docker compose -f docker-compose.prod.yml restart api web vrp
+TimeoutStartSec=120
+
+[Install]
+WantedBy=multi-user.target

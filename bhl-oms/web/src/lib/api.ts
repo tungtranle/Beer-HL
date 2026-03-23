@@ -31,10 +31,12 @@ async function tryRefreshToken(): Promise<boolean> {
 
 export async function apiFetch<T>(path: string, options: ApiOptions = {}): Promise<T> {
   const { method = 'GET', body, token } = options;
+  const traceId = crypto.randomUUID();
 
   const buildHeaders = () => {
     const headers: Record<string, string> = {
       'Content-Type': 'application/json',
+      'X-Trace-ID': traceId,
     };
     if (token) {
       headers['Authorization'] = `Bearer ${token}`;
@@ -82,7 +84,9 @@ export async function apiFetch<T>(path: string, options: ApiOptions = {}): Promi
       clearAuth();
       window.location.href = '/login';
     }
-    throw new Error(json.error?.message || `API error: ${res.status}`);
+    const errMsg = json.error?.message || `API error: ${res.status}`;
+    const serverTraceId = res.headers.get('X-Trace-ID') || traceId;
+    throw new Error(`${errMsg} [trace: ${serverTraceId}]`);
   }
 
   return json;

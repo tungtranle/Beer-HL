@@ -1,0 +1,40 @@
+{
+  "hooks": {
+    "PostToolUse": [
+      {
+        "matcher": "Write|Edit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "cd /path/to/bhl-oms && (case \"$CLAUDE_TOOL_INPUT_PATH\" in *.go) gofmt -w \"$CLAUDE_TOOL_INPUT_PATH\" ;; *.ts|*.tsx) cd web && npx prettier --write \"$CLAUDE_TOOL_INPUT_PATH\" 2>/dev/null || true ;; esac) || true",
+            "description": "Auto-format Go và TypeScript sau mỗi lần Claude ghi file"
+          }
+        ]
+      }
+    ],
+    "PostCompact": [
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "echo '=== CONTEXT COMPACTED ===' && echo 'Re-read: CURRENT_STATE.md, TECH_DEBT.md, KNOWN_ISSUES.md' && echo 'Critical: pgx needs ::text cast, use local Redis (not Docker), no refactor of old code'",
+            "description": "Nhắc nhở context quan trọng sau khi Claude nén conversation"
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "echo '=== SESSION CHECKLIST ===' && echo '1. CURRENT_STATE.md updated?' && echo '2. CHANGELOG.md written?' && echo '3. TASK_TRACKER.md marked?' && echo '4. New decisions in DECISIONS.md?' && echo '5. CLAUDE.md updated with lessons learned?'",
+            "description": "Nhắc checklist cuối session"
+          }
+        ]
+      }
+    ]
+  }
+}

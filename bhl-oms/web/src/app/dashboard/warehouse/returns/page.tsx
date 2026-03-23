@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react'
 import { apiFetch } from '@/lib/api'
+import { toast } from '@/lib/useToast'
 
 interface PendingReturn {
   trip_id: string; trip_number: string; driver_name: string
@@ -34,7 +35,7 @@ export default function WarehouseReturnsPage() {
       })
       await loadData()
     } catch (err: any) {
-      alert('Lỗi: ' + err.message)
+      toast.error('Lỗi: ' + err.message)
     } finally {
       setProcessing(null)
     }
@@ -48,25 +49,25 @@ export default function WarehouseReturnsPage() {
       <p className="text-sm text-gray-500 mb-6">Tiếp nhận vỏ két và hàng trả về từ tài xế</p>
 
       {pending.length === 0 ? (
-        <p className="text-gray-400 text-sm bg-white rounded-xl shadow-sm p-8 text-center">Không có hàng trả về đang chờ xử lý</p>
+        <p className="text-gray-400 text-base bg-white rounded-xl shadow-sm p-8 text-center">Không có hàng trả về đang chờ xử lý — kiểm tra lại khi có xe về kho</p>
       ) : (
         <div className="space-y-4">
           {pending.map(item => (
             <div key={item.trip_id} className="bg-white rounded-xl shadow-sm p-5 border-l-4 border-blue-500">
               <div className="flex items-center justify-between mb-3">
                 <div>
-                  <span className="font-bold text-gray-800">{item.trip_number}</span>
-                  <span className="ml-2 text-sm text-gray-500">· Tài xế: {item.driver_name}</span>
+                  <span className="font-bold text-gray-800 text-base">{item.trip_number}</span>
+                  <span className="ml-2 text-base text-gray-500">· Tài xế: {item.driver_name}</span>
                 </div>
                 <button
                   onClick={() => processInbound(item.trip_id)}
                   disabled={processing === item.trip_id}
-                  className="px-4 py-2 bg-blue-600 text-white rounded-lg text-sm hover:bg-blue-700 transition disabled:opacity-50"
+                  className="px-6 h-14 bg-brand text-white rounded-xl text-base font-medium hover:bg-brand-500 transition disabled:opacity-50"
                 >
                   {processing === item.trip_id ? 'Đang xử lý...' : '📥 Xác nhận nhập kho'}
                 </button>
               </div>
-              <div className="text-sm text-gray-500">Tổng: {item.total_items} mặt hàng</div>
+              <div className="text-base text-gray-500">Tổng: {item.total_items} mặt hàng</div>
             </div>
           ))}
         </div>

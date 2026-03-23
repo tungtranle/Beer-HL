@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { apiFetch, getUser } from '@/lib/api'
+import { formatVND } from '@/lib/status-config'
 
 interface Stats {
   total_orders: number
@@ -36,8 +37,7 @@ export default function DashboardPage() {
       .catch(console.error)
   }, [router])
 
-  const formatMoney = (n: number) =>
-    new Intl.NumberFormat('vi-VN', { style: 'currency', currency: 'VND' }).format(n)
+  // formatVND imported from status-config (single source of truth)
 
   // Role-specific cards
   const getCards = () => {
@@ -60,7 +60,7 @@ export default function DashboardPage() {
         { label: 'Đơn chờ duyệt', value: stats?.pending_approvals ?? '-', icon: '⏳', color: 'bg-orange-500', href: '/dashboard/approvals' },
         { label: 'Chuyến đang chạy', value: stats?.active_trips ?? '-', icon: '🚛', color: 'bg-green-500', href: '/dashboard/trips' },
         { label: 'Sai lệch chưa xử lý', value: stats?.pending_discrepancies ?? '-', icon: '⚠️', color: 'bg-red-500', href: '/dashboard/reconciliation' },
-        { label: 'Doanh thu hôm nay', value: stats?.revenue_today ? formatMoney(stats.revenue_today) : '0 ₫', icon: '💰', color: 'bg-emerald-500', href: '/dashboard/reconciliation/daily-close' },
+        { label: 'Doanh thu hôm nay', value: stats?.revenue_today ? formatVND(stats.revenue_today) : '0 ₫', icon: '💰', color: 'bg-emerald-500', href: '/dashboard/reconciliation/daily-close' },
       ]
     }
     if (role === 'dvkh') {
@@ -100,7 +100,7 @@ export default function DashboardPage() {
         {cards.map((card) => (
           <div key={card.label}
             onClick={() => router.push(card.href)}
-            className="bg-white rounded-xl shadow-sm p-5 cursor-pointer hover:shadow-md hover:ring-2 hover:ring-blue-200 transition">
+            className="bg-white rounded-xl shadow-sm p-5 cursor-pointer hover:shadow-md hover:ring-2 hover:ring-brand-200 transition">
             <div className="flex items-center justify-between">
               <div>
                 <p className="text-sm text-gray-500">{card.label}</p>

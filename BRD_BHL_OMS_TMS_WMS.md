@@ -1,11 +1,11 @@
 # BRD — HỆ THỐNG QUẢN LÝ VẬN HÀNH BHL
 ## (OMS – TMS – WMS)
 
-**Phiên bản:** 2.3  
+**Phiên bản:** 3.0  
 **Ngày:** 21/03/2026  
 **Khách hàng:** Công ty Cổ phần Bia và Nước giải khát Hạ Long (BHL)  
 **Trạng thái:** Đang phát triển — Đối chiếu code & spec  
-**Nguồn:** Merge từ BRD-BHL-OMS-TMS-WMS-V1.2 (nghiệp vụ) + trao đổi BA chi tiết (giải pháp) + rà soát code thực tế
+**Nguồn:** BRD v2.4 + BRD v4.0 (Gap Analysis) — chỉ giữ nội dung nghiệp vụ (What + Why), loại bỏ nội dung kỹ thuật (How → SAD/INF/ROADMAP)
 
 ---
 
@@ -19,13 +19,14 @@
 6. [PHÂN HỆ WMS — QUẢN LÝ KHO](#6-phân-hệ-wms--quản-lý-kho)
 7. [MODULE ĐỐI SOÁT](#7-module-đối-soát)
 8. [TÍCH HỢP HỆ THỐNG](#8-tích-hợp-hệ-thống)
-9. [PHÂN QUYỀN & APPROVAL FLOW](#9-phân-quyền--approval-flow)
+9. [PHÂN QUYỀN 3 LỚP & APPROVAL FLOW](#9-phân-quyền-3-lớp--approval-flow)
 10. [BÁO CÁO & DASHBOARD](#10-báo-cáo--dashboard)
-11. [THÔNG BÁO & CẢNH BÁO](#11-thông-báo--cảnh-báo)
-12. [QUY MÔ & SIZING](#12-quy-mô--sizing)
-13. [PHỤ LỤC — DATA ENTITIES](#13-phụ-lục--data-entities)
-13B. [TÍNH NĂNG BỔ SUNG (PHÁT SINH TỪ PHÁT TRIỂN)](#13b-tính-năng-bổ-sung-phát-sinh-từ-phát-triển)
-14. [TIÊU CHÍ NGHIỆM THU (UAT)](#14-tiêu-chí-nghiệm-thu-uat)
+11. [THÔNG BÁO & CẢNH BÁO (33 EVENTS)](#11-thông-báo--cảnh-báo-33-events)
+12. [TIMELINE ĐƠN HÀNG 10 LỚP](#12-timeline-đơn-hàng-10-lớp)
+13. [QUY MÔ & SIZING](#13-quy-mô--sizing)
+14. [PHỤ LỤC — DATA ENTITIES](#14-phụ-lục--data-entities)
+14B. [TÍNH NĂNG BỔ SUNG (PHÁT SINH TỪ PHÁT TRIỂN)](#14b-tính-năng-bổ-sung-phát-sinh-từ-phát-triển)
+15. [TIÊU CHÍ NGHIỆM THU (UAT)](#15-tiêu-chí-nghiệm-thu-uat)
 
 ---
 
@@ -34,21 +35,26 @@
 ## 1.1 Mục tiêu
 Xây dựng hệ thống vận hành chính (Primary Operations System) quản lý toàn bộ chuỗi khép kín: Đặt hàng → Điều vận → Xuất kho → Giao hàng → Thu tiền/Công nợ → Thu vỏ → Đối soát → Hoàn chứng từ, thay thế quy trình thủ công (Excel/Zalo) hiện tại.
 
-**Mục tiêu cụ thể (từ BRD V1.2):**
-- Rút ngắn thời gian lập kế hoạch điều vận theo ngày
-- Tăng hiệu suất sử dụng xe, giảm chuyến rỗng
-- Nâng tỷ lệ giao đúng khung giờ cam kết
-- Kiểm soát tuyệt đối sai lệch hàng và vỏ trong đối soát (target: 0)
-- Minh bạch công nợ hàng hóa, tiền thu và vỏ cược theo từng khách hàng
+**Mục tiêu cụ thể:**
 
-## 1.2 Vai trò hệ thống
-| Hệ thống | Vai trò |
-|-----------|---------|
-| **Hệ thống mới (OMS-TMS-WMS)** | Hệ thống vận hành chính — nơi nhập đơn gốc, quản lý kho, điều vận, giao hàng |
-| **DMS** | Nhận dữ liệu đơn hàng đã xử lý từ hệ thống mới (qua API) để Sale theo dõi |
-| **Bravo** | Kế toán — nhận kết quả giao hàng, tiền thu, công nợ vỏ từ hệ thống mới (API 2 chiều) |
+| Mục tiêu | Chỉ số đo lường |
+|----------|----------------|
+| Rút ngắn thời gian lập kế hoạch điều vận | Từ 1–3 giờ/ngày xuống < 20 phút (tự động VRP) |
+| Tăng hiệu suất sử dụng xe, giảm chuyến rỗng | Tỷ lệ xe rỗng < 5%, tải trọng trung bình > 80% |
+| Nâng tỷ lệ giao đúng khung giờ cam kết | OTD rate (1 giờ) > 95% |
+| Kiểm soát tuyệt đối sai lệch hàng và vỏ | Sai lệch tại cổng = 0, sai lệch vỏ = 0 |
+| Minh bạch công nợ hàng hóa và vỏ cược | Công nợ NPP real-time, sai lệch đóng trong T+1 |
 
-> **LƯU Ý QUAN TRỌNG:** Luồng dữ liệu là **Hệ thống mới → DMS** (không phải DMS → OMS như đề bài gốc). Hệ thống mới là nguồn sự thật (Source of Truth) cho dữ liệu vận hành. Master data (Sản phẩm, Khách hàng, NPP, Tuyến) quản lý trên hệ thống mới, sau này có thể sync với DMS qua API.
+## 1.2 Vai trò hệ thống & Luồng dữ liệu
+
+| Hệ thống | Vai trò | Luồng dữ liệu |
+|-----------|---------|----------------|
+| **Hệ thống mới (OMS-TMS-WMS)** | Primary Operations — Source of Truth | Nhập đơn gốc, quản lý kho, điều vận → DMS (push) \| ↔ Bravo (2 chiều) \| → Zalo OA |
+| **Bravo** | Kế toán — Hạch toán, hóa đơn điện tử | ← Nhận: giao hàng, tiền thu, công nợ vỏ → Gửi: số dư công nợ, xác nhận hạch toán |
+| **DMS** | Sales — Theo dõi đơn hàng từ sale | ← Nhận: đơn confirmed, cập nhật trạng thái |
+| **Zalo OA** | Kênh xác nhận với NPP | ← Gửi: link xác nhận đơn, link xác nhận nhận hàng |
+
+> **LƯU Ý QUAN TRỌNG:** Luồng dữ liệu là **Hệ thống mới → DMS** (không phải DMS → OMS). Hệ thống mới là nguồn sự thật (Source of Truth). Hóa đơn điện tử được quản lý và phát hành trên Bravo — hệ thống mới CHỈ gửi dữ liệu kết quả giao hàng/thanh toán sang Bravo.
 
 ## 1.3 Các điểm nghẽn cần giải quyết
 | # | Điểm nghẽn (AS-IS) | Giải pháp (TO-BE) |
@@ -65,13 +71,15 @@ Xây dựng hệ thống vận hành chính (Primary Operations System) quản l
 | Nhà máy | 2 (Hạ Long và Đông Mai, cách ~35km) |
 | Kho | 2 hiện tại, scale tới 8 (bao gồm kho thuê ngoài theo mùa) |
 | Đội xe nội bộ | ~70 đầu (2.5T – 16T) + xe thuê ngoài mùa cao điểm |
-| Sản lượng | 10-15 triệu lít/tháng |
+| Sản lượng | 10–15 triệu lít/tháng |
 | Đơn hàng | ~1,000 đơn/ngày |
-| NPP/Khách hàng | ~800 |
+| NPP/Khách hàng hiện tại | ~800 |
 | SKU | ~30 |
 | Tuyến đường | ~500 |
-| User hệ thống | ~50 người |
-| Tính chất | Mùa vụ cao điểm (Tết, Hè) tăng đột biến — KHÔNG thay đổi chính sách vận hành cốt lõi |
+| Internal users (bắt buộc) | 80 người: 70 tài xế (Driver App) + 10 nhân viên nội bộ (Web) |
+| NPP Portal users (tương lai) | Tối đa 300 NPP — phát triển sau khi hệ thống lõi ổn định |
+| Concurrent users (peak) | ~80 internal + ~100 NPP portal = ~180 đồng thời |
+| Tính chất mùa vụ | Tết, Hè tăng đột biến — KHÔNG thay đổi chính sách vận hành lõi |
 
 ## 1.5 Các bên liên quan
 
@@ -185,7 +193,14 @@ OMS là **điểm vào duy nhất** của đơn hàng. DVKH nhập đơn trực 
 - [x] Chọn địa chỉ giao (từ danh sách địa chỉ đã lưu của NPP hoặc nhập mới)
 - [ ] Hiển thị chính sách vỏ cược áp dụng cho đơn này (tự động tính)
 - [x] **Validate đầy đủ thông tin bắt buộc** — không cho chuyển bước nếu thiếu
-- [x] Lưu đơn → trạng thái "Draft" *(Impl: đơn auto-confirm nếu không vượt hạn mức, auto `pending_approval` nếu vượt)*
+- [x] Lưu đơn → hệ thống check ATP + hạn mức công nợ:
+  - ATP đủ + hạn mức OK → trạng thái **"Chờ NPP xác nhận" (Pending Customer Confirm)** → gửi Zalo cho NPP kèm link xác nhận đơn hàng
+  - ATP đủ + vượt hạn mức → trạng thái **"Chờ duyệt" (Pending Approval)** → Kế toán duyệt → gửi Zalo cho NPP
+  - ATP không đủ → cảnh báo DVKH
+- [x] NPP bấm link Zalo → xem chi tiết đơn (sản phẩm, số lượng, giá, ngày giao) → **"Xác nhận đặt hàng"** hoặc **"Từ chối"** *(Impl: /order-confirm/:token public page)*
+- [x] NPP xác nhận → đơn chuyển **"Confirmed"**, tạo shipment, ghi nợ
+- [x] NPP từ chối → đơn **"Cancelled"**, hoàn ATP
+- [x] Không phản hồi trong **2 giờ** → tự động xác nhận (Silent Consent) *(Impl: cron mỗi 5 phút check expired)*
 - [x] Đơn tự động **phân luồng trước 16h / sau 16h** theo mốc chốt *(Impl: cutoff_hour configurable qua system_settings)*
 
 ### US-OMS-02: Kiểm tra tồn kho khả dụng (ATP)
@@ -288,20 +303,31 @@ OMS là **điểm vào duy nhất** của đơn hàng. DVKH nhập đơn trực 
 
 ## 4.3 Trạng thái đơn hàng (Order Status Flow)
 ```
-Draft (Mới nhập)
-  → Pending Approval (Vượt hạn mức công nợ — chờ Kế toán duyệt)
-    → Confirmed (DVKH xác nhận, ATP reserved)
-      → Planned (Đã xếp xe — từ TMS)
-        → Picking (Kho đang đóng hàng — từ WMS)
-          → Loaded (Hàng đã lên xe, kiểm đếm OK)
-            → In Transit (Xe đang giao)
-              → Delivered (Giao thành công)
-              → Partial Delivered (Giao thiếu — xác nhận thực tế với NPP)
-              → Rejected (Khách từ chối — ghi lý do)
-                → Re-delivery (Giao lại — không giới hạn số lần)
-              → On Credit (Giao hàng nhưng chưa thu tiền — ghi nhận công nợ)
-  → Cancelled (Hủy đơn)
+Draft (Mới nhập, ATP reserved)
+  ├→ Pending Customer Confirm (ATP OK + hạn mức OK → gửi Zalo cho NPP xác nhận đơn)
+  │    ├→ Confirmed (NPP bấm "Xác nhận" hoặc auto-confirm sau 2h)
+  │    └→ Cancelled (NPP bấm "Từ chối" → hoàn ATP)
+  │
+  └→ Pending Approval (Vượt hạn mức công nợ — chờ Kế toán duyệt)
+       ├→ Pending Customer Confirm (Kế toán duyệt → gửi Zalo cho NPP)
+       └→ Cancelled (Kế toán từ chối → hoàn ATP)
+
+  Confirmed (NPP đã xác nhận, tạo shipment, ghi nợ)
+    → Planned (Đã xếp xe — từ TMS)
+      → Picking (Kho đang đóng hàng — từ WMS)
+        → Loaded (Hàng đã lên xe, kiểm đếm OK)
+          → In Transit (Xe đang giao)
+            → Delivered (Giao thành công → gửi Zalo xác nhận nhận hàng)
+            → Partial Delivered (Giao thiếu — xác nhận thực tế với NPP)
+              → **Giao bổ sung (từ partially_delivered hoặc failed — không giới hạn số lần)**
+            → Rejected (Khách từ chối → **hủy đơn và tạo mới**, không giao lại)
+            → On Credit (Giao hàng nhưng chưa thu tiền — ghi nhận công nợ)
+  → Cancelled (Hủy đơn — từ draft, pending_approval, pending_customer_confirm, confirmed, planned)
 ```
+
+> **Lưu ý:** Đơn hàng đi qua **2 lần xác nhận Zalo với NPP:**
+> 1. **Xác nhận đơn hàng** (sau khi lập đơn) — NPP đồng ý mua, timeout 2h
+> 2. **Xác nhận nhận hàng** (sau khi giao) — NPP xác nhận đã nhận đúng, timeout 24h
 
 ---
 
@@ -491,25 +517,27 @@ TMS quản lý toàn bộ vòng đời vận tải: Xếp xe tự động → Ch
 
 | Tình huống | Xử lý trên App | Ghi chú |
 |-----------|----------------|---------|
-| Khách **từ chối nhận** | Chọn "Từ chối" → Nhập lý do (dropdown + text) → Chụp ảnh → Tạo yêu cầu **giao lại** | Giao lại không giới hạn (R05) |
-| **Giao thiếu** | Nhập số lượng thực giao < đơn → Xác nhận với NPP → Ghi nhận chênh lệch | |
+| Khách **từ chối nhận** | Chọn "Từ chối" → Nhập lý do (dropdown + text) → Chụp ảnh → **Hủy đơn**, tạo đơn mới nếu cần | *(Impl: rejected → chỉ hủy, không giao lại — Session 22/03)* |
+| **Giao thiếu** | Nhập số lượng thực giao < đơn → Xác nhận với NPP → **Nút "Giao bổ sung"** | Giao bổ sung không giới hạn (R05) |
 | **Giao sai hàng** | Ghi chú "Giao sai" → Xác nhận thực tế với NPP → Báo điều phối | Tra soát: ai sai người đó chịu |
 | **KH đổi địa chỉ** | Cập nhật địa chỉ mới trên app → Thông báo điều phối | |
 | **Xe hỏng giữa đường** | Chọn "Sự cố xe" → Mô tả + Ảnh → Thông báo tự động cho điều phối | Điều xe thay thế |
 | **Vi phạm GT / Bị giữ** | Chọn "Vi phạm GT" → Mô tả → Thông báo điều phối | |
 
-### US-TMS-14b: Giao lại (Re-delivery)
-**As a** điều phối viên  
-**I want to** tạo chuyến giao lại cho đơn thất bại  
+### US-TMS-14b: Giao bổ sung / Giao lại (Re-delivery)
+**As a** điều phối viên / DVKH  
+**I want to** tạo lần giao bổ sung cho đơn giao thiếu hoặc thất bại  
 **So that** NPP nhận được hàng — tuân thủ R05
 
 **Acceptance Criteria:**
-- [ ] Từ đơn bị Rejected/Failed → nút "Tạo giao lại"
-- [ ] **Không giới hạn số lần giao lại** cho cùng 1 đơn
-- [ ] Mỗi lần giao lại ghi nhận: Lần thứ mấy, Lý do lần trước thất bại, Ngày giờ
-- [ ] **Bắt buộc thống kê** số lần giao lại và lý do từng lần (R05, TMS-05)
-- [ ] Giao lại được xếp vào Trip mới hoặc ghép Trip hiện có
+- [x] Từ đơn `partially_delivered` hoặc `failed` → nút "📦 Giao bổ sung" (brand #F68634)
+- [x] **Không giới hạn số lần giao lại** cho cùng 1 đơn
+- [x] Mỗi lần giao lại ghi nhận: Lần thứ mấy, Lý do lần trước thất bại, Ngày giờ
+- [x] **Bắt buộc thống kê** số lần giao lại và lý do từng lần (R05, TMS-05)
+- [x] Giao lại tạo shipment mới, reset đơn về `confirmed` → xếp Trip mới
 - [ ] Báo cáo: Số đơn giao lại, Số lần trung bình/đơn, Top lý do thất bại
+- [x] `rejected` → không cho phép giao bổ sung, user nên hủy đơn và tạo mới *(Impl: Session 22/03)*
+- [x] `delivered` → không cho phép giao bổ sung (đã giao xong) *(Impl: Session 22/03)*
 
 ### US-TMS-15: Thu tiền / Ghi nhận công nợ
 **As a** tài xế  
@@ -888,46 +916,50 @@ Chỉ dùng cho **xác nhận giao hàng với NPP** (gửi link xác nhận). X
 
 ---
 
-# 9. PHÂN QUYỀN & APPROVAL FLOW
+# 9. PHÂN QUYỀN 3 LỚP & APPROVAL FLOW
 
-## 9.1 Danh sách vai trò (Roles)
+## 9.1 Danh sách vai trò (11 Roles — 80 internal users)
 
-| Vai trò | Mô tả | Số lượng ước tính |
-|---------|-------|-------------------|
-| **Admin** | Quản trị hệ thống, cấu hình, phân quyền | 2-3 |
-| **DVKH** (Dịch vụ khách hàng) | Nhập đơn, xử lý đơn, quản lý CCDC | 5-8 |
-| **Điều phối viên** | Duyệt auto-planning, chỉnh tay, giám sát GPS | 3-5 |
-| **Đội trưởng xe** | Quản lý tài xế, xe, checklist, bảo trì | 2-3 |
-| **Tài xế** | Driver App (checklist, giao hàng, thu tiền, thu vỏ) | 70+ |
-| **Thủ kho** | Nhập/xuất kho, PDA, picking | 5-8 |
-| **Bảo vệ (Cổng)** | Kiểm đếm Gate Check | 2-4 |
-| **Kế toán / Thủ quỹ** | Xác nhận nộp tiền, kiểm soát chứng từ, Gate Check, **mở/đóng sai lệch** | 3-5 |
-| **Phân xưởng** | Nhập vỏ, phân loại | 3-5 |
-| **Quản lý vận hành / BGĐ** | Dashboard, báo cáo (chỉ xem), phê duyệt ngoại lệ | 3-5 |
+| Vai trò | Mô tả | Số lượng | Platform |
+|---------|-------|----------|----------|
+| **Admin** | Quản trị hệ thống, cấu hình, phân quyền | 2–3 | Web |
+| **BGĐ / Quản lý vận hành** | Dashboard, báo cáo (R), phê duyệt ngoại lệ | 3–5 | Web |
+| **Điều phối viên** | VRP, GPS map, gán xe, giám sát chuyến | 3–5 | Web |
+| **DVKH** (Dịch vụ khách hàng) | Nhập đơn, xử lý đơn, theo dõi, CCDC | 5–8 | Web |
+| **Kế toán / Thủ quỹ** | Đối soát, sai lệch, mở/đóng hồ sơ, xác nhận nộp tiền | 3–5 | Web |
+| **KT Trưởng** | Duyệt hạn mức, escalation authority | 1–2 | Web |
+| **Thủ kho** | Nhập/xuất kho, PDA, picking, gate check | 5–8 | Web + PDA |
+| **Đội trưởng xe** | Quản lý tài xế, xe, checklist, bảo trì | 2–3 | Web |
+| **Bảo vệ (Cổng)** | Gate check phối hợp | 2–4 | Web |
+| **Phân xưởng** | Nhập vỏ, phân loại, đếm thực tế | 3–5 | Web |
+| **Tài xế** (70 người) | Driver App: checklist, GPS, ePOD, thu tiền, thu vỏ | 70 | Mobile App |
 
-## 9.2 Ma trận phân quyền (CRUD)
+## 9.2 Ba lớp phân quyền
 
-| Chức năng | Admin | DVKH | Điều phối | Đội trưởng | Tài xế | Thủ kho | Bảo vệ | Kế toán | PX | BGĐ |
-|-----------|-------|------|-----------|------------|--------|---------|--------|---------|-----|-----|
-| Nhập đơn hàng | CRUD | CRU | R | - | - | R | - | R | - | R |
-| Duyệt đơn vượt hạn mức | CRUD | - | - | - | - | - | - | CRU | - | CRU |
-| Auto-planning | CRUD | R | CRU | R | - | - | - | - | - | R |
-| Gán xe/tài xế | CRUD | - | CRU | RU | - | - | - | - | - | R |
-| Driver App | - | - | R | R | RU | - | - | - | - | - |
-| Xuất kho (Picking) | CRUD | - | - | - | - | CRU | - | R | - | R |
-| Gate Check | CRUD | - | - | - | - | R | CRU | CRU | - | R |
-| Nhập vỏ | CRUD | R | - | - | - | R | - | R | CRU | R |
-| Xác nhận nộp tiền | CRUD | - | - | - | - | - | - | CRU | - | R |
-| Đối soát / Sai lệch | CRUD | R | R | - | - | - | - | **CRUD** | - | R |
-| Cấu hình hệ thống | CRUD | - | - | - | - | - | - | - | - | - |
-| Cấu hình ưu tiên xe | CRUD | - | R | - | - | - | - | - | - | - |
-| Cấu hình hạn mức NPP | CRUD | - | - | - | - | - | - | CRU | - | R |
-| Cấu hình đơn giá vỏ | CRUD | - | - | - | - | - | - | R | - | R |
-| Dashboard/Báo cáo | CRUD | R | R | R | - | R | - | R | R | R |
+| Lớp | Tên | Mô tả | Trạng thái |
+|-----|-----|-------|------------|
+| 1 | **Screen-level** | Ai được vào màn hình nào. Ma trận 11 roles × 49 screens (xem UIX v1.0) | [x] Đã triển khai — middleware role check |
+| 2 | **Action-level** | Ai làm được gì trong cùng màn hình. VD: DVKH chỉ tạo đơn, không approve. KT thường chỉ investigate, KT Trưởng mới resolve | [ ] Chưa triển khai |
+| 3 | **Data-scoping** | Ai thấy data gì. Thủ kho Hạ Long chỉ thấy tồn kho Hạ Long. KT phụ trách khu vực A chỉ duyệt NPP khu vực A | [ ] Chưa triển khai |
 
-*(C=Create, R=Read, U=Update, D=Delete)*
+## 9.3 Ma trận hành động (Action-level RBAC)
 
-## 9.3 Approval Flow
+| Chức năng | Admin | BGĐ | ĐPV | DVKH | KT | KT Trưởng | Thủ kho | Tài xế |
+|-----------|-------|-----|-----|------|----|-----------|---------|--------|
+| Order — Create/Edit | ✓ | – | ✓ | ✓ | – | – | – | – |
+| Order — Approve credit | ✓ | ✓ | – | – | ◐ | ✓ | – | – |
+| VRP — Run/Approve | ✓ | ✓ | ✓ | – | – | – | – | – |
+| Trip — Monitor GPS | ✓ | ✓ | ✓ | – | – | – | – | – |
+| Driver App — Execute | – | – | – | – | – | – | – | ✓ |
+| Inventory — View | ✓ | ✓ | ◐ | ◐ | – | – | ◐ | – |
+| Gate Check — Execute | ✓ | – | – | – | ✓ | – | ✓ | – |
+| Recon — Resolve | ✓ | – | – | – | ◐ | ✓ | – | – |
+| Recon — Escalate | ✓ | – | – | – | – | ✓ | – | – |
+| Admin — Config | ✓ | – | – | – | – | – | – | – |
+
+*✓ = Full access | ◐ = Data-scoped (own warehouse / own region) | – = No access*
+
+## 9.4 Approval Flow
 
 ### Flow 1: Đơn hàng vượt hạn mức công nợ
 ```
@@ -1007,76 +1039,194 @@ Trip kết thúc → Hệ thống tạo biên bản đối soát
 
 ---
 
-# 11. THÔNG BÁO & CẢNH BÁO
+# 11. THÔNG BÁO & CẢNH BÁO (33 EVENTS)
 
 ## 11.1 Phân kênh thông báo
 
 | Kênh | Đối tượng | Mục đích |
 |------|-----------|----------|
-| **Zalo OA** | NPP (bên ngoài) | **Chỉ dùng cho xác nhận giao hàng** — gửi link xác nhận nhận hàng theo chủng loại & số lượng |
+| **Zalo OA** | NPP (bên ngoài) | Dùng cho **2 mục đích**: (1) **Xác nhận đơn hàng** — sau khi lập đơn, gửi link để NPP xác nhận/từ chối đặt hàng; (2) **Xác nhận nhận hàng** — sau khi giao, gửi link để NPP xác nhận đã nhận đúng chủng loại & số lượng |
 | **Web (Back-office)** | Nội bộ (DVKH, Điều phối, Kế toán, Thủ kho, BGĐ…) | Tất cả thông báo & cảnh báo vận hành nội bộ |
 | **Mobile App (Driver App)** | Tài xế, Đội trưởng xe | Thông báo liên quan đến chuyến, xe, checklist |
 
 > **Nguyên tắc:** Zalo OA là kênh **duy nhất giao tiếp với NPP bên ngoài**. Mọi cảnh báo/thông báo nội bộ đều hiển thị trên **Web + Mobile App** (kèm push notification).
+> 
+> **2 loại Zalo gửi NPP:** (1) Xác nhận đơn hàng — khi lập đơn thành công; (2) Xác nhận nhận hàng — khi giao hàng xong.
 
-## 11.2 Thông báo nội bộ (Web + Mobile App)
+## 11.2 Priority Tiers
 
-| # | Sự kiện | Người nhận | Kênh | Nội dung |
-|---|---------|-----------|------|----------|
-| 1 | Đơn hàng mới cần duyệt (vượt hạn mức công nợ) | Kế toán | Web | "Đơn #XXX vượt hạn mức công nợ NPP ABC, cần duyệt" |
-| 2 | Xe đang giao — Timeout CK chưa xác nhận | Điều phối + cấp trên | Web + App | "Chuyển khoản đơn #XXX chưa xác nhận sau [X] phút" |
-| 3 | Trip hoàn thành | DVKH | Web | "Chuyến xe BS XXX đã hoàn thành, giao X/Y đơn" |
-| 4 | Hàng cận date | Quản lý kho + DVKH | Web | "Lô XXX sản phẩm YYY còn Z ngày hết hạn, tồn: N thùng" |
-| 5 | Xe cần bảo dưỡng/kiểm định/bảo hiểm | Đội trưởng xe | Web + App | "Xe BS XXX cần kiểm định trước DD/MM/YYYY" |
-| 6 | Xe dừng bất thường | Điều phối | Web | "Xe BS XXX dừng tại [vị trí] hơn [X] phút" |
-| 7 | Sự cố xe / Vi phạm GT | Điều phối | Web + App | "Tài xế ABC báo sự cố: [mô tả]" |
-| 8 | Sai lệch đối soát chưa đóng gần T+1 | Kế toán + Quản lý VH | Web | "Chuyến #XXX có sai lệch chưa đóng, deadline: [ngày]" |
-| 9 | Hạn mức NPP sắp hết thời kỳ hiệu lực | Admin | Web | "Hạn mức công nợ NPP ABC hết hiệu lực ngày DD/MM" |
+| Tier | Tên | Kênh | User action | Escalation |
+|------|-----|------|------------|------------|
+| **P0** | Critical | Web popup fullscreen + App push + SMS | KHÔNG dismiss cho đến khi confirm xử lý | Tự động sau 5 phút nếu chưa phản hồi |
+| **P1** | Urgent | Web toast persistent + App push | Inline CTA, Snooze tối đa 30 phút | Tự động sau 30 phút lên cấp trên |
+| **P2** | Important | Web bell badge + App badge | Inline CTA, auto dismiss sau 24h | Không escalate |
+| **P3** | Digest | Web bell — gộp hourly digest | FYI only, không CTA | Không escalate |
 
-**Acceptance Criteria (Notification Engine):**
+## 11.3 Danh sách 33 Events
+
+### P0 — Critical (4 events)
+
+| # | Sự kiện | Người nhận | Kênh |
+|---|---------|-----------|------|
+| 1 | Gate check fail — xe không được xuất | Dispatcher, Thủ kho, Manager | Web popup + App push + SMS |
+| 2 | Xe tai nạn / sự cố nghiêm trọng | Dispatcher, Manager, BGĐ | Web popup + App push + SMS |
+| 3 | DLQ hết 3 lần retry — tích hợp fail | Admin, Manager | Web popup + SMS |
+| 4 | Sai lệch T+1 escalated — quá deadline | Manager, BGĐ | Web popup + SMS |
+
+### P1 — Urgent (12 events)
+
+| # | Sự kiện | Người nhận | Kênh |
+|---|---------|-----------|------|
+| 5 | Đơn chờ duyệt hạn mức (R15) | KT phụ trách, KT Trưởng | Web toast + App push |
+| 6 | CK timeout — chưa xác nhận | Dispatcher | Web toast + App push |
+| 7 | Sai lệch T+1 còn < 2 giờ | KT phụ trách | Web toast + App push |
+| 8 | Xe dừng bất thường > 15 phút | Dispatcher | Web toast + App push |
+| 9 | NPP từ chối đơn hàng | DVKH | Web toast |
+| 10 | DLQ entry mới — lỗi tích hợp | Admin, KT | Web toast |
+| 11 | DMS sync thất bại | Admin, DVKH | Web toast |
+| 12 | NPP xác nhận nhận hàng — disputed | DVKH, KT | Web toast |
+| 13 | VRP solver không xếp được shipment | Dispatcher | Web toast |
+| 14 | Xe quá tải trong kế hoạch VRP | Dispatcher | Web toast |
+| 15 | Tài xế checklist fail (mục không đạt) | Đội trưởng xe | App push |
+| 16 | Hạn mức công nợ NPP hết thời kỳ | Admin, KT | Web toast |
+
+### P2 — Important (8 events)
+
+| # | Sự kiện | Người nhận | Kênh |
+|---|---------|-----------|------|
+| 17 | Đơn giao lại lần 3+ | DVKH, Dispatcher | Web bell |
+| 18 | Trip hoàn thành | Dispatcher, KT | Web bell + App badge |
+| 19 | Vỏ cần đếm phân xưởng | Phân xưởng | Web bell |
+| 20 | Xe cần kiểm định / bảo dưỡng | Đội trưởng xe | Web bell + App push |
+| 21 | Bằng lái xe / GPLX sắp hết hạn | Đội trưởng xe | Web bell + App push |
+| 22 | ATP xuống dưới ngưỡng thấp | Thủ kho, DVKH | Web bell |
+| 23 | Hạn mức NPP sắp hết thời kỳ | Admin, KT | Web bell |
+| 24 | Nhiên liệu xe hao vượt 20% định mức | Đội trưởng xe | Web bell |
+
+### P3 — Digest (9 events)
+
+| # | Sự kiện | Người nhận | Kênh |
+|---|---------|-----------|------|
+| 25 | Đơn mới tạo | DVKH | Hourly digest |
+| 26 | NPP xác nhận đơn hàng — silent (2h) | DVKH | Digest |
+| 27 | DMS synced thành công | Admin | Digest |
+| 28 | Bravo hạch toán thành công | KT | Digest |
+| 29 | Trạng thái đơn thay đổi thông thường | DVKH phụ trách | Digest |
+| 30 | Tài xế check-in hàng ngày | Dispatcher | Digest tổng hợp 7h sáng |
+| 31 | NPP xác nhận nhận hàng — silent (24h) | DVKH | Digest |
+| 32 | VRP job hoàn thành | Dispatcher | Digest |
+| 33 | Report ngày đã sẵn sàng | BGĐ, Manager | Digest 23:55 |
+
+**Trạng thái triển khai:** Events #1–13 phần lớn đã có backend logic (9 events gốc v2.4 `[x]` + 4 mới). Events #14–33 chưa triển khai `[ ]`. Priority tier engine (P0 popup, P1 toast, P2 bell, P3 digest) chưa triển khai.
+
+## 11.4 Acceptance Criteria (Notification Engine)
+
 - [x] Mỗi thông báo tạo record trong bảng Notification (user, type, content, read/unread, timestamp) *(Impl: notifications table)*
-- [x] Web: Hiển thị badge số thông báo chưa đọc + dropdown danh sách *(Impl: GET /v1/notifications, /unread-count)*
-- [ ] Mobile App: Push notification (Firebase Cloud Messaging hoặc tương đương) *(Impl: WebSocket /ws/notifications thay thế)*
+- [x] Web: Hiển thị badge số thông báo chưa đọc + slide panel danh sách (bell icon trên topbar, panel trượt từ phải) *(Impl: GET /v1/notifications, /unread-count, NotificationBell component)*
+- [ ] Mobile App: Push notification (Firebase Cloud Messaging hoặc tương đương) *(Impl: WebSocket /ws/notifications thay thế — chưa có FCM)*
 - [x] Người dùng có thể đánh dấu đã đọc, lọc theo loại *(Impl: mark-read, mark-all-read endpoints)*
-- [ ] Thông báo cấp bách (CK timeout, xe dừng bất thường, sai lệch gần deadline) hiển thị **popup/toast** trên Web
+- [x] Trang danh sách thông báo đầy đủ với filter theo loại, priority badge, phân trang *(Impl: /dashboard/notifications page)*
+- [x] Real-time push qua WebSocket — toast notification khi có thông báo mới *(Impl: WS /ws/notifications + NotificationToast)*
+- [ ] P0 popup fullscreen + không dismiss cho đến khi confirm
+- [ ] P1 toast persistent + snooze + escalation chain
+- [ ] P3 hourly digest grouping
+- [ ] SMS channel cho P0 events
 
-## 11.3 Xác nhận giao hàng qua Zalo OA (dành cho NPP)
+## 11.3 Xác nhận đơn hàng qua Zalo OA (dành cho NPP — sau khi lập đơn)
 
-**Yêu cầu:** BHL cần có Zalo OA đã xác thực để sử dụng Zalo Notification API.
+**Yêu cầu:** BHL cần có Zalo OA đã xác thực để sử dụng Zalo ZNS API.
+
+**Quy trình:**
+```
+DVKH nhập đơn → Hệ thống check ATP + hạn mức công nợ → OK
+  → Đơn chuyển trạng thái "Chờ NPP xác nhận" (Pending Customer Confirm)
+  → Hệ thống tự động gửi tin nhắn Zalo cho NPP kèm LINK XÁC NHẬN ĐƠN HÀNG:
+    ─────────────────────────────────────────
+    "BHL — Xác nhận đơn hàng mới
+
+     Kính gửi: [Tên NPP]
+     Đơn hàng #SO-YYYYMMDD-NNNN
+     Ngày đặt: DD/MM/YYYY HH:mm
+
+     Chi tiết đơn hàng:
+     • Bia Hạ Long chai 450ml — 50 thùng
+     • Bia Hạ Long lon 330ml — 30 thùng
+
+     Tổng giá trị: XX,XXX,XXX VNĐ
+     Ngày giao dự kiến: DD/MM/YYYY
+
+     👉 [XÁC NHẬN ĐƠN HÀNG] (link)
+
+     Để xem chi tiết hoặc từ chối đơn, vui lòng
+     bấm vào link trên trong vòng 2 giờ.
+     Không phản hồi = đồng ý đặt hàng."
+    ─────────────────────────────────────────
+
+→ NPP bấm link → Mở trang web xác nhận đơn hàng:
+   • Hiển thị đầy đủ: sản phẩm, số lượng, đơn giá, thành tiền, ngày giao dự kiến
+   • Có thể tải PDF đơn hàng
+   • NPP chọn:
+     ✅ "Xác nhận đặt hàng" → Đơn chuyển "Confirmed", tạo shipment, ghi nợ
+     ❌ "Từ chối đơn hàng" (chọn lý do: giá không đúng / không đặt / số lượng sai / khác) → Đơn "Cancelled", hoàn ATP
+   • Submit → Hệ thống ghi nhận kết quả, thông báo DVKH trên Web
+
+→ NPP không phản hồi trong 2h → Tự động xác nhận đơn hàng (Silent Consent)
+```
+
+**Acceptance Criteria:**
+- [x] Gửi tin nhắn Zalo OA tự động khi đơn chuyển trạng thái `pending_customer_confirm` *(Impl: hook OnOrderCreated → SendOrderConfirmation)*
+- [x] Tin nhắn hiển thị **tên NPP, mã đơn, danh sách sản phẩm, tổng giá trị, ngày giao dự kiến**
+- [x] Tin nhắn kèm **đường link duy nhất** (unique token, hết hạn sau 2h) dẫn đến trang xác nhận *(Impl: order_confirmations table với token)*
+- [x] Trang xác nhận (web): NPP xem chi tiết từng SKU + số lượng + giá + tổng, có thể tải PDF *(Impl: /order-confirm/[token] public page + /order-confirm/[token]/pdf)*
+- [x] NPP bấm "Từ chối" → Đơn cancelled, hoàn ATP, thông báo DVKH *(Impl: CancelOrderByCustomer)*
+- [x] **Sau 2h không phản hồi → Mặc nhiên xác nhận đơn hàng** (tạo shipment, ghi nợ) *(Impl: cron AutoConfirmExpiredOrders mỗi 5 phút)*
+- [x] Lưu toàn bộ lịch sử: tin nhắn Zalo, lượt bấm link, thời điểm xác nhận/từ chối, lý do từ chối
+- [x] Khi Kế toán duyệt đơn vượt hạn mức (`pending_approval → approved`) → cũng gửi Zalo cho NPP xác nhận *(Impl: ApproveOrder → fireOrderConfirmation)*
+
+## 11.4 Xác nhận nhận hàng qua Zalo OA (dành cho NPP — sau khi giao hàng)
 
 **Quy trình:**
 ```
 Tài xế đến điểm giao → Thông báo miệng cho NPP dựa trên đơn trên app
   → NPP xác nhận đúng → Hạ hàng
   → Tài xế xác nhận giao hàng trên app (ePOD + ảnh)
-  → Hệ thống gửi tin nhắn Zalo cho NPP kèm LINK XÁC NHẬN:
+  → Hệ thống gửi tin nhắn Zalo cho NPP kèm LINK XÁC NHẬN NHẬN HÀNG:
     ─────────────────────────────────────────
     "BHL — Xác nhận nhận hàng
-     Đơn #XXX | Ngày: DD/MM/YYYY HH:mm
-     
-     Chủng loại & Số lượng giao:
+
+     Kính gửi: [Tên NPP]
+     Đơn hàng #SO-YYYYMMDD-NNNN
+     Ngày giao: DD/MM/YYYY HH:mm
+     Tài xế: [Tên tài xế] — [Biển số xe]
+
+     Hàng hóa đã giao:
      • Bia Hạ Long chai 450ml — 50 thùng
      • Bia Hạ Long lon 330ml — 30 thùng
      • Keg 50L — 10 keg
-     
-     👉 [BẤM VÀO ĐÂY ĐỂ XÁC NHẬN] (link)
-     
-     Nếu có sai lệch, vui lòng phản hồi qua link trên
-     trong vòng 24h. Không phản hồi = xác nhận đúng."
+
+     Tổng giá trị: XX,XXX,XXX VNĐ
+
+     👉 [XÁC NHẬN ĐÃ NHẬN HÀNG] (link)
+
+     Nếu có sai lệch về chủng loại hoặc số lượng,
+     vui lòng phản hồi qua link trên trong vòng 24h.
+     Không phản hồi = xác nhận nhận đúng & đủ."
     ─────────────────────────────────────────
 
-→ NPP bấm link → Mở trang web xác nhận:
+→ NPP bấm link → Mở trang web xác nhận nhận hàng:
    • Hiển thị danh sách chủng loại + số lượng giao
-   • NPP chọn "Xác nhận đúng" HOẶC "Báo sai lệch" (chọn SKU, nhập số lượng thực nhận, ghi chú)
+   • NPP chọn:
+     ✅ "Xác nhận đã nhận đúng" → Ghi nhận hoàn tất
+     ⚠️ "Báo sai lệch" (chọn SKU sai, nhập số lượng thực nhận, ghi chú, đính kèm ảnh)
    • Submit → Hệ thống ghi nhận kết quả
 
-→ NPP bấm "Báo sai lệch" → Tạo ticket tranh chấp (tra soát, ai sai người đó chịu)
+→ NPP bấm "Báo sai lệch" → Tạo ticket tranh chấp (tra soát, ai sai người đó chịu — R13)
 → NPP không phản hồi trong 24h → Tự động xác nhận "Đúng" (Silent Consent — R13)
 ```
 
 **Acceptance Criteria:**
 - [x] Gửi tin nhắn Zalo OA tự động khi tài xế hoàn thành ePOD tại điểm giao *(Impl: integration hook auto-trigger, mock mode)*
-- [x] Tin nhắn hiển thị **danh sách chủng loại + số lượng giao** của đơn hàng đó
+- [x] Tin nhắn hiển thị **tên NPP, mã đơn, tên tài xế, biển số xe, danh sách chủng loại + số lượng giao, tổng giá trị**
 - [x] Tin nhắn kèm **đường link duy nhất** (unique token, hết hạn sau 24h) dẫn đến trang xác nhận *(Impl: zalo_confirmations table với token)*
 - [x] Trang xác nhận (web): NPP xem chi tiết từng SKU + số lượng, chọn "Xác nhận đúng" hoặc "Báo sai lệch" (chọn SKU sai, nhập số lượng thực nhận, ghi chú) *(Impl: /confirm/[token] public page)*
 - [x] NPP bấm "Báo sai lệch" → Hệ thống tạo ticket tranh chấp, thông báo DVKH trên Web *(Impl: dispute action)*
@@ -1085,9 +1235,48 @@ Tài xế đến điểm giao → Thông báo miệng cho NPP dựa trên đơn 
 
 ---
 
-# 12. QUY MÔ & SIZING
+# 12. TIMELINE ĐƠN HÀNG — 10 LỚP
 
-## 12.1 Dữ liệu ước tính
+> Mỗi đơn hàng trải qua tối đa 10 lớp dữ liệu. Khi xem chi tiết đơn, tất cả 10 lớp hiển thị trên 1 trang dưới dạng timeline dọc (vertical stepper), mỗi lớp là 1 section collapse/expand.
+
+## 12.1 Cấu trúc 10 lớp
+
+| Lớp | Tên | Nguồn dữ liệu | Ghi vào DB | Status |
+|-----|-----|---------------|-----------|--------|
+| 1 | **Tạo đơn** | DVKH nhập / import | sales_orders + order_items | [x] Implemented |
+| 2 | **Duyệt hạn mức** | Kế toán approve / auto | sales_orders.status → approved | [x] Implemented |
+| 3 | **Xác nhận NPP** | Zalo OA link → NPP bấm | zalo_confirmations | [x] Implemented |
+| 4 | **Xếp chuyến (VRP)** | Auto-planning / manual | trips + trip_stops | [x] Implemented |
+| 5 | **Xuất kho (WMS)** | Thủ kho pick-pack | picking_lists + picking_items | [x] Implemented |
+| 6 | **Gate Check** | Thủ kho verify xe | gate_checks | [x] Implemented |
+| 7 | **Giao hàng (ePOD)** | Tài xế tại NPP | delivery_confirmations + ảnh | [x] Implemented |
+| 8 | **Thu tiền** | Tài xế thu COD/CK | payment_confirmations | [x] Implemented |
+| 9 | **Xác nhận nhận hàng** | Zalo OA → NPP bấm | zalo_confirmations (post-delivery) | [x] Implemented |
+| 10 | **Đối soát** | Kế toán reconcile T+1 | reconciliation_items | [x] Implemented |
+
+## 12.2 UX Timeline Features
+
+| Feature | Mô tả | Status |
+|---------|--------|--------|
+| Vertical stepper | 10 lớp hiển thị dọc, lớp hoàn thành có ✅, đang xử lý có spinner, chưa đến grayed out | [x] Implemented (OrderTimeline component) |
+| Collapse/expand | Click vào lớp để mở rộng xem chi tiết (dữ liệu, timestamp, user thực hiện) | [x] Implemented |
+| Status color coding | Xanh = hoàn thành, Vàng = đang xử lý, Xám = chưa đến, Đỏ = lỗi/từ chối | [x] Implemented |
+| Audit trail per layer | Mỗi lớp ghi nhận: who, when, what changed, trước/sau | [ ] Partial (event_logs có nhưng chưa link per-layer) |
+| Print/export | Export timeline thành PDF cho archive/tranh chấp | [ ] Chưa triển khai |
+
+## 12.3 Acceptance Criteria
+
+- [x] Trang chi tiết đơn hiển thị timeline 10 lớp dạng vertical stepper
+- [x] Mỗi lớp collapse/expand, hiển thị dữ liệu chi tiết + timestamp + user
+- [x] Lớp hoàn thành / đang xử lý / chưa đến có visual indicator rõ ràng
+- [ ] Audit trail per layer — click vào lớp thấy lịch sử thay đổi chi tiết
+- [ ] Export timeline ra PDF
+
+---
+
+# 13. QUY MÔ & SIZING
+
+## 13.1 Dữ liệu ước tính
 
 | Thông số | Ngày thường | Cao điểm (Tết/Hè) |
 |----------|------------|-------------------|
@@ -1096,7 +1285,7 @@ Tài xế đến điểm giao → Thông báo miệng cho NPP dựa trên đơn 
 | GPS point / ngày | ~200,000 (70 xe × 30s × 12h) | ~500,000+ |
 | Ảnh upload / ngày | ~500 (checklist + ePOD + vỏ) | ~1,500+ |
 
-## 12.2 Yêu cầu phi chức năng
+## 13.2 Yêu cầu phi chức năng
 - [ ] **Availability:** 99.5% uptime (cho phép maintenance window ngoài giờ làm việc)
 - [ ] **Concurrency:** Chịu tải 50 user web + 70 tài xế app đồng thời
 - [ ] **Response time:** API < 2s, Auto-planning < 2 phút, Dashboard < 3s
@@ -1106,9 +1295,9 @@ Tài xế đến điểm giao → Thông báo miệng cho NPP dựa trên đơn 
 
 ---
 
-# 13. PHỤ LỤC — DATA ENTITIES
+# 14. PHỤ LỤC — DATA ENTITIES
 
-## 13.1 Master Data
+## 14.1 Master Data
 
 | Entity | Trường chính | Nguồn |
 |--------|-------------|-------|
@@ -1124,7 +1313,7 @@ Tài xế đến điểm giao → Thông báo miệng cho NPP dựa trên đơn 
 | **Khung giờ giao** | Khung giờ chuẩn (phút), Từ ngày, Đến ngày (hiệu lực) | Admin cập nhật |
 | **Thứ tự ưu tiên xe** | Tiêu chí ưu tiên (trọng tải/tuyến xa/giá trị đơn), Thứ tự | Admin cấu hình |
 
-## 13.2 Transaction Data
+## 14.2 Transaction Data
 
 | Entity | Mô tả |
 |--------|-------|
@@ -1143,7 +1332,7 @@ Tài xế đến điểm giao → Thông báo miệng cho NPP dựa trên đơn 
 | **Reconciliation Record** | Biên bản đối soát chuyến (hàng-tiền-vỏ) |
 | **Discrepancy Ticket** | Hồ sơ sai lệch (mở → xử lý → đóng, deadline T+1) |
 
-## 13.3 Mapping với biểu mẫu hiện tại
+## 14.3 Mapping với biểu mẫu hiện tại
 
 | Biểu mẫu cũ | Thay thế bằng |
 |-------------|---------------|
@@ -1156,7 +1345,7 @@ Tài xế đến điểm giao → Thông báo miệng cho NPP dựa trên đơn 
 | Phiếu thu tiền | Payment record (Driver App) |
 | Phiếu nhập vỏ | Stock Move - Inbound Returns (WMS) |
 
-## 13.4 Danh mục đầu vào cần cung cấp (để khóa tài liệu)
+## 14.4 Danh mục đầu vào cần cung cấp (để khóa tài liệu)
 
 1. Danh mục khách hàng/NPP và điểm giao chuẩn
 2. Danh mục xe, lái xe và điều kiện vận hành
@@ -1167,7 +1356,7 @@ Tài xế đến điểm giao → Thông báo miệng cho NPP dựa trên đơn 
 
 ---
 
-# 13B. TÍNH NĂNG BỔ SUNG (PHÁT SINH TỪ PHÁT TRIỂN)
+# 14B. TÍNH NĂNG BỔ SUNG (PHÁT SINH TỪ PHÁT TRIỂN)
 
 > Các tính năng dưới đây được bổ sung trong quá trình phát triển, không có trong BRD gốc, nhưng cần thiết cho vận hành thực tế.
 
@@ -1300,11 +1489,54 @@ Tài xế đến điểm giao → Thông báo miệng cho NPP dựa trên đơn 
 
 **Endpoints:** GET /v1/integration/dlq, GET /v1/integration/dlq/stats, POST /v1/integration/dlq/:id/retry, POST /v1/integration/dlq/:id/resolve
 
+## US-NEW-11: Timeline & Lịch sử đơn hàng (Entity Events)
+**As a** DVKH / Điều phối / Quản lý  
+**I want to** xem toàn bộ lịch sử thay đổi (timeline) của đơn hàng / chuyến xe  
+**So that** truy vết ai làm gì, lúc nào, chi tiết ra sao
+
+**Acceptance Criteria:**
+- [x] Bảng `entity_events` lưu immutable events: entity_type, entity_id, event_type, actor, detail (JSONB), created_at
+- [x] 23 event types: order_created, order_confirmed, order_rejected, order_cancelled_by_customer, order_credit_approved, order_credit_rejected, shipment_created, trip_planned, trip_started, stop_arrived, delivery_completed, delivery_partial, delivery_rejected, payment_recorded, epod_captured, return_collected, reconciliation_matched, reconciliation_discrepancy, auto_confirmed (silent consent), zalo_sent, note_added, status_changed, assignment_changed
+- [x] `actor_name` lưu tên người thực hiện (từ JWT FullName claim hoặc "system" cho cron)
+- [x] JSONB `detail` lưu context tùy event (lý do từ chối, số tiền, ghi chú…)
+- [x] Frontend: `/dashboard/orders/:id` hiển thị tab Timeline với timeline dọc, icon + màu theo event type
+- [x] API lọc theo entity_type + entity_id, sắp xếp created_at DESC
+
+**Endpoints:** GET /v1/orders/:id/timeline, POST /v1/orders/:id/timeline (internal — event recorder service ghi)
+
+## US-NEW-12: Ghi chú đơn hàng (Order Notes)
+**As a** DVKH / Điều phối  
+**I want to** thêm ghi chú nội bộ vào đơn hàng  
+**So that** lưu lại những trao đổi, nhắc nhở, lưu ý liên quan đến đơn
+
+**Acceptance Criteria:**
+- [x] Bảng `order_notes`: order_id, user_id, content (text), created_at
+- [x] Mỗi ghi chú hiển thị tên người viết + thời gian
+- [x] Frontend: tab "Ghi chú" trên trang chi tiết đơn hàng, form thêm ghi chú mới
+- [x] Ghi chú mới tự động tạo event `note_added` trong timeline
+
+**Endpoints:** GET /v1/orders/:id/notes, POST /v1/orders/:id/notes
+
+## US-NEW-13: Test Portal (Dev/QA)
+**As a** QA tester / Developer  
+**I want to** nhanh chóng seed, reset, và điều khiển test data  
+**So that** test end-to-end mà không cần SQL thủ công
+
+**Acceptance Criteria:**
+- [x] Reset toàn bộ test data (chỉ cho role admin, KHÔNG dùng trên production)
+- [x] Seed scenarios: demo data, planning test, UAT data
+- [x] Simulate: GPS injection, delivery completion, payment recording
+- [x] Quick actions: tạo orders, advance trip status, generate discrepancies
+- [x] Frontend: `/dashboard/test-portal` (chỉ hiện cho admin role)
+- [x] Bảo vệ: middleware kiểm tra role + environment flag
+
+**Endpoints:** 13 endpoints dưới `/v1/test/*` (reset, seed, simulate-delivery, simulate-gps, quick-orders, advance-trip…)
+
 ---
 
-# 14. TIÊU CHÍ NGHIỆM THU (UAT)
+# 15. TIÊU CHÍ NGHIỆM THU (UAT)
 
-*(Từ BRD V1.2 Section 13, bổ sung từ trao đổi)*
+*(Từ BRD V1.2 Section 14, bổ sung từ trao đổi)*
 
 | # | Tiêu chí | Tham chiếu |
 |---|----------|-----------|
@@ -1323,7 +1555,11 @@ Tài xế đến điểm giao → Thông báo miệng cho NPP dựa trên đơn 
 
 ---
 
-**=== HẾT TÀI LIỆU BRD V2.3 ===**
+**=== HẾT TÀI LIỆU BRD V3.0 ===**
+
+*Phiên bản 3.0 — Merge từ BRD v4.0 gap analysis. Nâng cấp: Section 1 (KPI mục tiêu + quy mô 80 users), Section 9 (3-layer RBAC + action matrix 11 roles), Section 11 (33 notification events P0-P3), NEW Section 12 (Timeline 10 lớp), renumber sections 13-15. Session 18.*
+
+*Phiên bản 2.4 — Thêm US-NEW-11~13 (Entity Events/Timeline, Order Notes, Test Portal). Cập nhật acceptance criteria notification: slide panel thay dropdown, trang /notifications, WebSocket toast. Session 18.*
 
 *Phiên bản 2.3 — Rà soát code vs spec toàn diện. Đánh dấu [x] tất cả acceptance criteria đã triển khai. Thêm 10 user stories bổ sung (US-NEW-01~10) cho các tính năng phát sinh: Admin CRUD, Driver Check-in, KPI, GPS enriched, Offline Sync, Driver Profile, Urgent Priority, Pending Dates, Role-specific Dashboard, DLQ Management.*
 

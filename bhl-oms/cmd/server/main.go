@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"log"
 	"net/http"
 	"os"
 	"os/signal"
@@ -11,7 +10,9 @@ import (
 
 	"bhl-oms/internal/admin"
 	"bhl-oms/internal/auth"
+
 	"bhl-oms/internal/config"
+	"bhl-oms/internal/events"
 	"bhl-oms/internal/gps"
 	"bhl-oms/internal/integration"
 	"bhl-oms/internal/kpi"
@@ -19,11 +20,15 @@ import (
 	"bhl-oms/internal/notification"
 	"bhl-oms/internal/oms"
 	"bhl-oms/internal/reconciliation"
+	"bhl-oms/internal/testportal"
 	"bhl-oms/internal/tms"
 	"bhl-oms/internal/wms"
 	"bhl-oms/pkg/db"
+	"bhl-oms/pkg/logger"
 	bhlredis "bhl-oms/pkg/redis"
 	"bhl-oms/pkg/response"
+
+	"github.com/prometheus/client_golang/prometheus/promhttp"
 
 	"github.com/gin-gonic/gin"
 )
@@ -31,50 +36,62 @@ import (
 func main() {
 	cfg := config.Load()
 
+	// Application logger
+	appLog := logger.New(os.Stdout, logger.ParseLevel(getEnv("LOG_LEVEL", "INFO")))
+
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
 	// Database
 	pool, err := db.NewPool(ctx, cfg.DBURL)
 	if err != nil {
-		log.Fatalf("Failed to connect to database: %v", err)
+		appLog.Fatal(ctx, "db_connect_failed", err)
 	}
 	defer pool.Close()
-	log.Println("✅ Connected to PostgreSQL")
+	appLog.Info(ctx, "db_connected", logger.F("driver", "pgx"))
 
 	// Auth Service
 	authSvc, err := auth.NewService(pool, cfg.JWTPrivKeyPath, cfg.JWTPubKeyPath, cfg.JWTAccessTTL, cfg.JWTRefreshTTL)
 	if err != nil {
-		log.Fatalf("Failed to init auth service: %v", err)
+		appLog.Fatal(ctx, "auth_init_failed", err)
 	}
-	log.Println("✅ Auth service initialized (RS256)")
+	appLog.Info(ctx, "auth_initialized", logger.F("algorithm", "RS256"))
 
 	// Redis
 	rdb := bhlredis.NewClient(cfg.RedisURL)
 	if err := bhlredis.Ping(ctx, rdb); err != nil {
-		log.Printf("⚠️ Redis not available: %v (GPS WebSocket disabled)", err)
+		appLog.Warn(ctx, "redis_unavailable", logger.F("error", err.Error()))
 	} else {
-		log.Println("✅ Connected to Redis")
+		appLog.Info(ctx, "redis_connected")
 	}
 	defer rdb.Close()
 
 	// GPS Hub (WebSocket + Redis pub/sub)
-	gpsHub := gps.NewHub(rdb, authSvc)
+	gpsHub := gps.NewHub(rdb, authSvc, appLog)
 	appCtx, appCancel := context.WithCancel(context.Background())
 	defer appCancel()
 	go gpsHub.Run(appCtx)
 
 	// OMS
-	omsRepo := oms.NewRepository(pool)
-	omsSvc := oms.NewService(omsRepo)
+	omsRepo := oms.NewRepository(pool, appLog)
+	omsSvc := oms.NewService(omsRepo, appLog)
+
+	// Event Recorder (Activity Timeline)
+	eventRecorder := events.NewRecorder(pool, appLog)
+	omsSvc.SetEventRecorder(eventRecorder)
+	appLog.Info(ctx, "event_recorder_initialized")
 
 	// TMS
-	tmsRepo := tms.NewRepository(pool)
-	tmsSvc := tms.NewService(tmsRepo, cfg.VRPSolverURL)
+	tmsRepo := tms.NewRepository(pool, appLog)
+	tmsSvc := tms.NewService(tmsRepo, omsRepo, cfg.VRPSolverURL, appLog)
 
 	// WMS
-	wmsRepo := wms.NewRepository(pool)
-	wmsSvc := wms.NewService(wmsRepo)
+	wmsRepo := wms.NewRepository(pool, appLog)
+	wmsSvc := wms.NewService(wmsRepo, appLog)
+
+	// Wire WMS into TMS for auto-creating picking orders on plan approval
+	tmsSvc.SetPickingOrderCreator(wmsSvc)
+	tmsSvc.SetEventRecorder(eventRecorder)
 
 	// Gin Router
 	if cfg.Env == "production" {
@@ -85,6 +102,13 @@ func main() {
 
 	// CORS
 	r.Use(corsMiddleware())
+
+	// Prometheus metrics
+	r.Use(middleware.PrometheusMiddleware())
+	r.GET("/metrics", gin.WrapH(promhttp.Handler()))
+
+	// Tracing middleware — injects X-Trace-ID into context and logs requests
+	r.Use(middleware.Tracing(appLog))
 
 	// Health check
 	r.GET("/health", func(c *gin.Context) {
@@ -117,48 +141,59 @@ func main() {
 	protected.Use(middleware.JWTAuth(authSvc))
 
 	// OMS routes
-	omsHandler := oms.NewHandler(omsSvc)
+	omsHandler := oms.NewHandler(omsSvc, appLog)
 	omsHandler.RegisterRoutes(protected)
 
 	// TMS routes
-	tmsHandler := tms.NewHandler(tmsSvc)
+	tmsHandler := tms.NewHandler(tmsSvc, appLog)
 	tmsHandler.RegisterRoutes(protected)
 
 	// WMS routes
-	wmsHandler := wms.NewHandler(wmsSvc)
+	wmsHandler := wms.NewHandler(wmsSvc, appLog)
 	wmsHandler.RegisterRoutes(protected)
 
 	// Reconciliation routes (Tasks 3.9-3.11)
-	reconRepo := reconciliation.NewRepository(pool)
-	reconSvc := reconciliation.NewService(reconRepo)
-	reconHandler := reconciliation.NewHandler(reconSvc)
+	reconRepo := reconciliation.NewRepository(pool, appLog)
+	reconSvc := reconciliation.NewService(reconRepo, appLog)
+	reconSvc.SetDB(pool)
+	reconHandler := reconciliation.NewHandler(reconSvc, appLog)
 	reconHandler.RegisterRoutes(protected)
 
 	// Notification module (Task 3.14)
 	notifHub := notification.NewHub()
-	notifRepo := notification.NewRepository(pool)
-	notifSvc := notification.NewService(notifRepo, notifHub)
-	notifHandler := notification.NewHandler(notifSvc, notifHub, authSvc)
+	notifRepo := notification.NewRepository(pool, appLog)
+	notifSvc := notification.NewService(notifRepo, notifHub, appLog)
+	notifHandler := notification.NewHandler(notifSvc, notifHub, authSvc, appLog)
 	notifHandler.RegisterRoutes(protected)
 	notifHandler.RegisterWebSocket(r)
-	log.Println("✅ Notification service initialized (WebSocket)")
+	appLog.Info(ctx, "notification_initialized")
 	_ = notifSvc // available for integration hooks
 
+	// Wire notification service into OMS
+	omsSvc.SetNotificationService(notifSvc)
+
+	// Event Timeline + Order Notes
+	eventsHandler := events.NewHandler(eventRecorder, appLog)
+	eventsHandler.RegisterRoutes(protected)
+	appLog.Info(ctx, "events_timeline_initialized")
+
 	// KPI module (Tasks 3.16-3.17)
-	kpiRepo := kpi.NewRepository(pool)
-	kpiSvc := kpi.NewService(kpiRepo)
-	kpiHandler := kpi.NewHandler(kpiSvc)
+	kpiRepo := kpi.NewRepository(pool, appLog)
+	kpiSvc := kpi.NewService(kpiRepo, appLog)
+	kpiHandler := kpi.NewHandler(kpiSvc, appLog)
 	kpiHandler.RegisterRoutes(protected)
 	go kpiSvc.RunDailySnapshotCron(appCtx)
-	log.Println("✅ KPI service initialized (cron 23:50)")
+	appLog.Info(ctx, "kpi_initialized", logger.F("cron", "23:50"))
 
 	// Integration adapters (Task 3.1-3.5)
-	bravoAdapter := integration.NewBravoAdapter(cfg.BravoURL, cfg.BravoAPIKey, cfg.IntegrationMock)
-	dmsAdapter := integration.NewDMSAdapter(cfg.DMSURL, cfg.DMSAPIKey, cfg.IntegrationMock)
-	zaloAdapter := integration.NewZaloAdapter(cfg.ZaloOAToken, cfg.ZaloOAID, cfg.IntegrationMock)
-	confirmSvc := integration.NewConfirmService(pool, zaloAdapter)
-	dlqSvc := integration.NewDLQService(pool)
+	bravoAdapter := integration.NewBravoAdapter(cfg.BravoURL, cfg.BravoAPIKey, cfg.IntegrationMock, appLog)
+	dmsAdapter := integration.NewDMSAdapter(cfg.DMSURL, cfg.DMSAPIKey, cfg.IntegrationMock, appLog)
+	zaloAdapter := integration.NewZaloAdapter(cfg.ZaloBaseURL, cfg.ZaloOAToken, cfg.ZaloOAID, cfg.IntegrationMock, appLog)
+	confirmSvc := integration.NewConfirmService(pool, zaloAdapter, appLog)
+	dlqSvc := integration.NewDLQService(pool, appLog)
 	integrationHandler := integration.NewHandler(bravoAdapter, dmsAdapter, zaloAdapter, confirmSvc, dlqSvc)
+	integrationHandler.SetOrderConfirmCallback(omsSvc) // Wire OMS for order confirm/reject
+	integrationHandler.SetNotificationSender(notifSvc) // Wire notification for DVKH alerts
 	integrationHandler.RegisterRoutes(protected)
 	integrationHandler.RegisterPublicRoutes(v1) // NPP portal (no auth)
 
@@ -167,26 +202,42 @@ func main() {
 	if cfg.Env == "production" {
 		baseURL = "https://oms.bhl.vn"
 	}
-	integrationHooks := integration.NewHooks(bravoAdapter, dmsAdapter, confirmSvc, pool, baseURL)
+	integrationHooks := integration.NewHooks(bravoAdapter, dmsAdapter, confirmSvc, pool, baseURL, appLog)
 	tmsSvc.SetIntegrationHooks(integrationHooks)
 	omsSvc.SetIntegrationHooks(integrationHooks)
-	log.Println("✅ Integration hooks wired (Bravo, DMS, Zalo)")
+	appLog.Info(ctx, "integration_hooks_wired", logger.F("adapters", "bravo,dms,zalo"))
 
 	// Start auto-confirm cron (Task 3.7)
 	go confirmSvc.RunAutoConfirmCron(appCtx)
 
+	// Start order auto-confirm cron (2h timeout)
+	go confirmSvc.RunOrderAutoConfirmCron(appCtx)
+
 	// Start nightly Bravo reconcile cron (Task 3.2)
 	go integrationHooks.RunNightlyReconcileCron(appCtx)
+
+	// Wire notification into TMS + WMS + start document expiry cron
+	tmsSvc.SetNotificationService(notifSvc)
+	tmsSvc.SetReconciliationService(reconSvc)
+	wmsSvc.SetNotificationService(notifSvc)
+	go tmsSvc.RunDocumentExpiryCron(appCtx)
+	appLog.Info(ctx, "document_expiry_cron_started", logger.F("cron", "07:00_daily"))
 
 	// GPS routes (REST)
 	gpsHandler := gps.NewHandler(gpsHub, pool)
 	gpsHandler.RegisterRoutes(protected)
 
 	// Admin module — user management
-	adminSvc := admin.NewService(pool)
-	adminHandler := admin.NewHandler(adminSvc)
+	adminSvc := admin.NewService(pool, rdb, appLog)
+	adminHandler := admin.NewHandler(adminSvc, appLog)
 	adminHandler.RegisterRoutes(protected)
-	log.Println("\u2705 Admin module initialized (user management)")
+	go adminSvc.RunCreditLimitExpiryCron(ctx)
+	appLog.Info(ctx, "admin_initialized")
+
+	// Test Portal — QA/testing module (no auth, for demo/test only)
+	testPortalHandler := testportal.NewHandler(pool, rdb, appLog)
+	testPortalHandler.RegisterRoutes(v1)
+	appLog.Info(ctx, "test_portal_initialized")
 
 	// GPS WebSocket (authenticated via query token)
 	r.GET("/ws/gps", gpsHub.HandleWebSocket)
@@ -234,7 +285,7 @@ func main() {
 		pool.QueryRow(ctx, `SELECT COUNT(*) FROM customers WHERE is_active = true`).Scan(&customerCount)
 
 		var pendingShipments int64
-		pool.QueryRow(ctx, `SELECT COUNT(*) FROM shipments WHERE status = 'pending'`).Scan(&pendingShipments)
+		pool.QueryRow(ctx, `SELECT COUNT(*) FROM sales_orders WHERE status = 'confirmed'`).Scan(&pendingShipments)
 
 		var pendingApprovals int64
 		pool.QueryRow(ctx, `SELECT COUNT(*) FROM sales_orders WHERE status = 'pending_approval'`).Scan(&pendingApprovals)
@@ -296,9 +347,9 @@ func main() {
 	}
 
 	go func() {
-		log.Printf("🚀 BHL OMS-TMS-WMS API starting on :%s", cfg.ServerPort)
+		appLog.Info(context.Background(), "server_starting", logger.F("port", cfg.ServerPort))
 		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-			log.Fatalf("Server error: %v", err)
+			appLog.Fatal(context.Background(), "server_error", err)
 		}
 	}()
 
@@ -306,22 +357,23 @@ func main() {
 	quit := make(chan os.Signal, 1)
 	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
 	<-quit
-	log.Println("Shutting down...")
+	appLog.Info(context.Background(), "server_shutting_down")
 
 	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer shutdownCancel()
 
 	if err := srv.Shutdown(shutdownCtx); err != nil {
-		log.Printf("Server forced shutdown: %v", err)
+		appLog.Error(context.Background(), "server_forced_shutdown", err)
 	}
-	log.Println("Server exited")
+	appLog.Info(context.Background(), "server_exited")
 }
 
 func corsMiddleware() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		c.Writer.Header().Set("Access-Control-Allow-Origin", "*")
 		c.Writer.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
-		c.Writer.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization")
+		c.Writer.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization, X-Trace-ID")
+		c.Writer.Header().Set("Access-Control-Expose-Headers", "X-Trace-ID")
 		c.Writer.Header().Set("Access-Control-Max-Age", "86400")
 
 		if c.Request.Method == "OPTIONS" {
@@ -330,4 +382,11 @@ func corsMiddleware() gin.HandlerFunc {
 		}
 		c.Next()
 	}
+}
+
+func getEnv(key, fallback string) string {
+	if v := os.Getenv(key); v != "" {
+		return v
+	}
+	return fallback
 }

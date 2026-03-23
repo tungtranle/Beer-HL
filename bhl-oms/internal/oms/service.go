@@ -3,28 +3,51 @@ package oms
 import (
 	"context"
 	"fmt"
-	"log"
 	"strconv"
 	"time"
 
 	"bhl-oms/internal/domain"
+	"bhl-oms/internal/events"
 	"bhl-oms/internal/integration"
+	"bhl-oms/internal/middleware"
+	"bhl-oms/pkg/logger"
 
 	"github.com/google/uuid"
 )
 
 type Service struct {
-	repo  *Repository
-	hooks *integration.Hooks
+	repo     *Repository
+	hooks    *integration.Hooks
+	recorder *events.Recorder
+	notifSvc NotificationSender
+	log      logger.Logger
 }
 
-func NewService(repo *Repository) *Service {
-	return &Service{repo: repo}
+// NotificationSender allows sending notifications without importing notification package.
+type NotificationSender interface {
+	Send(ctx context.Context, userID uuid.UUID, title, body, category string, link *string) error
+	SendToRole(ctx context.Context, role, title, body, category string, link *string) error
+	SendToRoleWithEntity(ctx context.Context, role, title, body, category string, link *string, entityType *string, entityID *uuid.UUID) error
+	SendWithPriority(ctx context.Context, userID uuid.UUID, title, body, category, priority string, link *string, entityType *string, entityID *uuid.UUID) error
+}
+
+func NewService(repo *Repository, log logger.Logger) *Service {
+	return &Service{repo: repo, log: log}
 }
 
 // SetIntegrationHooks injects optional integration hooks (Task 3.4 DMS wiring).
 func (s *Service) SetIntegrationHooks(h *integration.Hooks) {
 	s.hooks = h
+}
+
+// SetEventRecorder injects the event recorder for activity timeline.
+func (s *Service) SetEventRecorder(r *events.Recorder) {
+	s.recorder = r
+}
+
+// SetNotificationService injects notification service for real-time alerts.
+func (s *Service) SetNotificationService(ns NotificationSender) {
+	s.notifSvc = ns
 }
 
 func (s *Service) ListProducts(ctx context.Context) ([]domain.Product, error) {
@@ -128,7 +151,10 @@ func (s *Service) CreateOrder(ctx context.Context, req CreateOrderRequest, userI
 	}
 
 	// 4. Build order + items
-	orderNumber := generateOrderNumber()
+	orderNumber, err := s.repo.NextOrderNumber(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("generate order number: %w", err)
+	}
 	var totalAmount, depositAmount, totalWeight, totalVolume float64
 	atpStatus := "sufficient"
 
@@ -162,7 +188,7 @@ func (s *Service) CreateOrder(ctx context.Context, req CreateOrderRequest, userI
 
 	// 5. Check credit limit
 	creditStatus := "within_limit"
-	orderStatus := "confirmed"
+	orderStatus := "pending_customer_confirm"
 	if customer.AvailableLimit < totalAmount {
 		creditStatus = "exceeded"
 		orderStatus = "pending_approval"
@@ -215,16 +241,7 @@ func (s *Service) CreateOrder(ctx context.Context, req CreateOrderRequest, userI
 		}
 	}
 
-	// If confirmed, create shipment + debit ledger
-	if orderStatus == "confirmed" {
-		order.Items = items
-		if _, err := s.repo.CreateShipment(ctx, tx, order); err != nil {
-			return nil, fmt.Errorf("create shipment: %w", err)
-		}
-		if err := s.repo.CreateDebitEntry(ctx, tx, order.CustomerID, order.ID, totalAmount, userID); err != nil {
-			return nil, fmt.Errorf("create debit entry: %w", err)
-		}
-	}
+	// Don't create shipment/debit yet — wait for customer confirmation or 2h auto-confirm
 
 	if err := tx.Commit(ctx); err != nil {
 		return nil, fmt.Errorf("commit: %w", err)
@@ -236,6 +253,35 @@ func (s *Service) CreateOrder(ctx context.Context, req CreateOrderRequest, userI
 
 	// Fire DMS sync (Task 3.4)
 	s.fireDMSSync(order.OrderNumber, orderStatus, order.DeliveryDate, order.TotalAmount)
+
+	// Record event: order created
+	if s.recorder != nil {
+		actorName := middleware.FullNameFromCtx(ctx)
+		s.recorder.RecordAsync(events.OrderCreatedEvent(order.ID, &userID, actorName, order.OrderNumber, customer.Name, totalAmount))
+	}
+
+	// Notify stakeholders about new order
+	if s.notifSvc != nil {
+		go func() {
+			link := fmt.Sprintf("/orders/%s", order.ID.String())
+			eType := "order"
+			eID := order.ID
+			if orderStatus == "pending_approval" {
+				title := "Đơn hàng cần duyệt công nợ"
+				body := fmt.Sprintf("Đơn %s (%s) - %s vượt hạn mức, cần duyệt", order.OrderNumber, customer.Name, formatVND(totalAmount))
+				_ = s.notifSvc.SendToRoleWithEntity(context.Background(), "accountant", title, body, "warning", &link, &eType, &eID)
+			} else {
+				title := "Đơn hàng mới chờ xác nhận"
+				body := fmt.Sprintf("Đơn %s (%s) - %s đang chờ KH xác nhận", order.OrderNumber, customer.Name, formatVND(totalAmount))
+				_ = s.notifSvc.SendToRoleWithEntity(context.Background(), "dvkh", title, body, "info", &link, &eType, &eID)
+			}
+		}()
+	}
+
+	// Fire Zalo order confirmation to customer (2h timeout)
+	if orderStatus == "pending_customer_confirm" {
+		s.fireOrderConfirmation(order, customer)
+	}
 
 	return order, nil
 }
@@ -251,7 +297,118 @@ func (s *Service) fireDMSSync(orderNumber, status, deliveryDate string, totalAmo
 		DeliveryDate: deliveryDate,
 		TotalAmount:  totalAmount,
 	})
-	log.Printf("[OMS] DMS sync fired for %s → %s", orderNumber, status)
+	s.log.Info(context.Background(), "dms_sync_fired", logger.F("order_number", orderNumber), logger.F("status", status))
+}
+
+// fireOrderConfirmation sends Zalo order confirmation to customer (2h timeout).
+func (s *Service) fireOrderConfirmation(order *domain.SalesOrder, customer *domain.CustomerWithCredit) {
+	if s.hooks == nil {
+		return
+	}
+	phone := ""
+	if customer.Phone != nil {
+		phone = *customer.Phone
+	}
+	s.hooks.OnOrderCreated(context.Background(), integration.OrderCreatedEvent{
+		OrderID:       order.ID,
+		CustomerID:    order.CustomerID,
+		OrderNumber:   order.OrderNumber,
+		CustomerName:  customer.Name,
+		CustomerPhone: phone,
+		DeliveryDate:  order.DeliveryDate,
+		TotalAmount:   order.TotalAmount,
+	})
+}
+
+// ConfirmOrderByCustomer processes customer confirmation from Zalo link.
+// Transitions order: pending_customer_confirm → confirmed, creates shipment + debit.
+func (s *Service) ConfirmOrderByCustomer(ctx context.Context, orderID uuid.UUID) error {
+	order, err := s.repo.GetOrder(ctx, orderID)
+	if err != nil {
+		return fmt.Errorf("order not found: %w", err)
+	}
+
+	if order.Status != "pending_customer_confirm" {
+		return fmt.Errorf("đơn hàng không ở trạng thái chờ xác nhận (hiện: %s)", order.Status)
+	}
+
+	tx, err := s.repo.BeginTx(ctx)
+	if err != nil {
+		return fmt.Errorf("begin tx: %w", err)
+	}
+	defer tx.Rollback(ctx)
+
+	// Update order status to confirmed
+	if _, err := tx.Exec(ctx, `UPDATE sales_orders SET status = 'confirmed', updated_at = now() WHERE id = $1`, orderID); err != nil {
+		return fmt.Errorf("update order status: %w", err)
+	}
+
+	// Create shipment + debit entry (was deferred from CreateOrder)
+	if _, err := s.repo.CreateShipment(ctx, tx, order); err != nil {
+		return fmt.Errorf("create shipment: %w", err)
+	}
+
+	if err := s.repo.CreateDebitEntry(ctx, tx, order.CustomerID, orderID, order.TotalAmount, order.CreatedBy); err != nil {
+		return fmt.Errorf("create debit entry: %w", err)
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return fmt.Errorf("commit: %w", err)
+	}
+
+	// Fire DMS sync
+	s.fireDMSSync(order.OrderNumber, "confirmed", order.DeliveryDate, order.TotalAmount)
+
+	// Record event: customer confirmed
+	if s.recorder != nil {
+		s.recorder.RecordAsync(events.OrderConfirmedByCustomerEvent(orderID, order.OrderNumber, order.CustomerName))
+	}
+
+	s.log.Info(ctx, "order_customer_confirmed", logger.F("order_id", orderID.String()), logger.F("order_number", order.OrderNumber))
+	return nil
+}
+
+// CancelOrderByCustomer processes customer rejection from Zalo link.
+// Transitions order: pending_customer_confirm → cancelled, releases stock.
+func (s *Service) CancelOrderByCustomer(ctx context.Context, orderID uuid.UUID, reason string) error {
+	order, err := s.repo.GetOrder(ctx, orderID)
+	if err != nil {
+		return fmt.Errorf("order not found: %w", err)
+	}
+
+	if order.Status != "pending_customer_confirm" {
+		return fmt.Errorf("đơn hàng không ở trạng thái chờ xác nhận (hiện: %s)", order.Status)
+	}
+
+	tx, err := s.repo.BeginTx(ctx)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback(ctx)
+
+	for _, item := range order.Items {
+		if err := s.repo.ReleaseStock(ctx, tx, item.ProductID, order.WarehouseID, item.Quantity); err != nil {
+			return fmt.Errorf("release stock: %w", err)
+		}
+	}
+
+	if _, err := tx.Exec(ctx, `UPDATE sales_orders SET status = 'cancelled', updated_at = now() WHERE id = $1`, orderID); err != nil {
+		return err
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return err
+	}
+
+	s.fireDMSSync(order.OrderNumber, "cancelled", order.DeliveryDate, order.TotalAmount)
+
+	// Record event: customer rejected (with reason)
+	if s.recorder != nil {
+		s.recorder.RecordAsync(events.OrderRejectedByCustomerEvent(orderID, order.OrderNumber, order.CustomerName, reason))
+	}
+
+	s.log.Info(ctx, "order_customer_rejected", logger.F("order_id", orderID.String()), logger.F("order_number", order.OrderNumber), logger.F("reason", reason))
+	return nil
 }
 
 func (s *Service) UpdateOrder(ctx context.Context, orderID uuid.UUID, req CreateOrderRequest, userID uuid.UUID) (*domain.SalesOrder, error) {
@@ -262,7 +419,7 @@ func (s *Service) UpdateOrder(ctx context.Context, orderID uuid.UUID, req Create
 	}
 
 	// Only editable statuses (not yet shipped/delivered)
-	if existing.Status != "draft" && existing.Status != "confirmed" && existing.Status != "pending_approval" {
+	if existing.Status != "draft" && existing.Status != "confirmed" && existing.Status != "pending_approval" && existing.Status != "pending_customer_confirm" {
 		return nil, fmt.Errorf("không thể sửa đơn hàng ở trạng thái %s", existing.Status)
 	}
 
@@ -431,7 +588,7 @@ func (s *Service) UpdateOrder(ctx context.Context, orderID uuid.UUID, req Create
 		if _, err := s.repo.CreateShipment(ctx, tx, order); err != nil {
 			return nil, fmt.Errorf("create shipment: %w", err)
 		}
-		if err := s.repo.CreateDebitEntry(ctx, tx, req.CustomerID, orderID, totalAmount, userID); err != nil {
+		if err := s.repo.CreateDebitEntry(ctx, tx, req.CustomerID, orderID, totalAmount, &userID); err != nil {
 			return nil, fmt.Errorf("create debit entry: %w", err)
 		}
 	}
@@ -466,7 +623,7 @@ func (s *Service) CancelOrder(ctx context.Context, orderID uuid.UUID) error {
 		return fmt.Errorf("order not found: %w", err)
 	}
 
-	if order.Status != "draft" && order.Status != "confirmed" && order.Status != "pending_approval" {
+	if order.Status != "draft" && order.Status != "confirmed" && order.Status != "pending_approval" && order.Status != "pending_customer_confirm" {
 		return fmt.Errorf("cannot cancel order with status %s", order.Status)
 	}
 
@@ -494,6 +651,15 @@ func (s *Service) CancelOrder(ctx context.Context, orderID uuid.UUID) error {
 	// Fire DMS sync (Task 3.4)
 	s.fireDMSSync(order.OrderNumber, "cancelled", order.DeliveryDate, order.TotalAmount)
 
+	// Record event: order cancelled
+	if s.recorder != nil {
+		cancelActor := middleware.FullNameFromCtx(ctx)
+		if cancelActor == "" {
+			cancelActor = "Hệ thống"
+		}
+		s.recorder.RecordAsync(events.OrderCancelledEvent(orderID, nil, cancelActor, order.OrderNumber, ""))
+	}
+
 	return nil
 }
 
@@ -513,30 +679,42 @@ func (s *Service) ApproveOrder(ctx context.Context, orderID, approvedBy uuid.UUI
 	}
 	defer tx.Rollback(ctx)
 
+	// After approval, send to customer for confirmation (2h timeout)
 	if _, err := tx.Exec(ctx, `
-		UPDATE sales_orders SET status = 'confirmed', approved_by = $2, approved_at = now(), 
+		UPDATE sales_orders SET status = 'pending_customer_confirm', approved_by = $2, approved_at = now(), 
 		    credit_status = 'approved', updated_at = now() 
 		WHERE id = $1
 	`, orderID, approvedBy); err != nil {
 		return err
 	}
 
-	// Create shipment + debit
-	if _, err := s.repo.CreateShipment(ctx, tx, order); err != nil {
-		return fmt.Errorf("create shipment: %w", err)
-	}
-
-	userID := approvedBy
-	if err := s.repo.CreateDebitEntry(ctx, tx, order.CustomerID, order.ID, order.TotalAmount, userID); err != nil {
-		return fmt.Errorf("create debit: %w", err)
-	}
-
 	if err := tx.Commit(ctx); err != nil {
 		return err
 	}
 
-	// Fire DMS sync (Task 3.4)
-	s.fireDMSSync(order.OrderNumber, "confirmed", order.DeliveryDate, order.TotalAmount)
+	// Fire Zalo order confirmation to customer
+	customer, custErr := s.repo.GetCustomerWithCredit(ctx, order.CustomerID)
+	if custErr == nil {
+		s.fireOrderConfirmation(order, customer)
+	}
+
+	s.fireDMSSync(order.OrderNumber, "pending_customer_confirm", order.DeliveryDate, order.TotalAmount)
+
+	// Record event: order approved
+	if s.recorder != nil {
+		s.recorder.RecordAsync(events.OrderApprovedEvent(orderID, &approvedBy, middleware.FullNameFromCtx(ctx), order.OrderNumber))
+	}
+
+	// Notify DVKH that credit was approved
+	if s.notifSvc != nil {
+		go func() {
+			link := fmt.Sprintf("/orders/%s", orderID.String())
+			eType := "order"
+			title := "Công nợ đã được duyệt"
+			body := fmt.Sprintf("Đơn %s đã được duyệt công nợ, đang chờ KH xác nhận qua Zalo", order.OrderNumber)
+			_ = s.notifSvc.SendToRoleWithEntity(context.Background(), "dvkh", title, body, "success", &link, &eType, &orderID)
+		}()
+	}
 
 	return nil
 }
@@ -544,6 +722,10 @@ func (s *Service) ApproveOrder(ctx context.Context, orderID, approvedBy uuid.UUI
 func generateOrderNumber() string {
 	now := time.Now()
 	return fmt.Sprintf("SO-%s-%04d", now.Format("20060102"), now.UnixNano()%10000)
+}
+
+func formatVND(amount float64) string {
+	return fmt.Sprintf("%.0fđ", amount)
 }
 
 // determineCutoffGroup reads configurable cutoff hour and classifies order
@@ -737,4 +919,132 @@ func (s *Service) SplitOrder(ctx context.Context, orderID uuid.UUID, req SplitRe
 // ListPendingApprovals returns orders with status pending_approval, enriched with credit details and items
 func (s *Service) ListPendingApprovals(ctx context.Context) ([]map[string]interface{}, error) {
 	return s.repo.ListPendingApprovals(ctx)
+}
+
+// ===== RE-DELIVERY (US-TMS-14b) =====
+
+// CreateRedelivery creates a new delivery attempt from a failed/rejected/partial order.
+// It resets the order status back to confirmed, creates a new shipment, and tracks the attempt.
+func (s *Service) CreateRedelivery(ctx context.Context, orderID uuid.UUID, reason string, userID uuid.UUID) (*domain.DeliveryAttempt, error) {
+	// 1. Get the order
+	order, err := s.repo.GetOrder(ctx, orderID)
+	if err != nil {
+		return nil, fmt.Errorf("order not found: %w", err)
+	}
+
+	// 2. Validate — only allow re-delivery from partially_delivered or failed
+	// rejected → user should cancel and create new order
+	// delivered → already completed, no re-delivery needed
+	allowedStatuses := map[string]bool{
+		"partially_delivered": true,
+		"failed":              true,
+	}
+	if !allowedStatuses[order.Status] {
+		return nil, fmt.Errorf("không thể giao bổ sung từ trạng thái '%s' — chỉ cho phép từ: partially_delivered, failed", order.Status)
+	}
+
+	// 3. Get previous stop info
+	var previousStopID *uuid.UUID
+	var previousStatus string
+	lastStop, err := s.repo.GetLastStopForOrder(ctx, orderID)
+	if err == nil && lastStop != nil {
+		previousStopID = &lastStop.ID
+		previousStatus = lastStop.Status
+	}
+
+	// 4. Count existing attempts
+	attemptCount, _ := s.repo.GetDeliveryAttemptCount(ctx, orderID)
+	attemptNumber := attemptCount + 1
+
+	// 5. Transaction: create attempt + shipment + update order
+	tx, err := s.repo.BeginTx(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("begin tx: %w", err)
+	}
+	defer tx.Rollback(ctx)
+
+	// Create delivery attempt record
+	attempt := &domain.DeliveryAttempt{
+		OrderID:        orderID,
+		AttemptNumber:  attemptNumber,
+		PreviousStopID: previousStopID,
+		PreviousStatus: previousStatus,
+		PreviousReason: reason,
+		CreatedBy:      &userID,
+	}
+	if err := s.repo.CreateDeliveryAttempt(ctx, tx, attempt); err != nil {
+		return nil, fmt.Errorf("create delivery attempt: %w", err)
+	}
+
+	// Increment re_delivery_count on order
+	if err := s.repo.IncrementRedeliveryCount(ctx, tx, orderID); err != nil {
+		return nil, fmt.Errorf("increment redelivery count: %w", err)
+	}
+
+	// Create new shipment for re-delivery
+	shipment, err := s.repo.CreateShipment(ctx, tx, order)
+	if err != nil {
+		return nil, fmt.Errorf("create redelivery shipment: %w", err)
+	}
+	attempt.ShipmentID = &shipment.ID
+
+	// Link shipment to attempt
+	if err := s.repo.UpdateDeliveryAttemptShipment(ctx, attempt.ID, shipment.ID); err != nil {
+		return nil, fmt.Errorf("link shipment to attempt: %w", err)
+	}
+
+	// Update order status back to confirmed (re-enters delivery flow)
+	if err := s.repo.UpdateOrderStatus(ctx, orderID, "confirmed"); err != nil {
+		return nil, fmt.Errorf("reset order status: %w", err)
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return nil, fmt.Errorf("commit: %w", err)
+	}
+
+	// Record event
+	if s.recorder != nil {
+		actorName := middleware.FullNameFromCtx(ctx)
+		s.recorder.RecordAsync(events.OrderRedeliveryCreatedEvent(orderID, &userID, actorName, order.OrderNumber, attemptNumber, reason))
+	}
+
+	// Notify dispatcher about new re-delivery
+	if s.notifSvc != nil {
+		go func() {
+			link := fmt.Sprintf("/orders/%s", orderID.String())
+			eType := "order"
+			eID := orderID
+			title := fmt.Sprintf("Giao lại lần %d", attemptNumber)
+			body := fmt.Sprintf("Đơn %s (%s) — Lý do: %s", order.OrderNumber, order.CustomerName, reason)
+			_ = s.notifSvc.SendToRoleWithEntity(context.Background(), "dispatcher", title, body, "warning", &link, &eType, &eID)
+		}()
+	}
+
+	attempt.OrderNumber = order.OrderNumber
+	attempt.CustomerName = order.CustomerName
+	return attempt, nil
+}
+
+// ListDeliveryAttempts returns all re-delivery attempts for an order
+func (s *Service) ListDeliveryAttempts(ctx context.Context, orderID uuid.UUID) ([]domain.DeliveryAttempt, error) {
+	return s.repo.ListDeliveryAttempts(ctx, orderID)
+}
+
+// ===== CONTROL DESK (Task 5.9, 5.10, 5.11) =====
+
+// GetControlDeskStats returns order counts per status for the DVKH control desk
+func (s *Service) GetControlDeskStats(ctx context.Context, warehouseID *uuid.UUID) (*domain.ControlDeskStats, error) {
+	return s.repo.GetControlDeskStats(ctx, warehouseID)
+}
+
+// SearchOrders performs a global search across customer name, phone, order number, vehicle plate
+func (s *Service) SearchOrders(ctx context.Context, q string, page, limit int) ([]domain.SalesOrder, int64, error) {
+	if limit <= 0 {
+		limit = 20
+	}
+	if page <= 0 {
+		page = 1
+	}
+	offset := (page - 1) * limit
+	return s.repo.SearchOrders(ctx, q, limit, offset)
 }

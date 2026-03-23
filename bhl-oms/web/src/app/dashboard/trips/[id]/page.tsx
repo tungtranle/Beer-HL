@@ -3,6 +3,7 @@
 import { useEffect, useState, useRef, useCallback } from 'react'
 import { useParams, useRouter } from 'next/navigation'
 import { apiFetch } from '@/lib/api'
+import { toast } from '@/lib/useToast'
 
 interface TripStop {
   id: string; stop_order: number; shipment_id: string
@@ -91,7 +92,7 @@ export default function TripDetailPage() {
       const r = await apiFetch<any>(`/trips/${trip.id}/status`, { method: 'PUT', body: { status: newStatus } })
       setTrip(r.data)
     } catch (e: any) {
-      alert(e.message || 'Cập nhật thất bại')
+      toast.error(e.message || 'Cập nhật thất bại')
     } finally {
       setUpdating(false)
     }
@@ -109,7 +110,7 @@ export default function TripDetailPage() {
       })
       setTrip(r.data)
     } catch (e: any) {
-      alert(e.message || 'Hủy chuyến thất bại')
+      toast.error(e.message || 'Hủy chuyến thất bại')
     } finally {
       setUpdating(false)
       setCancelReason('')
@@ -124,7 +125,7 @@ export default function TripDetailPage() {
       const r = await apiFetch<any>(`/trips/${trip.id}/stops/${stopId}/status`, { method: 'PUT', body: { action } })
       setTrip(r.data)
     } catch (e: any) {
-      alert(e.message || 'Cập nhật thất bại')
+      toast.error(e.message || 'Cập nhật thất bại')
     } finally {
       setUpdating(false)
     }
@@ -183,7 +184,7 @@ export default function TripDetailPage() {
         routeCoords.push([trip.warehouse_lat, trip.warehouse_lng])
       }
 
-      trip.stops.forEach((stop) => {
+      trip.stops?.forEach((stop) => {
         if (!stop.latitude || !stop.longitude) return
 
         const stopIcon = L.divIcon({
@@ -252,7 +253,7 @@ export default function TripDetailPage() {
     }
   }, [trip])
 
-  if (loading) return <div className="flex justify-center py-20"><div className="animate-spin rounded-full h-10 w-10 border-b-2 border-amber-600"></div></div>
+  if (loading) return <div className="flex justify-center py-20"><div className="animate-spin rounded-full h-10 w-10 border-b-2 border-brand-500"></div></div>
   if (!trip) return <div className="text-center py-20 text-gray-500">Không tìm thấy chuyến xe</div>
 
   return (

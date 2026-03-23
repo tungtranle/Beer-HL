@@ -1,6 +1,6 @@
 ---
 description: "Use when making code changes, adding features, fixing bugs, or modifying any functionality that differs from the original BRD. Ensures BRD and related documentation stay in sync with actual implementation."
-applyTo: ["**/*.go", "**/*.ts", "**/*.tsx", "**/*.sql", "**/*.py"]
+applyTo: "**/*.{go,ts,tsx,sql,py}"
 ---
 
 # Quy tắc đồng bộ tài liệu dự án

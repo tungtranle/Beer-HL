@@ -44,7 +44,7 @@ export default function TripsPage() {
     { label: 'Hoàn thành', value: 'completed' },
   ]
 
-  if (loading) return <div className="flex justify-center py-20"><div className="animate-spin rounded-full h-10 w-10 border-b-2 border-amber-600"></div></div>
+  if (loading) return <div className="flex justify-center py-20"><div className="animate-spin rounded-full h-10 w-10 border-b-2 border-brand-500"></div></div>
 
   return (
     <div>
@@ -56,7 +56,7 @@ export default function TripsPage() {
             key={f.value}
             onClick={() => setFilter(f.value)}
             className={`px-3 py-1.5 rounded-lg text-sm transition ${
-              filter === f.value ? 'bg-amber-600 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+              filter === f.value ? 'bg-brand-500 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
             }`}
           >
             {f.label}
@@ -66,7 +66,7 @@ export default function TripsPage() {
 
       {trips.length === 0 ? (
         <div className="bg-white rounded-xl shadow-sm p-10 text-center text-gray-400">
-          Chưa có chuyến xe. Tạo chuyến từ trang <Link href="/dashboard/planning" className="text-amber-600 underline">Lập kế hoạch</Link>.
+          Chưa có chuyến xe nào cho bộ lọc hiện tại. Tạo chuyến từ trang <Link href="/dashboard/planning" className="text-brand-500 underline">Lập kế hoạch</Link>.
         </div>
       ) : (
         <div className="bg-white rounded-xl shadow-sm overflow-hidden">

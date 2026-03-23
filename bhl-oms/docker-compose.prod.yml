@@ -1,0 +1,187 @@
+# BHL OMS — Production Docker Compose
+# Usage: docker compose -f docker-compose.prod.yml up -d
+
+services:
+  # ===== APPLICATION =====
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    ports:
+      - "8080:8080"
+    environment:
+      - ENV=production
+      - DB_URL=postgresql://bhl:${DB_PASSWORD}@postgres:5432/bhl_prod?sslmode=disable
+      - REDIS_URL=redis://redis:6379/0
+      - JWT_PRIV_KEY_PATH=/app/keys/private.pem
+      - JWT_PUB_KEY_PATH=/app/keys/public.pem
+      - JWT_ACCESS_TTL=15m
+      - JWT_REFRESH_TTL=168h
+      - VRP_SOLVER_URL=http://vrp:8090
+      - BRAVO_URL=${BRAVO_URL}
+      - BRAVO_API_KEY=${BRAVO_API_KEY}
+      - DMS_URL=${DMS_URL}
+      - DMS_API_KEY=${DMS_API_KEY}
+      - ZALO_BASE_URL=${ZALO_BASE_URL}
+      - ZALO_OA_TOKEN=${ZALO_OA_TOKEN}
+      - ZALO_OA_ID=${ZALO_OA_ID}
+      - INTEGRATION_MOCK=${INTEGRATION_MOCK:-false}
+      - LOG_LEVEL=INFO
+    volumes:
+      - ./keys:/app/keys:ro
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:8080/health || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+    deploy:
+      resources:
+        limits:
+          cpus: "2"
+          memory: 1G
+
+  web:
+    build:
+      context: ./web
+      dockerfile: Dockerfile
+    ports:
+      - "3000:3000"
+    environment:
+      - NEXT_PUBLIC_API_URL=http://api:8080
+    depends_on:
+      - api
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          cpus: "1"
+          memory: 512M
+
+  # ===== DATA STORES =====
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: bhl
+      POSTGRES_PASSWORD: ${DB_PASSWORD}
+      POSTGRES_DB: bhl_prod
+    volumes:
+      - pg-data:/var/lib/postgresql/data
+    command: >
+      postgres
+        -c shared_preload_libraries=pg_stat_statements
+        -c pg_stat_statements.track=all
+        -c log_min_duration_statement=500
+        -c max_connections=200
+        -c shared_buffers=256MB
+        -c effective_cache_size=768MB
+        -c work_mem=4MB
+        -c maintenance_work_mem=64MB
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U bhl"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          cpus: "2"
+          memory: 1G
+
+  redis:
+    image: redis:7-alpine
+    command: redis-server --maxmemory 128mb --maxmemory-policy allkeys-lru
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+    restart: unless-stopped
+
+  # ===== VRP SOLVER =====
+  vrp:
+    build:
+      context: ./vrp-solver
+      dockerfile: Dockerfile
+    environment:
+      - OSRM_URL=http://osrm:5000
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          cpus: "2"
+          memory: 2G
+
+  osrm:
+    image: osrm/osrm-backend:v5.27.1
+    volumes:
+      - ./osrm-data:/data
+    command: osrm-routed --algorithm mld /data/vietnam-latest.osrm
+    restart: unless-stopped
+
+  # ===== MONITORING =====
+  prometheus:
+    image: prom/prometheus:v2.53.0
+    volumes:
+      - ./monitoring/prometheus.yml:/etc/prometheus/prometheus.yml
+      - prometheus-data:/prometheus
+    restart: unless-stopped
+
+  grafana:
+    image: grafana/grafana:11.1.0
+    ports:
+      - "3030:3000"
+    environment:
+      GF_SECURITY_ADMIN_USER: admin
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_PASSWORD}
+      GF_USERS_ALLOW_SIGN_UP: "false"
+      GF_SERVER_ROOT_URL: https://monitor.bhl.vn
+    volumes:
+      - ./monitoring/grafana/provisioning:/etc/grafana/provisioning
+      - ./monitoring/grafana/dashboards:/var/lib/grafana/dashboards
+      - grafana-data:/var/lib/grafana
+    depends_on:
+      - prometheus
+    restart: unless-stopped
+
+  postgres-exporter:
+    image: prometheuscommunity/postgres-exporter:v0.15.0
+    environment:
+      DATA_SOURCE_NAME: "postgresql://bhl:${DB_PASSWORD}@postgres:5432/bhl_prod?sslmode=disable"
+    depends_on:
+      - postgres
+    restart: unless-stopped
+
+  redis-exporter:
+    image: oliver006/redis_exporter:v1.62.0
+    environment:
+      REDIS_ADDR: "redis://redis:6379"
+    depends_on:
+      - redis
+    restart: unless-stopped
+
+  # ===== REVERSE PROXY =====
+  nginx:
+    image: nginx:1.27-alpine
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./nginx/ssl:/etc/nginx/ssl:ro
+    depends_on:
+      - api
+      - web
+      - grafana
+    restart: unless-stopped
+
+volumes:
+  pg-data:
+  prometheus-data:
+  grafana-data:

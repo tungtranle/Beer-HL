@@ -35,6 +35,7 @@ type TokenPair struct {
 type Claims struct {
 	jwt.RegisteredClaims
 	UserID       uuid.UUID   `json:"user_id"`
+	FullName     string      `json:"full_name"`
 	Role         string      `json:"role"`
 	Permissions  []string    `json:"permissions"`
 	WarehouseIDs []uuid.UUID `json:"warehouse_ids"`
@@ -181,6 +182,7 @@ func (s *Service) generateTokenPair(user *domain.User) (*TokenPair, error) {
 			Issuer:    "bhl-oms",
 		},
 		UserID:       user.ID,
+		FullName:     user.FullName,
 		Role:         user.Role,
 		Permissions:  user.Permissions,
 		WarehouseIDs: user.WarehouseIDs,

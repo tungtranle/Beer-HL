@@ -4,10 +4,10 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"log"
 	"time"
 
 	"bhl-oms/internal/domain"
+	"bhl-oms/pkg/logger"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -15,11 +15,12 @@ import (
 
 // DLQService manages the Integration Dead Letter Queue.
 type DLQService struct {
-	db *pgxpool.Pool
+	db  *pgxpool.Pool
+	log logger.Logger
 }
 
-func NewDLQService(db *pgxpool.Pool) *DLQService {
-	return &DLQService{db: db}
+func NewDLQService(db *pgxpool.Pool, log logger.Logger) *DLQService {
+	return &DLQService{db: db, log: log}
 }
 
 // Record stores a failed integration call in the DLQ.
@@ -30,7 +31,7 @@ func (d *DLQService) Record(ctx context.Context, adapter, operation string, payl
 		VALUES ($1, $2, $3, $4, $5, $6, $7)
 	`, adapter, operation, payloadJSON, errMsg, refType, refID, time.Now().Add(5*time.Minute))
 	if err != nil {
-		log.Printf("[DLQ] Failed to record DLQ entry: %v", err)
+		d.log.Error(ctx, "db_query_failed", err, logger.F("op", "DLQ.Record"), logger.F("adapter", adapter))
 	}
 }
 

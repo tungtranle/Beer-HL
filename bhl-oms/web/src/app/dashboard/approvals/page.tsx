@@ -2,6 +2,8 @@
 
 import { useEffect, useState } from 'react'
 import { apiFetch } from '@/lib/api'
+import { formatVND } from '@/lib/status-config'
+import { toast } from '@/lib/useToast'
 
 interface OrderItem {
   product_code: string
@@ -44,9 +46,10 @@ export default function ApprovalsPage() {
         method: 'POST',
         body: { approved: true },
       })
+      toast.success('Đã duyệt đơn hàng')
       await loadData()
     } catch (err: any) {
-      alert('Lỗi: ' + err.message)
+      toast.error('Lỗi: ' + err.message)
     } finally {
       setProcessing(null)
     }
@@ -54,7 +57,7 @@ export default function ApprovalsPage() {
 
   const rejectOrder = async (orderId: string) => {
     if (!rejectReason.trim()) {
-      alert('Vui lòng nhập lý do từ chối')
+      toast.warning('Vui lòng nhập lý do từ chối')
       return
     }
     setProcessing(orderId)
@@ -63,39 +66,54 @@ export default function ApprovalsPage() {
         method: 'POST',
         body: { approved: false, reason: rejectReason },
       })
+      toast.success('Đã từ chối đơn hàng')
       setShowRejectModal(null)
       setRejectReason('')
       await loadData()
     } catch (err: any) {
-      alert('Lỗi: ' + err.message)
+      toast.error('Lỗi: ' + err.message)
     } finally {
       setProcessing(null)
     }
   }
 
-  const formatMoney = (n: number) => new Intl.NumberFormat('vi-VN', { style: 'currency', currency: 'VND' }).format(n)
+  // formatVND imported from status-config (single source of truth)
   const exceedPercent = (order: PendingOrder) => order.credit_limit > 0 ? ((order.exceed_amount / order.credit_limit) * 100).toFixed(1) : '0'
 
-  if (loading) return <div className="flex items-center justify-center h-64"><div className="animate-spin w-8 h-8 border-4 border-blue-500 border-t-transparent rounded-full" /></div>
+  // T+1 countdown: accountant should resolve within 24h of order creation
+  const getT1Countdown = (createdAt: string) => {
+    const deadline = new Date(createdAt).getTime() + 24 * 60 * 60 * 1000 // +24h
+    const now = Date.now()
+    const diff = deadline - now
+    if (diff <= 0) return { text: 'Quá hạn!', color: 'text-red-600 font-bold', urgent: true }
+    const h = Math.floor(diff / 3600000)
+    const m = Math.floor((diff % 3600000) / 60000)
+    if (h < 2) return { text: `${h}h ${m}m`, color: 'text-red-600 font-bold animate-pulse', urgent: true }
+    if (h < 8) return { text: `${h}h ${m}m`, color: 'text-amber-600 font-medium', urgent: false }
+    return { text: `${h}h ${m}m`, color: 'text-gray-500', urgent: false }
+  }
+
+  if (loading) return <div className="flex items-center justify-center h-64"><div className="animate-spin w-8 h-8 border-4 border-brand border-t-transparent rounded-full" /></div>
 
   return (
     <div className="max-w-[1200px] mx-auto">
       <h1 className="text-2xl font-bold text-gray-800 mb-2">📝 Duyệt đơn hàng</h1>
-      <p className="text-sm text-gray-500 mb-6">Đơn hàng vượt hạn mức nợ cần phê duyệt</p>
+      <p className="text-base text-gray-500 mb-6">Đơn hàng vượt hạn mức nợ cần phê duyệt</p>
 
       {orders.length === 0 ? (
         <div className="bg-white rounded-xl shadow-sm p-8 text-center">
           <div className="text-4xl mb-3">✅</div>
-          <p className="text-gray-500">Không có đơn hàng nào cần phê duyệt</p>
+          <p className="text-gray-500 font-medium">Tất cả đơn hàng đã được xử lý</p>
+          <p className="text-gray-400 text-sm mt-1">Không còn đơn nào vượt hạn mức chờ phê duyệt</p>
         </div>
       ) : (
         <div className="space-y-4">
-          <div className="bg-amber-50 border border-amber-200 text-amber-700 px-4 py-3 rounded-lg text-sm">
+          <div className="bg-amber-50 border border-amber-200 text-amber-700 px-4 py-3 rounded-xl text-base">
             ⚠️ Có <strong>{orders.length}</strong> đơn hàng vượt hạn mức nợ đang chờ duyệt
           </div>
 
           {orders.map(order => (
-            <div key={order.id} className="bg-white rounded-xl shadow-sm border-l-4 border-orange-400 overflow-hidden">
+            <div key={order.id} className="bg-white rounded-xl shadow-sm border-l-4 border-brand overflow-hidden">
               <div className="p-5">
                 <div className="flex items-start justify-between mb-3">
                   <div>
@@ -107,6 +125,15 @@ export default function ApprovalsPage() {
                       Vượt {exceedPercent(order)}%
                     </span>
                     <span className="text-xs bg-orange-100 text-orange-700 px-2 py-1 rounded-full">Chờ duyệt</span>
+                    {/* T+1 countdown */}
+                    {(() => {
+                      const cd = getT1Countdown(order.created_at)
+                      return (
+                        <span className={`text-xs ${cd.color}`} title="Thời gian còn lại để xử lý (T+1)">
+                          ⏰ {cd.text}
+                        </span>
+                      )
+                    })()}
                   </div>
                 </div>
 
@@ -114,23 +141,23 @@ export default function ApprovalsPage() {
                 <div className="grid grid-cols-2 md:grid-cols-5 gap-3 text-sm mb-4">
                   <div className="bg-gray-50 rounded-lg p-3">
                     <div className="text-xs text-gray-500">Giá trị đơn hàng</div>
-                    <div className="font-bold text-gray-800">{formatMoney(order.total_amount)}</div>
+                    <div className="font-bold text-gray-800">{formatVND(order.total_amount)}</div>
                   </div>
                   <div className="bg-blue-50 rounded-lg p-3">
                     <div className="text-xs text-gray-500">Hạn mức tín dụng</div>
-                    <div className="font-bold text-blue-700">{formatMoney(order.credit_limit)}</div>
+                    <div className="font-bold text-blue-700">{formatVND(order.credit_limit)}</div>
                   </div>
                   <div className="bg-orange-50 rounded-lg p-3">
                     <div className="text-xs text-gray-500">Công nợ hiện tại</div>
-                    <div className="font-bold text-orange-600">{formatMoney(order.current_balance)}</div>
+                    <div className="font-bold text-orange-600">{formatVND(order.current_balance)}</div>
                   </div>
                   <div className="bg-green-50 rounded-lg p-3">
                     <div className="text-xs text-gray-500">Hạn mức còn lại</div>
-                    <div className="font-bold text-green-600">{formatMoney(order.available_limit)}</div>
+                    <div className="font-bold text-green-600">{formatVND(order.available_limit)}</div>
                   </div>
                   <div className="bg-red-50 rounded-lg p-3">
                     <div className="text-xs text-gray-500">Giá trị vượt hạn mức</div>
-                    <div className="font-bold text-red-600">{formatMoney(order.exceed_amount)}</div>
+                    <div className="font-bold text-red-600">{formatVND(order.exceed_amount)}</div>
                   </div>
                 </div>
 
@@ -145,16 +172,16 @@ export default function ApprovalsPage() {
                       style={{ width: `${Math.min(((order.current_balance + order.total_amount) / (order.credit_limit || 1)) * 100, 100)}%` }} />
                   </div>
                   <div className="flex justify-between text-xs text-gray-400 mt-1">
-                    <span>Nợ cũ: {formatMoney(order.current_balance)}</span>
-                    <span>+ Đơn mới: {formatMoney(order.total_amount)}</span>
-                    <span>Hạn mức: {formatMoney(order.credit_limit)}</span>
+                    <span>Nợ cũ: {formatVND(order.current_balance)}</span>
+                    <span>+ Đơn mới: {formatVND(order.total_amount)}</span>
+                    <span>Hạn mức: {formatVND(order.credit_limit)}</span>
                   </div>
                 </div>
 
                 {/* Expandable order items */}
                 <button
                   onClick={() => setExpandedOrder(expandedOrder === order.id ? null : order.id)}
-                  className="text-sm text-blue-600 hover:text-blue-800 mb-3 flex items-center gap-1"
+                  className="text-sm text-brand-600 hover:text-brand-700 mb-3 flex items-center gap-1"
                 >
                   {expandedOrder === order.id ? '▼' : '▶'} Chi tiết sản phẩm ({order.items?.length || 0} mặt hàng)
                 </button>
@@ -177,15 +204,15 @@ export default function ApprovalsPage() {
                             <td className="px-3 py-2 text-gray-600 font-mono text-xs">{item.product_code}</td>
                             <td className="px-3 py-2 text-gray-800">{item.product_name}</td>
                             <td className="px-3 py-2 text-right text-gray-800">{item.quantity}</td>
-                            <td className="px-3 py-2 text-right text-gray-600">{formatMoney(item.unit_price)}</td>
-                            <td className="px-3 py-2 text-right font-medium text-gray-800">{formatMoney(item.line_total)}</td>
+                            <td className="px-3 py-2 text-right text-gray-600">{formatVND(item.unit_price)}</td>
+                            <td className="px-3 py-2 text-right font-medium text-gray-800">{formatVND(item.line_total)}</td>
                           </tr>
                         ))}
                       </tbody>
                       <tfoot className="bg-gray-50 font-bold">
                         <tr className="border-t">
                           <td colSpan={4} className="px-3 py-2 text-right text-gray-600">Tổng cộng:</td>
-                          <td className="px-3 py-2 text-right text-gray-800">{formatMoney(order.total_amount)}</td>
+                          <td className="px-3 py-2 text-right text-gray-800">{formatVND(order.total_amount)}</td>
                         </tr>
                       </tfoot>
                     </table>
@@ -196,18 +223,18 @@ export default function ApprovalsPage() {
                   <div className="text-sm text-gray-500 mb-3 bg-yellow-50 p-2 rounded">📝 {order.notes}</div>
                 )}
 
-                <div className="flex gap-3">
+                <div className="flex gap-3 mt-2">
                   <button
                     onClick={() => approveOrder(order.id)}
                     disabled={processing === order.id}
-                    className="px-6 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition text-sm disabled:opacity-50 font-medium"
+                    className="flex-1 h-12 bg-green-600 text-white rounded-xl hover:bg-green-700 transition text-base disabled:opacity-50 font-medium"
                   >
                     {processing === order.id ? 'Đang xử lý...' : '✅ Phê duyệt'}
                   </button>
                   <button
                     onClick={() => { setShowRejectModal(order.id); setRejectReason('') }}
                     disabled={processing === order.id}
-                    className="px-6 py-2 bg-red-100 text-red-700 rounded-lg hover:bg-red-200 transition text-sm disabled:opacity-50 font-medium"
+                    className="flex-1 h-12 bg-red-50 text-red-700 border border-red-200 rounded-xl hover:bg-red-100 transition text-base disabled:opacity-50 font-medium"
                   >
                     ❌ Từ chối
                   </button>
@@ -229,16 +256,16 @@ export default function ApprovalsPage() {
               value={rejectReason}
               onChange={e => setRejectReason(e.target.value)}
               placeholder="Nhập lý do từ chối..."
-              className="w-full border rounded-lg p-3 text-sm mb-4 h-24 resize-none focus:ring-2 focus:ring-red-300 focus:border-red-400 outline-none"
+              className="w-full border border-gray-200 rounded-xl p-3 text-base mb-4 h-24 resize-none focus:ring-2 focus:ring-red-300 focus:border-red-400 outline-none"
             />
             <div className="flex gap-3 justify-end">
-              <button onClick={() => setShowRejectModal(null)} className="px-4 py-2 text-sm text-gray-600 hover:bg-gray-100 rounded-lg">
+              <button onClick={() => setShowRejectModal(null)} className="px-5 py-2.5 text-base text-gray-600 hover:bg-gray-100 rounded-xl">
                 Hủy
               </button>
               <button
                 onClick={() => rejectOrder(showRejectModal)}
                 disabled={processing === showRejectModal}
-                className="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 text-sm disabled:opacity-50"
+                className="px-5 py-2.5 bg-red-600 text-white rounded-xl hover:bg-red-700 text-base disabled:opacity-50 font-medium"
               >
                 {processing === showRejectModal ? 'Đang xử lý...' : 'Xác nhận từ chối'}
               </button>

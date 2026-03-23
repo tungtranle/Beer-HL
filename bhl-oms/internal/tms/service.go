@@ -6,34 +6,80 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"log"
 	"net/http"
 	"sync"
 	"time"
 
 	"bhl-oms/internal/domain"
+	"bhl-oms/internal/events"
 	"bhl-oms/internal/integration"
+	"bhl-oms/internal/oms"
+	"bhl-oms/pkg/logger"
 
 	"github.com/google/uuid"
 )
 
 type Service struct {
-	repo         *Repository
-	vrpSolverURL string
-	jobs         sync.Map // jobID → *domain.VRPResult
-	hooks        *integration.Hooks
+	repo                *Repository
+	repoOms             *oms.Repository // Injected OMS repository
+	vrpSolverURL        string
+	jobs                sync.Map // jobID → *domain.VRPResult
+	hooks               *integration.Hooks
+	notifSvc            NotificationSender
+	pickingOrderCreator PickingOrderCreator
+	reconSvc            ReconciliationTrigger
+	evtRecorder         *events.Recorder
+	log                 logger.Logger
 }
 
-func NewService(repo *Repository, vrpSolverURL string) *Service {
+// NotificationSender allows sending notifications without importing notification package.
+type NotificationSender interface {
+	Send(ctx context.Context, userID uuid.UUID, title, body, category string, link *string) error
+	SendToRole(ctx context.Context, role, title, body, category string, link *string) error
+}
+
+// PickingOrderCreator creates picking orders in WMS when trips are approved.
+type PickingOrderCreator interface {
+	CreatePickingOrderForShipment(ctx context.Context, shipmentID uuid.UUID) (*domain.PickingOrder, error)
+}
+
+// ReconciliationTrigger auto-reconciles a trip when it completes.
+type ReconciliationTrigger interface {
+	AutoReconcileTrip(ctx context.Context, tripID uuid.UUID) ([]domain.Reconciliation, error)
+}
+
+func NewService(repo *Repository, repoOms *oms.Repository, vrpSolverURL string, log logger.Logger) *Service {
 	return &Service{
 		repo:         repo,
+		repoOms:      repoOms,
 		vrpSolverURL: vrpSolverURL,
+		log:          log,
 	}
 }
 
 // SetIntegrationHooks injects optional integration hooks (Tasks 3.1-3.6 wiring).
 func (s *Service) SetIntegrationHooks(h *integration.Hooks) {
 	s.hooks = h
+}
+
+// SetNotificationService injects notification service for cron alerts.
+func (s *Service) SetNotificationService(ns NotificationSender) {
+	s.notifSvc = ns
+}
+
+// SetPickingOrderCreator injects WMS service for auto-creating picking orders on plan approval.
+func (s *Service) SetPickingOrderCreator(poc PickingOrderCreator) {
+	s.pickingOrderCreator = poc
+}
+
+// SetReconciliationService injects reconciliation for auto-reconcile on trip completion.
+func (s *Service) SetReconciliationService(rs ReconciliationTrigger) {
+	s.reconSvc = rs
+}
+
+// SetEventRecorder injects the event recorder for activity timeline.
+func (s *Service) SetEventRecorder(r *events.Recorder) {
+	s.evtRecorder = r
 }
 
 func (s *Service) ListPendingShipments(ctx context.Context, warehouseID uuid.UUID, deliveryDate string) ([]domain.Shipment, error) {
@@ -267,7 +313,8 @@ func (s *Service) callVRPSolver(jobID string, req *solverRequest, shipments []do
 	s.jobs.Store(jobID, result)
 }
 
-// buildMockResult creates a simple round-robin assignment for demo when solver is unavailable
+// buildMockResult creates a bin-packed assignment when VRP solver is unavailable.
+// Strategy: sort shipments by weight descending, pack into fewest vehicles possible (first-fit decreasing).
 func (s *Service) buildMockResult(jobID string, shipments []domain.Shipment, vehicles []domain.Vehicle) *domain.VRPResult {
 	result := &domain.VRPResult{
 		JobID:     jobID,
@@ -275,30 +322,78 @@ func (s *Service) buildMockResult(jobID string, shipments []domain.Shipment, veh
 		SolveTime: 500,
 	}
 
-	// Simple round-robin assignment
-	shipmentMap := make(map[int][]domain.Shipment)
-	for i, sh := range shipments {
-		vIdx := i % len(vehicles)
-		shipmentMap[vIdx] = append(shipmentMap[vIdx], sh)
+	// Sort shipments by weight descending (first-fit decreasing bin-packing)
+	sorted := make([]domain.Shipment, len(shipments))
+	copy(sorted, shipments)
+	for i := 0; i < len(sorted)-1; i++ {
+		for j := i + 1; j < len(sorted); j++ {
+			if sorted[j].TotalWeightKg > sorted[i].TotalWeightKg {
+				sorted[i], sorted[j] = sorted[j], sorted[i]
+			}
+		}
 	}
 
-	var totalDist float64
-	var assigned int
-
-	for vIdx, vehicle := range vehicles {
-		shs, ok := shipmentMap[vIdx]
-		if !ok {
-			continue
+	// Sort vehicles by capacity descending — fill big trucks first
+	sortedVehicles := make([]domain.Vehicle, len(vehicles))
+	copy(sortedVehicles, vehicles)
+	for i := 0; i < len(sortedVehicles)-1; i++ {
+		for j := i + 1; j < len(sortedVehicles); j++ {
+			if sortedVehicles[j].CapacityKg > sortedVehicles[i].CapacityKg {
+				sortedVehicles[i], sortedVehicles[j] = sortedVehicles[j], sortedVehicles[i]
+			}
 		}
+	}
 
+	type binTrip struct {
+		vehicle    domain.Vehicle
+		shipments  []domain.Shipment
+		usedWeight float64
+	}
+
+	var bins []binTrip
+
+	for _, sh := range sorted {
+		placed := false
+		// Try to fit into existing bin
+		for i := range bins {
+			if bins[i].usedWeight+sh.TotalWeightKg <= bins[i].vehicle.CapacityKg {
+				bins[i].shipments = append(bins[i].shipments, sh)
+				bins[i].usedWeight += sh.TotalWeightKg
+				placed = true
+				break
+			}
+		}
+		if !placed {
+			// Open new bin if vehicles available
+			if len(bins) < len(sortedVehicles) {
+				bins = append(bins, binTrip{
+					vehicle:    sortedVehicles[len(bins)],
+					shipments:  []domain.Shipment{sh},
+					usedWeight: sh.TotalWeightKg,
+				})
+			} else {
+				// All vehicles full — add to least-loaded vehicle
+				minIdx := 0
+				for i := 1; i < len(bins); i++ {
+					if bins[i].usedWeight < bins[minIdx].usedWeight {
+						minIdx = i
+					}
+				}
+				bins[minIdx].shipments = append(bins[minIdx].shipments, sh)
+				bins[minIdx].usedWeight += sh.TotalWeightKg
+			}
+		}
+	}
+
+	for _, bin := range bins {
 		trip := domain.VRPTrip{
-			VehicleID:   vehicle.ID,
-			PlateNumber: vehicle.PlateNumber,
-			VehicleType: vehicle.VehicleType,
+			VehicleID:   bin.vehicle.ID,
+			PlateNumber: bin.vehicle.PlateNumber,
+			VehicleType: bin.vehicle.VehicleType,
 		}
 
 		var cumWeight float64
-		for stopIdx, sh := range shs {
+		for stopIdx, sh := range bin.shipments {
 			cumWeight += sh.TotalWeightKg
 			lat := 0.0
 			lng := 0.0
@@ -319,14 +414,12 @@ func (s *Service) buildMockResult(jobID string, shipments []domain.Shipment, veh
 				StopOrder:        stopIdx + 1,
 				CumulativeLoadKg: cumWeight,
 			})
-			assigned++
 		}
 
-		dist := float64(len(shs)) * 15.5 // ~15.5km avg between stops
+		dist := float64(len(bin.shipments)) * 15.5
 		trip.TotalDistanceKm = dist
-		trip.TotalDurationMin = len(shs) * 25 // ~25min per stop
+		trip.TotalDurationMin = len(bin.shipments) * 25
 		trip.TotalWeightKg = cumWeight
-		totalDist += dist
 
 		result.Trips = append(result.Trips, trip)
 	}
@@ -465,6 +558,7 @@ type ApprovePlanRequest struct {
 	WarehouseID  uuid.UUID    `json:"warehouse_id"`
 	DeliveryDate string       `json:"delivery_date"`
 	Assignments  []Assignment `json:"assignments"`
+	Trips        []ManualTrip `json:"trips,omitempty"` // for manual planning mode
 }
 
 type Assignment struct {
@@ -473,15 +567,68 @@ type Assignment struct {
 	ShipmentIDs []uuid.UUID `json:"shipment_ids"`
 }
 
-// ApprovePlan creates actual trips from VRP result
-func (s *Service) ApprovePlan(ctx context.Context, req ApprovePlanRequest) ([]domain.Trip, error) {
-	result, err := s.GetVRPResult(req.JobID)
-	if err != nil {
-		return nil, err
-	}
+type ManualTrip struct {
+	VehicleID        uuid.UUID    `json:"vehicle_id"`
+	Stops            []ManualStop `json:"stops"`
+	TotalWeightKg    float64      `json:"total_weight_kg"`
+	TotalDistanceKm  float64      `json:"total_distance_km"`
+	TotalDurationMin int          `json:"total_duration_min"`
+}
 
-	if result.Status != "completed" {
-		return nil, fmt.Errorf("VRP job not completed yet")
+type ManualStop struct {
+	ShipmentID       uuid.UUID `json:"shipment_id"`
+	StopOrder        int       `json:"stop_order"`
+	CustomerName     string    `json:"customer_name"`
+	CumulativeLoadKg float64   `json:"cumulative_load_kg"`
+}
+
+// ApprovePlan creates actual trips from VRP result or manual planning
+func (s *Service) ApprovePlan(ctx context.Context, req ApprovePlanRequest) ([]domain.Trip, error) {
+	var vrpTrips []domain.VRPTrip
+
+	if len(req.Trips) > 0 {
+		// Prefer trips data from request body (works for both VRP and manual mode)
+		for _, mt := range req.Trips {
+			vt := domain.VRPTrip{
+				VehicleID:        mt.VehicleID,
+				TotalWeightKg:    mt.TotalWeightKg,
+				TotalDistanceKm:  mt.TotalDistanceKm,
+				TotalDurationMin: mt.TotalDurationMin,
+			}
+			for _, ms := range mt.Stops {
+				vt.Stops = append(vt.Stops, domain.VRPStop{
+					ShipmentID:       ms.ShipmentID,
+					StopOrder:        ms.StopOrder,
+					CustomerName:     ms.CustomerName,
+					CumulativeLoadKg: ms.CumulativeLoadKg,
+				})
+			}
+			vrpTrips = append(vrpTrips, vt)
+		}
+	} else if req.JobID != "" && req.JobID != "manual" {
+		// Fallback: lookup in-memory VRP job
+		result, err := s.GetVRPResult(req.JobID)
+		if err != nil {
+			return nil, fmt.Errorf("kế hoạch đã hết hạn, vui lòng chạy lại VRP")
+		}
+		if result.Status != "completed" {
+			return nil, fmt.Errorf("VRP chưa hoàn thành")
+		}
+		vrpTrips = result.Trips
+	} else if len(req.Assignments) > 0 {
+		// Fallback: build minimal trips from assignments
+		for _, a := range req.Assignments {
+			vt := domain.VRPTrip{VehicleID: a.VehicleID}
+			for i, sid := range a.ShipmentIDs {
+				vt.Stops = append(vt.Stops, domain.VRPStop{
+					ShipmentID: sid,
+					StopOrder:  i + 1,
+				})
+			}
+			vrpTrips = append(vrpTrips, vt)
+		}
+	} else {
+		return nil, fmt.Errorf("cần job_id hoặc trips data")
 	}
 
 	tx, err := s.repo.BeginTx(ctx)
@@ -489,6 +636,20 @@ func (s *Service) ApprovePlan(ctx context.Context, req ApprovePlanRequest) ([]do
 		return nil, err
 	}
 	defer tx.Rollback(ctx)
+
+	// Collect all shipment IDs from stops and resolve customer_id
+	var allShipmentIDs []uuid.UUID
+	for _, vt := range vrpTrips {
+		for _, st := range vt.Stops {
+			if st.ShipmentID != (uuid.UUID{}) {
+				allShipmentIDs = append(allShipmentIDs, st.ShipmentID)
+			}
+		}
+	}
+	shipmentCustomerMap, err := s.repo.GetShipmentCustomerMap(ctx, allShipmentIDs)
+	if err != nil {
+		return nil, fmt.Errorf("lookup shipment customers: %w", err)
+	}
 
 	// Build assignment map: vehicle_id → Assignment
 	assignMap := make(map[uuid.UUID]Assignment)
@@ -502,7 +663,7 @@ func (s *Service) ApprovePlan(ctx context.Context, req ApprovePlanRequest) ([]do
 	}
 
 	var trips []domain.Trip
-	for _, vrpTrip := range result.Trips {
+	for _, vrpTrip := range vrpTrips {
 		tripNumber, err := s.repo.NextTripNumber(ctx, tx, time.Now().Format("20060102"))
 		if err != nil {
 			return nil, fmt.Errorf("generate trip number: %w", err)
@@ -537,10 +698,18 @@ func (s *Service) ApprovePlan(ctx context.Context, req ApprovePlanRequest) ([]do
 
 		// Create stops
 		for _, stop := range vrpTrip.Stops {
+			customerID := stop.CustomerID
+			// Resolve customer_id from shipment if not provided
+			if customerID == (uuid.UUID{}) {
+				if cid, ok := shipmentCustomerMap[stop.ShipmentID]; ok {
+					customerID = cid
+				}
+			}
+
 			tripStop := domain.TripStop{
 				TripID:           trip.ID,
 				ShipmentID:       &stop.ShipmentID,
-				CustomerID:       stop.CustomerID,
+				CustomerID:       customerID,
 				StopOrder:        stop.StopOrder,
 				Status:           "pending",
 				CumulativeLoadKg: stop.CumulativeLoadKg,
@@ -550,11 +719,6 @@ func (s *Service) ApprovePlan(ctx context.Context, req ApprovePlanRequest) ([]do
 				return nil, fmt.Errorf("create stop: %w", err)
 			}
 			trip.Stops = append(trip.Stops, tripStop)
-
-			// Update shipment status
-			if err := s.repo.UpdateShipmentStatus(ctx, tx, stop.ShipmentID, "loaded"); err != nil {
-				return nil, fmt.Errorf("update shipment: %w", err)
-			}
 		}
 
 		trips = append(trips, trip)
@@ -562,6 +726,45 @@ func (s *Service) ApprovePlan(ctx context.Context, req ApprovePlanRequest) ([]do
 
 	if err := tx.Commit(ctx); err != nil {
 		return nil, fmt.Errorf("commit: %w", err)
+	}
+
+	// After commit: create picking orders and update statuses (non-transactional, fire-and-forget)
+	if s.pickingOrderCreator != nil {
+		for _, trip := range trips {
+			for _, stop := range trip.Stops {
+				if stop.ShipmentID == nil {
+					continue
+				}
+				if _, err := s.pickingOrderCreator.CreatePickingOrderForShipment(ctx, *stop.ShipmentID); err != nil {
+					s.log.Error(ctx, "create_picking_order_failed",
+						fmt.Errorf("shipment %s: %w", stop.ShipmentID.String(), err))
+				}
+			}
+		}
+	}
+
+	// Notify warehouse: new picking orders created
+	if s.notifSvc != nil {
+		whLink := "/dashboard/warehouse/picking"
+		_ = s.notifSvc.SendToRole(ctx, "warehouse",
+			"Có lệnh đóng hàng mới",
+			fmt.Sprintf("Kế hoạch giao hàng đã duyệt — %d chuyến xe, vui lòng soạn hàng", len(trips)),
+			"info", &whLink)
+
+		// Notify each assigned driver
+		for _, trip := range trips {
+			if trip.DriverID != nil {
+				userID, err := s.repo.GetDriverUserID(ctx, *trip.DriverID)
+				if err == nil {
+					drvLink := "/dashboard/driver"
+					_ = s.notifSvc.Send(ctx, userID,
+						"Bạn có chuyến xe mới",
+						fmt.Sprintf("Chuyến %s — %d điểm giao, ngày %s",
+							trip.TripNumber, trip.TotalStops, trip.PlannedDate),
+						"info", &drvLink)
+				}
+			}
+		}
 	}
 
 	// Remove job from memory
@@ -621,7 +824,18 @@ func (s *Service) UpdateTripStatusDispatcher(ctx context.Context, tripID uuid.UU
 	case "in_transit":
 		return s.repo.StartTrip(ctx, tripID)
 	case "completed":
-		return s.repo.CompleteTrip(ctx, tripID)
+		if err := s.repo.CompleteTrip(ctx, tripID); err != nil {
+			return err
+		}
+		// Fire-and-forget: auto-reconcile trip
+		if s.reconSvc != nil {
+			go func() {
+				if _, err := s.reconSvc.AutoReconcileTrip(context.Background(), tripID); err != nil {
+					s.log.Error(context.Background(), "auto_reconcile_failed", err)
+				}
+			}()
+		}
+		return nil
 	default:
 		return s.repo.UpdateTripStatus(ctx, tripID, newStatus)
 	}
@@ -704,7 +918,47 @@ func (s *Service) StartTrip(ctx context.Context, userID, tripID uuid.UUID) error
 		return fmt.Errorf("chuyến xe ở trạng thái '%s', không thể bắt đầu", trip.Status)
 	}
 
-	return s.repo.StartTrip(ctx, tripID)
+	if err := s.repo.StartTrip(ctx, tripID); err != nil {
+		return err
+	}
+
+	// Update order statuses to in_transit
+	for _, stop := range trip.Stops {
+		if stop.ShipmentID == nil {
+			continue
+		}
+		orderID, err := s.repoOms.GetOrderIDByShipmentID(ctx, *stop.ShipmentID)
+		if err != nil {
+			s.log.Warn(ctx, "start_trip_update_order_failed", logger.F("shipment_id", stop.ShipmentID), logger.F("err", err.Error()))
+			continue
+		}
+		if err := s.repoOms.UpdateOrderStatus(ctx, orderID, "in_transit"); err != nil {
+			s.log.Warn(ctx, "start_trip_update_order_failed", logger.F("order_id", orderID), logger.F("err", err.Error()))
+		}
+		if s.evtRecorder != nil {
+			s.evtRecorder.RecordAsync(domain.EntityEvent{
+				EntityType: "order",
+				EntityID:   orderID,
+				EventType:  "order.in_transit",
+				ActorType:  "user",
+				ActorID:    &userID,
+					ActorName:  driver.FullName,
+				Title:      fmt.Sprintf("Tài xế %s bắt đầu giao hàng — chuyến %s", driver.FullName, trip.TripNumber),
+			})
+		}
+	}
+
+	// Notify dispatcher: driver has started
+	if s.notifSvc != nil {
+		link := "/dashboard/control-tower"
+		_ = s.notifSvc.SendToRole(ctx, "dispatcher",
+			"Tài xế đã xuất bến",
+			fmt.Sprintf("Chuyến %s — xe %s đã bắt đầu giao hàng",
+				trip.TripNumber, trip.VehiclePlate),
+			"info", &link)
+	}
+
+	return nil
 }
 
 type UpdateStopRequest struct {
@@ -762,7 +1016,19 @@ func (s *Service) UpdateStopStatus(ctx context.Context, userID, tripID, stopID u
 		if stop.Status != "arrived" && stop.Status != "delivering" && stop.Status != "pending" {
 			return fmt.Errorf("không thể đánh dấu thất bại ở trạng thái '%s'", stop.Status)
 		}
-		return s.repo.FailStop(ctx, stopID, req.Notes)
+		if err := s.repo.FailStop(ctx, stopID, req.Notes); err != nil {
+			return err
+		}
+		// Notify dispatcher about delivery failure
+		if s.notifSvc != nil {
+			link := "/dashboard/control-tower"
+			_ = s.notifSvc.SendToRole(ctx, "dispatcher",
+				"Giao hàng thất bại",
+				fmt.Sprintf("Điểm giao %s (chuyến %s) — thất bại",
+					stop.CustomerName, trip.TripNumber),
+				"warning", &link)
+		}
+		return nil
 
 	case "skip":
 		if stop.Status == "delivered" || stop.Status == "failed" {
@@ -794,14 +1060,83 @@ func (s *Service) CompleteTrip(ctx context.Context, userID, tripID uuid.UUID) er
 		return fmt.Errorf("chuyến xe chưa bắt đầu hoặc đã hoàn thành")
 	}
 
-	// Check all stops are terminal (delivered, failed, skipped)
+	// Check all stops are terminal (delivered, partially_delivered, failed, skipped)
+	terminalStatuses := map[string]bool{"delivered": true, "partially_delivered": true, "failed": true, "skipped": true}
 	for _, stop := range trip.Stops {
-		if stop.Status != "delivered" && stop.Status != "failed" && stop.Status != "skipped" {
-			return fmt.Errorf("còn điểm giao '%s' (#%d) chưa hoàn thành", stop.CustomerName, stop.StopOrder)
+		if !terminalStatuses[stop.Status] {
+			return fmt.Errorf("còn điểm giao '%s' (#%d) chưa hoàn thành (trạng thái: %s)", stop.CustomerName, stop.StopOrder, stop.Status)
 		}
 	}
 
-	return s.repo.CompleteTrip(ctx, tripID)
+	if err := s.repo.CompleteTrip(ctx, tripID); err != nil {
+		return err
+	}
+
+	// --- Update order status for each stop ---
+	for _, stop := range trip.Stops {
+		if stop.ShipmentID == nil {
+			continue
+		}
+		orderID, err := s.repoOms.GetOrderIDByShipmentID(ctx, *stop.ShipmentID)
+		if err != nil {
+			s.log.Warn(ctx, "update_order_status_failed", logger.F("shipment_id", stop.ShipmentID), logger.F("err", err.Error()))
+			continue
+		}
+		var newOrderStatus string
+		switch stop.Status {
+		case "delivered":
+			newOrderStatus = "delivered"
+		case "partially_delivered":
+			newOrderStatus = "partially_delivered"
+		case "failed", "skipped":
+			newOrderStatus = "cancelled"
+		default:
+			continue
+		}
+		if err := s.repoOms.UpdateOrderStatus(ctx, orderID, newOrderStatus); err != nil {
+			s.log.Warn(ctx, "update_order_status_failed", logger.F("order_id", orderID), logger.F("err", err.Error()))
+		}
+
+		// Record event: order status changed by trip completion
+		if s.evtRecorder != nil {
+			s.evtRecorder.RecordAsync(domain.EntityEvent{
+				EntityType: "order",
+				EntityID:   orderID,
+				EventType:  "order.status_changed",
+				ActorType:  "system",
+				ActorName:  "Hệ thống (hoàn thành chuyến)",
+				Title:      fmt.Sprintf("Chuyến %s hoàn thành — đơn chuyển sang %s", trip.TripNumber, newOrderStatus),
+				Detail:     nil,
+			})
+		}
+	}
+
+	// Fire-and-forget: auto-reconcile trip
+	if s.reconSvc != nil {
+		go func() {
+			if _, err := s.reconSvc.AutoReconcileTrip(context.Background(), tripID); err != nil {
+				s.log.Error(context.Background(), "auto_reconcile_failed", err)
+			}
+		}()
+	}
+
+	// Notify accountant and dispatcher about trip completion
+	if s.notifSvc != nil {
+		reconLink := "/dashboard/reconciliation"
+		_ = s.notifSvc.SendToRole(ctx, "accountant",
+			"Chuyến xe hoàn thành",
+			fmt.Sprintf("Chuyến %s đã hoàn thành — cần đối soát", trip.TripNumber),
+			"info", &reconLink)
+
+		ctLink := "/dashboard/control-tower"
+		_ = s.notifSvc.SendToRole(ctx, "dispatcher",
+			"Chuyến xe hoàn thành",
+			fmt.Sprintf("Chuyến %s — xe %s đã hoàn thành tất cả điểm giao",
+				trip.TripNumber, trip.VehiclePlate),
+			"success", &ctLink)
+	}
+
+	return nil
 }
 
 // ===== CHECKLIST =====
@@ -900,6 +1235,9 @@ type SubmitEPODRequest struct {
 	SignatureURL   *string           `json:"signature_url"`
 	PhotoURLs      []string          `json:"photo_urls"`
 	Notes          *string           `json:"notes"`
+	RejectReason   *string           `json:"reject_reason,omitempty"`
+	RejectDetail   *string           `json:"reject_detail,omitempty"`
+	RejectPhotos   []string          `json:"reject_photos,omitempty"`
 }
 
 func (s *Service) SubmitEPOD(ctx context.Context, userID, tripID, stopID uuid.UUID, req SubmitEPODRequest) (*domain.EPOD, error) {
@@ -998,7 +1336,20 @@ func (s *Service) SubmitEPOD(ctx context.Context, userID, tripID, stopID uuid.UU
 		TotalAmount:    totalAmount,
 		DepositAmount:  depositAmount,
 		DeliveryStatus: req.DeliveryStatus,
+		RejectReason:   req.RejectReason,
+		RejectDetail:   req.RejectDetail,
+		RejectPhotos:   req.RejectPhotos,
 		Notes:          req.Notes,
+	}
+
+	// Validate rejection has reason + at least 1 photo
+	if req.DeliveryStatus == "rejected" {
+		if req.RejectReason == nil || *req.RejectReason == "" {
+			return nil, fmt.Errorf("phải chọn lý do từ chối")
+		}
+		if len(req.RejectPhotos) == 0 {
+			return nil, fmt.Errorf("phải chụp ít nhất 1 ảnh bằng chứng từ chối")
+		}
 	}
 
 	if err := s.repo.CreateEPOD(ctx, epod); err != nil {
@@ -1013,6 +1364,23 @@ func (s *Service) SubmitEPOD(ctx context.Context, userID, tripID, stopID uuid.UU
 		_ = s.repo.UpdateTripStopStatus(ctx, stopID, "partially_delivered")
 	case "rejected":
 		_ = s.repo.FailStop(ctx, stopID, req.Notes)
+		// Notify dispatcher + accountant about rejection
+		if s.notifSvc != nil {
+			reasonLabel := ""
+			if req.RejectReason != nil {
+				reasonLabel = *req.RejectReason
+			}
+			ctLink := "/dashboard/control-tower"
+			_ = s.notifSvc.SendToRole(ctx, "dispatcher",
+				"NPP từ chối nhận hàng",
+				fmt.Sprintf("%s từ chối — Lý do: %s", stop.CustomerName, reasonLabel),
+				"warning", &ctLink)
+			reconLink := "/dashboard/reconciliation"
+			_ = s.notifSvc.SendToRole(ctx, "accountant",
+				"NPP từ chối nhận hàng",
+				fmt.Sprintf("%s từ chối — Cần đối soát", stop.CustomerName),
+				"warning", &reconLink)
+		}
 	}
 
 	// Fire integration hooks on successful delivery (Tasks 3.1, 3.5, 3.6)
@@ -1020,7 +1388,7 @@ func (s *Service) SubmitEPOD(ctx context.Context, userID, tripID, stopID uuid.UU
 		go func() {
 			evt, err := s.hooks.BuildDeliveryEvent(context.Background(), stopID, *stop.ShipmentID, trip.DriverName, trip.VehiclePlate, "")
 			if err != nil {
-				log.Printf("[Integration] BuildDeliveryEvent failed for stop %s: %v", stopID, err)
+				s.log.Error(context.Background(), "build_delivery_event_failed", err, logger.F("stop_id", stopID.String()))
 				return
 			}
 			s.hooks.OnDeliveryCompleted(context.Background(), *evt)
@@ -1032,6 +1400,64 @@ func (s *Service) SubmitEPOD(ctx context.Context, userID, tripID, stopID uuid.UU
 
 func (s *Service) GetEPOD(ctx context.Context, stopID uuid.UUID) (*domain.EPOD, error) {
 	return s.repo.GetEPODByStopID(ctx, stopID)
+}
+
+// ===== VEHICLE DOCUMENTS =====
+
+func (s *Service) ListVehicleDocuments(ctx context.Context, vehicleID uuid.UUID) ([]domain.VehicleDocument, error) {
+	return s.repo.ListVehicleDocuments(ctx, vehicleID)
+}
+
+func (s *Service) CreateVehicleDocument(ctx context.Context, doc *domain.VehicleDocument) error {
+	if doc.DocType == "" || doc.ExpiryDate == "" {
+		return fmt.Errorf("doc_type và expiry_date là bắt buộc")
+	}
+	validTypes := map[string]bool{"registration": true, "inspection": true, "insurance": true}
+	if !validTypes[doc.DocType] {
+		return fmt.Errorf("doc_type phải là: registration, inspection, insurance")
+	}
+	return s.repo.CreateVehicleDocument(ctx, doc)
+}
+
+func (s *Service) UpdateVehicleDocument(ctx context.Context, doc *domain.VehicleDocument) error {
+	return s.repo.UpdateVehicleDocument(ctx, doc)
+}
+
+func (s *Service) DeleteVehicleDocument(ctx context.Context, id uuid.UUID) error {
+	return s.repo.DeleteVehicleDocument(ctx, id)
+}
+
+func (s *Service) ListExpiringVehicleDocs(ctx context.Context, days int) ([]domain.VehicleDocument, error) {
+	return s.repo.ListExpiringVehicleDocs(ctx, days)
+}
+
+// ===== DRIVER DOCUMENTS =====
+
+func (s *Service) ListDriverDocuments(ctx context.Context, driverID uuid.UUID) ([]domain.DriverDocument, error) {
+	return s.repo.ListDriverDocuments(ctx, driverID)
+}
+
+func (s *Service) CreateDriverDocument(ctx context.Context, doc *domain.DriverDocument) error {
+	if doc.DocType == "" || doc.ExpiryDate == "" {
+		return fmt.Errorf("doc_type và expiry_date là bắt buộc")
+	}
+	validTypes := map[string]bool{"license": true, "health_check": true}
+	if !validTypes[doc.DocType] {
+		return fmt.Errorf("doc_type phải là: license, health_check")
+	}
+	return s.repo.CreateDriverDocument(ctx, doc)
+}
+
+func (s *Service) UpdateDriverDocument(ctx context.Context, doc *domain.DriverDocument) error {
+	return s.repo.UpdateDriverDocument(ctx, doc)
+}
+
+func (s *Service) DeleteDriverDocument(ctx context.Context, id uuid.UUID) error {
+	return s.repo.DeleteDriverDocument(ctx, id)
+}
+
+func (s *Service) ListExpiringDriverDocs(ctx context.Context, days int) ([]domain.DriverDocument, error) {
+	return s.repo.ListExpiringDriverDocs(ctx, days)
 }
 
 // ===== PAYMENT =====
@@ -1066,7 +1492,7 @@ func (s *Service) RecordPayment(ctx context.Context, userID, tripID, stopID uuid
 	}
 
 	// Validate payment method
-	validMethods := map[string]bool{"cash": true, "transfer": true, "credit": true, "cod": true}
+	validMethods := map[string]bool{"cash": true, "transfer": true, "credit": true, "cod": true, "partial": true}
 	if !validMethods[req.PaymentMethod] {
 		return nil, fmt.Errorf("phương thức thanh toán không hợp lệ: %s", req.PaymentMethod)
 	}
@@ -1183,7 +1609,7 @@ func (s *Service) RecordReturns(ctx context.Context, userID, tripID, stopID uuid
 			Quantity:   item.Quantity,
 			Condition:  item.Condition,
 			PhotoURL:   photoURL,
-			CreatedBy:  &driver.ID,
+			CreatedBy:  &userID,
 		}
 
 		if err := s.repo.CreateReturnCollection(ctx, rc); err != nil {
@@ -1201,6 +1627,10 @@ func (s *Service) RecordReturns(ctx context.Context, userID, tripID, stopID uuid
 
 func (s *Service) GetReturns(ctx context.Context, stopID uuid.UUID) ([]domain.ReturnCollection, error) {
 	return s.repo.GetReturnsByStopID(ctx, stopID)
+}
+
+func (s *Service) GetPaymentsByStopID(ctx context.Context, stopID uuid.UUID) ([]domain.Payment, error) {
+	return s.repo.GetPaymentsByStopID(ctx, stopID)
 }
 
 // ===== DRIVER CHECK-IN =====
@@ -1224,4 +1654,97 @@ func (s *Service) GetMyCheckin(ctx context.Context, userID uuid.UUID) (*domain.D
 
 func (s *Service) ListDriverCheckinsForDate(ctx context.Context, warehouseID uuid.UUID, date string) ([]map[string]interface{}, error) {
 	return s.repo.ListDriverCheckinsForDate(ctx, warehouseID, date)
+}
+
+// RunDocumentExpiryCron checks vehicle/driver document expiry daily at 07:00
+func (s *Service) RunDocumentExpiryCron(ctx context.Context) {
+	s.log.Info(ctx, "cron_started", logger.F("cron", "document_expiry"))
+
+	for {
+		// Calculate next 07:00 Asia/Ho_Chi_Minh
+		loc, _ := time.LoadLocation("Asia/Ho_Chi_Minh")
+		now := time.Now().In(loc)
+		next := time.Date(now.Year(), now.Month(), now.Day(), 7, 0, 0, 0, loc)
+		if now.After(next) {
+			next = next.Add(24 * time.Hour)
+		}
+		waitDuration := next.Sub(now)
+		s.log.Info(ctx, "cron_next_run", logger.F("cron", "document_expiry"), logger.F("next_run", next.Format("2006-01-02 15:04")))
+
+		select {
+		case <-ctx.Done():
+			s.log.Info(ctx, "cron_stopped", logger.F("cron", "document_expiry"))
+			return
+		case <-time.After(waitDuration):
+			s.checkDocumentExpiry(ctx)
+		}
+	}
+}
+
+func (s *Service) checkDocumentExpiry(ctx context.Context) {
+	if s.notifSvc == nil {
+		return
+	}
+
+	// Check vehicle documents expiring within 30 days
+	vDocs, err := s.repo.ListExpiringVehicleDocs(ctx, 30)
+	if err != nil {
+		s.log.Error(ctx, "cron_vehicle_docs_failed", err, logger.F("cron", "document_expiry"))
+	} else {
+		for _, d := range vDocs {
+			var title, body string
+			link := fmt.Sprintf("/vehicles/%s/documents", d.VehicleID.String())
+			if d.DaysToExpiry <= 0 {
+				title = fmt.Sprintf("Giấy tờ xe %s đã hết hạn", d.PlateNumber)
+				body = fmt.Sprintf("%s của xe %s đã hết hạn. Vui lòng gia hạn ngay.", d.DocType, d.PlateNumber)
+			} else if d.DaysToExpiry <= 7 {
+				title = fmt.Sprintf("Giấy tờ xe %s sắp hết hạn", d.PlateNumber)
+				body = fmt.Sprintf("%s của xe %s sẽ hết hạn sau %d ngày.", d.DocType, d.PlateNumber, d.DaysToExpiry)
+			} else {
+				continue // Only alert for <=7 days, show in list for <=30 days
+			}
+			_ = s.notifSvc.SendToRole(ctx, "dispatcher", title, body, "document_expiry", &link)
+		}
+		s.log.Info(ctx, "cron_vehicle_docs_checked", logger.F("cron", "document_expiry"), logger.F("expiring_count", len(vDocs)))
+	}
+
+	// Check driver documents expiring within 30 days
+	dDocs, err := s.repo.ListExpiringDriverDocs(ctx, 30)
+	if err != nil {
+		s.log.Error(ctx, "cron_driver_docs_failed", err, logger.F("cron", "document_expiry"))
+	} else {
+		for _, d := range dDocs {
+			var title, body string
+			link := fmt.Sprintf("/drivers/%s/documents", d.DriverID.String())
+			if d.DaysToExpiry <= 0 {
+				title = fmt.Sprintf("Giấy tờ tài xế %s đã hết hạn", d.DriverName)
+				body = fmt.Sprintf("%s của tài xế %s đã hết hạn. Vui lòng gia hạn ngay.", d.DocType, d.DriverName)
+			} else if d.DaysToExpiry <= 7 {
+				title = fmt.Sprintf("Giấy tờ tài xế %s sắp hết hạn", d.DriverName)
+				body = fmt.Sprintf("%s của tài xế %s sẽ hết hạn sau %d ngày.", d.DocType, d.DriverName, d.DaysToExpiry)
+			} else {
+				continue
+			}
+			_ = s.notifSvc.SendToRole(ctx, "dispatcher", title, body, "document_expiry", &link)
+		}
+		s.log.Info(ctx, "cron_driver_docs_checked", logger.F("cron", "document_expiry"), logger.F("expiring_count", len(dDocs)))
+	}
+}
+
+// ─── Dispatcher Control Tower ────────────────────────
+
+func (s *Service) GetControlTowerStats(ctx context.Context) (*domain.ControlTowerStats, error) {
+	return s.repo.GetControlTowerStats(ctx)
+}
+
+func (s *Service) ListExceptions(ctx context.Context) ([]domain.TripException, error) {
+	return s.repo.ListExceptions(ctx)
+}
+
+func (s *Service) MoveStop(ctx context.Context, fromTripID, stopID, toTripID uuid.UUID) error {
+	return s.repo.MoveStop(ctx, fromTripID, stopID, toTripID)
+}
+
+func (s *Service) CancelTrip(ctx context.Context, tripID uuid.UUID, reason string) error {
+	return s.repo.CancelTrip(ctx, tripID, reason)
 }

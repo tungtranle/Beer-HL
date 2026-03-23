@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react'
 import { apiFetch } from '@/lib/api'
+import { toast } from '@/lib/useToast'
 
 interface Product {
   id: string
@@ -69,7 +70,7 @@ export default function ProductsPage() {
       setModal(null)
       load()
     } catch (e: any) {
-      alert(e.message)
+      toast.error(e.message)
     } finally {
       setSaving(false)
     }
@@ -81,7 +82,7 @@ export default function ProductsPage() {
       await apiFetch(`/products/${id}`, { method: 'DELETE' })
       load()
     } catch (e: any) {
-      alert(e.message)
+      toast.error(e.message)
     }
   }
 
@@ -102,9 +103,9 @@ export default function ProductsPage() {
             placeholder="Tìm theo tên, SKU..."
             value={search}
             onChange={e => setSearch(e.target.value)}
-            className="px-4 py-2 border rounded-lg text-sm w-64 focus:ring-2 focus:ring-amber-500 focus:border-amber-500 outline-none"
+            className="px-4 py-2 border rounded-lg text-sm w-64 focus:ring-2 focus:ring-brand-500 focus:border-brand-500 outline-none"
           />
-          <button onClick={openCreate} className="px-4 py-2 bg-amber-600 text-white rounded-lg text-sm font-medium hover:bg-amber-700">
+          <button onClick={openCreate} className="px-4 py-2 bg-brand-500 text-white rounded-lg text-sm font-medium hover:bg-brand-600">
             + Thêm sản phẩm
           </button>
         </div>
@@ -141,7 +142,7 @@ export default function ProductsPage() {
                   </span>
                 </td>
                 <td className="px-4 py-3 text-center">
-                  <button onClick={() => openEdit(p)} className="text-blue-600 hover:underline text-xs mr-2">Sửa</button>
+                  <button onClick={() => openEdit(p)} className="text-brand-500 hover:underline text-xs mr-2">Sửa</button>
                   <button onClick={() => handleDelete(p.id, p.name)} className="text-red-600 hover:underline text-xs">Xóa</button>
                 </td>
               </tr>
@@ -177,24 +178,24 @@ export default function ProductsPage() {
               </div>
               <div>
                 <label className="block text-xs font-medium text-gray-600 mb-1">Trọng lượng (kg)</label>
-                <input type="number" step="0.01" value={form.weight_kg} onChange={e => setForm({ ...form, weight_kg: parseFloat(e.target.value) || 0 })} className="w-full border rounded-lg px-3 py-2 text-sm" />
+                <input type="number" step="0.01" value={form.weight_kg || ''} onChange={e => setForm({ ...form, weight_kg: parseFloat(e.target.value) || 0 })} className="w-full border rounded-lg px-3 py-2 text-sm" />
               </div>
               <div>
                 <label className="block text-xs font-medium text-gray-600 mb-1">Thể tích (m³)</label>
-                <input type="number" step="0.0001" value={form.volume_m3} onChange={e => setForm({ ...form, volume_m3: parseFloat(e.target.value) || 0 })} className="w-full border rounded-lg px-3 py-2 text-sm" />
+                <input type="number" step="0.0001" value={form.volume_m3 || ''} onChange={e => setForm({ ...form, volume_m3: parseFloat(e.target.value) || 0 })} className="w-full border rounded-lg px-3 py-2 text-sm" />
               </div>
               <div>
                 <label className="block text-xs font-medium text-gray-600 mb-1">Đơn giá (₫)</label>
-                <input type="number" value={form.price} onChange={e => setForm({ ...form, price: parseFloat(e.target.value) || 0 })} className="w-full border rounded-lg px-3 py-2 text-sm" />
+                <input type="number" value={form.price || ''} onChange={e => setForm({ ...form, price: parseFloat(e.target.value) || 0 })} className="w-full border rounded-lg px-3 py-2 text-sm" />
               </div>
               <div>
                 <label className="block text-xs font-medium text-gray-600 mb-1">Giá cọc vỏ (₫)</label>
-                <input type="number" value={form.deposit_price} onChange={e => setForm({ ...form, deposit_price: parseFloat(e.target.value) || 0 })} className="w-full border rounded-lg px-3 py-2 text-sm" />
+                <input type="number" value={form.deposit_price || ''} onChange={e => setForm({ ...form, deposit_price: parseFloat(e.target.value) || 0 })} className="w-full border rounded-lg px-3 py-2 text-sm" />
               </div>
             </div>
             <div className="flex justify-end gap-3 mt-6">
               <button onClick={() => setModal(null)} className="px-4 py-2 border rounded-lg text-sm">Hủy</button>
-              <button onClick={handleSave} disabled={saving} className="px-4 py-2 bg-amber-600 text-white rounded-lg text-sm font-medium hover:bg-amber-700 disabled:opacity-50">
+              <button onClick={handleSave} disabled={saving} className="px-4 py-2 bg-brand-500 text-white rounded-lg text-sm font-medium hover:bg-brand-600 disabled:opacity-50">
                 {saving ? 'Đang lưu...' : 'Lưu'}
               </button>
             </div>

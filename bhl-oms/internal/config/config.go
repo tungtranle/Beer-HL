@@ -22,6 +22,7 @@ type Config struct {
 	BravoAPIKey     string
 	DMSURL          string
 	DMSAPIKey       string
+	ZaloBaseURL     string
 	ZaloOAToken     string
 	ZaloOAID        string
 	IntegrationMock bool
@@ -31,7 +32,7 @@ func Load() *Config {
 	return &Config{
 		Env:            getEnv("ENV", "development"),
 		ServerPort:     getEnv("SERVER_PORT", "8080"),
-		DBURL:          getEnv("DB_URL", "postgres://bhl:bhl_dev@localhost:5432/bhl_dev?sslmode=disable"),
+		DBURL:          getEnv("DB_URL", "postgres://bhl:bhl_dev@localhost:5434/bhl_dev?sslmode=disable"),
 		RedisURL:       getEnv("REDIS_URL", "redis://localhost:6379/0"),
 		JWTPrivKeyPath: getEnv("JWT_PRIVATE_KEY_PATH", "./keys/private.pem"),
 		JWTPubKeyPath:  getEnv("JWT_PUBLIC_KEY_PATH", "./keys/public.pem"),
@@ -44,6 +45,7 @@ func Load() *Config {
 		BravoAPIKey:     getEnv("BRAVO_API_KEY", ""),
 		DMSURL:          getEnv("DMS_URL", "http://localhost:9002"),
 		DMSAPIKey:       getEnv("DMS_API_KEY", ""),
+		ZaloBaseURL:     getEnv("ZALO_BASE_URL", ""),
 		ZaloOAToken:     getEnv("ZALO_OA_TOKEN", ""),
 		ZaloOAID:        getEnv("ZALO_OA_ID", ""),
 		IntegrationMock: getEnv("INTEGRATION_MOCK", "true") == "true",

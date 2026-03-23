@@ -1,7 +1,9 @@
 'use client'
 
 import { useEffect, useState } from 'react'
+import Link from 'next/link'
 import { apiFetch } from '@/lib/api'
+import { toast } from '@/lib/useToast'
 
 interface Vehicle {
   id: string
@@ -88,7 +90,7 @@ export default function VehiclesPage() {
       setModal(null)
       load()
     } catch (e: any) {
-      alert(e.message)
+      toast.error(e.message)
     } finally {
       setSaving(false)
     }
@@ -100,7 +102,7 @@ export default function VehiclesPage() {
       await apiFetch(`/vehicles/${id}`, { method: 'DELETE' })
       load()
     } catch (e: any) {
-      alert(e.message)
+      toast.error(e.message)
     }
   }
 
@@ -123,9 +125,9 @@ export default function VehiclesPage() {
             placeholder="Tìm theo biển số, loại xe..."
             value={search}
             onChange={e => setSearch(e.target.value)}
-            className="px-4 py-2 border rounded-lg text-sm w-64 focus:ring-2 focus:ring-amber-500 focus:border-amber-500 outline-none"
+            className="px-4 py-2 border rounded-lg text-sm w-64 focus:ring-2 focus:ring-brand-500 focus:border-brand-500 outline-none"
           />
-          <button onClick={openCreate} className="px-4 py-2 bg-amber-600 text-white rounded-lg text-sm font-medium hover:bg-amber-700">
+          <button onClick={openCreate} className="px-4 py-2 bg-brand-500 text-white rounded-lg text-sm font-medium hover:bg-brand-600">
             + Thêm xe
           </button>
         </div>
@@ -169,7 +171,8 @@ export default function VehiclesPage() {
                   </span>
                 </td>
                 <td className="px-4 py-3 text-center">
-                  <button onClick={() => openEdit(v)} className="text-blue-600 hover:underline text-xs mr-2">Sửa</button>
+                  <Link href={`/dashboard/vehicles/${v.id}/documents`} className="text-brand-500 hover:underline text-xs mr-2">Giấy tờ</Link>
+                  <button onClick={() => openEdit(v)} className="text-brand-500 hover:underline text-xs mr-2">Sửa</button>
                   <button onClick={() => handleDelete(v.id, v.plate_number)} className="text-red-600 hover:underline text-xs">Xóa</button>
                 </td>
               </tr>
@@ -209,16 +212,16 @@ export default function VehiclesPage() {
               </div>
               <div>
                 <label className="block text-xs font-medium text-gray-600 mb-1">Tải trọng (kg)</label>
-                <input type="number" value={form.capacity_kg} onChange={e => setForm({ ...form, capacity_kg: parseFloat(e.target.value) || 0 })} className="w-full border rounded-lg px-3 py-2 text-sm" />
+                <input type="number" value={form.capacity_kg || ''} onChange={e => setForm({ ...form, capacity_kg: parseFloat(e.target.value) || 0 })} className="w-full border rounded-lg px-3 py-2 text-sm" />
               </div>
               <div>
                 <label className="block text-xs font-medium text-gray-600 mb-1">Thể tích (m³)</label>
-                <input type="number" step="0.1" value={form.capacity_m3 ?? ''} onChange={e => setForm({ ...form, capacity_m3: e.target.value ? parseFloat(e.target.value) : null })} className="w-full border rounded-lg px-3 py-2 text-sm" />
+                <input type="number" step="0.1" value={form.capacity_m3 || ''} onChange={e => setForm({ ...form, capacity_m3: e.target.value ? parseFloat(e.target.value) : null })} className="w-full border rounded-lg px-3 py-2 text-sm" />
               </div>
             </div>
             <div className="flex justify-end gap-3 mt-6">
               <button onClick={() => setModal(null)} className="px-4 py-2 border rounded-lg text-sm">Hủy</button>
-              <button onClick={handleSave} disabled={saving} className="px-4 py-2 bg-amber-600 text-white rounded-lg text-sm font-medium hover:bg-amber-700 disabled:opacity-50">
+              <button onClick={handleSave} disabled={saving} className="px-4 py-2 bg-brand-500 text-white rounded-lg text-sm font-medium hover:bg-brand-600 disabled:opacity-50">
                 {saving ? 'Đang lưu...' : 'Lưu'}
               </button>
             </div>

@@ -120,10 +120,11 @@ if (-not $SkipMigrate) {
         docker exec $containerName psql -U bhl -d bhl_dev -f /tmp/001_init.down.sql 2>&1 | Out-Null
     }
 
-    # Apply ALL 8 migrations in order
+    # Apply ALL migrations in order
     $migrations = @(
         "001_init", "002_checklist", "003_cutoff_consolidation", "004_wms",
-        "005_epod_payment", "006_zalo_confirm", "007_recon_dlq_kpi", "008_audit_log"
+        "005_epod_payment", "006_zalo_confirm", "007_recon_dlq_kpi", "008_audit_log",
+        "009_driver_checkin", "009_urgent_priority", "010_order_confirmation"
     )
     foreach ($m in $migrations) {
         $sqlFile = "migrations\${m}.up.sql"
@@ -133,7 +134,7 @@ if (-not $SkipMigrate) {
             Write-Host "  Applied: $m" -ForegroundColor Green
         }
     }
-    Write-Host "  All 8 migrations applied" -ForegroundColor Green
+    Write-Host "  All migrations applied" -ForegroundColor Green
 } else {
     Write-Host "  Skipped (--SkipMigrate)" -ForegroundColor Gray
 }

@@ -1,6 +1,6 @@
 ---
 description: "Use when writing, reviewing, or modifying any source code in the project. Covers Go backend, Next.js frontend, SQL migrations, Python services, and Docker configs. Ensures consistent code style, maintainability, and ease of future debugging."
-applyTo: ["**/*.go", "**/*.ts", "**/*.tsx", "**/*.sql", "**/*.py", "**/Dockerfile*", "**/docker-compose*.yml"]
+applyTo: "**/*.{go,ts,tsx,sql,py}"
 ---
 
 # Quy chuẩn Code — BHL OMS-TMS-WMS
@@ -496,6 +496,11 @@ Get-Content seed.sql | docker exec -T postgres psql  # SAI
 - [ ] Loading state được set `false` trong `finally`
 - [ ] Null data được handle: `res.data || []`
 - [ ] Thay đổi đã được phản ánh trong BRD/API doc nếu cần
+- [ ] Logger inject qua constructor (KHÔNG `log.Printf` global)
+- [ ] Mọi DB query và external API call có log với `duration_ms`
+- [ ] Trace ID truyền qua `ctx` xuyên suốt Handler → Service → Repository
+
+> 📖 Xem chi tiết logging patterns tại `.github/instructions/logging-tracing.instructions.md`
 
 ---
 

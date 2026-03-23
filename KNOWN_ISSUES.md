@@ -47,6 +47,11 @@
 
 | ID | Description | Resolution | Date |
 |----|-------------|-----------|------|
+| KI-007 | Order number race condition: `generateOrderNumber()` uses `UnixNano()%10000`, causing duplicate key under concurrent load (28% error rate at 5 workers) | Replaced with PostgreSQL sequence `order_number_seq` via `nextval()`. Migration 010. Fixed in oms/service.go + oms/repository.go + testportal/handler.go | 2026-03-21 |
+| — | NotificationBell cramped in sidebar, text cut off | Redesigned: right-side slide panel (max-w-md) + moved bell to topbar | 2026-03-20 |
+| — | 404 on /dashboard/notifications | Created missing `notifications/page.tsx` (file lost from session 17) | 2026-03-20 |
+| — | Reject reason from Zalo not showing in order timeline | `CancelOrderByCustomer` now passes `reason` string to event recorder | 2026-03-20 |
+| — | actor_name empty in entity_events | Added `FullNameFromCtx(ctx)` propagation from JWT → context → events | 2026-03-20 |
 | — | Driver modal shows 79 drivers instead of warehouse-filtered count | Use checkins data as primary source in DriverStatusModal | 2026-03-15 |
 | — | Unassigned orders list shows empty rows with "? kg" | Enrich bare UUIDs from VRP with shipment data from local state | 2026-03-15 |
 | — | Assigned drivers mixed with available in dropdown | Sort assigned drivers to bottom of select list | 2026-03-15 |
@@ -54,7 +59,9 @@
 | — | response.Error/Success undefined | Used correct pkg/response API names | 2026-03-15 |
 | — | Dashboard "Tổng đơn hàng" shows "-" | Added `total_orders` field to `/dashboard/stats` API response | 2026-03-16 |
 | — | Vietnamese text (???? garble) in order notes for SO-20260317 | Fixed corrupted DB data with Unicode escapes; caused by PowerShell SQL piping (KI-006) | 2026-03-16 |
+| — | ListCreditBalances/ListCustomers crash (no credit_limit column) | JOIN `credit_limits` table instead of `customers.credit_limit` | 2026-03-20 |
+| — | ResetTestData wrong table names | Fixed: removed non-existent tables, added missing ones | 2026-03-20 |
 
 ---
 
-*Updated: 2026-03-16*
+*Updated: 2026-03-21*

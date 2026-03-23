@@ -1,6 +1,7 @@
 package integration
 
 import (
+	"context"
 	"fmt"
 	"net/http"
 
@@ -10,17 +11,41 @@ import (
 	"github.com/google/uuid"
 )
 
+// OrderConfirmCallback allows the integration handler to call back into OMS
+// for order status transitions without circular imports.
+type OrderConfirmCallback interface {
+	ConfirmOrderByCustomer(ctx context.Context, orderID uuid.UUID) error
+	CancelOrderByCustomer(ctx context.Context, orderID uuid.UUID, reason string) error
+}
+
+// NotificationSender allows sending notifications without importing notification package.
+type NotificationSender interface {
+	SendToRole(ctx context.Context, role, title, body, category string, link *string) error
+}
+
 // Handler provides HTTP endpoints for integration webhooks and admin
 type Handler struct {
-	bravo      *BravoAdapter
-	dms        *DMSAdapter
-	zalo       *ZaloAdapter
-	confirmSvc *ConfirmService
-	dlq        *DLQService
+	bravo        *BravoAdapter
+	dms          *DMSAdapter
+	zalo         *ZaloAdapter
+	confirmSvc   *ConfirmService
+	dlq          *DLQService
+	orderConfirm OrderConfirmCallback
+	notifSvc     NotificationSender
 }
 
 func NewHandler(bravo *BravoAdapter, dms *DMSAdapter, zalo *ZaloAdapter, confirmSvc *ConfirmService, dlq *DLQService) *Handler {
 	return &Handler{bravo: bravo, dms: dms, zalo: zalo, confirmSvc: confirmSvc, dlq: dlq}
+}
+
+// SetOrderConfirmCallback injects OMS service for order confirm/reject flows.
+func (h *Handler) SetOrderConfirmCallback(cb OrderConfirmCallback) {
+	h.orderConfirm = cb
+}
+
+// SetNotificationSender injects notification service.
+func (h *Handler) SetNotificationSender(ns NotificationSender) {
+	h.notifSvc = ns
 }
 
 func (h *Handler) RegisterRoutes(r *gin.RouterGroup) {
@@ -53,6 +78,12 @@ func (h *Handler) RegisterPublicRoutes(r *gin.RouterGroup) {
 	r.GET("/confirm/:token", h.GetConfirmation)
 	r.POST("/confirm/:token/confirm", h.ConfirmDelivery)
 	r.POST("/confirm/:token/dispute", h.DisputeDelivery)
+
+	// Order confirmation — customer portal (accessed via Zalo link, 2h timeout)
+	r.GET("/order-confirm/:token", h.GetOrderConfirmation)
+	r.GET("/order-confirm/:token/pdf", h.GetOrderPDF)
+	r.POST("/order-confirm/:token/confirm", h.ConfirmOrderByCustomer)
+	r.POST("/order-confirm/:token/reject", h.RejectOrderByCustomer)
 }
 
 // POST /v1/integration/bravo/webhook (Task 3.3)
@@ -223,6 +254,20 @@ func (h *Handler) ConfirmDelivery(c *gin.Context) {
 		response.Err(c, http.StatusBadRequest, "CONFIRM_ERROR", err.Error())
 		return
 	}
+
+	// Notify DVKH (fire-and-forget)
+	if h.notifSvc != nil {
+		go func() {
+			orderNum, custName, err := h.confirmSvc.GetDeliveryOrderInfo(context.Background(), token)
+			if err == nil {
+				title := "KH xác nhận giao hàng"
+				body := fmt.Sprintf("Khách hàng %s đã XÁC NHẬN giao hàng đơn %s", custName, orderNum)
+				link := "/orders"
+				_ = h.notifSvc.SendToRole(context.Background(), "dvkh", title, body, "success", &link)
+			}
+		}()
+	}
+
 	response.OK(c, gin.H{"status": "confirmed"})
 }
 
@@ -241,6 +286,20 @@ func (h *Handler) DisputeDelivery(c *gin.Context) {
 		response.Err(c, http.StatusBadRequest, "DISPUTE_ERROR", err.Error())
 		return
 	}
+
+	// Notify DVKH (fire-and-forget)
+	if h.notifSvc != nil {
+		go func() {
+			orderNum, custName, err := h.confirmSvc.GetDeliveryOrderInfo(context.Background(), token)
+			if err == nil {
+				title := "KH tranh chấp giao hàng"
+				body := fmt.Sprintf("Khách hàng %s TRANH CHẤP giao hàng đơn %s. Lý do: %s", custName, orderNum, req.Reason)
+				link := "/orders"
+				_ = h.notifSvc.SendToRole(context.Background(), "dvkh", title, body, "error", &link)
+			}
+		}()
+	}
+
 	response.OK(c, gin.H{"status": "disputed"})
 }
 
@@ -322,6 +381,120 @@ func (h *Handler) ResolveDLQ(c *gin.Context) {
 		return
 	}
 	response.OK(c, gin.H{"status": "resolved"})
+}
+
+// ===== Order Confirmation Public Endpoints (customer Zalo link, 2h timeout) =====
+
+// GET /v1/order-confirm/:token
+func (h *Handler) GetOrderConfirmation(c *gin.Context) {
+	token := c.Param("token")
+	confirm, err := h.confirmSvc.GetOrderConfirmByToken(c.Request.Context(), token)
+	if err != nil {
+		response.NotFound(c, "Không tìm thấy đơn hàng")
+		return
+	}
+	response.OK(c, confirm)
+}
+
+// GET /v1/order-confirm/:token/pdf
+func (h *Handler) GetOrderPDF(c *gin.Context) {
+	token := c.Param("token")
+	confirm, err := h.confirmSvc.GetOrderConfirmByToken(c.Request.Context(), token)
+	if err != nil {
+		response.NotFound(c, "Không tìm thấy đơn hàng")
+		return
+	}
+	// Redirect to PDF URL
+	if confirm.PDFURL != nil && *confirm.PDFURL != "" {
+		c.Redirect(http.StatusFound, *confirm.PDFURL)
+		return
+	}
+	response.NotFound(c, "Chưa có file PDF cho đơn hàng này")
+}
+
+// POST /v1/order-confirm/:token/confirm
+func (h *Handler) ConfirmOrderByCustomer(c *gin.Context) {
+	token := c.Param("token")
+
+	// 1. Mark order_confirmations as confirmed
+	if err := h.confirmSvc.ConfirmOrder(c.Request.Context(), token); err != nil {
+		response.Err(c, http.StatusBadRequest, "CONFIRM_ERROR", err.Error())
+		return
+	}
+
+	// 2. Get the confirmation to find order_id
+	confirm, err := h.confirmSvc.GetOrderConfirmByToken(c.Request.Context(), token)
+	if err != nil {
+		response.Err(c, http.StatusInternalServerError, "CONFIRM_ERROR", err.Error())
+		return
+	}
+
+	// 3. Transition order pending_customer_confirm → confirmed, create shipment + debit
+	if h.orderConfirm != nil {
+		if err := h.orderConfirm.ConfirmOrderByCustomer(c.Request.Context(), confirm.OrderID); err != nil {
+			response.Err(c, http.StatusInternalServerError, "ORDER_CONFIRM_ERROR", err.Error())
+			return
+		}
+	}
+
+	// 4. Notify DVKH (fire-and-forget)
+	if h.notifSvc != nil {
+		go func() {
+			title := "KH xác nhận đơn hàng"
+			body := fmt.Sprintf("Khách hàng %s đã XÁC NHẬN đơn hàng %s", confirm.CustomerName, confirm.OrderNumber)
+			link := "/orders"
+			_ = h.notifSvc.SendToRole(context.Background(), "dvkh", title, body, "success", &link)
+		}()
+	}
+
+	response.OK(c, gin.H{"status": "confirmed", "message": "Đơn hàng đã được xác nhận thành công"})
+}
+
+// POST /v1/order-confirm/:token/reject
+func (h *Handler) RejectOrderByCustomer(c *gin.Context) {
+	var req struct {
+		Reason string `json:"reason"`
+	}
+	_ = c.ShouldBindJSON(&req)
+
+	token := c.Param("token")
+
+	// 1. Mark order_confirmations as rejected
+	reason := req.Reason
+	if reason == "" {
+		reason = "Khách hàng từ chối đơn hàng"
+	}
+	if err := h.confirmSvc.RejectOrder(c.Request.Context(), token, reason); err != nil {
+		response.Err(c, http.StatusBadRequest, "REJECT_ERROR", err.Error())
+		return
+	}
+
+	// 2. Get the confirmation to find order_id
+	confirm, err := h.confirmSvc.GetOrderConfirmByToken(c.Request.Context(), token)
+	if err != nil {
+		response.Err(c, http.StatusInternalServerError, "REJECT_ERROR", err.Error())
+		return
+	}
+
+	// 3. Cancel order + release stock
+	if h.orderConfirm != nil {
+		if err := h.orderConfirm.CancelOrderByCustomer(c.Request.Context(), confirm.OrderID, reason); err != nil {
+			response.Err(c, http.StatusInternalServerError, "ORDER_CANCEL_ERROR", err.Error())
+			return
+		}
+	}
+
+	// 4. Notify DVKH (fire-and-forget)
+	if h.notifSvc != nil {
+		go func() {
+			title := "KH từ chối đơn hàng"
+			body := fmt.Sprintf("Khách hàng %s đã TỪ CHỐI đơn hàng %s. Lý do: %s", confirm.CustomerName, confirm.OrderNumber, reason)
+			link := "/orders"
+			_ = h.notifSvc.SendToRole(context.Background(), "dvkh", title, body, "warning", &link)
+		}()
+	}
+
+	response.OK(c, gin.H{"status": "rejected", "message": "Đơn hàng đã bị từ chối"})
 }
 
 func parseInt(s string) (int, error) {
