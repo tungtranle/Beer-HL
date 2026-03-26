@@ -271,7 +271,7 @@ func (s *Service) ConfirmPick(ctx context.Context, req ConfirmPickRequest, userI
 
 	// Notify dispatcher when picking is completed
 	if newStatus == "completed" && s.notifSvc != nil {
-		link := "/dashboard/warehouse"
+		link := "/warehouse"
 		_ = s.notifSvc.SendToRole(ctx, "dispatcher",
 			"Soạn hàng hoàn tất",
 			fmt.Sprintf("Lệnh soạn %s đã hoàn tất — sẵn sàng kiểm cổng", po.PickNumber),
@@ -642,17 +642,18 @@ func (s *Service) CalculateTripCompensation(ctx context.Context, tripID uuid.UUI
 
 // VehiclePickingWorkbench groups all picking orders by trip/vehicle for warehouse UI.
 type VehiclePickingWorkbench struct {
-	TripID        string                 `json:"trip_id"`
-	TripNumber    string                 `json:"trip_number"`
-	VehiclePlate  string                 `json:"vehicle_plate"`
-	DriverName    string                 `json:"driver_name"`
-	DepartureTime string                 `json:"departure_time"`
-	PlannedDate   string                 `json:"planned_date"`
-	TotalStops    int                    `json:"total_stops"`
-	Status        string                 `json:"status"`
-	PickingItems  []VehiclePickingItem   `json:"picking_items"`
-	Orders        []VehiclePickingOrder  `json:"orders"`
-	Progress      VehiclePickingProgress `json:"progress"`
+	TripID         string                 `json:"trip_id"`
+	TripNumber     string                 `json:"trip_number"`
+	VehiclePlate   string                 `json:"vehicle_plate"`
+	DriverName     string                 `json:"driver_name"`
+	DepartureTime  string                 `json:"departure_time"`
+	PlannedDate    string                 `json:"planned_date"`
+	TotalStops     int                    `json:"total_stops"`
+	Status         string                 `json:"status"`
+	HandoverStatus string                 `json:"handover_status"` // "", "pending", "partially_signed", "completed"
+	PickingItems   []VehiclePickingItem   `json:"picking_items"`
+	Orders         []VehiclePickingOrder  `json:"orders"`
+	Progress       VehiclePickingProgress `json:"progress"`
 }
 
 type VehiclePickingItem struct {
@@ -895,6 +896,18 @@ func (s *Service) GetPickingByVehicle(ctx context.Context, dateStr string) ([]Ve
 			PickedItems: pickedItems,
 			Percentage:  pct,
 		}
+
+		// Check if handover A already exists for this trip
+		var handoverStatus string
+		err = s.repo.db.QueryRow(ctx, `
+			SELECT status::text FROM handover_records
+			WHERE trip_id = $1 AND handover_type = 'A'
+			ORDER BY created_at DESC LIMIT 1
+		`, tripUUID).Scan(&handoverStatus)
+		if err == nil {
+			wb.HandoverStatus = handoverStatus
+		}
+
 		results = append(results, wb)
 	}
 
@@ -1001,4 +1014,180 @@ func (s *Service) GetBottleSummary(ctx context.Context) (*BottleSummary, error) 
 		return nil, err
 	}
 	return &summary, nil
+}
+
+// ── Handover (Bàn giao A/B/C) ──────────────────────
+
+type CreateHandoverRequest struct {
+	HandoverType string          `json:"handover_type" binding:"required,oneof=A B C"`
+	TripID       uuid.UUID       `json:"trip_id" binding:"required"`
+	StopID       *uuid.UUID      `json:"stop_id,omitempty"`
+	Signatories  json.RawMessage `json:"signatories" binding:"required"`
+	PhotoURLs    []string        `json:"photo_urls,omitempty"`
+	Items        json.RawMessage `json:"items,omitempty"`
+	Notes        *string         `json:"notes,omitempty"`
+}
+
+type SignHandoverRequest struct {
+	Role         string `json:"role" binding:"required"`
+	Action       string `json:"action" binding:"required,oneof=confirm reject"` // confirm or reject
+	RejectReason string `json:"reject_reason,omitempty"`
+}
+
+func (s *Service) CreateHandover(ctx context.Context, req CreateHandoverRequest, userID uuid.UUID) (*domain.HandoverRecord, error) {
+	// Type B requires stop_id
+	if req.HandoverType == "B" && req.StopID == nil {
+		return nil, fmt.Errorf("bàn giao B yêu cầu stop_id")
+	}
+
+	hr := domain.HandoverRecord{
+		HandoverType: req.HandoverType,
+		TripID:       req.TripID,
+		StopID:       req.StopID,
+		Signatories:  req.Signatories,
+		PhotoURLs:    req.PhotoURLs,
+		Items:        req.Items,
+		Status:       "pending",
+		Notes:        req.Notes,
+		CreatedBy:    userID,
+	}
+
+	id, err := s.repo.CreateHandoverRecord(ctx, hr)
+	if err != nil {
+		return nil, fmt.Errorf("tạo bàn giao thất bại: %w", err)
+	}
+
+	hr.ID = id
+	hr.CreatedAt = time.Now()
+	hr.UpdatedAt = hr.CreatedAt
+
+	// Notify driver & security when Handover A is created
+	if req.HandoverType == "A" && s.notifSvc != nil {
+		// Send to the specific driver assigned to this trip (trips.driver_id → drivers.user_id)
+		var driverUserID uuid.UUID
+		err2 := s.repo.db.QueryRow(ctx,
+			"SELECT d.user_id FROM trips t JOIN drivers d ON t.driver_id = d.id WHERE t.id = $1",
+			req.TripID).Scan(&driverUserID)
+		if err2 == nil {
+			link := fmt.Sprintf("/driver/%s", req.TripID.String())
+			_ = s.notifSvc.Send(ctx, driverUserID, "Bàn giao A — Cần xác nhận",
+				"Thủ kho đã tạo biên bản bàn giao xuất kho. Vui lòng kiểm tra và xác nhận.", "wms", &link)
+		}
+		// Send to all security guards at the warehouse
+		secLink := "/gate-check"
+		_ = s.notifSvc.SendToRole(ctx, "security", "Bàn giao A đã tạo",
+			"Biên bản bàn giao xuất kho đã được tạo. Chờ các bên xác nhận.", "wms", &secLink)
+	}
+
+	return &hr, nil
+}
+
+func (s *Service) SignHandover(ctx context.Context, handoverID uuid.UUID, req SignHandoverRequest, userID uuid.UUID, userName string) (*domain.HandoverRecord, error) {
+	hr, err := s.repo.GetHandoverRecord(ctx, handoverID)
+	if err != nil {
+		return nil, fmt.Errorf("không tìm thấy bàn giao: %w", err)
+	}
+
+	if hr.Status == "completed" || hr.Status == "rejected" {
+		return nil, fmt.Errorf("bàn giao đã %s, không thể thao tác thêm", hr.Status)
+	}
+
+	// Reject flow: any party can reject
+	if req.Action == "reject" {
+		if req.RejectReason == "" {
+			return nil, fmt.Errorf("vui lòng nhập lý do từ chối")
+		}
+		var signatories []map[string]interface{}
+		if err := json.Unmarshal(hr.Signatories, &signatories); err != nil {
+			return nil, fmt.Errorf("parse signatories: %w", err)
+		}
+		for i, sig := range signatories {
+			if sig["role"] == req.Role {
+				signatories[i]["user_id"] = userID.String()
+				signatories[i]["name"] = userName
+				signatories[i]["signed_at"] = time.Now().Format(time.RFC3339)
+				signatories[i]["action"] = "reject"
+				break
+			}
+		}
+		updatedJSON, err := json.Marshal(signatories)
+		if err != nil {
+			return nil, err
+		}
+		rejectReason := req.RejectReason
+		if err := s.repo.UpdateHandoverReject(ctx, handoverID, updatedJSON, &rejectReason); err != nil {
+			return nil, fmt.Errorf("từ chối thất bại: %w", err)
+		}
+		hr.Signatories = updatedJSON
+		hr.Status = "rejected"
+		hr.RejectReason = &rejectReason
+		return hr, nil
+	}
+
+	// Confirm flow
+
+	// Parse existing signatories and add/update this signer
+	var signatories []map[string]interface{}
+	if err := json.Unmarshal(hr.Signatories, &signatories); err != nil {
+		return nil, fmt.Errorf("parse signatories: %w", err)
+	}
+
+	now := time.Now()
+	signed := false
+	for i, sig := range signatories {
+		if sig["role"] == req.Role {
+			signatories[i]["user_id"] = userID.String()
+			signatories[i]["name"] = userName
+			signatories[i]["signed_at"] = now.Format(time.RFC3339)
+			signatories[i]["action"] = "confirm"
+			signed = true
+			break
+		}
+	}
+	if !signed {
+		return nil, fmt.Errorf("role '%s' không có trong danh sách ký", req.Role)
+	}
+
+	// Check if all signatories have signed
+	allSigned := true
+	for _, sig := range signatories {
+		if _, ok := sig["signed_at"]; !ok {
+			allSigned = false
+			break
+		}
+	}
+
+	newStatus := "partially_signed"
+	if allSigned {
+		newStatus = "completed"
+	}
+
+	updatedJSON, err := json.Marshal(signatories)
+	if err != nil {
+		return nil, err
+	}
+
+	if err := s.repo.UpdateHandoverSignatories(ctx, handoverID, updatedJSON, newStatus); err != nil {
+		return nil, fmt.Errorf("cập nhật chữ ký thất bại: %w", err)
+	}
+
+	hr.Signatories = updatedJSON
+	hr.Status = newStatus
+
+	// When Handover A is completed → notify
+	if newStatus == "completed" && hr.HandoverType == "A" && s.notifSvc != nil {
+		link := "/gate-check"
+		_ = s.notifSvc.SendToRole(ctx, "security", "Bàn giao A hoàn tất",
+			"Tất cả bên đã xác nhận bàn giao xuất kho. Sẵn sàng mở barrier.", "wms", &link)
+	}
+
+	return hr, nil
+}
+
+func (s *Service) GetHandoversByTrip(ctx context.Context, tripID uuid.UUID) ([]domain.HandoverRecord, error) {
+	return s.repo.GetHandoversByTrip(ctx, tripID)
+}
+
+func (s *Service) GetHandoverRecord(ctx context.Context, id uuid.UUID) (*domain.HandoverRecord, error) {
+	return s.repo.GetHandoverRecord(ctx, id)
 }

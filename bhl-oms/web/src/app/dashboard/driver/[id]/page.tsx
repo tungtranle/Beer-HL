@@ -7,6 +7,7 @@ import { apiFetch, getUser } from '@/lib/api'
 import { toast } from '@/lib/useToast'
 import { useGpsTracker } from '@/lib/useGpsTracker'
 import { useOnlineStatus } from '@/lib/useOnlineStatus'
+import { useDataRefresh } from '@/lib/notifications'
 
 interface Stop {
   id: string
@@ -201,6 +202,12 @@ export default function DriverTripDetailPage() {
     cash_ready: false, returns_collected: false, keys_ready: false,
   })
 
+  // Handover A state
+  const [handoverA, setHandoverA] = useState<any>(null)
+  const [handoverAction, setHandoverAction] = useState<'confirm' | 'reject' | null>(null)
+  const [handoverRejectReason, setHandoverRejectReason] = useState('')
+  const [handoverLoading, setHandoverLoading] = useState(false)
+
   const loadTrip = async () => {
     try {
       const res: any = await apiFetch(`/trips/${tripId}`)
@@ -210,7 +217,49 @@ export default function DriverTripDetailPage() {
     }
   }
 
+  const loadHandoverA = async () => {
+    try {
+      const res: any = await apiFetch(`/warehouse/handovers/trip/${tripId}`)
+      const handovers = (res.data || []).filter((h: any) => h.handover_type === 'A')
+      if (handovers.length > 0) setHandoverA(handovers[handovers.length - 1])
+    } catch { /* empty */ }
+  }
+
+  const handleHandoverConfirm = async () => {
+    if (!handoverA) return
+    setHandoverLoading(true)
+    try {
+      await apiFetch(`/warehouse/handovers/${handoverA.id}/sign`, {
+        method: 'POST',
+        body: { role: 'driver', action: 'confirm' },
+      })
+      toast.success('Đã xác nhận bàn giao')
+      await loadHandoverA()
+    } catch (err: any) { toast.error('Lỗi: ' + err.message) }
+    finally { setHandoverLoading(false) }
+  }
+
+  const handleHandoverReject = async () => {
+    if (!handoverA || !handoverRejectReason.trim()) {
+      toast.warning('Vui lòng nhập lý do từ chối')
+      return
+    }
+    setHandoverLoading(true)
+    try {
+      await apiFetch(`/warehouse/handovers/${handoverA.id}/sign`, {
+        method: 'POST',
+        body: { role: 'driver', action: 'reject', reject_reason: handoverRejectReason },
+      })
+      toast.success('Đã từ chối bàn giao')
+      setHandoverAction(null)
+      await loadHandoverA()
+    } catch (err: any) { toast.error('Lỗi: ' + err.message) }
+    finally { setHandoverLoading(false) }
+  }
+
   useEffect(() => { loadTrip() }, [tripId])
+  useEffect(() => { loadHandoverA() }, [tripId])
+  useDataRefresh('handover', loadHandoverA)
 
   const handleStartTrip = async () => {
     setActionLoading(true)
@@ -557,6 +606,57 @@ export default function DriverTripDetailPage() {
         </div>
       )}
 
+      {/* Handover A section for driver */}
+      {(trip.status === 'planned' || trip.status === 'assigned' || trip.status === 'ready') && trip.checklist?.is_passed && handoverA && (() => {
+        const driverSig = (handoverA.signatories || []).find((s: any) => s.role === 'driver')
+        const driverDone = driverSig?.action === 'confirm' || driverSig?.action === 'reject'
+        if (driverDone) return null
+        return (
+          <div className="bg-blue-50 border-2 border-blue-200 rounded-xl p-4 space-y-3">
+            <div className="flex items-center gap-2">
+              <span className="text-xl">📋</span>
+              <h3 className="font-bold text-blue-800">Bàn giao A — Xác nhận xuất kho</h3>
+            </div>
+            <p className="text-sm text-blue-600">Thủ kho đã tạo biên bản bàn giao. Vui lòng kiểm tra hàng hóa và xác nhận.</p>
+            {handoverA.photo_urls?.length > 0 && (
+              <div className="flex gap-2 flex-wrap">
+                {handoverA.photo_urls.map((url: string, i: number) => (
+                  <img key={i} src={url} alt={`Phiếu ${i+1}`}
+                    className="w-16 h-16 object-cover rounded-lg border cursor-pointer"
+                    onClick={() => window.open(url, '_blank')} />
+                ))}
+              </div>
+            )}
+            {handoverA.notes && <p className="text-sm text-gray-600">Ghi chú: {handoverA.notes}</p>}
+            {handoverAction !== 'reject' ? (
+              <div className="flex gap-2">
+                <button onClick={handleHandoverConfirm} disabled={handoverLoading}
+                  className="flex-1 h-12 bg-green-600 text-white rounded-lg font-bold hover:bg-green-700 disabled:opacity-50">
+                  {handoverLoading ? 'Đang xử lý...' : '✅ Xác nhận bàn giao'}
+                </button>
+                <button onClick={() => setHandoverAction('reject')}
+                  className="px-4 h-12 bg-red-100 text-red-700 rounded-lg font-medium hover:bg-red-200">
+                  ❌ Từ chối
+                </button>
+              </div>
+            ) : (
+              <div className="space-y-2">
+                <textarea value={handoverRejectReason} onChange={e => setHandoverRejectReason(e.target.value)}
+                  placeholder="Nhập lý do từ chối..." className="w-full border border-red-300 rounded-lg px-3 py-2 text-sm bg-red-50" rows={2} />
+                <div className="flex gap-2">
+                  <button onClick={handleHandoverReject} disabled={handoverLoading || !handoverRejectReason.trim()}
+                    className="flex-1 h-12 bg-red-600 text-white rounded-lg font-bold hover:bg-red-700 disabled:opacity-50">
+                    {handoverLoading ? 'Đang xử lý...' : '❌ Xác nhận từ chối'}
+                  </button>
+                  <button onClick={() => setHandoverAction(null)}
+                    className="px-4 h-12 border rounded-lg text-gray-600 hover:bg-gray-50">Hủy</button>
+                </div>
+              </div>
+            )}
+          </div>
+        )
+      })()}
+
       {(trip.status === 'planned' || trip.status === 'assigned' || trip.status === 'ready') && trip.checklist?.is_passed && (
         <button onClick={handleStartTrip} disabled={actionLoading}
           className="w-full bg-green-600 text-white py-3 rounded-lg font-medium hover:bg-green-700 disabled:opacity-50">
@@ -573,13 +673,10 @@ export default function DriverTripDetailPage() {
 
       {trip.status === 'in_transit' && trip.stops?.every(s => s.status === 'delivered' || s.status === 'failed' || s.status === 'skipped' || s.status === 'partially_delivered') && (
         <div className="space-y-2">
-          <button onClick={() => {
-            setPostChecklist({ vehicle_clean: false, vehicle_no_damage: false, fuel_noted: false, cash_ready: false, returns_collected: false, keys_ready: false })
-            setActiveModal('post_checklist')
-          }} disabled={actionLoading}
-            className="w-full bg-brand-500 text-white py-3 rounded-lg font-medium hover:bg-brand-600 disabled:opacity-50">
-            {actionLoading ? 'Đang xử lý...' : '✅ Hoàn thành chuyến xe'}
-          </button>
+          <Link href={`/dashboard/driver/${tripId}/eod`}
+            className="w-full block text-center bg-brand-500 text-white py-3 rounded-lg font-medium hover:bg-brand-600">
+            ✅ Kết ca (3 trạm xác nhận)
+          </Link>
         </div>
       )}
 

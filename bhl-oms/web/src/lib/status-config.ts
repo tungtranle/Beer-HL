@@ -7,8 +7,8 @@
 
 export type OrderStatus =
   | 'draft' | 'pending_customer_confirm' | 'pending_approval' | 'confirmed'
-  | 'planned' | 'picking' | 'loaded' | 'in_transit'
-  | 'delivered' | 'partial_delivered' | 'rejected' | 're_delivery'
+  | 'processing' | 'planned' | 'picking' | 'loaded' | 'in_transit'
+  | 'delivered' | 'partial_delivered' | 'partially_delivered' | 'rejected' | 're_delivery'
   | 'on_credit' | 'disputed' | 'cancelled' | 'completed'
 
 export interface StatusConfig {
@@ -49,6 +49,12 @@ export const STATUS_CONFIG: Record<OrderStatus, StatusConfig> = {
     labels: { default: 'Đã xác nhận', dispatcher: 'Sẵn sàng xếp xe' },
     isTerminal: false,
   },
+  processing: {
+    dotClass: 'bg-indigo-500', bgClass: 'bg-indigo-50',
+    textClass: 'text-indigo-700', borderClass: 'border-indigo-300',
+    labels: { default: 'Đang soạn hàng', warehouse_handler: 'Đang picking', dispatcher: 'Kho đang xử lý' },
+    isTerminal: false,
+  },
   planned: {
     dotClass: 'bg-violet-500', bgClass: 'bg-violet-50',
     textClass: 'text-violet-700', borderClass: 'border-violet-300',
@@ -82,6 +88,12 @@ export const STATUS_CONFIG: Record<OrderStatus, StatusConfig> = {
     countdownType: 'delivery',
   },
   partial_delivered: {
+    dotClass: 'bg-amber-400', bgClass: 'bg-amber-50',
+    textClass: 'text-amber-700', borderClass: 'border-amber-300',
+    labels: { default: 'Giao thiếu', dvkh: 'Giao thiếu — cần xử lý' },
+    isTerminal: false,
+  },
+  partially_delivered: {
     dotClass: 'bg-amber-400', bgClass: 'bg-amber-50',
     textClass: 'text-amber-700', borderClass: 'border-amber-300',
     labels: { default: 'Giao thiếu', dvkh: 'Giao thiếu — cần xử lý' },
@@ -146,61 +158,69 @@ export function getStatusConfig(status: string): StatusConfig {
 
 // ==================== ĐƠN HÀNG (Order) ====================
 
+// Legacy labels — synced with STATUS_CONFIG defaults
+// Dùng getStatusLabel() thay vì truy cập trực tiếp khi có thể
 export const orderStatusLabels: Record<string, string> = {
   draft: 'Nháp',
-  pending_customer_confirm: 'Chờ KH xác nhận',
-  pending_approval: 'Chờ duyệt công nợ',
+  pending_customer_confirm: 'Chờ NPP xác nhận',
+  pending_approval: 'Chờ duyệt hạn mức',
   confirmed: 'Đã xác nhận',
+  processing: 'Đang soạn hàng',
+  planned: 'Đã xếp xe',
+  picking: 'Đang đóng hàng',
+  loaded: 'Đã lên xe',
+  in_transit: 'Đang giao',
+  delivered: 'Đã giao',
+  partial_delivered: 'Giao thiếu',
+  partially_delivered: 'Giao thiếu',
+  rejected: 'Khách từ chối',
+  re_delivery: 'Giao lại',
+  on_credit: 'Công nợ',
+  disputed: 'Tranh chấp',
+  cancelled: 'Đã hủy',
+  completed: 'Hoàn tất',
+  // Aliases cũ — backward compat
   approved: 'Đã duyệt',
-  processing: 'Đang xử lý',
   ready_to_ship: 'Sẵn sàng giao',
   shipped: 'Đã xuất kho',
-  in_transit: 'Đang giao hàng',
-  delivered: 'Đã giao',
-  partially_delivered: 'Giao một phần',
-  cancelled: 'Đã hủy',
-  returned: 'Đã trả hàng',
-  closed: 'Đã đóng',
-  on_hold: 'Tạm giữ',
-  // Aliases from different parts of the system
   shipment_created: 'Đã tạo chuyến',
   delivering: 'Đang giao',
   failed: 'Giao thất bại',
-  rejected: 'NPP từ chối',
-  on_credit: 'Ghi nợ',
-  planned: 'Đã lên kế hoạch',
-  picking: 'Đang soạn hàng',
-  loaded: 'Đã xếp xe',
-  partial_delivered: 'Giao một phần',
-  re_delivery: 'Giao lại',
+  returned: 'Đã trả hàng',
+  closed: 'Đã đóng',
+  on_hold: 'Tạm giữ',
 }
 
+// Legacy colors — synced with STATUS_CONFIG
 export const orderStatusColors: Record<string, string> = {
-  draft: 'bg-gray-100 text-gray-600',
-  pending_customer_confirm: 'bg-amber-100 text-amber-700',
-  pending_approval: 'bg-yellow-100 text-yellow-700',
-  confirmed: 'bg-green-100 text-green-700',
+  draft: 'bg-stone-100 text-stone-600',
+  pending_customer_confirm: 'bg-blue-50 text-blue-700',
+  pending_approval: 'bg-amber-50 text-amber-700',
+  confirmed: 'bg-teal-50 text-teal-700',
+  processing: 'bg-indigo-50 text-indigo-700',
+  planned: 'bg-violet-50 text-violet-700',
+  picking: 'bg-orange-50 text-orange-700',
+  loaded: 'bg-purple-50 text-purple-700',
+  in_transit: 'bg-sky-50 text-sky-700',
+  delivered: 'bg-green-50 text-green-700',
+  partial_delivered: 'bg-amber-50 text-amber-700',
+  partially_delivered: 'bg-amber-50 text-amber-700',
+  rejected: 'bg-red-50 text-red-700',
+  re_delivery: 'bg-orange-50 text-orange-700',
+  on_credit: 'bg-pink-50 text-pink-700',
+  disputed: 'bg-red-50 text-red-700',
+  cancelled: 'bg-stone-100 text-stone-500',
+  completed: 'bg-green-50 text-green-800',
+  // Aliases
   approved: 'bg-green-100 text-green-700',
-  processing: 'bg-blue-100 text-blue-700',
   ready_to_ship: 'bg-indigo-100 text-indigo-700',
   shipped: 'bg-violet-100 text-violet-700',
   shipment_created: 'bg-blue-100 text-blue-700',
-  in_transit: 'bg-purple-100 text-purple-700',
-  delivering: 'bg-indigo-100 text-indigo-700',
-  delivered: 'bg-teal-100 text-teal-700',
-  partially_delivered: 'bg-orange-100 text-orange-700',
-  partial_delivered: 'bg-orange-100 text-orange-700',
+  delivering: 'bg-sky-50 text-sky-700',
   failed: 'bg-red-100 text-red-700',
-  rejected: 'bg-red-100 text-red-700',
-  on_credit: 'bg-cyan-100 text-cyan-700',
-  cancelled: 'bg-gray-200 text-gray-600',
   returned: 'bg-rose-100 text-rose-700',
   closed: 'bg-gray-200 text-gray-600',
   on_hold: 'bg-yellow-100 text-yellow-700',
-  planned: 'bg-blue-100 text-blue-700',
-  picking: 'bg-indigo-100 text-indigo-700',
-  loaded: 'bg-violet-100 text-violet-700',
-  re_delivery: 'bg-rose-100 text-rose-700',
 }
 
 // Luồng chính đơn hàng E2E (cho thanh tiến trình)
@@ -216,29 +236,29 @@ export interface OrderStep {
 export const orderProgressSteps: OrderStep[] = [
   {
     key: 'created',
-    label: 'Đã tạo đơn',
+    label: 'Tạo đơn',
     description: 'Đơn hàng được lập bởi DVKH',
     icon: '📝',
     matchStatuses: ['draft'],
   },
   {
     key: 'customer_confirmed',
-    label: 'KH xác nhận',
-    description: 'Khách hàng xác nhận qua Zalo/tự động',
+    label: 'Xác nhận',
+    description: 'NPP xác nhận đơn hàng',
     icon: '✅',
     matchStatuses: ['pending_customer_confirm', 'confirmed', 'pending_approval', 'approved'],
   },
   {
     key: 'warehouse_processing',
     label: 'Kho xử lý',
-    description: 'Soạn hàng, kiểm tra tồn kho, xếp xe',
+    description: 'Soạn hàng, đóng gói, xếp xe',
     icon: '🏭',
     matchStatuses: ['processing', 'ready_to_ship', 'planned', 'picking', 'loaded'],
   },
   {
     key: 'shipping',
-    label: 'Đang vận chuyển',
-    description: 'Tài xế đang giao hàng đến NPP',
+    label: 'Vận chuyển',
+    description: 'Tài xế đang giao hàng',
     icon: '🚚',
     matchStatuses: ['shipped', 'shipment_created', 'in_transit', 'delivering'],
   },
@@ -247,7 +267,7 @@ export const orderProgressSteps: OrderStep[] = [
     label: 'Hoàn thành',
     description: 'Đã giao hàng thành công',
     icon: '🎉',
-    matchStatuses: ['delivered'],
+    matchStatuses: ['delivered', 'completed'],
   },
 ]
 

@@ -1,11 +1,11 @@
 # BRD — HỆ THỐNG QUẢN LÝ VẬN HÀNH BHL
 ## (OMS – TMS – WMS)
 
-**Phiên bản:** 3.0  
-**Ngày:** 21/03/2026  
+**Phiên bản:** 3.2  
+**Ngày:** 25/03/2026  
 **Khách hàng:** Công ty Cổ phần Bia và Nước giải khát Hạ Long (BHL)  
-**Trạng thái:** Đang phát triển — Đối chiếu code & spec  
-**Nguồn:** BRD v2.4 + BRD v4.0 (Gap Analysis) — chỉ giữ nội dung nghiệp vụ (What + Why), loại bỏ nội dung kỹ thuật (How → SAD/INF/ROADMAP)
+**Trạng thái:** Đã xác nhận — Sẵn sàng merge & build  
+**Thay đổi v3.2:** Bỏ PDA xuất kho; Bàn giao A 3 bên ký (R16); Bàn giao B/C ký số bắt buộc (R17/R18); R04/R15 NPP có/không có hạn mức; VRP manual planning; 26 entity events; Import/Export Excel (US-NEW-20)
 
 ---
 
@@ -77,7 +77,7 @@ Xây dựng hệ thống vận hành chính (Primary Operations System) quản l
 | SKU | ~30 |
 | Tuyến đường | ~500 |
 | Internal users (bắt buộc) | 80 người: 70 tài xế (Driver App) + 10 nhân viên nội bộ (Web) |
-| NPP Portal users (tương lai) | Tối đa 300 NPP — phát triển sau khi hệ thống lõi ổn định |
+| NPP Portal users (tương lai) | Tối đa 800 NPP — phát triển sau khi hệ thống lõi ổn định |
 | Concurrent users (peak) | ~80 internal + ~100 NPP portal = ~180 đồng thời |
 | Tính chất mùa vụ | Tết, Hè tăng đột biến — KHÔNG thay đổi chính sách vận hành lõi |
 
@@ -122,13 +122,12 @@ Khách hàng đặt đơn (Tổng đài)
 3. Gom/tách đơn thành lệnh giao theo nguyên tắc tối ưu vận tải
 4. Điều phối phân công xe, lái xe và lộ trình (auto-planning + duyệt)
 5. Lái xe hoàn tất kiểm tra đầu chuyến (checklist trên app)
-6. Kho xuất hàng, bàn giao lên xe (PDA quét mã vạch)
-7. Kiểm đếm tại cổng, xác nhận đủ điều kiện xuất (sai lệch = 0)
-8. Giao hàng tại điểm nhận — HẠ HÀNG TRƯỚC, xác nhận thanh toán/nợ sau
-9. Thu tiền (nếu có) và thu vỏ sau giao
-10. Giao thất bại → cho phép giao lại KHÔNG GIỚI HẠN số lần, bắt buộc thống kê
-11. Xe quay về, nhập vỏ, nộp tiền, nộp chứng từ
-12. Đối soát cuối chuyến + cuối ngày, sai lệch xử lý đến T+1
+6. Kho xuất hàng theo FEFO; Thủ kho + Bảo vệ + Lái xe cùng kiểm đếm tại khu vực xếp hàng → ký Bàn giao A (biên bản số — sai lệch = 0 tuyệt đối, R01)
+7. Giao hàng tại điểm nhận — HẠ HÀNG TRƯỚC, xác nhận thanh toán/nợ sau
+8. Thu tiền (nếu có) và thu vỏ sau giao
+9. Giao thất bại → giao lại KHÔNG GIỚI HẠN số lần, bắt buộc thống kê
+10. Xe quay về: Bàn giao B (vỏ → Phân xưởng, ký số), Bàn giao C (tiền → KT, ký số)
+11. Đối soát cuối chuyến + cuối ngày, sai lệch xử lý đến T+1
 ```
 
 ## 2.3 Ràng buộc thời gian
@@ -143,14 +142,12 @@ Khách hàng đặt đơn (Tổng đài)
 
 # 3. QUY TẮC NGHIỆP VỤ BẮT BUỘC
 
-*(Chốt từ BRD V1.2 + trao đổi, áp dụng xuyên suốt toàn hệ thống)*
-
 | # | Quy tắc | Ghi chú |
 |---|---------|---------|
 | R01 | **Không chấp nhận sai lệch hàng tại cổng** (WMS-04: sai lệch = 0) | Gate Check phải khớp 100% |
 | R02 | **Không chấp nhận sai lệch vỏ theo chuyến** (RA-04: sai lệch = 0). Nếu chênh lệch, **lái xe chịu trách nhiệm** | Phân xưởng đếm thực tế là chuẩn |
 | R03 | **Được phép hạ hàng TRƯỚC khi xác nhận thanh toán** | Hàng và tiền tách rời |
-| R04 | **Được phép công nợ, KHÔNG bắt buộc thu tiền ngay** | NPP nào cũng có hạn mức công nợ |
+| R04 | **Được phép công nợ, KHÔNG bắt buộc thu tiền ngay** — áp dụng cho NPP **có hạn mức nợ**. NPP không có hạn mức nợ phải thu tiền ngay hoặc được ghi nợ theo thoả thuận riêng. | |
 | R05 | **Giao thất bại → giao lại KHÔNG GIỚI HẠN số lần** | Bắt buộc thống kê số lần + lý do |
 | R06 | **Đối soát sai lệch được xử lý đến T+1** (T = ngày giao). Kế toán có quyền mở/đóng hồ sơ | Escalation nếu chưa đóng |
 | R07 | **Khung giờ giao chuẩn: 1 giờ**, điều chỉnh được theo từng thời kỳ (Admin cấu hình) | Lưu lịch sử hiệu lực |
@@ -161,7 +158,10 @@ Khách hàng đặt đơn (Tổng đài)
 | R12 | **Ưu tiên điều phối khi thiếu xe**: Thứ tự ưu tiên **cấu hình được** (Admin setting) | Không hardcode |
 | R13 | **Tài xế thông báo miệng cho NPP trước khi hạ hàng**. Sau giao hàng, hệ thống gửi Zalo kèm **link xác nhận** (NPP bấm link → xem chủng loại & số lượng → xác nhận hoặc báo sai lệch). Không phản hồi trong 24h = đúng (Silent Consent) | Nếu NPP phản hồi "sai" → tra soát, ai sai người đó chịu |
 | R14 | **Quy đổi vỏ**: Vỏ bia hơi theo **CÁI**, Vỏ bia chai theo **KEG** | |
-| R15 | **Hạn mức công nợ NPP** (không phải hạn mức tín dụng). Vượt hạn mức → **chặn đơn mới**, yêu cầu phê duyệt Kế toán | |
+| R15 | **Hạn mức công nợ NPP** (không phải hạn mức tín dụng) — NPP **có thể có hoặc không có** hạn mức. Nếu có và vượt → **chặn đơn mới**, yêu cầu phê duyệt Kế toán. NPP không có hạn mức → không check. | |
+| R16 | **Bàn giao A** (Xuất kho): Thủ kho + Bảo vệ + Lái xe cùng kiểm đếm tại khu vực xếp hàng. Cả 3 ký số trên hệ thống → biên bản số tạo tự động. Sai lệch = 0 (R01). Không có bước kiểm đếm riêng tại cổng. | Bảo vệ cổng chỉ mở barrier sau khi Bàn giao A đã hoàn tất |
+| R17 | **Bàn giao B** (Nhập vỏ): Lái xe khai số vỏ → Phân xưởng đếm độc lập → cả 2 ký số. Chênh lệch → lái xe chịu (R02). | Phân xưởng đếm là chuẩn |
+| R18 | **Bàn giao C** (Nộp tiền): KT đếm thực tế cùng lái xe → cả 2 ký số. Chênh lệch ghi nhận ngay. Biên bản C là bằng chứng pháp lý nội bộ, không thể sửa sau khi ký. | |
 
 ---
 
@@ -170,7 +170,7 @@ Khách hàng đặt đơn (Tổng đài)
 ## 4.1 Tổng quan
 OMS là **điểm vào duy nhất** của đơn hàng. DVKH nhập đơn trực tiếp trên hệ thống → hệ thống xử lý → đẩy sang DMS + chuyển nhu cầu cho TMS + tạo lệnh đóng hàng cho WMS.
 
-**Yêu cầu bắt buộc (từ BRD V1.2):**
+**Quy tắc bắt buộc:**
 - OMS-01: Đơn phải có đầy đủ thông tin bắt buộc trước khi chuyển bước
 - OMS-02: Kiểm tra khả năng đáp ứng theo tồn kho thực tế
 - OMS-03: Gom đơn cùng tuyến/cùng khách để tối ưu chuyến
@@ -224,7 +224,7 @@ OMS là **điểm vào duy nhất** của đơn hàng. DVKH nhập đơn trực 
 - [x] Không cho sửa đơn đã giao (`shipped`, `delivered`, `completed`, `cancelled`)
 - [x] Khi sửa: giải phóng tồn kho reserved cũ → kiểm tra ATP mới → reserve lại
 - [x] Tự động tính lại: tổng tiền, trọng lượng, thể tích, phí vỏ cược
-- [x] Re-check hạn mức tín dụng: nếu đơn mới vượt hạn mức → chuyển `pending_approval`
+- [x] Re-check hạn mức công nợ: nếu NPP có hạn mức và đơn mới vượt → chuyển `pending_approval`
 - [x] Nếu đơn cũ đã có Shipment (status=pending) → xóa Shipment cũ và tạo lại
 - [x] Giao diện sửa đơn tái sử dụng form tạo đơn, pre-fill dữ liệu hiện tại
 - [x] Hiển thị nút "Sửa" trên trang chi tiết đơn và danh sách đơn (chỉ khi trạng thái cho phép)
@@ -282,11 +282,12 @@ OMS là **điểm vào duy nhất** của đơn hàng. DVKH nhập đơn trực 
 **So that** không cho nợ vượt hạn mức
 
 **Acceptance Criteria:**
-- [x] Mỗi NPP có **hạn mức công nợ** (không phải hạn mức tín dụng — R15)
+- [x] NPP **có thể có hoặc không có** hạn mức công nợ (không phải hạn mức tín dụng — R15)
 - [x] Hạn mức thiết lập **theo thời kỳ** (từ ngày → đến ngày), Admin cấu hình *(Impl: bảng credit_limits với valid_from/valid_to)*
-- [x] Khi nhập đơn → kiểm tra: Công nợ hiện tại + Giá trị đơn mới ≤ Hạn mức
-- [x] Nếu **vượt hạn mức** → **chặn đơn mới**, yêu cầu phê duyệt từ **Kế toán**
-- [x] Đơn chuyển trạng thái "Pending Approval" → Kế toán duyệt → tiếp tục / từ chối *(Impl: GET /v1/orders/pending-approvals, POST /v1/orders/:id/approve)*
+- [x] Khi nhập đơn → **chỉ kiểm tra nếu NPP có hạn mức đang hiệu lực**: Công nợ hiện tại + Giá trị đơn mới ≤ Hạn mức
+- [x] NPP không có hạn mức → **bỏ qua bước check**, đơn tiếp tục bình thường
+- [x] Vượt hạn mức → chặn đơn mới, yêu cầu phê duyệt từ Kế toán
+- [x] Đơn chuyển `pending_approval` → Kế toán duyệt → tiếp tục / từ chối *(Impl: GET /v1/orders/pending-approvals, POST /v1/orders/:id/approve)*
 - [ ] Hết thời kỳ → Hạn mức không còn hiệu lực → cảnh báo Admin cập nhật
 - [ ] Lịch sử thay đổi hạn mức được ghi log đầy đủ
 
@@ -336,7 +337,7 @@ Draft (Mới nhập, ATP reserved)
 ## 5.1 Tổng quan
 TMS quản lý toàn bộ vòng đời vận tải: Xếp xe tự động → Checklist kỹ thuật → Giám sát GPS → Giao hàng (ePOD) → Thu tiền/Công nợ → Thu vỏ → Hoàn chứng từ → Đối soát. Bao gồm cả xe nội bộ và xe thuê ngoài.
 
-**Yêu cầu bắt buộc (từ BRD V1.2):**
+**Quy tắc bắt buộc:**
 - TMS-01: Ưu tiên điều phối theo hiệu suất xe khi thiếu xe (thứ tự cấu hình được)
 - TMS-02: Một chuyến nhiều điểm giao, không giới hạn số điểm (Multi-drop)
 - TMS-03: Theo dõi trạng thái từng chuyến và từng điểm giao
@@ -369,6 +370,8 @@ TMS quản lý toàn bộ vòng đời vận tải: Xếp xe tự động → Ch
 - [x] Hỗ trợ bài toán **Multi-drop** — 1 xe giao nhiều điểm, **không giới hạn số điểm** (TMS-02)
 - [x] Điều phối viên **xem kết quả → duyệt hoặc chỉnh tay** trước khi xác nhận *(Impl: POST /v1/planning/approve với trip_assignments)*
 - [x] Thời gian xử lý solver: < 2 phút cho 1,000 đơn
+- [ ] **Lập kế hoạch thủ công hoàn toàn**: Điều phối có thể bỏ qua VRP, tự tạo Trip và gán điểm giao bằng tay (không bắt buộc chạy solver)
+- [ ] **Chọn lại tiêu chí tối ưu VRP**: Trước khi chạy solver, điều phối chọn tiêu chí ưu tiên (ví dụ: tối thiểu quãng đường / tối thiểu số xe / tối đa tải trọng). Tiêu chí lưu theo session, không cần cấu hình Admin.
 
 ### US-TMS-01a: Dashboard đánh giá kết quả tối ưu
 **As a** điều phối viên  
@@ -569,18 +572,21 @@ TMS quản lý toàn bộ vòng đời vận tải: Xếp xe tự động → Ch
 - [x] Vỏ hỏng/mất/sứt → **bồi hoàn theo đơn giá hiệu lực từng thời kỳ** (R10) — NPP chịu *(Impl: WMS asset compensation endpoint)*
 - [x] **Sai lệch vỏ = 0** theo chuyến (R02): Nếu phân xưởng đếm khác số tài xế khai → **lái xe chịu trách nhiệm**
 
-### US-TMS-17: Hoàn chứng từ & nộp tiền
+### US-TMS-17: Hoàn chứng từ & Bàn giao B + C (về công ty)
 **As a** tài xế  
-**I want to** hoàn tất chuyến khi về công ty  
-**So that** kết thúc Trip
+**I want to** hoàn tất chuyến khi về công ty với 3 bàn giao song song, mỗi bàn giao có ký số  
+**So that** kết thúc Trip với biên bản số đầy đủ (R17, R18)
 
 **Acceptance Criteria:**
-- [x] App hiển thị tổng kết chuyến: Số tiền đã thu, Số tiền công nợ, Số vỏ đã thu, Trạng thái từng điểm
-- [x] Tài xế bàn giao vỏ cho Phân xưởng → Phân xưởng đếm + xác nhận trên hệ thống *(Impl: WMS return inbound)*
-- [x] **Chênh lệch vỏ** giữa tài xế khai và phân xưởng đếm → ghi nhận, lái xe chịu (R02)
-- [x] Tài xế nộp tiền cho Kế toán/Thủ quỹ → Kế toán xác nhận trên hệ thống
+- [x] App hiển thị tổng kết chuyến: Tiền đã thu, Tiền công nợ, Vỏ đã thu, Trạng thái từng điểm
+- [x] **Bàn giao B — Vỏ:** Tài xế khai số vỏ trên app → Phân xưởng đếm độc lập và nhập vào hệ thống → Cả 2 ký số → biên bản B tự động *(Impl: WMS return inbound)*
+  - Chênh lệch → lái xe chịu (R02, R17)
+  - Trip → `unloading_returns` khi B đang xử lý
+- [x] **Bàn giao C — Tiền:** KT đếm tiền mặt cùng lái xe → KT xác nhận nhận đủ hoặc ghi chênh lệch → Cả 2 ký số → biên bản C tự động
+  - Thiếu tiền → tài xế bổ sung trong T+1; Thừa → ghi vào công nợ NPP
+  - Trip → `settling` khi C đang xử lý
 - [ ] Nộp sổ giao hàng, sổ thu vỏ cho DVKH → xác nhận trên hệ thống
-- [x] Trip chuyển sang trạng thái "Completed" khi tất cả bước hoàn tất *(Impl: POST /v1/driver/trips/:id/complete)*
+- [x] Trip → `Completed` khi tất cả Bàn giao A + B + C đã có ký số 2 bên *(Impl: POST /v1/driver/trips/:id/complete)*
 
 ### US-TMS-18: Bàn giao xe cuối ca
 **As a** tài xế  
@@ -632,17 +638,18 @@ TMS quản lý toàn bộ vòng đời vận tải: Xếp xe tự động → Ch
 Created (Auto-planning tạo)
   → Assigned (Điều phối duyệt, gán xe + tài xế)
     → Checked (Tài xế hoàn thành checklist kỹ thuật)
-      → Loading (Kho đang đóng hàng lên xe)
-        → Gate Checked (Kiểm đếm tại cổng OK — sai lệch = 0)
+      → Loading (Kho đang đóng hàng, Thủ kho + Bảo vệ + Lái xe kiểm đếm)
+        → Handover_A_Signed (Bàn giao A: 3 bên ký số, sai lệch = 0 — Bảo vệ mở barrier)
           → In Transit (Xe đã xuất phát)
             → At Stop #N (Đang tại điểm giao thứ N)
               [Mỗi Stop: Delivered / Partial / Rejected / Re-delivery]
               → Returning (Đã giao xong tất cả điểm, đang về)
-                → Unloading Returns (Nhập vỏ tại phân xưởng)
-                  → Settling (Nộp tiền, hoàn chứng từ)
+                → Unloading_Returns (Bàn giao B: nhập vỏ, Lái xe + Phân xưởng ký số)
+                  → Settling (Bàn giao C: nộp tiền, Lái xe + KT ký số)
                     → Reconciled (Đối soát cuối chuyến hoàn tất)
                       → Completed (Hoàn tất)
   → Cancelled (Hủy chuyến)
+  → Vehicle_Breakdown (Xe hỏng giữa đường — xem kịch bản KC-1..4)
 ```
 
 ---
@@ -650,13 +657,15 @@ Created (Auto-planning tạo)
 # 6. PHÂN HỆ WMS — QUẢN LÝ KHO
 
 ## 6.1 Tổng quan
-WMS quản lý kho từ sơ đồ vị trí → nhập xuất → kiểm soát chất lượng (FIFO/FEFO) → quét mã vạch (PDA) → quản lý tài sản quay vòng.
+WMS quản lý kho: sơ đồ vị trí → nhập xuất → FIFO/FEFO → quản lý tài sản quay vòng.
 
-**Yêu cầu bắt buộc (từ BRD V1.2):**
+> **v3.2:** Không dùng PDA ở khâu xuất kho. Thủ kho pick thủ công theo gợi ý FEFO trên hệ thống (Web/Tablet). Kiểm đếm xuất kho do Thủ kho + Bảo vệ + Lái xe thực hiện cùng nhau tại khu vực xếp hàng — không có bước kiểm đếm riêng tại cổng. PDA chỉ dùng cho nhập kho và kiểm kê.
+
+**Quy tắc bắt buộc:**
 - WMS-01: Quản lý vị trí hàng trong kho
 - WMS-02: Theo dõi hạn dùng + cảnh báo cận hạn theo ngưỡng
-- WMS-03: Kiểm soát xuất/nhập và bàn giao hàng theo từng chuyến
-- WMS-04: Sai lệch hàng = 0 tại cổng (tuyệt đối)
+- WMS-03: Thủ kho + Bảo vệ + Lái xe cùng kiểm đếm và ký Bàn giao A — sai lệch = 0 (R01, R16)
+- WMS-04: Sai lệch vỏ = 0 theo chuyến, Phân xưởng đếm là chuẩn (R02, R17)
 
 ## 6.2 Module: Quản lý Kho & Vị trí
 
@@ -683,31 +692,35 @@ WMS quản lý kho từ sơ đồ vị trí → nhập xuất → kiểm soát c
 - [x] Gán vị trí lưu trữ (hệ thống gợi ý theo FIFO/FEFO + vị trí trống)
 - [x] Cập nhật tồn kho real-time *(Impl: stock_quants + lots tables)*
 
-### US-WMS-03: Xuất kho / Đóng hàng (Outbound / Picking)
+### US-WMS-03: Xuất kho / Đóng hàng & Bàn giao A
 **As a** thủ kho  
-**I want to** xuất hàng theo lệnh đóng hàng  
-**So that** chuẩn bị hàng lên xe — có số liệu bàn giao rõ ràng giữa kho và lái xe (WMS-03)
+**I want to** xuất hàng theo lệnh đóng hàng, kiểm đếm chung 3 bên, ký Bàn giao A  
+**So that** có số liệu bàn giao rõ ràng và biên bản số ký bởi 3 bên (R16)
 
 **Acceptance Criteria:**
 - [x] Nhận lệnh đóng hàng từ OMS (tự động khi Shipment được duyệt)
-- [x] Hệ thống gợi ý **vị trí pick** theo nguyên tắc FIFO/FEFO (ưu tiên lô cận date) *(Impl: FEFO sort by expiry_date)*
-- [x] **Quét mã vạch PDA** để xác nhận xuất đúng lô, đúng vị trí *(Impl: confirm-pick endpoint + barcode scan)*
-- [ ] In phiếu xuất kho
-- [x] Bàn giao hàng cho tài xế → ký xác nhận trên hệ thống (Biên bản bàn giao — có số liệu rõ ràng)
+- [x] Hệ thống gợi ý **vị trí pick** theo FEFO (ưu tiên lô cận date) trên màn hình Web/Tablet *(Impl: FEFO sort by expiry_date)*
+- [ ] Thủ kho chọn lô thủ công; nếu không lấy lô FEFO gợi ý → **bắt buộc ghi lý do**
+- [ ] In hoặc hiển thị **Phiếu xuất kho** trên màn hình để đối chiếu
+- [x] **Bàn giao A — Kiểm đếm chung 3 bên** (thực hiện tại khu vực xếp hàng, KHÔNG tại cổng):
+  - Thủ kho + Bảo vệ + Lái xe cùng đếm, đối chiếu với Phiếu xuất kho
+  - Sai lệch = 0 tuyệt đối (R01, R16)
+  - Nếu thiếu → Thủ kho xuất bổ sung ngay; nếu phát hiện đổ vỡ → thay thế
+  - Cả 3 bên ký số trên hệ thống → biên bản số tạo tự động
+- [x] Sau khi Bàn giao A hoàn tất → Bảo vệ mở barrier cổng, xe xuất phát *(Impl: gate_pass_issued = true)*
+- [ ] Không có bước kiểm đếm riêng tại cổng — Bàn giao A là điểm kiểm soát duy nhất
 
-### US-WMS-04: Kiểm đếm tại cổng (Gate Check)
-**As a** kế toán / thủ quỹ / bảo vệ  
-**I want to** kiểm đếm hàng trên xe trước khi ra cổng  
-**So that** đảm bảo đủ và đúng — **sai lệch = 0** (R01)
+### US-WMS-04: Bảo vệ mở cổng sau Bàn giao A
+**As a** bảo vệ cổng  
+**I want to** chỉ mở barrier sau khi nhận được xác nhận Bàn giao A hoàn tất  
+**So that** đảm bảo xe chỉ xuất khi hàng đã kiểm đếm xong (R16)
 
 **Acceptance Criteria:**
-- [x] Hiển thị danh sách hàng trên xe (từ phiếu xuất kho)
-- [x] **Quét mã vạch PDA** để đối chiếu *(Impl: barcode-scan endpoint + gate-check perform)*
-- [x] Nếu **đủ và khớp** → Xác nhận "Gate Pass" → Xe được phép ra cổng
-- [x] Nếu **thiếu** → Reject → Quay lại kho xuất bổ sung
-- [x] Nếu **phát hiện đổ vỡ** → Ghi nhận + thay thế
-- [x] **KHÔNG chấp nhận sai lệch** — sai lệch hàng = 0 tuyệt đối tại cổng (R01) *(Impl: gate_check_result = pass/fail)*
-- [x] Ghi nhận thời gian ra cổng
+- [x] Barrier cổng chỉ mở khi `handover_a_status = completed` trên hệ thống *(Impl: gate_pass_issued flag)*
+- [x] Bảo vệ xác nhận trên Web/Mobile: "Cho phép xuất — Biển số [XX-XXXXX]"
+- [x] Ghi nhận thời gian xe ra cổng
+- [ ] Nếu Bàn giao A chưa hoàn tất → không mở barrier, thông báo Thủ kho và Điều phối
+- [ ] **Không có bước kiểm đếm tại cổng** — kiểm đếm đã thực hiện đầy đủ trong Bàn giao A
 
 ## 6.3 Module: Quản lý Hạn sử dụng & Chất lượng
 
@@ -736,20 +749,20 @@ WMS quản lý kho từ sơ đồ vị trí → nhập xuất → kiểm soát c
 
 ## 6.4 Module: Mã vạch & PDA
 
-### US-WMS-15: Quản lý mã vạch
+### US-WMS-15: Quản lý mã vạch & PDA (Nhập kho và Kiểm kê)
 **As a** hệ thống  
 **I want to** hỗ trợ quét mã vạch trên PDA  
 **So that** thay thế đếm thủ công
 
+> PDA chỉ dùng cho **nhập kho** và **kiểm kê định kỳ**. Xuất kho thực hiện thủ công (xem US-WMS-03).
+
 **Acceptance Criteria:**
 - [x] Mã vạch được **in và dán tại khâu sản xuất**
-- [x] Cấp độ mã vạch:
-  - **Vỏ bia hơi** (Keg 2L, 20L, 30L, Bom): mã vạch trên từng vỏ
-  - **Keg bia chai**: mã vạch trên từng keg
-  - **Thùng**: mã vạch trên từng thùng
-- [x] Thông tin encode trong mã vạch: Mã SKU, Mã Lô (Batch), Ngày SX (hoặc link đến hệ thống)
+- [x] Cấp độ mã vạch: Vỏ bia hơi (Keg) — từng vỏ; Keg bia chai — từng keg; Thùng — từng thùng
+- [x] Thông tin encode: Mã SKU, Mã Lô (Batch), Ngày SX
 - [x] PDA quét → hệ thống tra cứu → hiển thị đầy đủ thông tin sản phẩm *(Impl: POST /v1/warehouse/barcode-scan)*
-- [x] Hỗ trợ quét tại: Nhập kho, Xuất kho (picking), Kiểm đếm cổng, Kiểm kê *(Impl: PWA PDA scanner page)*
+- [x] Sử dụng tại: **Nhập kho** và **Kiểm kê** *(Impl: PWA PDA scanner page)*
+- [ ] **Không dùng PDA** cho xuất kho picking hoặc gate check — thủ công + ký số thay thế
 
 ## 6.5 Module: Tài sản quay vòng (Returnable Assets)
 
@@ -790,17 +803,18 @@ WMS quản lý kho từ sơ đồ vị trí → nhập xuất → kiểm soát c
 - [ ] Hệ thống tự động áp đúng đơn giá theo thời điểm phát sinh
 - [ ] Lưu lịch sử thay đổi
 
-### US-WMS-22: Nhập vỏ tại phân xưởng
+### US-WMS-22: Bàn giao B — Nhập vỏ tại phân xưởng
 **As a** nhân viên phân xưởng  
-**I want to** xác nhận nhập vỏ khi tài xế mang về  
-**So that** đối chiếu với dữ liệu tài xế khai
+**I want to** đếm độc lập, đối chiếu với khai của tài xế, cả 2 ký số  
+**So that** sai lệch vỏ = 0, có biên bản số B (R17)
 
 **Acceptance Criteria:**
-- [x] Tài xế bàn giao vỏ → Phân xưởng đếm + phân loại (Tốt / Hỏng / Huỷ)
-- [x] Xác nhận trên hệ thống: Số lượng thực nhận theo loại *(Impl: POST /v1/warehouse/returns/process)*
-- [x] Nếu chênh lệch với dữ liệu tài xế khai trên app → **lái xe chịu trách nhiệm** (R02)
-- [x] **Sai lệch vỏ = 0 theo chuyến** — Phân xưởng đếm là chuẩn (R02)
+- [x] Tài xế khai số vỏ trên Driver App trước khi về kho
+- [x] Phân xưởng đếm thực tế + phân loại (Tốt / Hỏng / Hủy) trên hệ thống *(Impl: POST /v1/warehouse/returns/process)*
+- [x] Nếu chênh lệch → **lái xe chịu trách nhiệm** (R02, R17); ghi nhận chênh lệch
+- [x] Phân xưởng ký số xác nhận → Lái xe ký nhận chênh lệch (nếu có) → biên bản B tạo tự động
 - [x] Tạo phiếu nhập vỏ
+- [x] **Phân xưởng đếm là chuẩn** (R02)
 
 ---
 
@@ -809,7 +823,7 @@ WMS quản lý kho từ sơ đồ vị trí → nhập xuất → kiểm soát c
 ## 7.1 Tổng quan
 Đối soát là module khép kín cuối cùng, đảm bảo hàng đi - tiền về - vỏ về khớp tuyệt đối theo từng chuyến và theo ngày.
 
-**Yêu cầu bắt buộc (từ BRD V1.2):**
+**Quy tắc bắt buộc:**
 - REC-01: Đối soát cuối chuyến gồm hàng giao, tiền thu, vỏ thu
 - REC-02: Sai lệch xử lý đến T+1 (T = ngày giao)
 
@@ -939,7 +953,7 @@ Chỉ dùng cho **xác nhận giao hàng với NPP** (gửi link xác nhận). X
 | Lớp | Tên | Mô tả | Trạng thái |
 |-----|-----|-------|------------|
 | 1 | **Screen-level** | Ai được vào màn hình nào. Ma trận 11 roles × 49 screens (xem UIX v1.0) | [x] Đã triển khai — middleware role check |
-| 2 | **Action-level** | Ai làm được gì trong cùng màn hình. VD: DVKH chỉ tạo đơn, không approve. KT thường chỉ investigate, KT Trưởng mới resolve | [ ] Chưa triển khai |
+| 2 | **Action-level** | Ai làm được gì trong cùng màn hình. VD: DVKH chỉ tạo đơn, không approve. KT thường chỉ investigate, KT Trưởng mới resolve | [◐] Partial — PermissionGuard middleware + role_permissions + user_permission_overrides (Session 24/03) |
 | 3 | **Data-scoping** | Ai thấy data gì. Thủ kho Hạ Long chỉ thấy tồn kho Hạ Long. KT phụ trách khu vực A chỉ duyệt NPP khu vực A | [ ] Chưa triển khai |
 
 ## 9.3 Ma trận hành động (Action-level RBAC)
@@ -1117,7 +1131,7 @@ Trip kết thúc → Hệ thống tạo biên bản đối soát
 | 32 | VRP job hoàn thành | Dispatcher | Digest |
 | 33 | Report ngày đã sẵn sàng | BGĐ, Manager | Digest 23:55 |
 
-**Trạng thái triển khai:** Events #1–13 phần lớn đã có backend logic (9 events gốc v2.4 `[x]` + 4 mới). Events #14–33 chưa triển khai `[ ]`. Priority tier engine (P0 popup, P1 toast, P2 bell, P3 digest) chưa triển khai.
+**Trạng thái triển khai:** Events #1–13 phần lớn đã có backend logic (9 events gốc v2.4 `[x]` + 4 mới). Events #14–33 chưa triển khai `[ ]`. **4-Layer Delivery System đã triển khai (Session 24/03):** Layer 1 In-app (DB+WS), Layer 2 Toast (AutoToast/PersistentToast), Layer 3 Sound/vibration, Layer 4 External (Zalo mock).
 
 ## 11.4 Acceptance Criteria (Notification Engine)
 
@@ -1128,7 +1142,8 @@ Trip kết thúc → Hệ thống tạo biên bản đối soát
 - [x] Trang danh sách thông báo đầy đủ với filter theo loại, priority badge, phân trang *(Impl: /dashboard/notifications page)*
 - [x] Real-time push qua WebSocket — toast notification khi có thông báo mới *(Impl: WS /ws/notifications + NotificationToast)*
 - [ ] P0 popup fullscreen + không dismiss cho đến khi confirm
-- [ ] P1 toast persistent + snooze + escalation chain
+- [x] P1 toast persistent + snooze *(Impl: PersistentToast cho urgent priority, không tự dismiss — Session 24/03)*
+- [ ] P1 escalation chain (auto-escalate after 30 min)
 - [ ] P3 hourly digest grouping
 - [ ] SMS channel cho P0 events
 
@@ -1243,33 +1258,54 @@ Tài xế đến điểm giao → Thông báo miệng cho NPP dựa trên đơn 
 
 | Lớp | Tên | Nguồn dữ liệu | Ghi vào DB | Status |
 |-----|-----|---------------|-----------|--------|
-| 1 | **Tạo đơn** | DVKH nhập / import | sales_orders + order_items | [x] Implemented |
-| 2 | **Duyệt hạn mức** | Kế toán approve / auto | sales_orders.status → approved | [x] Implemented |
-| 3 | **Xác nhận NPP** | Zalo OA link → NPP bấm | zalo_confirmations | [x] Implemented |
-| 4 | **Xếp chuyến (VRP)** | Auto-planning / manual | trips + trip_stops | [x] Implemented |
-| 5 | **Xuất kho (WMS)** | Thủ kho pick-pack | picking_lists + picking_items | [x] Implemented |
-| 6 | **Gate Check** | Thủ kho verify xe | gate_checks | [x] Implemented |
-| 7 | **Giao hàng (ePOD)** | Tài xế tại NPP | delivery_confirmations + ảnh | [x] Implemented |
-| 8 | **Thu tiền** | Tài xế thu COD/CK | payment_confirmations | [x] Implemented |
-| 9 | **Xác nhận nhận hàng** | Zalo OA → NPP bấm | zalo_confirmations (post-delivery) | [x] Implemented |
-| 10 | **Đối soát** | Kế toán reconcile T+1 | reconciliation_items | [x] Implemented |
+| 1 | **Tạo đơn** | DVKH nhập / import | sales_orders + order_items | [x] |
+| 2 | **Duyệt hạn mức** | Kế toán approve / auto (chỉ với NPP có hạn mức) | sales_orders.status → approved | [x] |
+| 3 | **Xác nhận NPP** | Zalo OA link → NPP bấm (hoặc silent consent 2h) | zalo_confirmations | [x] |
+| 4 | **Xếp chuyến** | Auto-planning (VRP) / lập kế hoạch thủ công | trips + trip_stops | [x] |
+| 5 | **Xuất kho (WMS)** | Thủ kho pick theo FEFO, xác nhận trên Web/Tablet | picking_lists + picking_items | [x] |
+| 6 | **Bàn giao A** | Thủ kho + Bảo vệ + Lái xe cùng kiểm đếm & ký số | handover_records (type=A) | [ ] Cần tạo bảng |
+| 7 | **Giao hàng (ePOD)** | Tài xế tại NPP: hạ hàng, xác nhận thực giao, ảnh | delivery_confirmations | [x] |
+| 8 | **Thu tiền** | Tài xế ghi nhận COD / CK / công nợ | payment_confirmations | [x] |
+| 9 | **Xác nhận nhận hàng** | Zalo OA → NPP bấm (hoặc silent consent 24h) | zalo_confirmations (post-delivery) | [x] |
+| 10 | **Đối soát + Bàn giao B/C** | KT reconcile T+1; Phân xưởng + KT ký nhận vỏ/tiền | reconciliation_items + handover_records (type=B,C) | [x] / [ ] |
 
-## 12.2 UX Timeline Features
+> **Bàn giao A/B/C** dùng bảng `handover_records` (type: A/B/C, trip_id, signatories JSONB, signed_at, biên bản PDF). Cần migration mới.
+
+## 12.2 Đồng bộ với Entity Events (US-NEW-11)
+
+Timeline lớp được populate từ `entity_events`. Mapping event → lớp:
+
+| Lớp | Event types tương ứng |
+|-----|----------------------|
+| 1 | order_created |
+| 2 | order_credit_approved, order_credit_rejected |
+| 3 | order_confirmed, order_rejected, order_cancelled_by_customer, auto_confirmed, zalo_sent |
+| 4 | trip_planned, assignment_changed |
+| 5 | picking_started, picking_completed |
+| 6 | handover_a_signed *(event mới — cần thêm)* |
+| 7 | trip_started, stop_arrived, delivery_completed, delivery_partial, delivery_rejected, epod_captured |
+| 8 | payment_recorded |
+| 9 | zalo_sent (post-delivery), auto_confirmed (24h) |
+| 10 | return_collected, handover_b_signed, handover_c_signed, reconciliation_matched, reconciliation_discrepancy *(3 event mới)* |
+
+## 12.3 UX Timeline Features
 
 | Feature | Mô tả | Status |
 |---------|--------|--------|
-| Vertical stepper | 10 lớp hiển thị dọc, lớp hoàn thành có ✅, đang xử lý có spinner, chưa đến grayed out | [x] Implemented (OrderTimeline component) |
-| Collapse/expand | Click vào lớp để mở rộng xem chi tiết (dữ liệu, timestamp, user thực hiện) | [x] Implemented |
-| Status color coding | Xanh = hoàn thành, Vàng = đang xử lý, Xám = chưa đến, Đỏ = lỗi/từ chối | [x] Implemented |
-| Audit trail per layer | Mỗi lớp ghi nhận: who, when, what changed, trước/sau | [ ] Partial (event_logs có nhưng chưa link per-layer) |
-| Print/export | Export timeline thành PDF cho archive/tranh chấp | [ ] Chưa triển khai |
+| Vertical stepper | 10 lớp dọc — ✅ hoàn thành / spinner đang xử lý / grayed out chưa đến | [x] (OrderTimeline component) |
+| Collapse/expand | Click lớp → xem chi tiết data, timestamp, user thực hiện | [x] |
+| Status color coding | Xanh = xong, Vàng = đang, Xám = chưa, Đỏ = lỗi/từ chối | [x] |
+| Audit trail per layer | Mỗi lớp ghi nhận who/when/what changed, trước/sau | [ ] Partial |
+| Export timeline PDF | Xuất timeline đơn ra PDF để archive / tranh chấp | [ ] |
 
-## 12.3 Acceptance Criteria
+## 12.4 Acceptance Criteria
 
-- [x] Trang chi tiết đơn hiển thị timeline 10 lớp dạng vertical stepper
-- [x] Mỗi lớp collapse/expand, hiển thị dữ liệu chi tiết + timestamp + user
+- [x] Trang chi tiết đơn hiển thị timeline 10 lớp vertical stepper
+- [x] Mỗi lớp collapse/expand, hiển thị data chi tiết + timestamp + user
 - [x] Lớp hoàn thành / đang xử lý / chưa đến có visual indicator rõ ràng
-- [ ] Audit trail per layer — click vào lớp thấy lịch sử thay đổi chi tiết
+- [ ] Lớp 6 (Bàn giao A) hiển thị: 3 chữ ký số, timestamp từng bên ký, biên bản PDF
+- [ ] Lớp 10 (Bàn giao B/C) hiển thị tương tự với chữ ký Phân xưởng + KT
+- [ ] Audit trail per layer — click lớp thấy lịch sử thay đổi chi tiết
 - [ ] Export timeline ra PDF
 
 ---
@@ -1496,7 +1532,7 @@ Tài xế đến điểm giao → Thông báo miệng cho NPP dựa trên đơn 
 
 **Acceptance Criteria:**
 - [x] Bảng `entity_events` lưu immutable events: entity_type, entity_id, event_type, actor, detail (JSONB), created_at
-- [x] 23 event types: order_created, order_confirmed, order_rejected, order_cancelled_by_customer, order_credit_approved, order_credit_rejected, shipment_created, trip_planned, trip_started, stop_arrived, delivery_completed, delivery_partial, delivery_rejected, payment_recorded, epod_captured, return_collected, reconciliation_matched, reconciliation_discrepancy, auto_confirmed (silent consent), zalo_sent, note_added, status_changed, assignment_changed
+- [x] 23 event types + **3 mới cho bàn giao = 26 tổng**: order_created, order_confirmed, order_rejected, order_cancelled_by_customer, order_credit_approved, order_credit_rejected, shipment_created, trip_planned, trip_started, stop_arrived, delivery_completed, delivery_partial, delivery_rejected, payment_recorded, epod_captured, return_collected, reconciliation_matched, reconciliation_discrepancy, auto_confirmed (silent consent), zalo_sent, note_added, status_changed, assignment_changed, **handover_a_signed**, **handover_b_signed**, **handover_c_signed**
 - [x] `actor_name` lưu tên người thực hiện (từ JWT FullName claim hoặc "system" cho cron)
 - [x] JSONB `detail` lưu context tùy event (lý do từ chối, số tiền, ghi chú…)
 - [x] Frontend: `/dashboard/orders/:id` hiển thị tab Timeline với timeline dọc, icon + màu theo event type
@@ -1530,13 +1566,103 @@ Tài xế đến điểm giao → Thông báo miệng cho NPP dựa trên đơn 
 - [x] Frontend: `/dashboard/test-portal` (chỉ hiện cho admin role)
 - [x] Bảo vệ: middleware kiểm tra role + environment flag
 
-**Endpoints:** 13 endpoints dưới `/v1/test/*` (reset, seed, simulate-delivery, simulate-gps, quick-orders, advance-trip…)
+**Endpoints:** 21 endpoints dưới `/v1/test-portal/*` (data overview 8, test actions 7, GPS simulation 6)
+
+## US-NEW-14: Notification 4-Layer Delivery System
+**As a** operational user (bất kỳ role nào)
+**I want to** nhận thông báo theo 4 kênh phân tầng theo priority
+**So that** thông báo khẩn cấp (urgent) luôn được chú ý, thông báo thường không gây phiền
+
+**Acceptance Criteria:**
+- [x] Layer 1 — In-app: DB notification + WebSocket push real-time
+- [x] Layer 2 — Toast: AutoToast (auto-dismiss 6s) cho high, PersistentToast (không tự dismiss) cho urgent
+- [x] Layer 3 — Sound/vibration based on priority level
+- [ ] Layer 4 — External (Zalo ZNS) — mock mode, chờ Zalo OA credentials
+- [x] Frontend components: `AutoToast.tsx`, `PersistentToast.tsx` trong notification UI
+- [x] Grouped notifications endpoint: GET `/v1/notifications/grouped`
+
+## US-NEW-15: Admin Dynamic RBAC + Session Management
+**As an** Admin
+**I want to** quản lý permissions chi tiết cho từng role và kiểm soát phiên đăng nhập
+**So that** phân quyền linh hoạt hơn screen-level, và có thể revoke sessions khi cần
+
+**Acceptance Criteria:**
+- [x] Bảng `role_permissions`: role → resource:action mapping (migration 016)
+- [x] Bảng `user_permission_overrides`: override per-user (grant/deny)
+- [x] `PermissionGuard` middleware kiểm tra permission trước khi cho phép action
+- [x] Admin API: CRUD permissions (GET/POST/PUT/DELETE `/v1/admin/permissions/*`)
+- [x] Admin API: Session management (list/revoke `/v1/admin/sessions/*`)
+- [x] Bảng `user_sessions`: track active sessions per user
+- [x] Frontend: `/dashboard/settings/permissions` — Permission Matrix Editor
+
+**Endpoints:** 10+ endpoints dưới `/v1/admin/permissions/*` và `/v1/admin/sessions/*`
+
+## US-NEW-16: End-of-Day (EOD) Checkpoint System
+**As a** tài xế / thủ kho / bảo vệ
+**I want to** submit và xác nhận các checkpoint cuối ngày (tiền, hàng trả, vỏ, phiếu)
+**So that** đối soát cuối ngày chính xác, có audit trail cho từng bước bàn giao
+
+**Acceptance Criteria:**
+- [x] Bảng `eod_sessions` + `eod_checkpoints` (migration 015)
+- [x] Tài xế bắt đầu EOD session: POST `/v1/driver/trips/:id/eod/start`
+- [x] Tài xế xem trạng thái EOD: GET `/v1/driver/trips/:id/eod`
+- [x] Tài xế submit checkpoint theo loại (cash/returns/assets/documents): POST `/v1/driver/trips/:id/eod/checkpoint/:cpType/submit`
+- [x] Người nhận xem pending checkpoints: GET `/v1/eod/pending/:cpType`
+- [x] Người nhận confirm/reject: POST `/v1/eod/checkpoint/:id/confirm`, POST `/v1/eod/checkpoint/:id/reject`
+
+**Endpoints:** 6 endpoints (3 driver-side, 3 receiver-side)
+
+## US-NEW-17: Vehicle/Driver Document Management
+**As a** điều phối viên
+**I want to** quản lý giấy tờ xe và tài xế với cảnh báo hết hạn
+**So that** không có xe/tài xế nào chạy với giấy tờ hết hạn
+
+**Acceptance Criteria:**
+- [x] Vehicle documents CRUD: registration, inspection, insurance (5 endpoints)
+- [x] Driver documents CRUD: license (with class B2/C/D/E), health_check (5 endpoints)
+- [x] Cron job 07:00 ICT daily: check expiring docs ≤ 7 ngày → alert dispatcher
+- [x] Frontend: `/dashboard/vehicles/:id/documents`, `/dashboard/drivers-list/:id/documents` — CRUD + expiry badges
+
+## US-NEW-18: Sentry Error Tracking
+**As a** admin / developer
+**I want to** theo dõi lỗi frontend và backend trên Sentry
+**So that** phát hiện và fix bug nhanh hơn
+
+**Acceptance Criteria:**
+- [x] Frontend: Sentry SDK (@sentry/nextjs) configured, automatic error capture
+- [x] Backend: Sentry SDK (sentry-go) + Gin middleware, capture panics + errors
+- [x] Environment-based DSN configuration
+
+## US-NEW-19: Control Tower Enhancements
+**As a** điều phối viên
+**I want to** giám sát ngoại lệ, di chuyển điểm giao giữa các chuyến, và xem thống kê fleet
+**So that** phản ứng nhanh khi có vấn đề và tối ưu hoá chuyến
+
+**Acceptance Criteria:**
+- [x] Exception monitoring: GET `/v1/trips/exceptions` — danh sách trips có vấn đề (trễ, dừng bất thường)
+- [x] Bulk move stops: POST `/v1/trips/:id/stops/:stopId/move` — chuyển stop sang trip khác
+- [x] Trip cancel: POST `/v1/trips/:id/cancel` — huỷ chuyến với lý do
+- [x] Control tower stats: GET `/v1/trips/control-tower/stats` — tổng quan fleet (active/completed/delayed)
+- [x] Frontend: Exception descriptions (Vietnamese), bulk move modal, fleet tab toggle
+
+## US-NEW-20: Import/Export Excel
+**As a** điều phối viên / kế toán / quản lý
+**I want to** import đơn hàng từ file Excel và export báo cáo ra Excel
+**So that** nhập liệu hàng loạt nhanh chóng và chia sẻ dữ liệu với các bên liên quan
+
+**Acceptance Criteria:**
+- [ ] Import đơn hàng: POST `/v1/orders/import` — upload file Excel, validate & tạo đơn hàng hàng loạt
+- [ ] Template download: GET `/v1/orders/import/template` — tải file mẫu Excel
+- [ ] Export đơn hàng: GET `/v1/orders/export` — xuất danh sách đơn hàng ra Excel (có filter)
+- [ ] Export báo cáo đối soát: GET `/v1/reconciliation/export` — xuất báo cáo đối soát
+- [ ] Export báo cáo chuyến: GET `/v1/trips/export` — xuất danh sách chuyến ra Excel
+- [ ] Validation: kiểm tra format, dữ liệu bắt buộc, trùng lặp trước khi import
+- [ ] Trả về kết quả import: số dòng thành công, số dòng lỗi, chi tiết lỗi từng dòng
+- [ ] Frontend: Upload modal với drag & drop, progress bar, error summary
 
 ---
 
 # 15. TIÊU CHÍ NGHIỆM THU (UAT)
-
-*(Từ BRD V1.2 Section 14, bổ sung từ trao đổi)*
 
 | # | Tiêu chí | Tham chiếu |
 |---|----------|-----------|
@@ -1549,13 +1675,17 @@ Tài xế đến điểm giao → Thông báo miệng cho NPP dựa trên đơn 
 | 7 | Cảnh báo cận hạn hoạt động theo ngưỡng đã thiết lập | WMS-02, US-WMS-11 |
 | 8 | Sai lệch phát sinh được theo dõi và đóng xử lý đúng hạn T+1 | R06, REC-02, US-REC-02 |
 | 9 | Báo cáo vận hành thể hiện đầy đủ KPI: OTD (khung 1 giờ), xe rỗng, giao lại, công nợ | REP-01~03 |
-| 10 | Sai lệch hàng = 0 tại cổng (quét PDA khớp 100%) | R01, WMS-04, US-WMS-04 |
+| 10 | Bàn giao A: Thủ kho + Bảo vệ + Lái xe cùng ký số, sai lệch = 0; Bàn giao B/C có ký số 2 bên | R01, R16, R17, R18, US-WMS-03, US-WMS-04 |
 | 11 | Hạn mức công nợ NPP chặn đơn đúng, Kế toán duyệt đúng flow | R15, US-OMS-07 |
 | 12 | Xác nhận giao hàng qua Zalo + Silent Consent 24h hoạt động đúng | R13 |
 
 ---
 
-**=== HẾT TÀI LIỆU BRD V3.0 ===**
+**=== HẾT TÀI LIỆU BRD V3.2 ===**
+
+*Phiên bản 3.2 — Cập nhật nghiệp vụ: Bàn giao A/B/C thay gate-check (R16-R18, US-WMS-03/22, US-TMS-17); Hạn mức công nợ NPP tuỳ chọn 4 trường hợp (R04, R15, US-OMS-01/07); VRP criteria + manual planning (US-TMS-01); PDA chỉ inbound+inventory (US-WMS-15); Timeline 12 lớp event mapping; Trip status thêm Handover_A_Signed, Vehicle_Breakdown; NPP Portal 800 users; Thêm US-NEW-20 Import/Export Excel. Entity events 23→26.*
+
+*Phiên bản 3.1 — Rà soát code vs docs toàn diện (Session 25/03). Thêm US-NEW-14~19 (Notification 4-Layer, Dynamic RBAC + Sessions, EOD Checkpoints, Vehicle/Driver Docs, Sentry, Control Tower). Cập nhật: Section 9.2 Action-level RBAC → [◐] Partial (PermissionGuard middleware). Section 11.4 P1 toast persistent → [x]. Test Portal 13→21 endpoints.*
 
 *Phiên bản 3.0 — Merge từ BRD v4.0 gap analysis. Nâng cấp: Section 1 (KPI mục tiêu + quy mô 80 users), Section 9 (3-layer RBAC + action matrix 11 roles), Section 11 (33 notification events P0-P3), NEW Section 12 (Timeline 10 lớp), renumber sections 13-15. Session 18.*
 

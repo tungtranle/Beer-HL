@@ -14,6 +14,7 @@ import { WaitingForBanner } from '@/components/WaitingForBanner'
 import { PinnedNotesBar } from '@/components/PinnedNotesBar'
 import { CreditAgingChip } from '@/components/CreditAgingChip'
 import { TimelineKPIBar } from '@/components/TimelineKPIBar'
+import { useDataRefresh } from '@/lib/notifications'
 
 interface OrderItem {
   id: string; product_id: string; product_name: string; product_sku: string
@@ -53,6 +54,9 @@ export default function OrderDetailPage() {
   }
 
   useEffect(() => { load() }, [params.id])
+
+  // Auto-refresh when this order changes via WebSocket
+  useDataRefresh('order', load, params.id as string)
 
   const handleAction = async (action: 'approve' | 'cancel') => {
     if (!confirm(action === 'approve' ? 'Duyệt đơn hàng này?' : 'Hủy đơn hàng này?')) return

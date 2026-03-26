@@ -88,6 +88,38 @@ func (r *Repository) ToggleUrgent(ctx context.Context, shipmentID uuid.UUID, isU
 	return err
 }
 
+// ShipmentOrderInfo holds order info resolved from a shipment
+type ShipmentOrderInfo struct {
+	OrderID     uuid.UUID
+	OrderNumber string
+}
+
+// GetShipmentOrderMap returns a map of shipment_id -> (order_id, order_number)
+func (r *Repository) GetShipmentOrderMap(ctx context.Context, shipmentIDs []uuid.UUID) (map[uuid.UUID]ShipmentOrderInfo, error) {
+	result := make(map[uuid.UUID]ShipmentOrderInfo)
+	if len(shipmentIDs) == 0 {
+		return result, nil
+	}
+	rows, err := r.db.Query(ctx, `
+		SELECT s.id, s.order_id, so.order_number
+		FROM shipments s JOIN sales_orders so ON so.id = s.order_id
+		WHERE s.id = ANY($1)
+	`, shipmentIDs)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var sid uuid.UUID
+		var info ShipmentOrderInfo
+		if err := rows.Scan(&sid, &info.OrderID, &info.OrderNumber); err != nil {
+			return nil, err
+		}
+		result[sid] = info
+	}
+	return result, nil
+}
+
 // GetShipmentCustomerMap returns a map of shipment_id -> customer_id for the given IDs
 func (r *Repository) GetShipmentCustomerMap(ctx context.Context, shipmentIDs []uuid.UUID) (map[uuid.UUID]uuid.UUID, error) {
 	result := make(map[uuid.UUID]uuid.UUID)
@@ -1217,4 +1249,252 @@ func (r *Repository) CancelTrip(ctx context.Context, tripID uuid.UUID, reason st
 	// Cancel all pending stops
 	_, err = r.db.Exec(ctx, `UPDATE trip_stops SET status = 'skipped' WHERE trip_id = $1 AND status = 'pending'`, tripID)
 	return err
+}
+
+// ===== END-OF-DAY (KẾT CA) =====
+
+func (r *Repository) CreateEODSession(ctx context.Context, s *domain.EODSession) error {
+	return r.db.QueryRow(ctx, `
+		INSERT INTO eod_sessions (trip_id, driver_id, status,
+			total_stops_delivered, total_stops_failed,
+			total_cash_collected, total_transfer_collected, total_credit_amount)
+		VALUES ($1, $2, 'in_progress', $3, $4, $5, $6, $7)
+		RETURNING id, created_at, updated_at, started_at`,
+		s.TripID, s.DriverID,
+		s.TotalStopsDelivered, s.TotalStopsFailed,
+		s.TotalCashCollected, s.TotalTransferCollected, s.TotalCreditAmount,
+	).Scan(&s.ID, &s.CreatedAt, &s.UpdatedAt, &s.StartedAt)
+}
+
+func (r *Repository) GetEODSessionByTripID(ctx context.Context, tripID uuid.UUID) (*domain.EODSession, error) {
+	var s domain.EODSession
+	err := r.db.QueryRow(ctx, `
+		SELECT es.id, es.trip_id, es.driver_id, es.status::text,
+		       es.total_stops_delivered, es.total_stops_failed,
+		       es.total_cash_collected, es.total_transfer_collected, es.total_credit_amount,
+		       es.started_at, es.completed_at, es.created_at, es.updated_at,
+		       COALESCE(t.trip_number, ''), COALESCE(v.plate_number, ''), COALESCE(d.full_name, '')
+		FROM eod_sessions es
+		JOIN trips t ON t.id = es.trip_id
+		LEFT JOIN vehicles v ON v.id = t.vehicle_id
+		LEFT JOIN drivers d ON d.id = es.driver_id
+		WHERE es.trip_id = $1`, tripID,
+	).Scan(
+		&s.ID, &s.TripID, &s.DriverID, &s.Status,
+		&s.TotalStopsDelivered, &s.TotalStopsFailed,
+		&s.TotalCashCollected, &s.TotalTransferCollected, &s.TotalCreditAmount,
+		&s.StartedAt, &s.CompletedAt, &s.CreatedAt, &s.UpdatedAt,
+		&s.TripNumber, &s.VehiclePlate, &s.DriverName,
+	)
+	if err != nil {
+		return nil, err
+	}
+	return &s, nil
+}
+
+func (r *Repository) CreateEODCheckpoint(ctx context.Context, cp *domain.EODCheckpoint) error {
+	return r.db.QueryRow(ctx, `
+		INSERT INTO eod_checkpoints (session_id, trip_id, checkpoint_type, checkpoint_order, status)
+		VALUES ($1, $2, $3, $4, 'pending')
+		RETURNING id, created_at, updated_at`,
+		cp.SessionID, cp.TripID, cp.CheckpointType, cp.CheckpointOrder,
+	).Scan(&cp.ID, &cp.CreatedAt, &cp.UpdatedAt)
+}
+
+func (r *Repository) GetEODCheckpoints(ctx context.Context, sessionID uuid.UUID) ([]domain.EODCheckpoint, error) {
+	rows, err := r.db.Query(ctx, `
+		SELECT id, session_id, trip_id, checkpoint_type::text, checkpoint_order,
+		       status::text, driver_data, submitted_at,
+		       receiver_id, COALESCE(receiver_name, ''), receiver_data,
+		       discrepancy_reason, signature_url,
+		       confirmed_at, rejected_at, reject_reason,
+		       created_at, updated_at
+		FROM eod_checkpoints
+		WHERE session_id = $1
+		ORDER BY checkpoint_order`, sessionID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var cps []domain.EODCheckpoint
+	for rows.Next() {
+		var cp domain.EODCheckpoint
+		if err := rows.Scan(
+			&cp.ID, &cp.SessionID, &cp.TripID, &cp.CheckpointType, &cp.CheckpointOrder,
+			&cp.Status, &cp.DriverData, &cp.SubmittedAt,
+			&cp.ReceiverID, &cp.ReceiverName, &cp.ReceiverData,
+			&cp.DiscrepancyReason, &cp.SignatureURL,
+			&cp.ConfirmedAt, &cp.RejectedAt, &cp.RejectReason,
+			&cp.CreatedAt, &cp.UpdatedAt,
+		); err != nil {
+			return nil, err
+		}
+		cps = append(cps, cp)
+	}
+	return cps, nil
+}
+
+func (r *Repository) GetEODCheckpoint(ctx context.Context, checkpointID uuid.UUID) (*domain.EODCheckpoint, error) {
+	var cp domain.EODCheckpoint
+	err := r.db.QueryRow(ctx, `
+		SELECT id, session_id, trip_id, checkpoint_type::text, checkpoint_order,
+		       status::text, driver_data, submitted_at,
+		       receiver_id, COALESCE(receiver_name, ''), receiver_data,
+		       discrepancy_reason, signature_url,
+		       confirmed_at, rejected_at, reject_reason,
+		       created_at, updated_at
+		FROM eod_checkpoints
+		WHERE id = $1`, checkpointID,
+	).Scan(
+		&cp.ID, &cp.SessionID, &cp.TripID, &cp.CheckpointType, &cp.CheckpointOrder,
+		&cp.Status, &cp.DriverData, &cp.SubmittedAt,
+		&cp.ReceiverID, &cp.ReceiverName, &cp.ReceiverData,
+		&cp.DiscrepancyReason, &cp.SignatureURL,
+		&cp.ConfirmedAt, &cp.RejectedAt, &cp.RejectReason,
+		&cp.CreatedAt, &cp.UpdatedAt,
+	)
+	if err != nil {
+		return nil, err
+	}
+	return &cp, nil
+}
+
+func (r *Repository) GetEODCheckpointByTripAndType(ctx context.Context, tripID uuid.UUID, cpType string) (*domain.EODCheckpoint, error) {
+	var cp domain.EODCheckpoint
+	err := r.db.QueryRow(ctx, `
+		SELECT id, session_id, trip_id, checkpoint_type::text, checkpoint_order,
+		       status::text, driver_data, submitted_at,
+		       receiver_id, COALESCE(receiver_name, ''), receiver_data,
+		       discrepancy_reason, signature_url,
+		       confirmed_at, rejected_at, reject_reason,
+		       created_at, updated_at
+		FROM eod_checkpoints
+		WHERE trip_id = $1 AND checkpoint_type = $2`, tripID, cpType,
+	).Scan(
+		&cp.ID, &cp.SessionID, &cp.TripID, &cp.CheckpointType, &cp.CheckpointOrder,
+		&cp.Status, &cp.DriverData, &cp.SubmittedAt,
+		&cp.ReceiverID, &cp.ReceiverName, &cp.ReceiverData,
+		&cp.DiscrepancyReason, &cp.SignatureURL,
+		&cp.ConfirmedAt, &cp.RejectedAt, &cp.RejectReason,
+		&cp.CreatedAt, &cp.UpdatedAt,
+	)
+	if err != nil {
+		return nil, err
+	}
+	return &cp, nil
+}
+
+func (r *Repository) SubmitEODCheckpoint(ctx context.Context, checkpointID uuid.UUID, driverData []byte) error {
+	_, err := r.db.Exec(ctx, `
+		UPDATE eod_checkpoints
+		SET status = 'submitted', driver_data = $2, submitted_at = NOW(), updated_at = NOW()
+		WHERE id = $1 AND status = 'pending'`, checkpointID, driverData)
+	return err
+}
+
+func (r *Repository) ConfirmEODCheckpoint(ctx context.Context, checkpointID, receiverID uuid.UUID, receiverName string, receiverData []byte, signatureURL *string, discrepancyReason *string) error {
+	_, err := r.db.Exec(ctx, `
+		UPDATE eod_checkpoints
+		SET status = 'confirmed', receiver_id = $2, receiver_name = $3,
+		    receiver_data = $4, signature_url = $5, discrepancy_reason = $6,
+		    confirmed_at = NOW(), updated_at = NOW()
+		WHERE id = $1 AND status = 'submitted'`, checkpointID, receiverID, receiverName, receiverData, signatureURL, discrepancyReason)
+	return err
+}
+
+func (r *Repository) RejectEODCheckpoint(ctx context.Context, checkpointID, receiverID uuid.UUID, reason string) error {
+	_, err := r.db.Exec(ctx, `
+		UPDATE eod_checkpoints
+		SET status = 'rejected', receiver_id = $2, reject_reason = $3,
+		    rejected_at = NOW(), updated_at = NOW()
+		WHERE id = $1 AND status = 'submitted'`, checkpointID, receiverID, reason)
+	return err
+}
+
+func (r *Repository) CompleteEODSession(ctx context.Context, sessionID uuid.UUID) error {
+	_, err := r.db.Exec(ctx, `
+		UPDATE eod_sessions SET status = 'completed', completed_at = NOW(), updated_at = NOW()
+		WHERE id = $1`, sessionID)
+	return err
+}
+
+// GetPendingEODCheckpointsForRole returns pending checkpoint submissions for a given checkpoint type.
+func (r *Repository) GetPendingEODCheckpointsForRole(ctx context.Context, cpType string) ([]domain.EODCheckpoint, error) {
+	rows, err := r.db.Query(ctx, `
+		SELECT cp.id, cp.session_id, cp.trip_id, cp.checkpoint_type::text, cp.checkpoint_order,
+		       cp.status::text, cp.driver_data, cp.submitted_at,
+		       cp.receiver_id, COALESCE(cp.receiver_name, ''), cp.receiver_data,
+		       cp.discrepancy_reason, cp.signature_url,
+		       cp.confirmed_at, cp.rejected_at, cp.reject_reason,
+		       cp.created_at, cp.updated_at
+		FROM eod_checkpoints cp
+		WHERE cp.checkpoint_type = $1 AND cp.status = 'submitted'
+		ORDER BY cp.submitted_at ASC`, cpType)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var cps []domain.EODCheckpoint
+	for rows.Next() {
+		var cp domain.EODCheckpoint
+		if err := rows.Scan(
+			&cp.ID, &cp.SessionID, &cp.TripID, &cp.CheckpointType, &cp.CheckpointOrder,
+			&cp.Status, &cp.DriverData, &cp.SubmittedAt,
+			&cp.ReceiverID, &cp.ReceiverName, &cp.ReceiverData,
+			&cp.DiscrepancyReason, &cp.SignatureURL,
+			&cp.ConfirmedAt, &cp.RejectedAt, &cp.RejectReason,
+			&cp.CreatedAt, &cp.UpdatedAt,
+		); err != nil {
+			return nil, err
+		}
+		cps = append(cps, cp)
+	}
+	return cps, nil
+}
+
+// GetPaymentsByTripID returns all payments for all stops of a trip.
+func (r *Repository) GetPaymentsByTripID(ctx context.Context, tripID uuid.UUID) ([]domain.Payment, error) {
+	rows, err := r.db.Query(ctx, `
+		SELECT p.id, p.trip_stop_id, p.epod_id, p.customer_id, p.driver_id,
+		       p.order_id, p.payment_method::text, p.amount, p.status::text,
+		       p.reference_number, p.notes, p.collected_at, p.confirmed_at, p.confirmed_by,
+		       p.created_at, p.updated_at
+		FROM payments p
+		JOIN trip_stops ts ON ts.id = p.trip_stop_id
+		WHERE ts.trip_id = $1
+		ORDER BY p.created_at`, tripID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var payments []domain.Payment
+	for rows.Next() {
+		var p domain.Payment
+		if err := rows.Scan(
+			&p.ID, &p.TripStopID, &p.EPODID, &p.CustomerID, &p.DriverID,
+			&p.OrderID, &p.PaymentMethod, &p.Amount, &p.Status,
+			&p.ReferenceNumber, &p.Notes, &p.CollectedAt, &p.ConfirmedAt, &p.ConfirmedBy,
+			&p.CreatedAt, &p.UpdatedAt,
+		); err != nil {
+			return nil, err
+		}
+		payments = append(payments, p)
+	}
+	return payments, nil
+}
+
+// UpdateTripStatusRaw updates trip status without validation (used by EOD flow).
+func (r *Repository) UpdateTripStatusRaw(ctx context.Context, tripID uuid.UUID, status string) error {
+	_, err := r.db.Exec(ctx, `UPDATE trips SET status = $2, updated_at = NOW() WHERE id = $1`, tripID, status)
+	return err
+}
+
+// GetUserIDByDriverID returns the user_id for a given driver_id.
+func (r *Repository) GetUserIDByDriverID(ctx context.Context, driverID uuid.UUID) (uuid.UUID, error) {
+	var userID uuid.UUID
+	err := r.db.QueryRow(ctx, `SELECT user_id FROM drivers WHERE id = $1`, driverID).Scan(&userID)
+	return userID, err
 }

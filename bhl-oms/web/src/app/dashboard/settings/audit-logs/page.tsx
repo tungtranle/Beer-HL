@@ -24,6 +24,15 @@ interface Pagination {
   total_pages: number
 }
 
+interface DiffData {
+  entity_type: string
+  entity_id: string
+  event_type: string
+  before: Record<string, unknown> | null
+  after: Record<string, unknown> | null
+  changes: Array<{ field: string; old_value: unknown; new_value: unknown }>
+}
+
 const entityTypeLabels: Record<string, string> = {
   order: 'Đơn hàng',
   trip: 'Chuyến xe',
@@ -65,6 +74,9 @@ export default function AuditLogsPage() {
   const [dateFrom, setDateFrom] = useState('')
   const [dateTo, setDateTo] = useState('')
   const [expandedId, setExpandedId] = useState<string | null>(null)
+  // Diff modal
+  const [diffModal, setDiffModal] = useState<DiffData | null>(null)
+  const [diffLoading, setDiffLoading] = useState(false)
 
   useEffect(() => {
     if (user?.role !== 'admin') {
@@ -97,6 +109,26 @@ export default function AuditLogsPage() {
 
   const handleFilter = () => {
     loadData(1)
+  }
+
+  const handleViewDiff = async (logId: string) => {
+    setDiffLoading(true)
+    try {
+      const res: any = await apiFetch(`/admin/audit-logs/${logId}/diff`)
+      setDiffModal(res.data || null)
+    } catch {
+      // Fallback: show detail from the log itself
+      const log = logs.find(l => l.id === logId)
+      if (log?.detail) {
+        const changes = extractChanges(log.detail)
+        setDiffModal({
+          entity_type: log.entity_type, entity_id: log.entity_id,
+          event_type: log.event_type, before: null, after: null, changes,
+        })
+      }
+    } finally {
+      setDiffLoading(false)
+    }
   }
 
   const handlePageChange = (newPage: number) => {
@@ -194,7 +226,17 @@ export default function AuditLogsPage() {
                         <span className="text-xs">{log.actor_name || '—'}</span>
                         <span className="text-xs text-gray-400 ml-1">({log.actor_type})</span>
                       </td>
-                      <td className="px-4 py-3 text-gray-400 text-xs">{log.detail ? '▾' : ''}</td>
+                      <td className="px-4 py-3 text-gray-400 text-xs">
+                        {log.detail && (
+                          <button
+                            onClick={(e) => { e.stopPropagation(); handleViewDiff(log.id) }}
+                            className="text-[#F68634] hover:text-[#e5762a] font-medium"
+                            title="Xem diff chi tiết"
+                          >
+                            Diff
+                          </button>
+                        )}
+                      </td>
                     </tr>
                     {expandedId === log.id && log.detail && (
                       <tr key={`${log.id}-detail`}>
@@ -241,6 +283,139 @@ export default function AuditLogsPage() {
             </div>
           </>
         )}
+      </div>
+
+      {/* Diff Modal */}
+      {diffModal && <DiffModal data={diffModal} onClose={() => setDiffModal(null)} />}
+      {diffLoading && (
+        <div className="fixed inset-0 bg-black/30 z-50 flex items-center justify-center">
+          <div className="animate-spin w-8 h-8 border-4 border-[#F68634] border-t-transparent rounded-full" />
+        </div>
+      )}
+    </div>
+  )
+}
+
+function extractChanges(detail: Record<string, unknown>): Array<{ field: string; old_value: unknown; new_value: unknown }> {
+  const changes: Array<{ field: string; old_value: unknown; new_value: unknown }> = []
+  // Handle common patterns: {old_status, new_status} or {changes: [{field, before, after}]}
+  if (Array.isArray((detail as any).changes)) {
+    for (const c of (detail as any).changes) {
+      changes.push({ field: c.key || c.field, old_value: c.before ?? c.old_value ?? '', new_value: c.after ?? c.new_value ?? '' })
+    }
+  } else {
+    // Detect old_X / new_X pairs
+    const keys = Object.keys(detail)
+    const processed = new Set<string>()
+    for (const key of keys) {
+      if (key.startsWith('old_') && !processed.has(key)) {
+        const field = key.slice(4)
+        const newKey = `new_${field}`
+        if (newKey in detail) {
+          changes.push({ field, old_value: detail[key], new_value: detail[newKey] })
+          processed.add(key)
+          processed.add(newKey)
+        }
+      }
+    }
+    // If no pairs found, show all fields
+    if (changes.length === 0) {
+      for (const [k, v] of Object.entries(detail)) {
+        if (!processed.has(k)) changes.push({ field: k, old_value: '', new_value: v })
+      }
+    }
+  }
+  return changes
+}
+
+function DiffModal({ data, onClose }: { data: DiffData; onClose: () => void }) {
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose() }
+    document.addEventListener('keydown', handler)
+    return () => document.removeEventListener('keydown', handler)
+  }, [onClose])
+
+  return (
+    <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4" onClick={onClose}>
+      <div className="bg-white rounded-xl shadow-2xl w-full max-w-2xl max-h-[80vh] flex flex-col" onClick={e => e.stopPropagation()}>
+        {/* Header */}
+        <div className="flex items-center justify-between px-6 py-4 border-b border-gray-200">
+          <div>
+            <h3 className="text-lg font-bold text-gray-900">Chi tiết thay đổi</h3>
+            <p className="text-xs text-gray-500 mt-0.5">
+              {entityTypeLabels[data.entity_type] || data.entity_type} · {data.entity_id} · {data.event_type}
+            </p>
+          </div>
+          <button onClick={onClose} className="p-1.5 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded-lg transition">
+            <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+            </svg>
+          </button>
+        </div>
+
+        {/* Content */}
+        <div className="flex-1 overflow-y-auto p-6 space-y-3">
+          {data.changes.length > 0 ? (
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="text-left text-xs text-gray-500 uppercase">
+                  <th className="pb-2 pr-4 w-40">Trường</th>
+                  <th className="pb-2 pr-4">Giá trị cũ</th>
+                  <th className="pb-2">Giá trị mới</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-gray-100">
+                {data.changes.map((c, i) => (
+                  <tr key={i}>
+                    <td className="py-2 pr-4 font-mono text-xs font-medium text-gray-700">{c.field}</td>
+                    <td className="py-2 pr-4">
+                      {c.old_value !== '' && c.old_value !== null && c.old_value !== undefined ? (
+                        <span className="inline-block bg-red-50 text-red-700 px-2 py-0.5 rounded text-xs line-through">
+                          {typeof c.old_value === 'object' ? JSON.stringify(c.old_value) : String(c.old_value)}
+                        </span>
+                      ) : (
+                        <span className="text-gray-300 text-xs">—</span>
+                      )}
+                    </td>
+                    <td className="py-2">
+                      {c.new_value !== '' && c.new_value !== null && c.new_value !== undefined ? (
+                        <span className="inline-block bg-green-50 text-green-700 px-2 py-0.5 rounded text-xs font-medium">
+                          {typeof c.new_value === 'object' ? JSON.stringify(c.new_value) : String(c.new_value)}
+                        </span>
+                      ) : (
+                        <span className="text-gray-300 text-xs">—</span>
+                      )}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          ) : (
+            <p className="text-sm text-gray-500">Không có thay đổi chi tiết</p>
+          )}
+
+          {/* Raw before/after if available */}
+          {(data.before || data.after) && (
+            <div className="mt-4 grid grid-cols-2 gap-4">
+              {data.before && (
+                <div>
+                  <p className="text-xs font-medium text-red-600 mb-1">Trước</p>
+                  <pre className="text-[11px] bg-red-50 p-3 rounded-lg overflow-auto max-h-48 text-red-800">
+                    {JSON.stringify(data.before, null, 2)}
+                  </pre>
+                </div>
+              )}
+              {data.after && (
+                <div>
+                  <p className="text-xs font-medium text-green-600 mb-1">Sau</p>
+                  <pre className="text-[11px] bg-green-50 p-3 rounded-lg overflow-auto max-h-48 text-green-800">
+                    {JSON.stringify(data.after, null, 2)}
+                  </pre>
+                </div>
+              )}
+            </div>
+          )}
+        </div>
       </div>
     </div>
   )

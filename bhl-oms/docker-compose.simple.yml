@@ -1,0 +1,106 @@
+# BHL OMS — Bản deploy đơn giản cho Mac Mini
+# Chỉ gồm: API + Web + PostgreSQL + Redis + Nginx
+# Bỏ: OSRM, VRP Solver, Prometheus, Grafana (thêm sau khi cần)
+#
+# Cách dùng: docker compose -f docker-compose.simple.yml --env-file .env.prod up -d
+
+services:
+  # ===== BACKEND API =====
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    ports:
+      - "8080:8080"
+    environment:
+      - ENV=production
+      - DB_URL=postgresql://bhl:${DB_PASSWORD:-bhl_prod_2026_secure}@postgres:5432/bhl_prod?sslmode=disable
+      - REDIS_URL=redis://redis:6379/0
+      - JWT_PRIVATE_KEY_PATH=/app/keys/private.pem
+      - JWT_PUBLIC_KEY_PATH=/app/keys/public.pem
+      - JWT_ACCESS_TTL=4h
+      - JWT_REFRESH_TTL=168h
+      - VRP_SOLVER_URL=http://localhost:8090
+      - OSRM_URL=http://localhost:5000
+      - INTEGRATION_MOCK=true
+      - SENTRY_DSN=${SENTRY_DSN:-}
+      - ENABLE_TEST_PORTAL=${ENABLE_TEST_PORTAL:-true}
+      - LOG_LEVEL=INFO
+    volumes:
+      - ./keys:/app/keys:ro
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:8080/health || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+
+  # ===== FRONTEND =====
+  web:
+    build:
+      context: ./web
+      dockerfile: Dockerfile
+    ports:
+      - "3000:3000"
+    environment:
+      - NEXT_PUBLIC_API_URL=http://api:8080
+    depends_on:
+      - api
+    restart: unless-stopped
+
+  # ===== DATABASE =====
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: bhl
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-bhl_prod_2026_secure}
+      POSTGRES_DB: bhl_prod
+    volumes:
+      - pg-data:/var/lib/postgresql/data
+      - ./migrations:/migrations:ro
+    command: >
+      postgres
+        -c shared_preload_libraries=pg_stat_statements
+        -c pg_stat_statements.track=all
+        -c log_min_duration_statement=500
+        -c max_connections=100
+        -c shared_buffers=128MB
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U bhl"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+    restart: unless-stopped
+
+  # ===== CACHE =====
+  redis:
+    image: redis:7-alpine
+    command: redis-server --maxmemory 128mb --maxmemory-policy allkeys-lru
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+    restart: unless-stopped
+
+  # ===== REVERSE PROXY =====
+  nginx:
+    image: nginx:1.27-alpine
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./nginx/ssl:/etc/nginx/ssl:ro
+    depends_on:
+      - api
+      - web
+    restart: unless-stopped
+
+volumes:
+  pg-data:

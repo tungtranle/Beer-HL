@@ -30,6 +30,7 @@ func (h *Handler) RegisterRoutes(r *gin.RouterGroup) {
 	{
 		ng.GET("", h.List)
 		ng.GET("/unread-count", h.UnreadCount)
+		ng.GET("/grouped", h.ListGrouped)
 		ng.POST("/:id/read", h.MarkRead)
 		ng.POST("/read-all", h.MarkAllRead)
 	}
@@ -67,6 +68,21 @@ func (h *Handler) UnreadCount(c *gin.Context) {
 		return
 	}
 	response.OK(c, gin.H{"unread_count": count})
+}
+
+// GET /v1/notifications/grouped
+func (h *Handler) ListGrouped(c *gin.Context) {
+	userID, _ := c.Get("user_id")
+	uid, _ := userID.(uuid.UUID)
+
+	limit, _ := strconv.Atoi(c.DefaultQuery("limit", "50"))
+
+	groups, err := h.svc.GetGroupedNotifications(c.Request.Context(), uid, limit)
+	if err != nil {
+		response.InternalError(c)
+		return
+	}
+	response.OK(c, groups)
 }
 
 // POST /v1/notifications/:id/read

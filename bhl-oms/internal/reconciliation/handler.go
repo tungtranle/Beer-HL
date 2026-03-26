@@ -40,6 +40,9 @@ func (h *Handler) RegisterRoutes(r *gin.RouterGroup) {
 		rg.POST("/daily-close", h.GenerateDailyClose)
 		rg.GET("/daily-close", h.ListDailyClose)
 		rg.GET("/daily-close/:date", h.GetDailyClose)
+
+		// Excel export
+		rg.GET("/export", h.ExportReconciliations)
 	}
 }
 

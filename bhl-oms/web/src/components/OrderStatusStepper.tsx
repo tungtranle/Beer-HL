@@ -1,6 +1,6 @@
 'use client'
 
-import { orderProgressSteps, orderSpecialStatuses, getOrderStepIndex, isSpecialStatus } from '@/lib/status-config'
+import { orderProgressSteps, orderSpecialStatuses, getOrderStepIndex, isSpecialStatus, getStatusLabel } from '@/lib/status-config'
 
 interface Props {
   status: string
@@ -8,13 +8,15 @@ interface Props {
 
 /**
  * Thanh tiến trình đơn hàng E2E — world-class UX
- * 5 bước chính: Tạo đơn → KH xác nhận → Kho xử lý → Vận chuyển → Hoàn thành
+ * 5 bước chính: Tạo đơn → Xác nhận → Kho xử lý → Vận chuyển → Hoàn thành
+ * Hiển thị trạng thái CỤ THỂ bên dưới bước đang active (ví dụ: "Đang soạn hàng")
  * Trạng thái đặc biệt (từ chối, giao một phần, hủy...) hiện riêng bên dưới
  */
 export function OrderStatusStepper({ status }: Props) {
   const isSpecial = isSpecialStatus(status)
   const currentStep = getOrderStepIndex(status)
   const specialInfo = isSpecial ? orderSpecialStatuses[status] : null
+  const currentStatusLabel = getStatusLabel(status)
 
   return (
     <div className="w-full">
@@ -72,10 +74,10 @@ export function OrderStatusStepper({ status }: Props) {
                   {step.label}
                 </span>
 
-                {/* Description for current step */}
+                {/* Current specific status — show actual status name, not just step name */}
                 {isCurrent && (
                   <span className="mt-0.5 text-[10px] text-[#F68634] text-center leading-tight font-medium">
-                    {step.description}
+                    {currentStatusLabel}
                   </span>
                 )}
               </div>

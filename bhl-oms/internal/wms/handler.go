@@ -6,6 +6,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
 
+	"bhl-oms/internal/middleware"
 	"bhl-oms/pkg/logger"
 	"bhl-oms/pkg/response"
 )
@@ -50,20 +51,23 @@ func (h *Handler) RegisterRoutes(r *gin.RouterGroup) {
 		wh.GET("/bottles/trip/:tripId", h.GetBottleClassification)
 		wh.POST("/bottles/classify", h.ClassifyBottles)
 		wh.GET("/bottles/summary", h.GetBottleSummary)
+
+		// Handover — Bàn giao A/B/C (migration 017)
+		wh.POST("/handovers", h.CreateHandover)
+		wh.POST("/handovers/:id/sign", h.SignHandover)
+		wh.GET("/handovers/trip/:tripId", h.GetHandoversByTrip)
+		wh.GET("/handovers/:id", h.GetHandoverDetail)
 	}
 }
 
 // GET /v1/warehouse/stock
 func (h *Handler) GetStock(c *gin.Context) {
-	var warehouseID, productID, lotID *uuid.UUID
+	var productID, lotID *uuid.UUID
 
-	if wid := c.Query("warehouse_id"); wid != "" {
-		id, err := uuid.Parse(wid)
-		if err != nil {
-			response.BadRequest(c, "invalid warehouse_id")
-			return
-		}
-		warehouseID = &id
+	warehouseID, allowed := middleware.ResolveWarehouseScope(c)
+	if !allowed {
+		response.Forbidden(c, "Không có quyền truy cập kho này")
+		return
 	}
 	if pid := c.Query("product_id"); pid != "" {
 		id, err := uuid.Parse(pid)
@@ -477,4 +481,92 @@ func (h *Handler) GetBottleSummary(c *gin.Context) {
 		return
 	}
 	response.OK(c, summary)
+}
+
+// ── Handover (Bàn giao A/B/C) ──────────────────────
+
+// POST /v1/warehouse/handovers
+func (h *Handler) CreateHandover(c *gin.Context) {
+	var req CreateHandoverRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		response.BadRequest(c, err.Error())
+		return
+	}
+
+	userID, _ := c.Get("user_id")
+	uid, ok := userID.(uuid.UUID)
+	if !ok {
+		response.Unauthorized(c, "invalid user context")
+		return
+	}
+
+	hr, err := h.svc.CreateHandover(c.Request.Context(), req, uid)
+	if err != nil {
+		response.Err(c, http.StatusUnprocessableEntity, "HANDOVER_ERROR", err.Error())
+		return
+	}
+	response.Created(c, hr)
+}
+
+// POST /v1/warehouse/handovers/:id/sign
+func (h *Handler) SignHandover(c *gin.Context) {
+	handoverID, err := uuid.Parse(c.Param("id"))
+	if err != nil {
+		response.BadRequest(c, "invalid handover_id")
+		return
+	}
+
+	var req SignHandoverRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		response.BadRequest(c, err.Error())
+		return
+	}
+
+	userID, _ := c.Get("user_id")
+	uid, ok := userID.(uuid.UUID)
+	if !ok {
+		response.Unauthorized(c, "invalid user context")
+		return
+	}
+	userName, _ := c.Get("user_name")
+	uname, _ := userName.(string)
+
+	hr, err := h.svc.SignHandover(c.Request.Context(), handoverID, req, uid, uname)
+	if err != nil {
+		response.Err(c, http.StatusUnprocessableEntity, "SIGN_ERROR", err.Error())
+		return
+	}
+	response.OK(c, hr)
+}
+
+// GET /v1/warehouse/handovers/trip/:tripId
+func (h *Handler) GetHandoversByTrip(c *gin.Context) {
+	tripID, err := uuid.Parse(c.Param("tripId"))
+	if err != nil {
+		response.BadRequest(c, "invalid trip_id")
+		return
+	}
+
+	records, err := h.svc.GetHandoversByTrip(c.Request.Context(), tripID)
+	if err != nil {
+		response.InternalError(c)
+		return
+	}
+	response.OK(c, records)
+}
+
+// GET /v1/warehouse/handovers/:id
+func (h *Handler) GetHandoverDetail(c *gin.Context) {
+	id, err := uuid.Parse(c.Param("id"))
+	if err != nil {
+		response.BadRequest(c, "invalid handover_id")
+		return
+	}
+
+	hr, err := h.svc.GetHandoverRecord(c.Request.Context(), id)
+	if err != nil {
+		response.Err(c, http.StatusNotFound, "NOT_FOUND", "không tìm thấy bàn giao")
+		return
+	}
+	response.OK(c, hr)
 }

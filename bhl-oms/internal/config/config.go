@@ -17,6 +17,12 @@ type Config struct {
 	VRPSolverURL   string
 	OSRMURL        string
 
+	// Sentry
+	SentryDSN string
+
+	// Test Portal
+	EnableTestPortal bool
+
 	// Integration
 	BravoURL        string
 	BravoAPIKey     string
@@ -40,6 +46,9 @@ func Load() *Config {
 		JWTRefreshTTL:  parseDuration(getEnv("JWT_REFRESH_TTL", "168h")), // 7 days
 		VRPSolverURL:   getEnv("VRP_SOLVER_URL", "http://localhost:8090"),
 		OSRMURL:        getEnv("OSRM_URL", "http://localhost:5000"),
+
+		SentryDSN:        getEnv("SENTRY_DSN", ""),
+		EnableTestPortal: getEnv("ENABLE_TEST_PORTAL", "true") == "true",
 
 		BravoURL:        getEnv("BRAVO_URL", "http://localhost:9001"),
 		BravoAPIKey:     getEnv("BRAVO_API_KEY", ""),

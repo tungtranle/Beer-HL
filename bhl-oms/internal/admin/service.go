@@ -17,13 +17,14 @@ import (
 )
 
 type Service struct {
-	db  *pgxpool.Pool
-	rdb *redis.Client
-	log logger.Logger
+	db   *pgxpool.Pool
+	rdb  *redis.Client
+	repo *Repository
+	log  logger.Logger
 }
 
-func NewService(db *pgxpool.Pool, rdb *redis.Client, log logger.Logger) *Service {
-	return &Service{db: db, rdb: rdb, log: log}
+func NewService(db *pgxpool.Pool, rdb *redis.Client, repo *Repository, log logger.Logger) *Service {
+	return &Service{db: db, rdb: rdb, repo: repo, log: log}
 }
 
 type UserResponse struct {
@@ -451,7 +452,13 @@ func (s *Service) CreateCreditLimit(ctx context.Context, customerID uuid.UUID, c
 	return &l, nil
 }
 
-func (s *Service) UpdateCreditLimit(ctx context.Context, id uuid.UUID, creditLimit *float64, effectiveTo *string) (*CreditLimitResponse, error) {
+func (s *Service) UpdateCreditLimit(ctx context.Context, id uuid.UUID, creditLimit *float64, effectiveTo *string, actorID, actorName string) (*CreditLimitResponse, error) {
+	// Get current values for audit trail
+	var oldLimit float64
+	var oldEffTo *string
+	var customerID uuid.UUID
+	_ = s.db.QueryRow(ctx, `SELECT customer_id, credit_limit, effective_to::text FROM credit_limits WHERE id = $1`, id).Scan(&customerID, &oldLimit, &oldEffTo)
+
 	if creditLimit != nil {
 		_, err := s.db.Exec(ctx, `UPDATE credit_limits SET credit_limit = $2 WHERE id = $1`, id, *creditLimit)
 		if err != nil {
@@ -482,6 +489,30 @@ func (s *Service) UpdateCreditLimit(ctx context.Context, id uuid.UUID, creditLim
 	if err != nil {
 		return nil, fmt.Errorf("không tìm thấy hạn mức: %w", err)
 	}
+
+	// BRD US-OMS-07 AC#8: Record credit limit change audit trail
+	changes := map[string]interface{}{}
+	if creditLimit != nil && *creditLimit != oldLimit {
+		changes["credit_limit"] = map[string]interface{}{"old": oldLimit, "new": *creditLimit}
+	}
+	if effectiveTo != nil {
+		oldVal := ""
+		if oldEffTo != nil {
+			oldVal = *oldEffTo
+		}
+		if *effectiveTo != oldVal {
+			changes["effective_to"] = map[string]interface{}{"old": oldVal, "new": *effectiveTo}
+		}
+	}
+	if len(changes) > 0 {
+		detail, _ := json.Marshal(changes)
+		aID, _ := uuid.Parse(actorID)
+		_, _ = s.db.Exec(ctx, `
+			INSERT INTO entity_events (entity_type, entity_id, event_type, actor_type, actor_id, actor_name, title, detail)
+			VALUES ('credit_limit', $1, 'credit_limit.updated', 'user', $2, $3, $4, $5)
+		`, id, aID, actorName, fmt.Sprintf("Cập nhật hạn mức %s", l.CustomerName), detail)
+	}
+
 	return &l, nil
 }
 
@@ -600,7 +631,7 @@ type ExpiringCreditLimit struct {
 func (s *Service) CheckCreditLimitExpiry(ctx context.Context) ([]ExpiringCreditLimit, error) {
 	rows, err := s.db.Query(ctx, `
 		SELECT cl.id, cl.customer_id, c.name, cl.credit_limit,
-			cl.effective_to::text, EXTRACT(DAY FROM cl.effective_to - CURRENT_DATE)::int as days_left
+			cl.effective_to::text, (cl.effective_to - CURRENT_DATE)::int as days_left
 		FROM credit_limits cl
 		JOIN customers c ON c.id = cl.customer_id
 		WHERE cl.effective_to IS NOT NULL
@@ -906,4 +937,189 @@ func (s *Service) SystemHealth(ctx context.Context) (*HealthStatus, error) {
 	h.RecentOps = ops
 
 	return h, nil
+}
+
+// ──── Dynamic RBAC ────────────────────────────────────────
+
+// GetPermissionMatrix returns the complete permission matrix for all roles.
+func (s *Service) GetPermissionMatrix(ctx context.Context) (map[string]map[string]map[string]domain.PermissionEntry, error) {
+	perms, err := s.repo.GetAllRolePermissions(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	matrix := make(map[string]map[string]map[string]domain.PermissionEntry)
+	for _, p := range perms {
+		if _, ok := matrix[p.Role]; !ok {
+			matrix[p.Role] = make(map[string]map[string]domain.PermissionEntry)
+		}
+		if _, ok := matrix[p.Role][p.Resource]; !ok {
+			matrix[p.Role][p.Resource] = make(map[string]domain.PermissionEntry)
+		}
+		matrix[p.Role][p.Resource][p.Action] = domain.PermissionEntry{
+			IsAllowed: p.IsAllowed,
+			Scope:     p.Scope,
+		}
+	}
+	return matrix, nil
+}
+
+// UpdateRolePermission updates a single permission and writes audit log.
+func (s *Service) UpdateRolePermission(ctx context.Context, role, resource, action, scope string, allowed bool, updatedBy uuid.UUID, actorName string) error {
+	// Get old value for audit
+	old, _ := s.repo.GetRolePermission(ctx, role, resource, action)
+
+	if err := s.repo.UpsertRolePermission(ctx, role, resource, action, scope, allowed, updatedBy); err != nil {
+		return err
+	}
+
+	// Audit log
+	detail := map[string]interface{}{
+		"role":     role,
+		"resource": resource,
+		"action":   action,
+		"scope":    scope,
+		"allowed":  allowed,
+	}
+	if old != nil {
+		detail["old_allowed"] = old.IsAllowed
+		detail["old_scope"] = old.Scope
+	}
+	s.repo.WriteAuditLog(ctx, "permission", uuid.New(), "permission_updated", actorName, &updatedBy,
+		fmt.Sprintf("Cập nhật quyền %s.%s cho %s", resource, action, role), detail)
+
+	// Invalidate cache for all users with this role
+	s.invalidateRolePermissionCache(ctx, role)
+
+	return nil
+}
+
+// GetEffectivePermissions returns merged role + override permissions for a user.
+func (s *Service) GetEffectivePermissions(ctx context.Context, userID uuid.UUID) ([]domain.RolePermission, error) {
+	perms, overrides, err := s.repo.GetEffectivePermissions(ctx, userID)
+	if err != nil {
+		return nil, err
+	}
+
+	// Apply overrides
+	overrideMap := make(map[string]domain.UserPermissionOverride)
+	for _, o := range overrides {
+		key := o.Resource + ":" + o.Action
+		overrideMap[key] = o
+	}
+
+	var result []domain.RolePermission
+	for _, p := range perms {
+		key := p.Resource + ":" + p.Action
+		if o, ok := overrideMap[key]; ok {
+			p.IsAllowed = o.IsAllowed
+		}
+		result = append(result, p)
+	}
+
+	return result, nil
+}
+
+// InvalidateUserPermissionCache deletes the Redis cache for a specific user.
+func (s *Service) InvalidateUserPermissionCache(ctx context.Context, userID uuid.UUID) error {
+	if s.rdb == nil {
+		return nil
+	}
+	return s.rdb.Del(ctx, fmt.Sprintf("permission:%s", userID.String())).Err()
+}
+
+func (s *Service) invalidateRolePermissionCache(ctx context.Context, role string) {
+	if s.rdb == nil {
+		return
+	}
+	// Get all users with this role and invalidate their caches
+	rows, err := s.db.Query(ctx, `SELECT id FROM users WHERE role = $1 AND is_active = true`, role)
+	if err != nil {
+		return
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+		var uid uuid.UUID
+		if err := rows.Scan(&uid); err == nil {
+			s.rdb.Del(ctx, fmt.Sprintf("permission:%s", uid.String()))
+		}
+	}
+}
+
+// GetUserOverrides returns permission overrides for a specific user.
+func (s *Service) GetUserOverrides(ctx context.Context, userID uuid.UUID) ([]domain.UserPermissionOverride, error) {
+	return s.repo.GetUserOverrides(ctx, userID)
+}
+
+// CreateUserOverride creates a new permission override for a user.
+func (s *Service) CreateUserOverride(ctx context.Context, override domain.UserPermissionOverride, actorName string) error {
+	if err := s.repo.UpsertUserOverride(ctx, override); err != nil {
+		return err
+	}
+
+	// Audit
+	s.repo.WriteAuditLog(ctx, "permission_override", uuid.New(), "override_created", actorName, override.GrantedBy,
+		fmt.Sprintf("Override %s.%s cho user %s", override.Resource, override.Action, override.UserID),
+		map[string]interface{}{
+			"user_id":    override.UserID,
+			"resource":   override.Resource,
+			"action":     override.Action,
+			"is_allowed": override.IsAllowed,
+			"reason":     override.Reason,
+		})
+
+	// Invalidate cache
+	s.InvalidateUserPermissionCache(ctx, override.UserID)
+	return nil
+}
+
+// DeleteUserOverride deletes a permission override.
+func (s *Service) DeleteUserOverride(ctx context.Context, overrideID uuid.UUID, actorID uuid.UUID, actorName string) error {
+	if err := s.repo.DeleteUserOverride(ctx, overrideID); err != nil {
+		return err
+	}
+	s.repo.WriteAuditLog(ctx, "permission_override", overrideID, "override_deleted", actorName, &actorID,
+		"Xóa override quyền", nil)
+	return nil
+}
+
+// ──── Session Management ────────────────────────────────────
+
+func (s *Service) ListActiveSessions(ctx context.Context, userID *uuid.UUID) ([]domain.ActiveSession, error) {
+	return s.repo.ListActiveSessions(ctx, userID)
+}
+
+func (s *Service) RevokeSession(ctx context.Context, sessionID, actorID uuid.UUID, actorName string) error {
+	if err := s.repo.RevokeSession(ctx, sessionID); err != nil {
+		return err
+	}
+	s.repo.WriteAuditLog(ctx, "session", sessionID, "session_revoked", actorName, &actorID,
+		"Thu hồi phiên đăng nhập", nil)
+	return nil
+}
+
+func (s *Service) RevokeAllUserSessions(ctx context.Context, userID, actorID uuid.UUID, actorName string) (int64, error) {
+	count, err := s.repo.RevokeAllUserSessions(ctx, userID)
+	if err != nil {
+		return 0, err
+	}
+	s.repo.WriteAuditLog(ctx, "session", userID, "all_sessions_revoked", actorName, &actorID,
+		fmt.Sprintf("Thu hồi %d phiên đăng nhập", count), nil)
+	return count, nil
+}
+
+// CountActiveSessionsByUser returns the number of active sessions for a user.
+func (s *Service) CountActiveSessionsByUser(ctx context.Context, userID uuid.UUID) (int, error) {
+	return s.repo.CountActiveSessionsByUser(ctx, userID)
+}
+
+// ──── Audit Logs (via repository) ────────────────────────────
+
+func (s *Service) GetAuditLogsPaginated(ctx context.Context, filter domain.AuditFilter) ([]domain.EntityEvent, int, error) {
+	return s.repo.GetAuditLogs(ctx, filter)
+}
+
+func (s *Service) GetAuditLogDiff(ctx context.Context, id uuid.UUID) (*domain.EntityEvent, error) {
+	return s.repo.GetAuditLogByID(ctx, id)
 }

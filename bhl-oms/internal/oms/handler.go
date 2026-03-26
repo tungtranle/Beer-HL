@@ -57,6 +57,11 @@ func (h *Handler) RegisterRoutes(r *gin.RouterGroup) {
 	// Pending approvals with credit details
 	orders.GET("/pending-approvals", middleware.RequireRole("admin", "accountant", "management"), h.ListPendingApprovals)
 
+	// Excel import/export
+	orders.GET("/export", middleware.RequireRole("admin", "dispatcher", "accountant", "management"), h.ExportOrders)
+	orders.GET("/import/template", h.DownloadImportTemplate)
+	orders.POST("/import", middleware.RequireRole("admin", "dispatcher"), h.ImportOrders)
+
 	// Re-delivery
 	orders.POST("/:id/redelivery", middleware.RequireRole("admin", "dispatcher", "dvkh"), h.CreateRedelivery)
 	orders.GET("/:id/delivery-attempts", h.ListDeliveryAttempts)
@@ -319,11 +324,10 @@ func (h *Handler) ListOrders(c *gin.Context) {
 	deliveryDate := c.Query("delivery_date")
 	cutoffGroup := c.Query("cutoff_group")
 
-	var warehouseID *uuid.UUID
-	if wh := c.Query("warehouse_id"); wh != "" {
-		if id, err := uuid.Parse(wh); err == nil {
-			warehouseID = &id
-		}
+	warehouseID, allowed := middleware.ResolveWarehouseScope(c)
+	if !allowed {
+		response.Forbidden(c, "Không có quyền truy cập kho này")
+		return
 	}
 
 	orders, total, err := h.svc.ListOrders(c.Request.Context(), warehouseID, status, deliveryDate, cutoffGroup, page, limit)

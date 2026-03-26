@@ -28,6 +28,8 @@ import (
 	bhlredis "bhl-oms/pkg/redis"
 	"bhl-oms/pkg/response"
 
+	"github.com/getsentry/sentry-go"
+	sentrygin "github.com/getsentry/sentry-go/gin"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 
 	"github.com/gin-gonic/gin"
@@ -38,6 +40,21 @@ func main() {
 
 	// Application logger
 	appLog := logger.New(os.Stdout, logger.ParseLevel(getEnv("LOG_LEVEL", "INFO")))
+
+	// Sentry error tracking
+	if cfg.SentryDSN != "" {
+		if err := sentry.Init(sentry.ClientOptions{
+			Dsn:              cfg.SentryDSN,
+			Environment:      cfg.Env,
+			TracesSampleRate: 0.3,
+			EnableTracing:    true,
+		}); err != nil {
+			appLog.Warn(context.Background(), "sentry_init_failed", logger.F("error", err.Error()))
+		} else {
+			appLog.Info(context.Background(), "sentry_initialized")
+			defer sentry.Flush(2 * time.Second)
+		}
+	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
@@ -102,6 +119,11 @@ func main() {
 
 	// CORS
 	r.Use(corsMiddleware())
+
+	// Sentry middleware — captures panics and reports to Sentry
+	if cfg.SentryDSN != "" {
+		r.Use(sentrygin.New(sentrygin.Options{Repanic: true}))
+	}
 
 	// Prometheus metrics
 	r.Use(middleware.PrometheusMiddleware())
@@ -169,6 +191,9 @@ func main() {
 	appLog.Info(ctx, "notification_initialized")
 	_ = notifSvc // available for integration hooks
 
+	// Wire real-time order updates: Recorder → NotifHub → WebSocket → Frontend
+	eventRecorder.SetBroadcaster(notifHub)
+
 	// Wire notification service into OMS
 	omsSvc.SetNotificationService(notifSvc)
 
@@ -228,16 +253,28 @@ func main() {
 	gpsHandler.RegisterRoutes(protected)
 
 	// Admin module — user management
-	adminSvc := admin.NewService(pool, rdb, appLog)
+	adminRepo := admin.NewRepository(pool, appLog)
+	adminSvc := admin.NewService(pool, rdb, adminRepo, appLog)
 	adminHandler := admin.NewHandler(adminSvc, appLog)
 	adminHandler.RegisterRoutes(protected)
 	go adminSvc.RunCreditLimitExpiryCron(ctx)
+
+	// BRD gap admin features (compensation, forbidden hours, delivery windows, maintenance)
+	brdGapRepo := admin.NewBRDGapRepo(pool)
+	adminGroup := protected.Group("/admin")
+	adminGroup.Use(middleware.RequireRole("admin"))
+	admin.RegisterBRDGapRoutes(adminGroup, brdGapRepo)
+
 	appLog.Info(ctx, "admin_initialized")
 
-	// Test Portal — QA/testing module (no auth, for demo/test only)
-	testPortalHandler := testportal.NewHandler(pool, rdb, appLog)
-	testPortalHandler.RegisterRoutes(v1)
-	appLog.Info(ctx, "test_portal_initialized")
+	// Test Portal — QA/testing module (no auth, guarded by ENABLE_TEST_PORTAL env)
+	if cfg.EnableTestPortal {
+		testPortalHandler := testportal.NewHandler(pool, rdb, appLog)
+		testPortalHandler.RegisterRoutes(v1)
+		appLog.Info(ctx, "test_portal_initialized")
+	} else {
+		appLog.Info(ctx, "test_portal_disabled")
+	}
 
 	// GPS WebSocket (authenticated via query token)
 	r.GET("/ws/gps", gpsHub.HandleWebSocket)

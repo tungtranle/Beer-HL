@@ -1,6 +1,7 @@
 package tms
 
 import (
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"strconv"
@@ -74,6 +75,7 @@ func (h *Handler) RegisterRoutes(r *gin.RouterGroup) {
 	trips.POST("/:id/cancel", middleware.RequireRole("admin", "dispatcher"), h.CancelTrip)
 	trips.GET("/exceptions", middleware.RequireRole("admin", "dispatcher"), h.ListExceptions)
 	trips.GET("/control-tower/stats", middleware.RequireRole("admin", "dispatcher", "management"), h.GetControlTowerStats)
+	trips.GET("/export", middleware.RequireRole("admin", "dispatcher", "accountant", "management"), h.ExportTrips)
 
 	// Driver endpoints
 	driver := r.Group("/driver")
@@ -98,6 +100,20 @@ func (h *Handler) RegisterRoutes(r *gin.RouterGroup) {
 	// Return collection
 	driver.POST("/trips/:id/stops/:stopId/returns", h.RecordReturns)
 	driver.GET("/trips/:id/stops/:stopId/returns", h.GetReturns)
+
+	// End-of-Day (Kết ca) — Driver endpoints
+	driver.POST("/trips/:id/eod/start", h.StartEOD)
+	driver.GET("/trips/:id/eod", h.GetEODSession)
+	driver.POST("/trips/:id/eod/checkpoint/:cpType/submit", h.SubmitCheckpointDriver)
+
+	// End-of-Day — Receiver endpoints (warehouse_handler, accountant, dispatcher)
+	eod := r.Group("/eod")
+	eod.GET("/pending/:cpType", h.GetPendingCheckpoints)
+	eod.POST("/checkpoint/:checkpointId/confirm", h.ConfirmCheckpointReceiver)
+	eod.POST("/checkpoint/:checkpointId/reject", h.RejectCheckpointReceiver)
+
+	// Offline sync — batch process queued actions
+	driver.POST("/sync", h.OfflineSync)
 }
 
 func (h *Handler) ListPendingDates(c *gin.Context) {
@@ -374,6 +390,14 @@ func (h *Handler) ApprovePlan(c *gin.Context) {
 		return
 	}
 
+	// Inject actor info from JWT
+	userID := middleware.GetUserID(c)
+	req.ActorID = &userID
+	req.ActorName = c.GetString("user_name")
+	if req.ActorName == "" {
+		req.ActorName = "Điều phối viên"
+	}
+
 	h.log.Info(c.Request.Context(), "approve_plan_request",
 		logger.F("job_id", req.JobID),
 		logger.F("warehouse_id", req.WarehouseID.String()),
@@ -401,11 +425,10 @@ func (h *Handler) ListTrips(c *gin.Context) {
 	status := c.Query("status")
 	plannedDate := c.Query("planned_date")
 
-	var warehouseID *uuid.UUID
-	if wh := c.Query("warehouse_id"); wh != "" {
-		if id, err := uuid.Parse(wh); err == nil {
-			warehouseID = &id
-		}
+	warehouseID, allowed := middleware.ResolveWarehouseScope(c)
+	if !allowed {
+		response.Forbidden(c, "Không có quyền truy cập kho này")
+		return
 	}
 
 	trips, total, err := h.svc.ListTrips(c.Request.Context(), warehouseID, plannedDate, status, page, limit)
@@ -1038,6 +1061,128 @@ func (h *Handler) MoveStop(c *gin.Context) {
 	response.OK(c, gin.H{"message": "stop moved"})
 }
 
+// ══════════════════════════════════════════════════════
+// Offline Sync — batch process queued driver actions
+// ══════════════════════════════════════════════════════
+
+type syncAction struct {
+	Type      string          `json:"type"`
+	TripID    string          `json:"trip_id"`
+	StopID    string          `json:"stop_id,omitempty"`
+	Payload   json.RawMessage `json:"payload"`
+	LocalID   string          `json:"local_id"`
+	Timestamp string          `json:"timestamp"`
+}
+
+type syncResult struct {
+	LocalID  string `json:"local_id"`
+	Type     string `json:"type"`
+	Status   string `json:"status"` // "ok", "conflict", "error"
+	ServerID string `json:"server_id,omitempty"`
+	Error    string `json:"error,omitempty"`
+}
+
+func (h *Handler) OfflineSync(c *gin.Context) {
+	var req struct {
+		Actions []syncAction `json:"actions" binding:"required"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		response.BadRequest(c, err.Error())
+		return
+	}
+
+	userID := middleware.GetUserID(c)
+	results := make([]syncResult, 0, len(req.Actions))
+
+	for _, action := range req.Actions {
+		r := syncResult{LocalID: action.LocalID, Type: action.Type}
+
+		tripID, err := uuid.Parse(action.TripID)
+		if err != nil {
+			r.Status = "error"
+			r.Error = "invalid trip_id"
+			results = append(results, r)
+			continue
+		}
+
+		switch action.Type {
+		case "epod":
+			var epodReq SubmitEPODRequest
+			if err := json.Unmarshal(action.Payload, &epodReq); err != nil {
+				r.Status = "error"
+				r.Error = "invalid epod payload"
+				results = append(results, r)
+				continue
+			}
+			stopID, _ := uuid.Parse(action.StopID)
+			epod, err := h.svc.SubmitEPOD(c.Request.Context(), userID, tripID, stopID, epodReq)
+			if err != nil {
+				r.Status = "error"
+				r.Error = err.Error()
+			} else {
+				r.Status = "ok"
+				r.ServerID = epod.ID.String()
+			}
+
+		case "payment":
+			var payReq RecordPaymentRequest
+			if err := json.Unmarshal(action.Payload, &payReq); err != nil {
+				r.Status = "error"
+				r.Error = "invalid payment payload"
+				results = append(results, r)
+				continue
+			}
+			stopID, _ := uuid.Parse(action.StopID)
+			payment, err := h.svc.RecordPayment(c.Request.Context(), userID, tripID, stopID, payReq)
+			if err != nil {
+				r.Status = "error"
+				r.Error = err.Error()
+			} else {
+				r.Status = "ok"
+				r.ServerID = payment.ID.String()
+			}
+
+		case "return_collection":
+			var retReq RecordReturnsRequest
+			if err := json.Unmarshal(action.Payload, &retReq); err != nil {
+				r.Status = "error"
+				r.Error = "invalid return_collection payload"
+				results = append(results, r)
+				continue
+			}
+			stopID, _ := uuid.Parse(action.StopID)
+			returns, err := h.svc.RecordReturns(c.Request.Context(), userID, tripID, stopID, retReq)
+			if err != nil {
+				r.Status = "error"
+				r.Error = err.Error()
+			} else if len(returns) > 0 {
+				r.Status = "ok"
+				r.ServerID = returns[0].ID.String()
+			} else {
+				r.Status = "ok"
+			}
+
+		default:
+			r.Status = "error"
+			r.Error = "unknown action type: " + action.Type
+		}
+		results = append(results, r)
+	}
+
+	synced := 0
+	for _, r := range results {
+		if r.Status == "ok" {
+			synced++
+		}
+	}
+
+	response.OK(c, gin.H{
+		"synced":  synced,
+		"total":   len(req.Actions),
+		"results": results,
+	})
+}
+
 func (h *Handler) CancelTrip(c *gin.Context) {
 	tripID, err := uuid.Parse(c.Param("id"))
 	if err != nil {
@@ -1054,4 +1199,118 @@ func (h *Handler) CancelTrip(c *gin.Context) {
 		return
 	}
 	response.OK(c, gin.H{"message": "trip cancelled"})
+}
+
+// ===== END-OF-DAY (KẾT CA) HANDLERS =====
+
+// POST /v1/driver/trips/:id/eod/start
+func (h *Handler) StartEOD(c *gin.Context) {
+	tripID, err := uuid.Parse(c.Param("id"))
+	if err != nil {
+		response.BadRequest(c, "Invalid trip ID")
+		return
+	}
+	userID := middleware.GetUserID(c)
+	session, err := h.svc.StartEOD(c.Request.Context(), userID, tripID)
+	if err != nil {
+		response.Err(c, http.StatusBadRequest, "START_EOD_FAILED", err.Error())
+		return
+	}
+	response.Created(c, session)
+}
+
+// GET /v1/driver/trips/:id/eod
+func (h *Handler) GetEODSession(c *gin.Context) {
+	tripID, err := uuid.Parse(c.Param("id"))
+	if err != nil {
+		response.BadRequest(c, "Invalid trip ID")
+		return
+	}
+	userID := middleware.GetUserID(c)
+	session, err := h.svc.GetEODSession(c.Request.Context(), userID, tripID)
+	if err != nil {
+		response.NotFound(c, err.Error())
+		return
+	}
+	response.OK(c, session)
+}
+
+// POST /v1/driver/trips/:id/eod/checkpoint/:cpType/submit
+func (h *Handler) SubmitCheckpointDriver(c *gin.Context) {
+	tripID, err := uuid.Parse(c.Param("id"))
+	if err != nil {
+		response.BadRequest(c, "Invalid trip ID")
+		return
+	}
+	cpType := c.Param("cpType")
+
+	var req SubmitCheckpointRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		response.BadRequest(c, "Dữ liệu checkpoint không hợp lệ")
+		return
+	}
+	userID := middleware.GetUserID(c)
+	cp, err := h.svc.SubmitCheckpoint(c.Request.Context(), userID, tripID, cpType, req)
+	if err != nil {
+		response.Err(c, http.StatusBadRequest, "SUBMIT_CHECKPOINT_FAILED", err.Error())
+		return
+	}
+	response.OK(c, cp)
+}
+
+// GET /v1/eod/pending/:cpType
+func (h *Handler) GetPendingCheckpoints(c *gin.Context) {
+	cpType := c.Param("cpType")
+	cps, err := h.svc.GetPendingCheckpointsByType(c.Request.Context(), cpType)
+	if err != nil {
+		response.InternalError(c)
+		return
+	}
+	response.OK(c, cps)
+}
+
+// POST /v1/eod/checkpoint/:checkpointId/confirm
+func (h *Handler) ConfirmCheckpointReceiver(c *gin.Context) {
+	checkpointID, err := uuid.Parse(c.Param("checkpointId"))
+	if err != nil {
+		response.BadRequest(c, "Invalid checkpoint ID")
+		return
+	}
+	var req ConfirmCheckpointRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		response.BadRequest(c, "Dữ liệu xác nhận không hợp lệ")
+		return
+	}
+	userID := middleware.GetUserID(c)
+	userName := c.GetString("user_name")
+	if userName == "" {
+		userName = "Người nhận"
+	}
+	cp, err := h.svc.ConfirmCheckpoint(c.Request.Context(), userID, checkpointID, userName, req)
+	if err != nil {
+		response.Err(c, http.StatusBadRequest, "CONFIRM_CHECKPOINT_FAILED", err.Error())
+		return
+	}
+	response.OK(c, cp)
+}
+
+// POST /v1/eod/checkpoint/:checkpointId/reject
+func (h *Handler) RejectCheckpointReceiver(c *gin.Context) {
+	checkpointID, err := uuid.Parse(c.Param("checkpointId"))
+	if err != nil {
+		response.BadRequest(c, "Invalid checkpoint ID")
+		return
+	}
+	var req RejectCheckpointRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		response.BadRequest(c, "Vui lòng nhập lý do từ chối")
+		return
+	}
+	userID := middleware.GetUserID(c)
+	cp, err := h.svc.RejectCheckpoint(c.Request.Context(), userID, checkpointID, req)
+	if err != nil {
+		response.Err(c, http.StatusBadRequest, "REJECT_CHECKPOINT_FAILED", err.Error())
+		return
+	}
+	response.OK(c, cp)
 }

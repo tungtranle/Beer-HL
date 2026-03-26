@@ -3,7 +3,9 @@ package admin
 import (
 	"net/http"
 	"strconv"
+	"time"
 
+	"bhl-oms/internal/domain"
 	"bhl-oms/internal/middleware"
 	"bhl-oms/pkg/logger"
 	"bhl-oms/pkg/response"
@@ -35,6 +37,18 @@ func (h *Handler) RegisterRoutes(r *gin.RouterGroup) {
 
 	admin.GET("/roles", h.ListRoles)
 
+	// RBAC permissions
+	admin.GET("/permissions", h.GetPermissions)
+	admin.PUT("/permissions", h.UpdatePermission)
+	users.GET("/:id/overrides", h.GetUserOverrides)
+	users.POST("/:id/overrides", h.CreateUserOverride)
+	users.DELETE("/:id/overrides/:oid", h.DeleteUserOverride)
+
+	// Sessions
+	admin.GET("/sessions", h.ListSessions)
+	admin.DELETE("/sessions/:id", h.RevokeSession)
+	users.DELETE("/:id/sessions", h.RevokeAllUserSessions)
+
 	// System configs
 	admin.GET("/configs", h.ListConfigs)
 	admin.PUT("/configs", h.UpdateConfigs)
@@ -48,6 +62,7 @@ func (h *Handler) RegisterRoutes(r *gin.RouterGroup) {
 
 	// Audit log
 	admin.GET("/audit-logs", h.ListAuditLogs)
+	admin.GET("/audit-logs/:id/diff", h.GetAuditLogDiff)
 
 	// Credit limit expiry check
 	admin.GET("/credit-limits/expiring", h.ListExpiringCreditLimits)
@@ -366,7 +381,8 @@ func (h *Handler) UpdateCreditLimit(c *gin.Context) {
 		return
 	}
 
-	limit, err := h.svc.UpdateCreditLimit(c.Request.Context(), id, req.CreditLimit, req.EffectiveTo)
+	limit, err := h.svc.UpdateCreditLimit(c.Request.Context(), id, req.CreditLimit, req.EffectiveTo,
+		c.GetString("user_id"), c.GetString("full_name"))
 	if err != nil {
 		h.log.Error(c.Request.Context(), "update_credit_limit_failed", err)
 		response.Err(c, http.StatusBadRequest, "CREDIT_LIMIT_UPDATE_FAILED", err.Error())
@@ -515,4 +531,205 @@ func (h *Handler) SystemHealth(c *gin.Context) {
 		return
 	}
 	response.OK(c, health)
+}
+
+// ──── RBAC Endpoints ────────────────────────
+
+// GET /v1/admin/permissions
+func (h *Handler) GetPermissions(c *gin.Context) {
+	matrix, err := h.svc.GetPermissionMatrix(c.Request.Context())
+	if err != nil {
+		h.log.Error(c.Request.Context(), "get_permissions_failed", err)
+		response.InternalError(c)
+		return
+	}
+	response.OK(c, matrix)
+}
+
+// PUT /v1/admin/permissions
+func (h *Handler) UpdatePermission(c *gin.Context) {
+	var body struct {
+		Role     string `json:"role" binding:"required"`
+		Resource string `json:"resource" binding:"required"`
+		Action   string `json:"action" binding:"required"`
+		Scope    string `json:"scope"`
+		Allowed  bool   `json:"allowed"`
+	}
+	if err := c.ShouldBindJSON(&body); err != nil {
+		response.BadRequest(c, err.Error())
+		return
+	}
+	if body.Scope == "" {
+		body.Scope = "all"
+	}
+
+	actorID := middleware.GetUserID(c)
+	actorName := middleware.GetFullName(c)
+
+	if err := h.svc.UpdateRolePermission(c.Request.Context(), body.Role, body.Resource, body.Action, body.Scope, body.Allowed, actorID, actorName); err != nil {
+		h.log.Error(c.Request.Context(), "update_permission_failed", err)
+		response.InternalError(c)
+		return
+	}
+	response.OK(c, gin.H{"message": "Đã cập nhật quyền"})
+}
+
+// GET /v1/admin/users/:id/overrides
+func (h *Handler) GetUserOverrides(c *gin.Context) {
+	id, err := uuid.Parse(c.Param("id"))
+	if err != nil {
+		response.BadRequest(c, "ID không hợp lệ")
+		return
+	}
+	overrides, err := h.svc.GetUserOverrides(c.Request.Context(), id)
+	if err != nil {
+		response.InternalError(c)
+		return
+	}
+	if overrides == nil {
+		overrides = []domain.UserPermissionOverride{}
+	}
+	response.OK(c, overrides)
+}
+
+// POST /v1/admin/users/:id/overrides
+func (h *Handler) CreateUserOverride(c *gin.Context) {
+	userID, err := uuid.Parse(c.Param("id"))
+	if err != nil {
+		response.BadRequest(c, "ID không hợp lệ")
+		return
+	}
+	var body struct {
+		Resource  string  `json:"resource" binding:"required"`
+		Action    string  `json:"action" binding:"required"`
+		IsAllowed bool    `json:"is_allowed"`
+		Reason    *string `json:"reason"`
+		ExpiresAt *string `json:"expires_at"`
+	}
+	if err := c.ShouldBindJSON(&body); err != nil {
+		response.BadRequest(c, err.Error())
+		return
+	}
+
+	actorID := middleware.GetUserID(c)
+	actorName := middleware.GetFullName(c)
+
+	override := domain.UserPermissionOverride{
+		UserID:    userID,
+		Resource:  body.Resource,
+		Action:    body.Action,
+		IsAllowed: body.IsAllowed,
+		Reason:    body.Reason,
+		GrantedBy: &actorID,
+	}
+
+	if body.ExpiresAt != nil && *body.ExpiresAt != "" {
+		t, err := time.Parse(time.RFC3339, *body.ExpiresAt)
+		if err != nil {
+			response.BadRequest(c, "expires_at phải có định dạng RFC3339")
+			return
+		}
+		override.ExpiresAt = &t
+	}
+
+	if err := h.svc.CreateUserOverride(c.Request.Context(), override, actorName); err != nil {
+		h.log.Error(c.Request.Context(), "create_override_failed", err)
+		response.InternalError(c)
+		return
+	}
+	response.OK(c, gin.H{"message": "Đã tạo override"})
+}
+
+// DELETE /v1/admin/users/:id/overrides/:oid
+func (h *Handler) DeleteUserOverride(c *gin.Context) {
+	oid, err := uuid.Parse(c.Param("oid"))
+	if err != nil {
+		response.BadRequest(c, "Override ID không hợp lệ")
+		return
+	}
+	actorID := middleware.GetUserID(c)
+	actorName := middleware.GetFullName(c)
+
+	if err := h.svc.DeleteUserOverride(c.Request.Context(), oid, actorID, actorName); err != nil {
+		response.NotFound(c, "Override không tìm thấy")
+		return
+	}
+	response.OK(c, gin.H{"message": "Đã xóa override"})
+}
+
+// ──── Session Endpoints ─────────────────────
+
+// GET /v1/admin/sessions
+func (h *Handler) ListSessions(c *gin.Context) {
+	var userID *uuid.UUID
+	if uidStr := c.Query("user_id"); uidStr != "" {
+		uid, err := uuid.Parse(uidStr)
+		if err != nil {
+			response.BadRequest(c, "user_id không hợp lệ")
+			return
+		}
+		userID = &uid
+	}
+
+	sessions, err := h.svc.ListActiveSessions(c.Request.Context(), userID)
+	if err != nil {
+		response.InternalError(c)
+		return
+	}
+	if sessions == nil {
+		sessions = []domain.ActiveSession{}
+	}
+	response.OK(c, sessions)
+}
+
+// DELETE /v1/admin/sessions/:id
+func (h *Handler) RevokeSession(c *gin.Context) {
+	sessionID, err := uuid.Parse(c.Param("id"))
+	if err != nil {
+		response.BadRequest(c, "Session ID không hợp lệ")
+		return
+	}
+	actorID := middleware.GetUserID(c)
+	actorName := middleware.GetFullName(c)
+
+	if err := h.svc.RevokeSession(c.Request.Context(), sessionID, actorID, actorName); err != nil {
+		response.NotFound(c, "Phiên không tìm thấy hoặc đã bị thu hồi")
+		return
+	}
+	response.OK(c, gin.H{"message": "Đã thu hồi phiên"})
+}
+
+// DELETE /v1/admin/users/:id/sessions
+func (h *Handler) RevokeAllUserSessions(c *gin.Context) {
+	userID, err := uuid.Parse(c.Param("id"))
+	if err != nil {
+		response.BadRequest(c, "User ID không hợp lệ")
+		return
+	}
+	actorID := middleware.GetUserID(c)
+	actorName := middleware.GetFullName(c)
+
+	count, err := h.svc.RevokeAllUserSessions(c.Request.Context(), userID, actorID, actorName)
+	if err != nil {
+		response.InternalError(c)
+		return
+	}
+	response.OK(c, gin.H{"message": "Đã thu hồi phiên", "count": count})
+}
+
+// ──── Audit Log Endpoints ───────────────────
+
+// GET /v1/admin/audit-logs/:id/diff
+func (h *Handler) GetAuditLogDiff(c *gin.Context) {
+	id, err := uuid.Parse(c.Param("id"))
+	if err != nil {
+		response.BadRequest(c, "ID không hợp lệ")
+		return
+	}
+	event, err := h.svc.GetAuditLogDiff(c.Request.Context(), id)
+	if err != nil {
+		response.NotFound(c, "Không tìm thấy audit log")
+		return
+	}
+	response.OK(c, event)
 }

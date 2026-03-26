@@ -62,6 +62,29 @@ func (s *Service) SendWithPriority(ctx context.Context, userID uuid.UUID, title,
 	return nil
 }
 
+// SendWithActions creates a notification with priority, entity reference, actions, and group key.
+func (s *Service) SendWithActions(ctx context.Context, userID uuid.UUID, title, body, category, priority string, link *string, entityType *string, entityID *uuid.UUID, actions json.RawMessage, groupKey *string) error {
+	n := &domain.Notification{
+		UserID:     userID,
+		Title:      title,
+		Body:       body,
+		Category:   category,
+		Priority:   priority,
+		Link:       link,
+		EntityType: entityType,
+		EntityID:   entityID,
+		Actions:    actions,
+		GroupKey:   groupKey,
+	}
+
+	if err := s.repo.Create(ctx, n); err != nil {
+		return err
+	}
+
+	s.hub.SendToUser(userID, n)
+	return nil
+}
+
 // SendToRole sends a notification to all users with the given role.
 func (s *Service) SendToRole(ctx context.Context, role, title, body, category string, link *string) error {
 	ids, err := s.repo.GetUserIDsByRole(ctx, role)
@@ -105,6 +128,20 @@ func (s *Service) MarkAllRead(ctx context.Context, userID uuid.UUID) (int64, err
 
 func (s *Service) UnreadCount(ctx context.Context, userID uuid.UUID) (int64, error) {
 	return s.repo.UnreadCount(ctx, userID)
+}
+
+func (s *Service) GetGroupedNotifications(ctx context.Context, userID uuid.UUID, limit int) ([]domain.NotificationGroup, error) {
+	if limit <= 0 || limit > 100 {
+		limit = 50
+	}
+	return s.repo.GetGrouped(ctx, userID, limit)
+}
+
+func (s *Service) GetByCategory(ctx context.Context, userID uuid.UUID, category string, limit int) ([]domain.Notification, error) {
+	if limit <= 0 || limit > 100 {
+		limit = 50
+	}
+	return s.repo.GetByCategory(ctx, userID, category, limit)
 }
 
 // ── WebSocket Hub for Notifications ─────────────────
@@ -160,6 +197,31 @@ func (h *Hub) SendToUser(userID uuid.UUID, n *domain.Notification) {
 		case ch <- data:
 		default:
 			// channel full, skip
+		}
+	}
+}
+
+// BroadcastEntityUpdate sends an entity change to ALL connected WebSocket clients.
+// Enables real-time UI refresh when any entity (order, trip, handover) changes status.
+func (h *Hub) BroadcastEntityUpdate(entityType string, entityID uuid.UUID, newStatus string) {
+	data, err := json.Marshal(map[string]interface{}{
+		"type":        "entity_update",
+		"entity_type": entityType,
+		"entity_id":   entityID.String(),
+		"new_status":  newStatus,
+	})
+	if err != nil {
+		return
+	}
+
+	h.mu.RLock()
+	defer h.mu.RUnlock()
+	for _, channels := range h.clients {
+		for _, ch := range channels {
+			select {
+			case ch <- data:
+			default:
+			}
 		}
 	}
 }

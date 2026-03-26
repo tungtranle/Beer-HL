@@ -33,7 +33,7 @@ export default function AdminSettingsPage() {
   const [users, setUsers] = useState<UserItem[]>([])
   const [roles, setRoles] = useState<RoleItem[]>([])
   const [loading, setLoading] = useState(true)
-  const [tab, setTab] = useState<'users' | 'roles'>('users')
+  const [tab, setTab] = useState<'users' | 'roles' | 'sessions'>('users')
   const [filterRole, setFilterRole] = useState('')
   const [search, setSearch] = useState('')
 
@@ -49,6 +49,14 @@ export default function AdminSettingsPage() {
   const [resetUserId, setResetUserId] = useState('')
   const [resetUserName, setResetUserName] = useState('')
   const [newPassword, setNewPassword] = useState('')
+
+  // Sessions
+  interface SessionItem {
+    id: string; user_id: string; user_name: string; role: string
+    ip_address: string; user_agent: string; last_active: string; created_at: string
+  }
+  const [sessions, setSessions] = useState<SessionItem[]>([])
+  const [sessionsLoading, setSessionsLoading] = useState(false)
 
   useEffect(() => {
     if (user?.role !== 'admin') {
@@ -69,6 +77,33 @@ export default function AdminSettingsPage() {
       setRoles(rolesRes.data || [])
     } catch (err) { console.error(err) }
     finally { setLoading(false) }
+  }
+
+  const loadSessions = async () => {
+    setSessionsLoading(true)
+    try {
+      const res: any = await apiFetch('/admin/sessions')
+      setSessions(res.data || [])
+    } catch (err) { console.error(err) }
+    finally { setSessionsLoading(false) }
+  }
+
+  const handleRevokeSession = async (sessionId: string) => {
+    if (!confirm('Thu hồi phiên đăng nhập này?')) return
+    try {
+      await apiFetch(`/admin/sessions/${sessionId}`, { method: 'DELETE' })
+      toast.success('Đã thu hồi phiên đăng nhập')
+      loadSessions()
+    } catch (err: any) { toast.error(err.message) }
+  }
+
+  const handleRevokeAllSessions = async (userId: string, userName: string) => {
+    if (!confirm(`Thu hồi tất cả phiên đăng nhập của "${userName}"?`)) return
+    try {
+      await apiFetch(`/admin/sessions/user/${userId}`, { method: 'DELETE' })
+      toast.success('Đã thu hồi tất cả phiên')
+      loadSessions()
+    } catch (err: any) { toast.error(err.message) }
   }
 
   const openCreateModal = () => {
@@ -170,7 +205,7 @@ export default function AdminSettingsPage() {
       </div>
 
       {/* Tabs */}
-      <div className="flex gap-2 mb-6">
+      <div className="flex gap-2 mb-6 flex-wrap">
         <button onClick={() => setTab('users')}
           className={`px-4 py-2 rounded-lg text-sm font-medium transition ${tab === 'users' ? 'bg-brand-500 text-white' : 'bg-white text-gray-600 hover:bg-gray-100'}`}>
           👤 Người dùng ({users.length})
@@ -178,6 +213,14 @@ export default function AdminSettingsPage() {
         <button onClick={() => setTab('roles')}
           className={`px-4 py-2 rounded-lg text-sm font-medium transition ${tab === 'roles' ? 'bg-brand-500 text-white' : 'bg-white text-gray-600 hover:bg-gray-100'}`}>
           🔑 Vai trò & Phân quyền
+        </button>
+        <button onClick={() => { setTab('sessions'); loadSessions() }}
+          className={`px-4 py-2 rounded-lg text-sm font-medium transition ${tab === 'sessions' ? 'bg-brand-500 text-white' : 'bg-white text-gray-600 hover:bg-gray-100'}`}>
+          🖥️ Phiên đăng nhập
+        </button>
+        <button onClick={() => router.push('/dashboard/settings/permissions')}
+          className="px-4 py-2 rounded-lg text-sm font-medium bg-white text-gray-600 hover:bg-gray-100 transition border border-dashed border-gray-300">
+          🔐 Ma trận phân quyền →
         </button>
       </div>
 
@@ -289,6 +332,64 @@ export default function AdminSettingsPage() {
               </div>
             ))}
           </div>
+        </div>
+      )}
+
+      {tab === 'sessions' && (
+        <div>
+          {sessionsLoading ? (
+            <div className="flex items-center justify-center h-32">
+              <div className="animate-spin w-6 h-6 border-4 border-[#F68634] border-t-transparent rounded-full" />
+            </div>
+          ) : sessions.length === 0 ? (
+            <div className="text-center py-12 text-gray-400">Không có phiên đăng nhập nào</div>
+          ) : (
+            <div className="bg-white rounded-xl shadow-sm overflow-hidden">
+              <table className="w-full text-sm">
+                <thead className="bg-gray-50">
+                  <tr>
+                    <th className="text-left py-3 px-4">Người dùng</th>
+                    <th className="text-left py-3 px-4">Vai trò</th>
+                    <th className="text-left py-3 px-4">IP</th>
+                    <th className="text-left py-3 px-4">Thiết bị</th>
+                    <th className="text-left py-3 px-4">Hoạt động gần nhất</th>
+                    <th className="text-center py-3 px-4">Thao tác</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {sessions.map(s => {
+                    const isRecent = Date.now() - new Date(s.last_active).getTime() < 300000
+                    return (
+                      <tr key={s.id} className="border-t hover:bg-gray-50">
+                        <td className="py-3 px-4 font-medium">{s.user_name}</td>
+                        <td className="py-3 px-4">
+                          <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${roleColors[s.role] || 'bg-gray-100'}`}>
+                            {roleLabels[s.role] || s.role}
+                          </span>
+                        </td>
+                        <td className="py-3 px-4 font-mono text-xs text-gray-500">{s.ip_address}</td>
+                        <td className="py-3 px-4 text-xs text-gray-500 max-w-[200px] truncate" title={s.user_agent}>{s.user_agent}</td>
+                        <td className="py-3 px-4">
+                          <div className="flex items-center gap-2">
+                            <span className={`w-2 h-2 rounded-full ${isRecent ? 'bg-green-500' : 'bg-gray-300'}`} />
+                            <span className="text-xs text-gray-500">{new Date(s.last_active).toLocaleString('vi-VN')}</span>
+                          </div>
+                        </td>
+                        <td className="py-3 px-4 text-center">
+                          <div className="flex justify-center gap-2">
+                            <button onClick={() => handleRevokeSession(s.id)}
+                              className="text-red-600 hover:text-red-800 text-xs">🔒 Thu hồi</button>
+                            <button onClick={() => handleRevokeAllSessions(s.user_id, s.user_name)}
+                              className="text-orange-600 hover:text-orange-800 text-xs">⚡ Tất cả</button>
+                          </div>
+                        </td>
+                      </tr>
+                    )
+                  })}
+                </tbody>
+              </table>
+            </div>
+          )}
         </div>
       )}
 

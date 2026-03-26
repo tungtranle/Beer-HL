@@ -93,7 +93,7 @@ function TripDetailModal({ trip, tripIdx, vehicles, warehouse, onClose }: {
         })
         L.marker([stop.latitude, stop.longitude], { icon })
           .addTo(map)
-          .bindPopup(`<b>#${i + 1} ${stop.customer_name}</b><br/>${stop.customer_address || ''}<br/>Tải tích lũy: ${stop.cumulative_load_kg?.toFixed(0)} kg`)
+          .bindPopup(`<b>#${i + 1} ${stop.customer_name}</b>${(stop.consolidated_ids?.length ?? 0) > 1 ? ` <span style="background:#f3e8ff;color:#7e22ce;padding:1px 4px;border-radius:3px;font-size:10px">📦×${stop.consolidated_ids!.length}</span>` : ''}${stop.is_split ? ` <span style="background:#fff7ed;color:#c2410c;padding:1px 4px;border-radius:3px;font-size:10px">✂️${stop.split_part}/${stop.split_total}</span>` : ''}<br/>${stop.customer_address || ''}<br/>${stop.weight_kg ? `⚖️ ${stop.weight_kg.toFixed(1)} kg` : ''} Tích lũy: ${stop.cumulative_load_kg?.toFixed(0)} kg`)
         waypoints.push([stop.latitude, stop.longitude])
       })
 
@@ -218,11 +218,20 @@ function TripDetailModal({ trip, tripIdx, vehicles, warehouse, onClose }: {
                         {i + 1}
                       </div>
                       <div className="flex-1 min-w-0">
-                        <div className="font-medium text-sm">{stop.customer_name}</div>
+                        <div className="font-medium text-sm flex items-center gap-1.5">
+                          {stop.customer_name}
+                          {stop.consolidated_ids && stop.consolidated_ids.length > 1 && (
+                            <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-semibold bg-purple-100 text-purple-700" title={`Ghép ${stop.consolidated_ids.length} đơn cùng NPP`}>📦×{stop.consolidated_ids.length}</span>
+                          )}
+                          {stop.is_split && (
+                            <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-semibold bg-orange-100 text-orange-700" title={`Tách đơn: phần ${stop.split_part}/${stop.split_total}`}>✂️ {stop.split_part}/{stop.split_total}</span>
+                          )}
+                        </div>
                         <div className="text-xs text-gray-500 mt-0.5">{stop.customer_address || 'Chưa có địa chỉ'}</div>
                         <div className="flex flex-wrap gap-x-4 gap-y-1 mt-2 text-xs">
                           <span className="text-gray-600">
-                            ⚖️ <strong>{stop.weight_kg?.toFixed(1)} kg</strong>
+                            ⚖️ <strong>{stop.weight_kg?.toFixed(1) || '—'} kg</strong>
+                            {stop.is_split && stop.original_weight_kg ? <span className="text-gray-400 ml-1">(gốc: {stop.original_weight_kg.toFixed(0)} kg)</span> : null}
                           </span>
                           <span className="text-gray-400">
                             Tích lũy: {stop.cumulative_load_kg?.toFixed(0)} kg
@@ -470,6 +479,7 @@ interface PendingDate {
 interface VRPStop {
   stop_order: number; shipment_id: string; customer_name: string
   customer_id: string; customer_address: string; latitude: number; longitude: number; cumulative_load_kg: number
+  weight_kg?: number; consolidated_ids?: string[]; is_split?: boolean; split_part?: number; split_total?: number; original_weight_kg?: number
 }
 interface VRPTrip {
   vehicle_id: string; plate_number?: string; vehicle_type?: string
@@ -480,7 +490,7 @@ interface VRPSummary {
   total_trips: number; total_vehicles: number; total_shipments_assigned: number
   total_unassigned: number; total_distance_km: number; total_duration_min: number
   total_weight_kg: number; avg_capacity_util_pct: number; avg_stops_per_trip: number
-  solve_time_ms: number
+  solve_time_ms: number; consolidated_stops?: number; split_deliveries?: number
 }
 interface VRPResult {
   job_id: string; status: string; solve_time_ms: number
@@ -548,6 +558,18 @@ export default function PlanningPage() {
   const [planMode, setPlanMode] = useState<'vrp' | 'manual'>('vrp')
   const [manualAssign, setManualAssign] = useState<Record<string, string[]>>({}) // vehicleId → shipmentId[]
   const [poolSort, setPoolSort] = useState<'default' | 'region' | 'weight-desc' | 'weight-asc' | 'urgent' | 'customer'>('default')
+
+  // VRP criteria with priority ordering (index = priority, lower = higher priority)
+  const [criteriaOrder, setCriteriaOrder] = useState([
+    { key: 'max_capacity', icon: '⚖️', color: 'text-blue-500', label: 'Tải trọng tối đa', desc: 'Không vượt capacity xe', enabled: true },
+    { key: 'min_vehicles', icon: '🚛', color: 'text-red-500', label: 'Tối thiểu số xe', desc: 'Dùng ít xe nhất có thể', enabled: true },
+    { key: 'cluster_region', icon: '📍', color: 'text-teal-500', label: 'Gom nhóm theo vùng', desc: 'Gom điểm gần nhau cùng xe', enabled: true },
+    { key: 'min_distance', icon: '📏', color: 'text-amber-500', label: 'Tối thiểu quãng đường', desc: 'Giảm tổng km di chuyển', enabled: true },
+    { key: 'round_trip', icon: '🔄', color: 'text-purple-500', label: 'Khứ hồi về kho', desc: 'Kho → điểm giao → về kho', enabled: true },
+    { key: 'time_limit', icon: '⏱', color: 'text-green-500', label: 'Giới hạn thời gian/chuyến', desc: 'Thời gian lái + giao hàng', enabled: true },
+  ])
+  const [maxTripHours, setMaxTripHours] = useState(8)
+  const [dragIdx, setDragIdx] = useState<number | null>(null)
 
   // ─── Init ──────────────────────────────────────────
   useEffect(() => {
@@ -664,12 +686,27 @@ export default function PlanningPage() {
     try {
       const vehicleIdsToSend = Array.from(selectedVehicleIds)
 
+      // Build criteria priorities from ordered list
+      const critMap: Record<string, number> = {}
+      criteriaOrder.forEach((c, idx) => {
+        critMap[c.key] = c.enabled ? idx + 1 : 0
+      })
+
       const res: any = await apiFetch('/planning/run-vrp', {
         method: 'POST',
         body: {
           warehouse_id: warehouseId,
           delivery_date: deliveryDate,
           vehicle_ids: vehicleIdsToSend,
+          criteria: {
+            max_capacity: critMap['max_capacity'] || 0,
+            min_vehicles: critMap['min_vehicles'] || 0,
+            cluster_region: critMap['cluster_region'] || 0,
+            min_distance: critMap['min_distance'] || 0,
+            round_trip: critMap['round_trip'] || 0,
+            time_limit: critMap['time_limit'] || 0,
+            max_trip_minutes: maxTripHours * 60,
+          },
         },
       })
       const jid = res.data?.job_id
@@ -1558,34 +1595,57 @@ export default function PlanningPage() {
                 tối ưu quãng đường và tải trọng.
               </p>
 
-              {/* VRP Optimization Criteria */}
+              {/* VRP Optimization Criteria — Drag to reorder priorities */}
               <div className="bg-gray-50 rounded-xl p-4 mb-6 text-left max-w-lg mx-auto">
-                <h3 className="font-semibold text-gray-700 text-sm mb-3">⚙️ Tiêu chí tối ưu tuyến đường</h3>
-                <div className="grid grid-cols-2 gap-2 text-xs">
-                  <div className="flex items-center gap-2 p-2 bg-white rounded-lg">
-                    <span className="text-amber-500">📏</span>
-                    <div><div className="font-medium text-gray-700">Tối thiểu quãng đường</div><div className="text-gray-400">Giảm tổng km di chuyển</div></div>
-                  </div>
-                  <div className="flex items-center gap-2 p-2 bg-white rounded-lg">
-                    <span className="text-blue-500">⚖️</span>
-                    <div><div className="font-medium text-gray-700">Tải trọng tối đa</div><div className="text-gray-400">Không vượt capacity xe</div></div>
-                  </div>
-                  <div className="flex items-center gap-2 p-2 bg-white rounded-lg">
-                    <span className="text-green-500">⏱</span>
-                    <div><div className="font-medium text-gray-700">Giới hạn 8h/chuyến</div><div className="text-gray-400">Thời gian lái + giao hàng</div></div>
-                  </div>
-                  <div className="flex items-center gap-2 p-2 bg-white rounded-lg">
-                    <span className="text-purple-500">🔄</span>
-                    <div><div className="font-medium text-gray-700">Khứ hồi về kho</div><div className="text-gray-400">Kho → điểm giao → về kho</div></div>
-                  </div>
-                  <div className="flex items-center gap-2 p-2 bg-white rounded-lg">
-                    <span className="text-red-500">🚛</span>
-                    <div><div className="font-medium text-gray-700">Tối thiểu số xe</div><div className="text-gray-400">Dùng ít xe nhất có thể</div></div>
-                  </div>
-                  <div className="flex items-center gap-2 p-2 bg-white rounded-lg">
-                    <span className="text-teal-500">📍</span>
-                    <div><div className="font-medium text-gray-700">Gom nhóm theo vùng</div><div className="text-gray-400">Gom điểm gần nhau cùng xe</div></div>
-                  </div>
+                <h3 className="font-semibold text-gray-700 text-sm mb-1">⚙️ Tiêu chí tối ưu tuyến đường</h3>
+                <p className="text-[11px] text-gray-400 mb-3">Kéo ↕ để thay đổi thứ tự ưu tiên · Bấm để bật/tắt · Số 1 = ưu tiên cao nhất</p>
+                <div className="space-y-1.5 text-xs">
+                  {criteriaOrder.map((c, idx) => (
+                    <div key={c.key}
+                      draggable
+                      onDragStart={() => setDragIdx(idx)}
+                      onDragOver={(e) => { e.preventDefault() }}
+                      onDrop={() => {
+                        if (dragIdx === null || dragIdx === idx) return
+                        setCriteriaOrder(prev => {
+                          const next = [...prev]
+                          const [moved] = next.splice(dragIdx, 1)
+                          next.splice(idx, 0, moved)
+                          return next
+                        })
+                        setDragIdx(null)
+                      }}
+                      onDragEnd={() => setDragIdx(null)}
+                      className={`flex items-center gap-2 p-2.5 rounded-lg border transition-all cursor-grab active:cursor-grabbing select-none ${
+                        c.enabled
+                          ? 'bg-white border-amber-300 ring-1 ring-amber-200'
+                          : 'bg-gray-100 border-gray-200 opacity-50'
+                      } ${dragIdx === idx ? 'ring-2 ring-blue-400 shadow-lg scale-[1.02]' : ''}`}>
+                      <span className="text-gray-300 text-lg">⠿</span>
+                      <span className={`w-6 h-6 rounded-full flex items-center justify-center text-[11px] font-bold ${
+                        c.enabled ? 'bg-amber-500 text-white' : 'bg-gray-300 text-gray-500'
+                      }`}>{c.enabled ? idx + 1 : '–'}</span>
+                      <span className={c.color}>{c.icon}</span>
+                      <div className="flex-1 min-w-0">
+                        <div className="font-medium text-gray-700">{c.label}</div>
+                        <div className="text-gray-400">{c.desc}</div>
+                      </div>
+                      {c.key === 'time_limit' && c.enabled && (
+                        <div className="flex items-center gap-1 mr-1" onClick={e => e.stopPropagation()}>
+                          <button type="button" className="w-6 h-6 rounded bg-gray-200 hover:bg-gray-300 text-sm font-bold"
+                            onClick={(e) => { e.stopPropagation(); setMaxTripHours(h => Math.max(2, h - 1)) }}>-</button>
+                          <span className="font-bold text-blue-700 w-8 text-center">{maxTripHours}h</span>
+                          <button type="button" className="w-6 h-6 rounded bg-gray-200 hover:bg-gray-300 text-sm font-bold"
+                            onClick={(e) => { e.stopPropagation(); setMaxTripHours(h => Math.min(24, h + 1)) }}>+</button>
+                        </div>
+                      )}
+                      <button type="button"
+                        onClick={() => setCriteriaOrder(prev => prev.map((cc, i) => i === idx ? { ...cc, enabled: !cc.enabled } : cc))}
+                        className={`w-7 h-7 rounded flex items-center justify-center text-[11px] transition ${
+                          c.enabled ? 'bg-green-500 text-white hover:bg-red-400' : 'bg-gray-200 text-gray-400 hover:bg-green-400 hover:text-white'
+                        }`}>{c.enabled ? '✓' : '✗'}</button>
+                    </div>
+                  ))}
                 </div>
                 {(() => {
                   const availDrivers = driverCheckins.filter((d: any) => d.checkin_status === 'available' || d.status === 'available').length || drivers.length
@@ -1701,22 +1761,210 @@ export default function PlanningPage() {
                       const vehicle = vehicles.find(v => v.id === trip.vehicle_id)
                       const cap = vehicle?.capacity_kg || 15000
                       const pct = Math.min((trip.total_weight_kg / cap) * 100, 100)
-                      const barColor = pct > 90 ? 'bg-red-500' : pct > 70 ? 'bg-amber-500' : 'bg-green-500'
+                      const overload = trip.total_weight_kg > cap
+                      const barColor = overload ? 'bg-red-500' : pct > 90 ? 'bg-red-500' : pct > 70 ? 'bg-amber-500' : 'bg-green-500'
                       return (
                         <div key={idx} className="flex items-center gap-3 text-xs cursor-pointer hover:bg-white/80 rounded p-0.5 transition"
                           onClick={() => setSelectedTripIdx(idx)} title="Bấm để xem chi tiết chuyến">
                           <span className="w-28 truncate font-medium">{trip.plate_number || `Xe ${idx + 1}`}</span>
                           <div className="flex-1 bg-gray-200 rounded-full h-4 relative overflow-hidden">
-                            <div className={`${barColor} h-full rounded-full transition-all duration-500`} style={{ width: `${pct}%` }} />
+                            <div className={`${barColor} h-full rounded-full transition-all duration-500`} style={{ width: `${Math.min(pct, 100)}%` }} />
                             <span className="absolute inset-0 flex items-center justify-center text-[10px] font-bold text-gray-700">
                               {trip.total_weight_kg?.toFixed(0)} / {cap?.toFixed(0)} kg ({pct.toFixed(0)}%)
                             </span>
                           </div>
-                          <span className="w-24 text-right text-gray-500">{trip.stops.length} điểm · {trip.total_distance_km?.toFixed(1)}km</span>
+                          <span className="w-28 text-right text-gray-500">{trip.stops.length} điểm · {trip.total_distance_km?.toFixed(1)}km</span>
                           <span className="text-blue-500 hover:text-blue-700">🗺️ ▸</span>
                         </div>
                       )
                     })}
+                  </div>
+                </details>
+
+                {/* VRP Quality Assessment */}
+                <details className="mt-4 bg-white rounded-xl shadow-sm border border-blue-200" open>
+                  <summary className="text-sm font-bold text-blue-700 bg-blue-50 rounded-t-xl px-4 py-3 cursor-pointer hover:bg-blue-100 transition list-none flex items-center gap-2">
+                    <span>📊</span> Đánh giá chất lượng VRP
+                  </summary>
+                  <div className="p-4 space-y-3 text-sm">
+                    {(() => {
+                      const trips = vrpResult.trips
+                      const totalAssigned = vrpResult.summary?.total_shipments_assigned || trips.reduce((s, t) => s + t.stops.length, 0)
+                      const totalUnassigned = vrpResult.unassigned_shipments?.length || 0
+                      const assignRate = totalAssigned / (totalAssigned + totalUnassigned) * 100
+                      const avgUtil = vrpResult.summary?.avg_capacity_util_pct || 0
+                      const avgStops = vrpResult.summary?.avg_stops_per_trip || 0
+                      const totalDist = vrpResult.summary?.total_distance_km || 0
+                      const distPerStop = totalAssigned > 0 ? totalDist / totalAssigned : 0
+                      const overloadedTrips = trips.filter(t => {
+                        const v = vehicles.find(vv => vv.id === t.vehicle_id)
+                        return t.total_weight_kg > (v?.capacity_kg || 15000)
+                      }).length
+                      const underutilTrips = trips.filter(t => {
+                        const v = vehicles.find(vv => vv.id === t.vehicle_id)
+                        return t.total_weight_kg / (v?.capacity_kg || 15000) < 0.3
+                      }).length
+                      const tripsOver8h = trips.filter(t => t.total_duration_min > 480).length
+                      const avgDistPerTrip = trips.length > 0 ? totalDist / trips.length : 0
+                      const maxDistTrip = Math.max(...trips.map(t => t.total_distance_km || 0))
+
+                      // Compute per-vehicle-type stats
+                      const typeStats: Record<string, { count: number; totalWeight: number; totalCap: number; stops: number }> = {}
+                      trips.forEach(t => {
+                        const v = vehicles.find(vv => vv.id === t.vehicle_id)
+                        const vtype = v?.vehicle_type || 'unknown'
+                        if (!typeStats[vtype]) typeStats[vtype] = { count: 0, totalWeight: 0, totalCap: 0, stops: 0 }
+                        typeStats[vtype].count++
+                        typeStats[vtype].totalWeight += t.total_weight_kg
+                        typeStats[vtype].totalCap += v?.capacity_kg || 15000
+                        typeStats[vtype].stops += t.stops.length
+                      })
+
+                      // Score (0-100) — 5 dimensions incl. route quality
+                      const scoreAssign = Math.min(assignRate, 100)
+                      const scoreUtil = avgUtil > 95 ? 85 : avgUtil
+                      const scoreOverload = overloadedTrips === 0 ? 100 : Math.max(0, 100 - overloadedTrips * 20)
+                      const scoreUnderutil = underutilTrips === 0 ? 100 : Math.max(0, 100 - underutilTrips * 10)
+                      const scoreRoute = tripsOver8h === 0 ? 100 : Math.max(0, 100 - tripsOver8h * 25)
+                      const overall = Math.round(scoreAssign * 0.25 + scoreUtil * 0.25 + scoreOverload * 0.15 + scoreUnderutil * 0.15 + scoreRoute * 0.2)
+                      const grade = overall >= 90 ? 'A' : overall >= 75 ? 'B' : overall >= 60 ? 'C' : 'D'
+                      const gradeColor = grade === 'A' ? 'text-green-600' : grade === 'B' ? 'text-blue-600' : grade === 'C' ? 'text-amber-600' : 'text-red-600'
+
+                      return (<>
+                        {/* Overall grade */}
+                        <div className="flex items-center gap-4 pb-3 border-b">
+                          <div className={`text-4xl font-black ${gradeColor}`}>{grade}</div>
+                          <div>
+                            <div className="font-semibold text-gray-700">Đánh giá tổng thể: {overall}/100</div>
+                            <div className="text-xs text-gray-500">
+                              {overall >= 90 ? 'Xuất sắc — Phân bổ rất tối ưu' :
+                               overall >= 75 ? 'Tốt — Có thể cải thiện nhỏ' :
+                               overall >= 60 ? 'Trung bình — Nên xem xét điều chỉnh' :
+                               'Cần cải thiện — Hãy thêm xe hoặc giảm đơn'}
+                            </div>
+                          </div>
+                        </div>
+
+                        {/* Metrics grid */}
+                        <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3">
+                          <div className="bg-gray-50 rounded-lg p-2.5">
+                            <div className="text-xs text-gray-500 mb-1">Tỷ lệ xếp được</div>
+                            <div className={`font-bold ${assignRate >= 95 ? 'text-green-600' : assignRate >= 80 ? 'text-amber-600' : 'text-red-600'}`}>
+                              {assignRate.toFixed(0)}%
+                            </div>
+                            <div className="text-[10px] text-gray-400">{totalAssigned}/{totalAssigned + totalUnassigned} đơn</div>
+                          </div>
+                          <div className="bg-gray-50 rounded-lg p-2.5">
+                            <div className="text-xs text-gray-500 mb-1">Tải trọng TB</div>
+                            <div className={`font-bold ${avgUtil >= 70 ? 'text-green-600' : avgUtil >= 50 ? 'text-amber-600' : 'text-red-600'}`}>
+                              {avgUtil.toFixed(0)}%
+                            </div>
+                            <div className="text-[10px] text-gray-400">Lý tưởng: 70-95%</div>
+                          </div>
+                          <div className="bg-gray-50 rounded-lg p-2.5">
+                            <div className="text-xs text-gray-500 mb-1">Quá tải</div>
+                            <div className={`font-bold ${overloadedTrips === 0 ? 'text-green-600' : 'text-red-600'}`}>
+                              {overloadedTrips} chuyến
+                            </div>
+                            <div className="text-[10px] text-gray-400">{overloadedTrips === 0 ? '✓ Không xe nào quá tải' : '⚠ Cần điều chỉnh!'}</div>
+                          </div>
+                          <div className="bg-gray-50 rounded-lg p-2.5">
+                            <div className="text-xs text-gray-500 mb-1">km/điểm giao TB</div>
+                            <div className={`font-bold ${distPerStop <= 20 ? 'text-green-600' : distPerStop <= 40 ? 'text-amber-600' : 'text-red-600'}`}>
+                              {distPerStop.toFixed(1)} km
+                            </div>
+                            <div className="text-[10px] text-gray-400">Càng thấp càng tối ưu</div>
+                          </div>
+                          <div className="bg-gray-50 rounded-lg p-2.5">
+                            <div className="text-xs text-gray-500 mb-1">Quá 8 giờ</div>
+                            <div className={`font-bold ${tripsOver8h === 0 ? 'text-green-600' : 'text-red-600'}`}>
+                              {tripsOver8h} chuyến
+                            </div>
+                            <div className="text-[10px] text-gray-400">{tripsOver8h === 0 ? '✓ Trong giới hạn' : '⚠ Vượt 480 phút'}</div>
+                          </div>
+                          <div className="bg-gray-50 rounded-lg p-2.5">
+                            <div className="text-xs text-gray-500 mb-1">km/chuyến TB</div>
+                            <div className={`font-bold ${avgDistPerTrip <= 150 ? 'text-green-600' : avgDistPerTrip <= 300 ? 'text-amber-600' : 'text-red-600'}`}>
+                              {avgDistPerTrip.toFixed(0)} km
+                            </div>
+                            <div className="text-[10px] text-gray-400">Giao trong ngày: &lt;200km</div>
+                          </div>
+                        </div>
+
+                        {/* Consolidation & Split stats */}
+                        {((vrpResult.summary?.consolidated_stops || 0) > 0 || (vrpResult.summary?.split_deliveries || 0) > 0) && (
+                          <div className="flex gap-3">
+                            {(vrpResult.summary?.consolidated_stops || 0) > 0 && (
+                              <div className="flex items-center gap-2 bg-purple-50 border border-purple-200 rounded-lg px-3 py-2">
+                                <span className="text-lg">📦</span>
+                                <div>
+                                  <div className="text-xs font-semibold text-purple-700">Ghép đơn: {vrpResult.summary.consolidated_stops} điểm</div>
+                                  <div className="text-[10px] text-purple-500">Cùng NPP nhiều đơn → gộp 1 điểm giao</div>
+                                </div>
+                              </div>
+                            )}
+                            {(vrpResult.summary?.split_deliveries || 0) > 0 && (
+                              <div className="flex items-center gap-2 bg-orange-50 border border-orange-200 rounded-lg px-3 py-2">
+                                <span className="text-lg">✂️</span>
+                                <div>
+                                  <div className="text-xs font-semibold text-orange-700">Tách đơn: {vrpResult.summary.split_deliveries} lần tách</div>
+                                  <div className="text-[10px] text-orange-500">Đơn quá nặng → chia giao nhiều xe</div>
+                                </div>
+                              </div>
+                            )}
+                          </div>
+                        )}
+
+                        {/* Vehicle type breakdown */}
+                        <div>
+                          <div className="text-xs font-semibold text-gray-600 mb-2">Phân bổ theo loại xe</div>
+                          <table className="w-full text-xs">
+                            <thead className="bg-gray-50">
+                              <tr>
+                                <th className="py-1.5 px-2 text-left">Loại xe</th>
+                                <th className="py-1.5 px-2 text-center">Số chuyến</th>
+                                <th className="py-1.5 px-2 text-center">Tổng tải (T)</th>
+                                <th className="py-1.5 px-2 text-center">Capacity (T)</th>
+                                <th className="py-1.5 px-2 text-center">Util %</th>
+                                <th className="py-1.5 px-2 text-center">Điểm/chuyến</th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {Object.entries(typeStats).sort((a, b) => b[1].totalCap - a[1].totalCap).map(([vtype, st]) => {
+                                const util = st.totalCap > 0 ? (st.totalWeight / st.totalCap * 100) : 0
+                                return (
+                                  <tr key={vtype} className="border-t">
+                                    <td className="py-1.5 px-2 font-medium">{vtype}</td>
+                                    <td className="py-1.5 px-2 text-center">{st.count}</td>
+                                    <td className="py-1.5 px-2 text-center">{(st.totalWeight / 1000).toFixed(1)}</td>
+                                    <td className="py-1.5 px-2 text-center">{(st.totalCap / 1000).toFixed(1)}</td>
+                                    <td className={`py-1.5 px-2 text-center font-semibold ${util >= 70 ? 'text-green-600' : util >= 50 ? 'text-amber-600' : 'text-red-600'}`}>
+                                      {util.toFixed(0)}%
+                                    </td>
+                                    <td className="py-1.5 px-2 text-center">{(st.stops / st.count).toFixed(1)}</td>
+                                  </tr>
+                                )
+                              })}
+                            </tbody>
+                          </table>
+                        </div>
+
+                        {/* Improvement suggestions */}
+                        {(overloadedTrips > 0 || underutilTrips > 2 || totalUnassigned > 0 || avgUtil < 50 || tripsOver8h > 0 || maxDistTrip > 300) && (
+                          <div className="bg-amber-50 border border-amber-200 rounded-lg p-3">
+                            <div className="text-xs font-semibold text-amber-800 mb-1.5">💡 Gợi ý cải thiện</div>
+                            <ul className="text-xs text-amber-700 space-y-1">
+                              {overloadedTrips > 0 && <li>• {overloadedTrips} chuyến quá tải — thêm xe lớn hơn hoặc giảm đơn nặng</li>}
+                              {totalUnassigned > 0 && <li>• {totalUnassigned} đơn không xếp được — cần thêm xe hoặc chia nhỏ đơn</li>}
+                              {underutilTrips > 2 && <li>• {underutilTrips} chuyến dưới 30% tải — xem xét gộp vào chuyến khác để tiết kiệm xe</li>}
+                              {avgUtil < 50 && <li>• Tải trọng TB chỉ {avgUtil.toFixed(0)}% — bớt xe để tăng hiệu suất sử dụng</li>}
+                              {tripsOver8h > 0 && <li>• {tripsOver8h} chuyến vượt 8 giờ — cần chia nhỏ vùng giao hoặc giảm điểm giao/chuyến</li>}
+                              {maxDistTrip > 300 && <li>• Chuyến xa nhất {maxDistTrip.toFixed(0)}km — xem xét gom theo vùng gần hơn</li>}
+                            </ul>
+                          </div>
+                        )}
+                      </>)
+                    })()}
                   </div>
                 </details>
 
@@ -1838,7 +2086,17 @@ export default function PlanningPage() {
                             }}
                           >
                             <td className="py-1 px-2 text-center text-gray-400">{stop.stop_order}</td>
-                            <td className="py-1 px-2">{stop.customer_name}</td>
+                            <td className="py-1 px-2">
+                              <span className="flex items-center gap-1">
+                                {stop.customer_name}
+                                {stop.consolidated_ids && stop.consolidated_ids.length > 1 && (
+                                  <span className="inline-flex items-center px-1 py-0.5 rounded text-[9px] font-semibold bg-purple-100 text-purple-700">📦×{stop.consolidated_ids.length}</span>
+                                )}
+                                {stop.is_split && (
+                                  <span className="inline-flex items-center px-1 py-0.5 rounded text-[9px] font-semibold bg-orange-100 text-orange-700">✂️{stop.split_part}/{stop.split_total}</span>
+                                )}
+                              </span>
+                            </td>
                             <td className="py-1 px-2 text-gray-500 text-xs truncate max-w-[200px]">{stop.customer_address || '—'}</td>
                             <td className="py-1 px-2 text-right">{stop.cumulative_load_kg?.toFixed(0)}</td>
                             <td className="py-1 px-2 text-center">

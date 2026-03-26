@@ -6,7 +6,9 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"math"
 	"net/http"
+	"sort"
 	"sync"
 	"time"
 
@@ -142,11 +144,23 @@ func (s *Service) ListPendingDates(ctx context.Context, warehouseID uuid.UUID) (
 	return s.repo.ListPendingDates(ctx, warehouseID)
 }
 
+// VRPCriteria configures optimization priorities and constraints.
+type VRPCriteria struct {
+	MaxCapacity    int `json:"max_capacity"`    // priority 1-6, 0=off
+	MinVehicles    int `json:"min_vehicles"`    // priority 1-6, 0=off
+	ClusterRegion  int `json:"cluster_region"`  // priority 1-6, 0=off
+	MinDistance    int `json:"min_distance"`    // priority 1-6, 0=off
+	RoundTrip      int `json:"round_trip"`      // priority 1-6, 0=off (always on internally)
+	TimeLimit      int `json:"time_limit"`      // priority 1-6, 0=off
+	MaxTripMinutes int `json:"max_trip_minutes"` // default 480 (8h)
+}
+
 type RunVRPRequest struct {
-	WarehouseID  uuid.UUID   `json:"warehouse_id"`
-	DeliveryDate string      `json:"delivery_date"`
-	ShipmentIDs  []uuid.UUID `json:"shipment_ids,omitempty"`
-	VehicleIDs   []uuid.UUID `json:"vehicle_ids,omitempty"`
+	WarehouseID  uuid.UUID    `json:"warehouse_id"`
+	DeliveryDate string       `json:"delivery_date"`
+	ShipmentIDs  []uuid.UUID  `json:"shipment_ids,omitempty"`
+	VehicleIDs   []uuid.UUID  `json:"vehicle_ids,omitempty"`
+	Criteria     *VRPCriteria `json:"criteria,omitempty"`
 }
 
 // RunVRP sends problem to VRP solver and stores result
@@ -214,8 +228,21 @@ func (s *Service) RunVRP(ctx context.Context, req RunVRPRequest) (string, error)
 	// Store job as processing
 	s.jobs.Store(jobID, &domain.VRPResult{JobID: jobID, Status: "processing"})
 
+	// Normalize criteria defaults
+	criteria := req.Criteria
+	if criteria == nil {
+		criteria = &VRPCriteria{
+			MaxCapacity: 1, MinVehicles: 2, ClusterRegion: 3,
+			MinDistance: 4, RoundTrip: 5, TimeLimit: 6,
+			MaxTripMinutes: 480,
+		}
+	}
+	if criteria.MaxTripMinutes <= 0 {
+		criteria.MaxTripMinutes = 480
+	}
+
 	// Call VRP solver asynchronously
-	go s.callVRPSolver(jobID, solverReq, shipments, vehicles)
+	go s.callVRPSolver(jobID, solverReq, shipments, vehicles, criteria)
 
 	return jobID, nil
 }
@@ -286,7 +313,7 @@ type solverResponse struct {
 	Unassigned []string `json:"unassigned"`
 }
 
-func (s *Service) callVRPSolver(jobID string, req *solverRequest, shipments []domain.Shipment, vehicles []domain.Vehicle) {
+func (s *Service) callVRPSolver(jobID string, req *solverRequest, shipments []domain.Shipment, vehicles []domain.Vehicle, criteria *VRPCriteria) {
 	body, _ := json.Marshal(req)
 
 	client := &http.Client{Timeout: 120 * time.Second}
@@ -294,7 +321,7 @@ func (s *Service) callVRPSolver(jobID string, req *solverRequest, shipments []do
 
 	if err != nil {
 		// If solver unreachable, return mock result for demo
-		result := s.buildMockResult(jobID, shipments, vehicles)
+		result := s.buildMockResult(jobID, req.Depot, shipments, vehicles, criteria)
 		s.jobs.Store(jobID, result)
 		return
 	}
@@ -303,7 +330,7 @@ func (s *Service) callVRPSolver(jobID string, req *solverRequest, shipments []do
 	respBody, _ := io.ReadAll(resp.Body)
 	var solverResp solverResponse
 	if err := json.Unmarshal(respBody, &solverResp); err != nil {
-		result := s.buildMockResult(jobID, shipments, vehicles)
+		result := s.buildMockResult(jobID, req.Depot, shipments, vehicles, criteria)
 		s.jobs.Store(jobID, result)
 		return
 	}
@@ -313,118 +340,346 @@ func (s *Service) callVRPSolver(jobID string, req *solverRequest, shipments []do
 	s.jobs.Store(jobID, result)
 }
 
-// buildMockResult creates a bin-packed assignment when VRP solver is unavailable.
-// Strategy: sort shipments by weight descending, pack into fewest vehicles possible (first-fit decreasing).
-func (s *Service) buildMockResult(jobID string, shipments []domain.Shipment, vehicles []domain.Vehicle) *domain.VRPResult {
+// haversineKm calculates distance in km between two GPS coordinates.
+func haversineKm(lat1, lon1, lat2, lon2 float64) float64 {
+	const R = 6371.0
+	dLat := (lat2 - lat1) * math.Pi / 180
+	dLon := (lon2 - lon1) * math.Pi / 180
+	a := math.Sin(dLat/2)*math.Sin(dLat/2) +
+		math.Cos(lat1*math.Pi/180)*math.Cos(lat2*math.Pi/180)*
+			math.Sin(dLon/2)*math.Sin(dLon/2)
+	c := 2 * math.Atan2(math.Sqrt(a), math.Sqrt(1-a))
+	return R * c
+}
+
+// buildMockResult implements a configurable VRP heuristic with consolidation & split delivery.
+// Phase 0: consolidate same-customer shipments into virtual nodes.
+// Phase 1: geo-cluster into sectors.
+// Phase 2: bin-pack with best-fit + split delivery when partially fitting.
+// Phase 3: nearest-neighbor ordering; expand consolidated/split stops.
+func (s *Service) buildMockResult(jobID string, depot [2]float64, shipments []domain.Shipment, vehicles []domain.Vehicle, criteria *VRPCriteria) *domain.VRPResult {
 	result := &domain.VRPResult{
 		JobID:     jobID,
 		Status:    "completed",
 		SolveTime: 500,
 	}
 
-	// Sort shipments by weight descending (first-fit decreasing bin-packing)
-	sorted := make([]domain.Shipment, len(shipments))
-	copy(sorted, shipments)
-	for i := 0; i < len(sorted)-1; i++ {
-		for j := i + 1; j < len(sorted); j++ {
-			if sorted[j].TotalWeightKg > sorted[i].TotalWeightKg {
-				sorted[i], sorted[j] = sorted[j], sorted[i]
-			}
-		}
+	const avgSpeedKmH = 40.0
+	const serviceMin = 20.0
+	const windingFactor = 1.3
+	const minSplitKg = 100.0 // don't create splits smaller than 100kg
+
+	// ── Phase 0: Consolidate same-customer shipments ────
+	type consolidatedNode struct {
+		customerID   uuid.UUID
+		customerName string
+		customerAddr string
+		lat          float64
+		lng          float64
+		totalWeight  float64
+		shipments    []domain.Shipment
 	}
 
-	// Sort vehicles by capacity descending — fill big trucks first
-	sortedVehicles := make([]domain.Vehicle, len(vehicles))
-	copy(sortedVehicles, vehicles)
-	for i := 0; i < len(sortedVehicles)-1; i++ {
-		for j := i + 1; j < len(sortedVehicles); j++ {
-			if sortedVehicles[j].CapacityKg > sortedVehicles[i].CapacityKg {
-				sortedVehicles[i], sortedVehicles[j] = sortedVehicles[j], sortedVehicles[i]
-			}
-		}
-	}
-
-	type binTrip struct {
-		vehicle    domain.Vehicle
-		shipments  []domain.Shipment
-		usedWeight float64
-	}
-
-	var bins []binTrip
-
-	for _, sh := range sorted {
-		placed := false
-		// Try to fit into existing bin
-		for i := range bins {
-			if bins[i].usedWeight+sh.TotalWeightKg <= bins[i].vehicle.CapacityKg {
-				bins[i].shipments = append(bins[i].shipments, sh)
-				bins[i].usedWeight += sh.TotalWeightKg
-				placed = true
-				break
-			}
-		}
-		if !placed {
-			// Open new bin if vehicles available
-			if len(bins) < len(sortedVehicles) {
-				bins = append(bins, binTrip{
-					vehicle:    sortedVehicles[len(bins)],
-					shipments:  []domain.Shipment{sh},
-					usedWeight: sh.TotalWeightKg,
-				})
-			} else {
-				// All vehicles full — add to least-loaded vehicle
-				minIdx := 0
-				for i := 1; i < len(bins); i++ {
-					if bins[i].usedWeight < bins[minIdx].usedWeight {
-						minIdx = i
-					}
-				}
-				bins[minIdx].shipments = append(bins[minIdx].shipments, sh)
-				bins[minIdx].usedWeight += sh.TotalWeightKg
-			}
-		}
-	}
-
-	for _, bin := range bins {
-		trip := domain.VRPTrip{
-			VehicleID:   bin.vehicle.ID,
-			PlateNumber: bin.vehicle.PlateNumber,
-			VehicleType: bin.vehicle.VehicleType,
-		}
-
-		var cumWeight float64
-		for stopIdx, sh := range bin.shipments {
-			cumWeight += sh.TotalWeightKg
-			lat := 0.0
-			lng := 0.0
+	custMap := make(map[uuid.UUID]*consolidatedNode)
+	var custOrder []uuid.UUID
+	for _, sh := range shipments {
+		node, exists := custMap[sh.CustomerID]
+		if !exists {
+			lat, lng := 0.0, 0.0
 			if sh.Latitude != nil {
 				lat = *sh.Latitude
 			}
 			if sh.Longitude != nil {
 				lng = *sh.Longitude
 			}
+			node = &consolidatedNode{
+				customerID:   sh.CustomerID,
+				customerName: sh.CustomerName,
+				customerAddr: sh.CustomerAddress,
+				lat:          lat,
+				lng:          lng,
+			}
+			custMap[sh.CustomerID] = node
+			custOrder = append(custOrder, sh.CustomerID)
+		}
+		node.shipments = append(node.shipments, sh)
+		node.totalWeight += sh.TotalWeightKg
+	}
+
+	type shipGeo struct {
+		node           *consolidatedNode
+		lat            float64
+		lng            float64
+		bearing        float64
+		depotKm        float64
+		assignedWeight float64 // may be < node.totalWeight for split parts
+		isSplitPart    bool
+		splitPart      int
+		splitTotal     int
+	}
+
+	geos := make([]shipGeo, 0, len(custOrder))
+	for _, cid := range custOrder {
+		node := custMap[cid]
+		bearing := math.Atan2(
+			math.Sin((node.lng-depot[1])*math.Pi/180)*math.Cos(node.lat*math.Pi/180),
+			math.Cos(depot[0]*math.Pi/180)*math.Sin(node.lat*math.Pi/180)-
+				math.Sin(depot[0]*math.Pi/180)*math.Cos(node.lat*math.Pi/180)*math.Cos((node.lng-depot[1])*math.Pi/180),
+		)
+		dist := haversineKm(depot[0], depot[1], node.lat, node.lng)
+		geos = append(geos, shipGeo{
+			node: node, lat: node.lat, lng: node.lng,
+			bearing: bearing, depotKm: dist,
+			assignedWeight: node.totalWeight,
+		})
+	}
+
+	// ── Phase 1: Global FFD bin-packing ────────────────
+	// Pack purely by weight for maximum utilization.
+	// Assign actual vehicle when opening each bin (smallest vehicle that fits).
+	// No geographic/time constraint during packing — those are handled in trip ordering.
+
+	// Sort ALL geos by weight DESCENDING (First-Fit Decreasing for tight packing)
+	sort.Slice(geos, func(i, j int) bool {
+		return geos[i].assignedWeight > geos[j].assignedWeight
+	})
+
+	// Vehicle pool sorted by capacity ASC — "smallest vehicle that fits" lookup
+	vPool := make([]domain.Vehicle, len(vehicles))
+	copy(vPool, vehicles)
+	sort.Slice(vPool, func(i, j int) bool { return vPool[i].CapacityKg < vPool[j].CapacityKg })
+	vPoolUsed := make([]bool, len(vPool))
+
+	type bin struct {
+		vehicle    domain.Vehicle
+		items      []shipGeo
+		usedWeight float64
+		cap        float64
+	}
+
+	var bins []bin
+	splitTracker := make(map[uuid.UUID]int)
+
+	for gi := range geos {
+		g := geos[gi]
+		remaining := g.assignedWeight
+
+		for remaining > 0 {
+			placed := false
+
+			// ── Best-fit: find bin with LEAST remaining space that still holds `remaining`
+			bestBin := -1
+			bestSpace := math.MaxFloat64
+			for i := range bins {
+				space := bins[i].cap - bins[i].usedWeight
+				if space >= remaining && space < bestSpace {
+					bestSpace = space
+					bestBin = i
+				}
+			}
+
+			if bestBin >= 0 {
+				splitTracker[g.node.customerID]++
+				partG := g
+				partG.assignedWeight = remaining
+				partG.splitPart = splitTracker[g.node.customerID]
+				bins[bestBin].items = append(bins[bestBin].items, partG)
+				bins[bestBin].usedWeight += remaining
+				remaining = 0
+				placed = true
+			}
+
+			// ── Open new bin: smallest available vehicle >= remaining weight
+			if !placed {
+				newVi := -1
+				for vi := range vPool {
+					if !vPoolUsed[vi] && vPool[vi].CapacityKg >= remaining {
+						newVi = vi
+						break // ASC order → first fit = smallest
+					}
+				}
+				if newVi >= 0 {
+					vPoolUsed[newVi] = true
+					splitTracker[g.node.customerID]++
+					partG := g
+					partG.assignedWeight = remaining
+					partG.splitPart = splitTracker[g.node.customerID]
+					bins = append(bins, bin{
+						vehicle:    vPool[newVi],
+						cap:        vPool[newVi].CapacityKg,
+						items:      []shipGeo{partG},
+						usedWeight: remaining,
+					})
+					remaining = 0
+					placed = true
+				}
+			}
+
+			// ── Split delivery: partial fit into bin with most remaining space
+			if !placed {
+				bestPartial := -1
+				bestPartialSpace := 0.0
+				for i := range bins {
+					space := bins[i].cap - bins[i].usedWeight
+					if space >= minSplitKg && space > bestPartialSpace {
+						bestPartialSpace = space
+						bestPartial = i
+					}
+				}
+
+				if bestPartial >= 0 {
+					splitTracker[g.node.customerID]++
+					partG := g
+					partG.assignedWeight = bestPartialSpace
+					partG.isSplitPart = true
+					partG.splitPart = splitTracker[g.node.customerID]
+					bins[bestPartial].items = append(bins[bestPartial].items, partG)
+					bins[bestPartial].usedWeight += bestPartialSpace
+					remaining -= bestPartialSpace
+					continue // loop for remainder
+				}
+
+				// Open largest available vehicle for partial
+				opened := false
+				for vi := len(vPool) - 1; vi >= 0; vi-- {
+					if !vPoolUsed[vi] {
+						vPoolUsed[vi] = true
+						canFit := math.Min(remaining, vPool[vi].CapacityKg)
+						if canFit >= minSplitKg {
+							splitTracker[g.node.customerID]++
+							partG := g
+							partG.assignedWeight = canFit
+							partG.isSplitPart = remaining > canFit
+							partG.splitPart = splitTracker[g.node.customerID]
+							bins = append(bins, bin{
+								vehicle:    vPool[vi],
+								cap:        vPool[vi].CapacityKg,
+								items:      []shipGeo{partG},
+								usedWeight: canFit,
+							})
+							remaining -= canFit
+							opened = true
+						}
+						break
+					}
+				}
+				if !opened {
+					for _, sh := range g.node.shipments {
+						result.Unassigned = append(result.Unassigned, sh.ID)
+					}
+					remaining = 0
+				}
+			}
+		}
+
+		// Backfill splitTotal for all parts of this node
+		totalParts := splitTracker[g.node.customerID]
+		if totalParts > 1 {
+			for bi := range bins {
+				for ii := range bins[bi].items {
+					if bins[bi].items[ii].node.customerID == g.node.customerID {
+						bins[bi].items[ii].splitTotal = totalParts
+						bins[bi].items[ii].isSplitPart = true
+					}
+				}
+			}
+		}
+	}
+
+	// ── Phase 3: Build trips ───────────────────────────
+	var consolidatedStops int
+	var splitDeliveries int
+
+	for _, b := range bins {
+		if len(b.items) == 0 {
+			continue
+		}
+		trip := domain.VRPTrip{
+			VehicleID:   b.vehicle.ID,
+			PlateNumber: b.vehicle.PlateNumber,
+			VehicleType: b.vehicle.VehicleType,
+		}
+
+		// Nearest-neighbor from depot
+		remaining := make([]shipGeo, len(b.items))
+		copy(remaining, b.items)
+		ordered := make([]shipGeo, 0, len(remaining))
+		curLat, curLng := depot[0], depot[1]
+		for len(remaining) > 0 {
+			bestIdx, bestDist := 0, math.MaxFloat64
+			for i, g := range remaining {
+				d := haversineKm(curLat, curLng, g.lat, g.lng)
+				if d < bestDist {
+					bestDist = d
+					bestIdx = i
+				}
+			}
+			ordered = append(ordered, remaining[bestIdx])
+			curLat, curLng = remaining[bestIdx].lat, remaining[bestIdx].lng
+			remaining = append(remaining[:bestIdx], remaining[bestIdx+1:]...)
+		}
+
+		var cumWeight float64
+		stopIdx := 0
+		for _, g := range ordered {
+			node := g.node
+			cumWeight += g.assignedWeight
+			stopIdx++
+
+			var consolidatedIDs []uuid.UUID
+			if len(node.shipments) > 1 {
+				for _, sh := range node.shipments {
+					consolidatedIDs = append(consolidatedIDs, sh.ID)
+				}
+				consolidatedStops++
+			}
+
+			isSplit := g.isSplitPart && g.splitTotal > 1
+
+			if isSplit {
+				splitDeliveries++
+			}
 
 			trip.Stops = append(trip.Stops, domain.VRPStop{
-				ShipmentID:       sh.ID,
-				CustomerID:       sh.CustomerID,
-				CustomerName:     sh.CustomerName,
-				CustomerAddress:  sh.CustomerAddress,
-				Latitude:         lat,
-				Longitude:        lng,
-				StopOrder:        stopIdx + 1,
+				ShipmentID:       node.shipments[0].ID,
+				CustomerID:       node.customerID,
+				CustomerName:     node.customerName,
+				CustomerAddress:  node.customerAddr,
+				Latitude:         node.lat,
+				Longitude:        node.lng,
+				StopOrder:        stopIdx,
 				CumulativeLoadKg: cumWeight,
+				WeightKg:         g.assignedWeight,
+				ConsolidatedIDs:  consolidatedIDs,
+				IsSplit:          isSplit,
+				SplitPart:        g.splitPart,
+				SplitTotal:       g.splitTotal,
+				OriginalWeightKg: node.totalWeight,
 			})
 		}
 
-		dist := float64(len(bin.shipments)) * 15.5
-		trip.TotalDistanceKm = dist
-		trip.TotalDurationMin = len(bin.shipments) * 25
+		// Route distance: depot → stops → depot × winding
+		var routeDist float64
+		pLat, pLng := depot[0], depot[1]
+		for _, stop := range trip.Stops {
+			if stop.Latitude != 0 || stop.Longitude != 0 {
+				routeDist += haversineKm(pLat, pLng, stop.Latitude, stop.Longitude)
+				pLat, pLng = stop.Latitude, stop.Longitude
+			}
+		}
+		routeDist += haversineKm(pLat, pLng, depot[0], depot[1])
+		routeDist *= windingFactor
+
+		trip.TotalDistanceKm = math.Round(routeDist*10) / 10
+		trip.TotalDurationMin = int(routeDist/avgSpeedKmH*60) + len(b.items)*int(serviceMin)
 		trip.TotalWeightKg = cumWeight
 
 		result.Trips = append(result.Trips, trip)
 	}
 
 	result.Summary = computeSummary(result, vehicles, shipments)
+	result.Summary.ConsolidatedStops = consolidatedStops
+	result.Summary.SplitDeliveries = splitDeliveries
 
 	return result
 }
@@ -559,6 +814,9 @@ type ApprovePlanRequest struct {
 	DeliveryDate string       `json:"delivery_date"`
 	Assignments  []Assignment `json:"assignments"`
 	Trips        []ManualTrip `json:"trips,omitempty"` // for manual planning mode
+	// Internal — set by handler, not from JSON
+	ActorID   *uuid.UUID `json:"-"`
+	ActorName string     `json:"-"`
 }
 
 type Assignment struct {
@@ -728,6 +986,38 @@ func (s *Service) ApprovePlan(ctx context.Context, req ApprovePlanRequest) ([]do
 		return nil, fmt.Errorf("commit: %w", err)
 	}
 
+	// After commit: update order statuses to "planned" and record timeline events
+	if s.evtRecorder != nil || s.repoOms != nil {
+		shipmentOrderMap, _ := s.repo.GetShipmentOrderMap(ctx, allShipmentIDs)
+		seenOrders := make(map[uuid.UUID]bool)
+		for _, trip := range trips {
+			for _, stop := range trip.Stops {
+				if stop.ShipmentID == nil {
+					continue
+				}
+				info, ok := shipmentOrderMap[*stop.ShipmentID]
+				if !ok {
+					continue
+				}
+				if seenOrders[info.OrderID] {
+					continue
+				}
+				seenOrders[info.OrderID] = true
+				// Update order status to "planned"
+				if s.repoOms != nil {
+					_ = s.repoOms.UpdateOrderStatus(ctx, info.OrderID, "planned")
+				}
+				// Record timeline event
+				if s.evtRecorder != nil {
+					s.evtRecorder.RecordAsync(events.OrderPlannedEvent(
+						info.OrderID, req.ActorID, req.ActorName,
+						info.OrderNumber, trip.TripNumber,
+					))
+				}
+			}
+		}
+	}
+
 	// After commit: create picking orders and update statuses (non-transactional, fire-and-forget)
 	if s.pickingOrderCreator != nil {
 		for _, trip := range trips {
@@ -745,7 +1035,7 @@ func (s *Service) ApprovePlan(ctx context.Context, req ApprovePlanRequest) ([]do
 
 	// Notify warehouse: new picking orders created
 	if s.notifSvc != nil {
-		whLink := "/dashboard/warehouse/picking"
+		whLink := "/warehouse/picking"
 		_ = s.notifSvc.SendToRole(ctx, "warehouse",
 			"Có lệnh đóng hàng mới",
 			fmt.Sprintf("Kế hoạch giao hàng đã duyệt — %d chuyến xe, vui lòng soạn hàng", len(trips)),
@@ -756,7 +1046,7 @@ func (s *Service) ApprovePlan(ctx context.Context, req ApprovePlanRequest) ([]do
 			if trip.DriverID != nil {
 				userID, err := s.repo.GetDriverUserID(ctx, *trip.DriverID)
 				if err == nil {
-					drvLink := "/dashboard/driver"
+					drvLink := "/driver"
 					_ = s.notifSvc.Send(ctx, userID,
 						"Bạn có chuyến xe mới",
 						fmt.Sprintf("Chuyến %s — %d điểm giao, ngày %s",
@@ -791,11 +1081,15 @@ func (s *Service) GetTrip(ctx context.Context, tripID uuid.UUID) (*domain.Trip, 
 // ===== DISPATCHER STATUS UPDATES =====
 
 var validTripTransitions = map[string][]string{
-	"planned":    {"assigned", "in_transit", "cancelled"},
-	"assigned":   {"in_transit", "cancelled"},
-	"ready":      {"in_transit", "cancelled"},
-	"pre_check":  {"ready", "cancelled"},
-	"in_transit": {"completed", "cancelled"},
+	"planned":           {"assigned", "in_transit", "cancelled"},
+	"assigned":          {"in_transit", "cancelled"},
+	"ready":             {"in_transit", "cancelled"},
+	"pre_check":         {"ready", "cancelled"},
+	"handover_a_signed": {"in_transit", "cancelled"},
+	"in_transit":        {"completed", "cancelled", "vehicle_breakdown"},
+	"vehicle_breakdown": {"in_transit", "cancelled"},
+	"unloading_returns": {"settling", "cancelled"},
+	"settling":          {"completed", "cancelled"},
 }
 
 func (s *Service) UpdateTripStatusDispatcher(ctx context.Context, tripID uuid.UUID, newStatus string) error {
@@ -942,7 +1236,7 @@ func (s *Service) StartTrip(ctx context.Context, userID, tripID uuid.UUID) error
 				EventType:  "order.in_transit",
 				ActorType:  "user",
 				ActorID:    &userID,
-					ActorName:  driver.FullName,
+				ActorName:  driver.FullName,
 				Title:      fmt.Sprintf("Tài xế %s bắt đầu giao hàng — chuyến %s", driver.FullName, trip.TripNumber),
 			})
 		}
@@ -950,7 +1244,7 @@ func (s *Service) StartTrip(ctx context.Context, userID, tripID uuid.UUID) error
 
 	// Notify dispatcher: driver has started
 	if s.notifSvc != nil {
-		link := "/dashboard/control-tower"
+		link := "/control-tower"
 		_ = s.notifSvc.SendToRole(ctx, "dispatcher",
 			"Tài xế đã xuất bến",
 			fmt.Sprintf("Chuyến %s — xe %s đã bắt đầu giao hàng",
@@ -1021,7 +1315,7 @@ func (s *Service) UpdateStopStatus(ctx context.Context, userID, tripID, stopID u
 		}
 		// Notify dispatcher about delivery failure
 		if s.notifSvc != nil {
-			link := "/dashboard/control-tower"
+			link := "/control-tower"
 			_ = s.notifSvc.SendToRole(ctx, "dispatcher",
 				"Giao hàng thất bại",
 				fmt.Sprintf("Điểm giao %s (chuyến %s) — thất bại",
@@ -1122,13 +1416,13 @@ func (s *Service) CompleteTrip(ctx context.Context, userID, tripID uuid.UUID) er
 
 	// Notify accountant and dispatcher about trip completion
 	if s.notifSvc != nil {
-		reconLink := "/dashboard/reconciliation"
+		reconLink := "/reconciliation"
 		_ = s.notifSvc.SendToRole(ctx, "accountant",
 			"Chuyến xe hoàn thành",
 			fmt.Sprintf("Chuyến %s đã hoàn thành — cần đối soát", trip.TripNumber),
 			"info", &reconLink)
 
-		ctLink := "/dashboard/control-tower"
+		ctLink := "/control-tower"
 		_ = s.notifSvc.SendToRole(ctx, "dispatcher",
 			"Chuyến xe hoàn thành",
 			fmt.Sprintf("Chuyến %s — xe %s đã hoàn thành tất cả điểm giao",
@@ -1285,6 +1579,11 @@ func (s *Service) SubmitEPOD(ctx context.Context, userID, tripID, stopID uuid.UU
 		return nil, fmt.Errorf("delivery_status không hợp lệ: %s", req.DeliveryStatus)
 	}
 
+	// BRD US-TMS-13 AC#5: Require at least 1 photo for ePOD
+	if len(req.PhotoURLs) == 0 {
+		return nil, fmt.Errorf("cần ít nhất 1 ảnh chứng từ giao hàng")
+	}
+
 	// Calculate total from delivered items
 	var totalAmount, depositAmount float64
 	for _, item := range req.DeliveredItems {
@@ -1370,12 +1669,12 @@ func (s *Service) SubmitEPOD(ctx context.Context, userID, tripID, stopID uuid.UU
 			if req.RejectReason != nil {
 				reasonLabel = *req.RejectReason
 			}
-			ctLink := "/dashboard/control-tower"
+			ctLink := "/control-tower"
 			_ = s.notifSvc.SendToRole(ctx, "dispatcher",
 				"NPP từ chối nhận hàng",
 				fmt.Sprintf("%s từ chối — Lý do: %s", stop.CustomerName, reasonLabel),
 				"warning", &ctLink)
-			reconLink := "/dashboard/reconciliation"
+			reconLink := "/reconciliation"
 			_ = s.notifSvc.SendToRole(ctx, "accountant",
 				"NPP từ chối nhận hàng",
 				fmt.Sprintf("%s từ chối — Cần đối soát", stop.CustomerName),
@@ -1747,4 +2046,354 @@ func (s *Service) MoveStop(ctx context.Context, fromTripID, stopID, toTripID uui
 
 func (s *Service) CancelTrip(ctx context.Context, tripID uuid.UUID, reason string) error {
 	return s.repo.CancelTrip(ctx, tripID, reason)
+}
+
+// ===== END-OF-DAY (KẾT CA) 3-STATION FLOW =====
+
+type StartEODRequest struct {
+	// No additional input needed — computed from trip data
+}
+
+// StartEOD creates an EOD session and 3 pending checkpoints for the trip.
+func (s *Service) StartEOD(ctx context.Context, userID, tripID uuid.UUID) (*domain.EODSession, error) {
+	trip, err := s.repo.GetTrip(ctx, tripID)
+	if err != nil {
+		return nil, fmt.Errorf("trip not found: %w", err)
+	}
+
+	driver, err := s.repo.GetDriverByUserID(ctx, userID)
+	if err != nil {
+		return nil, fmt.Errorf("driver not found: %w", err)
+	}
+	if trip.DriverID == nil || *trip.DriverID != driver.ID {
+		return nil, fmt.Errorf("không có quyền thao tác chuyến xe này")
+	}
+
+	// Trip must be in_transit or returning (all stops terminal)
+	if trip.Status != "in_transit" && trip.Status != "returning" {
+		return nil, fmt.Errorf("chuyến xe phải đang giao hàng để kết ca")
+	}
+
+	// Check all stops are terminal
+	terminalStatuses := map[string]bool{"delivered": true, "partially_delivered": true, "failed": true, "skipped": true}
+	for _, stop := range trip.Stops {
+		if !terminalStatuses[stop.Status] {
+			return nil, fmt.Errorf("còn điểm giao '%s' (#%d) chưa hoàn thành", stop.CustomerName, stop.StopOrder)
+		}
+	}
+
+	// Check if EOD session already exists
+	existing, _ := s.repo.GetEODSessionByTripID(ctx, tripID)
+	if existing != nil {
+		// Return existing session with checkpoints
+		cps, _ := s.repo.GetEODCheckpoints(ctx, existing.ID)
+		existing.Checkpoints = cps
+		return existing, nil
+	}
+
+	// Compute summary data from trip stops
+	var delivered, failed int
+	var cashTotal, transferTotal, creditTotal float64
+	for _, stop := range trip.Stops {
+		if stop.Status == "delivered" || stop.Status == "partially_delivered" {
+			delivered++
+		} else {
+			failed++
+		}
+	}
+
+	// Get payments summary for this trip
+	payments, _ := s.repo.GetPaymentsByTripID(ctx, tripID)
+	for _, p := range payments {
+		switch p.PaymentMethod {
+		case "cash", "cod":
+			cashTotal += p.Amount
+		case "transfer":
+			transferTotal += p.Amount
+		case "credit":
+			creditTotal += p.Amount
+		}
+	}
+
+	session := &domain.EODSession{
+		TripID:                 tripID,
+		DriverID:               driver.ID,
+		TotalStopsDelivered:    delivered,
+		TotalStopsFailed:       failed,
+		TotalCashCollected:     cashTotal,
+		TotalTransferCollected: transferTotal,
+		TotalCreditAmount:      creditTotal,
+	}
+
+	if err := s.repo.CreateEODSession(ctx, session); err != nil {
+		return nil, fmt.Errorf("create EOD session: %w", err)
+	}
+
+	// Create 3 checkpoints
+	cpTypes := []struct {
+		Type  string
+		Order int
+	}{
+		{"container_return", 1},
+		{"cash_handover", 2},
+		{"vehicle_return", 3},
+	}
+	for _, ct := range cpTypes {
+		cp := &domain.EODCheckpoint{
+			SessionID:       session.ID,
+			TripID:          tripID,
+			CheckpointType:  ct.Type,
+			CheckpointOrder: ct.Order,
+		}
+		if err := s.repo.CreateEODCheckpoint(ctx, cp); err != nil {
+			return nil, fmt.Errorf("create checkpoint %s: %w", ct.Type, err)
+		}
+		session.Checkpoints = append(session.Checkpoints, *cp)
+	}
+
+	// Update trip status to "returning"
+	if trip.Status == "in_transit" {
+		_ = s.repo.UpdateTripStatusRaw(ctx, tripID, "returning")
+	}
+
+	// Record event
+	if s.evtRecorder != nil {
+		s.evtRecorder.RecordAsync(domain.EntityEvent{
+			EntityType: "trip",
+			EntityID:   tripID,
+			EventType:  "trip.eod_started",
+			ActorType:  "driver",
+			ActorID:    &userID,
+			ActorName:  driver.FullName,
+			Title:      fmt.Sprintf("Tài xế %s bắt đầu kết ca chuyến %s", driver.FullName, trip.TripNumber),
+		})
+	}
+
+	session.TripNumber = trip.TripNumber
+	session.VehiclePlate = trip.VehiclePlate
+	session.DriverName = driver.FullName
+	return session, nil
+}
+
+// GetEODSession returns the EOD session with all checkpoints for a trip.
+func (s *Service) GetEODSession(ctx context.Context, userID, tripID uuid.UUID) (*domain.EODSession, error) {
+	session, err := s.repo.GetEODSessionByTripID(ctx, tripID)
+	if err != nil {
+		return nil, fmt.Errorf("chưa bắt đầu kết ca cho chuyến này")
+	}
+
+	cps, err := s.repo.GetEODCheckpoints(ctx, session.ID)
+	if err != nil {
+		return nil, err
+	}
+	session.Checkpoints = cps
+
+	return session, nil
+}
+
+type SubmitCheckpointRequest struct {
+	DriverData json.RawMessage `json:"driver_data"`
+}
+
+// SubmitCheckpoint — driver submits data to a checkpoint station.
+func (s *Service) SubmitCheckpoint(ctx context.Context, userID, tripID uuid.UUID, cpType string, req SubmitCheckpointRequest) (*domain.EODCheckpoint, error) {
+	trip, err := s.repo.GetTrip(ctx, tripID)
+	if err != nil {
+		return nil, fmt.Errorf("trip not found: %w", err)
+	}
+
+	driver, err := s.repo.GetDriverByUserID(ctx, userID)
+	if err != nil {
+		return nil, fmt.Errorf("driver not found: %w", err)
+	}
+	if trip.DriverID == nil || *trip.DriverID != driver.ID {
+		return nil, fmt.Errorf("không có quyền thao tác chuyến xe này")
+	}
+
+	// Validate checkpoint type
+	validTypes := map[string]bool{"container_return": true, "cash_handover": true, "vehicle_return": true}
+	if !validTypes[cpType] {
+		return nil, fmt.Errorf("loại trạm không hợp lệ: %s", cpType)
+	}
+
+	// Get the checkpoint
+	cp, err := s.repo.GetEODCheckpointByTripAndType(ctx, tripID, cpType)
+	if err != nil {
+		return nil, fmt.Errorf("checkpoint not found: %w", err)
+	}
+
+	if cp.Status != "pending" && cp.Status != "rejected" {
+		return nil, fmt.Errorf("trạm này đã được gửi hoặc xác nhận rồi")
+	}
+
+	// Sequential check: previous checkpoint must be confirmed
+	if cp.CheckpointOrder > 1 {
+		session, _ := s.repo.GetEODSessionByTripID(ctx, tripID)
+		if session != nil {
+			cps, _ := s.repo.GetEODCheckpoints(ctx, session.ID)
+			for _, prev := range cps {
+				if prev.CheckpointOrder == cp.CheckpointOrder-1 && prev.Status != "confirmed" {
+					return nil, fmt.Errorf("trạm %d chưa hoàn thành, không thể gửi trạm %d", prev.CheckpointOrder, cp.CheckpointOrder)
+				}
+			}
+		}
+	}
+
+	if err := s.repo.SubmitEODCheckpoint(ctx, cp.ID, req.DriverData); err != nil {
+		return nil, fmt.Errorf("submit checkpoint: %w", err)
+	}
+
+	// Send notification to receiver role
+	if s.notifSvc != nil {
+		var role, title, body string
+		switch cpType {
+		case "container_return":
+			role = "warehouse_handler"
+			title = "Nhận vỏ & hàng trả"
+			body = fmt.Sprintf("TX %s (chuyến %s) đang chờ giao vỏ", driver.FullName, trip.TripNumber)
+		case "cash_handover":
+			role = "accountant"
+			title = "Nhận tiền từ tài xế"
+			body = fmt.Sprintf("TX %s (chuyến %s) đang chờ nộp tiền", driver.FullName, trip.TripNumber)
+		case "vehicle_return":
+			role = "dispatcher"
+			title = "Nhận xe từ tài xế"
+			body = fmt.Sprintf("TX %s (chuyến %s) đang chờ giao xe", driver.FullName, trip.TripNumber)
+		}
+		link := fmt.Sprintf("/eod/checkpoint/%s", cp.ID.String())
+		go func() {
+			_ = s.notifSvc.SendToRole(context.Background(), role, title, body, "eod_checkpoint", &link)
+		}()
+	}
+
+	updated, _ := s.repo.GetEODCheckpoint(ctx, cp.ID)
+	return updated, nil
+}
+
+type ConfirmCheckpointRequest struct {
+	ReceiverData      json.RawMessage `json:"receiver_data"`
+	SignatureURL      *string         `json:"signature_url,omitempty"`
+	DiscrepancyReason *string         `json:"discrepancy_reason,omitempty"`
+}
+
+// ConfirmCheckpoint — receiver (thủ kho/kế toán/đội trưởng) confirms a checkpoint.
+func (s *Service) ConfirmCheckpoint(ctx context.Context, receiverID, checkpointID uuid.UUID, receiverName string, req ConfirmCheckpointRequest) (*domain.EODCheckpoint, error) {
+	cp, err := s.repo.GetEODCheckpoint(ctx, checkpointID)
+	if err != nil {
+		return nil, fmt.Errorf("checkpoint not found: %w", err)
+	}
+
+	if cp.Status != "submitted" {
+		return nil, fmt.Errorf("trạm này chưa được tài xế gửi hoặc đã xử lý rồi")
+	}
+
+	if err := s.repo.ConfirmEODCheckpoint(ctx, checkpointID, receiverID, receiverName, req.ReceiverData, req.SignatureURL, req.DiscrepancyReason); err != nil {
+		return nil, fmt.Errorf("confirm checkpoint: %w", err)
+	}
+
+	// Check if all 3 checkpoints are confirmed → complete EOD session & trip
+	session, _ := s.repo.GetEODSessionByTripID(ctx, cp.TripID)
+	if session != nil {
+		cps, _ := s.repo.GetEODCheckpoints(ctx, session.ID)
+		allConfirmed := true
+		for _, c := range cps {
+			if c.ID == checkpointID {
+				continue // this one is now confirmed
+			}
+			if c.Status != "confirmed" {
+				allConfirmed = false
+				break
+			}
+		}
+		if allConfirmed {
+			_ = s.repo.CompleteEODSession(ctx, session.ID)
+			_ = s.repo.UpdateTripStatusRaw(ctx, cp.TripID, "completed")
+
+			// Trigger auto-reconcile
+			if s.reconSvc != nil {
+				go func() {
+					if _, err := s.reconSvc.AutoReconcileTrip(context.Background(), cp.TripID); err != nil {
+						s.log.Error(context.Background(), "auto_reconcile_after_eod_failed", err)
+					}
+				}()
+			}
+
+			if s.evtRecorder != nil {
+				s.evtRecorder.RecordAsync(domain.EntityEvent{
+					EntityType: "trip",
+					EntityID:   cp.TripID,
+					EventType:  "trip.eod_completed",
+					ActorType:  "system",
+					ActorName:  "Hệ thống",
+					Title:      "Kết ca hoàn thành — cả 3 trạm đã xác nhận",
+				})
+			}
+		}
+	}
+
+	// Notify driver that checkpoint was confirmed
+	if s.notifSvc != nil {
+		trip, _ := s.repo.GetTrip(ctx, cp.TripID)
+		if trip != nil && trip.DriverID != nil {
+			driverUser, _ := s.repo.GetUserIDByDriverID(ctx, *trip.DriverID)
+			if driverUser != uuid.Nil {
+				title := fmt.Sprintf("Trạm %d đã xác nhận ✅", cp.CheckpointOrder)
+				body := fmt.Sprintf("%s đã xác nhận trạm %s", receiverName, cp.CheckpointType)
+				link := fmt.Sprintf("/driver/%s", cp.TripID.String())
+				go func() {
+					_ = s.notifSvc.Send(context.Background(), driverUser, title, body, "eod_confirmed", &link)
+				}()
+			}
+		}
+	}
+
+	updated, _ := s.repo.GetEODCheckpoint(ctx, checkpointID)
+	return updated, nil
+}
+
+type RejectCheckpointRequest struct {
+	Reason string `json:"reason" binding:"required"`
+}
+
+// RejectCheckpoint — receiver rejects a checkpoint, driver needs to resubmit.
+func (s *Service) RejectCheckpoint(ctx context.Context, receiverID, checkpointID uuid.UUID, req RejectCheckpointRequest) (*domain.EODCheckpoint, error) {
+	cp, err := s.repo.GetEODCheckpoint(ctx, checkpointID)
+	if err != nil {
+		return nil, fmt.Errorf("checkpoint not found: %w", err)
+	}
+
+	if cp.Status != "submitted" {
+		return nil, fmt.Errorf("trạm này chưa được tài xế gửi hoặc đã xử lý rồi")
+	}
+
+	if err := s.repo.RejectEODCheckpoint(ctx, checkpointID, receiverID, req.Reason); err != nil {
+		return nil, fmt.Errorf("reject checkpoint: %w", err)
+	}
+
+	// Notify driver
+	if s.notifSvc != nil {
+		trip, _ := s.repo.GetTrip(ctx, cp.TripID)
+		if trip != nil && trip.DriverID != nil {
+			driverUser, _ := s.repo.GetUserIDByDriverID(ctx, *trip.DriverID)
+			if driverUser != uuid.Nil {
+				title := fmt.Sprintf("Trạm %d bị từ chối ❌", cp.CheckpointOrder)
+				body := fmt.Sprintf("Lý do: %s. Vui lòng kiểm tra lại.", req.Reason)
+				link := fmt.Sprintf("/driver/%s", cp.TripID.String())
+				go func() {
+					_ = s.notifSvc.Send(context.Background(), driverUser, title, body, "eod_rejected", &link)
+				}()
+			}
+		}
+	}
+
+	// Reset status to pending so driver can resubmit
+	_, _ = s.repo.db.Exec(ctx, `UPDATE eod_checkpoints SET status = 'pending', updated_at = NOW() WHERE id = $1`, checkpointID)
+
+	updated, _ := s.repo.GetEODCheckpoint(ctx, checkpointID)
+	return updated, nil
+}
+
+// GetPendingCheckpointsByType returns submitted checkpoints waiting for confirmation by role.
+func (s *Service) GetPendingCheckpointsByType(ctx context.Context, cpType string) ([]domain.EODCheckpoint, error) {
+	return s.repo.GetPendingEODCheckpointsForRole(ctx, cpType)
 }

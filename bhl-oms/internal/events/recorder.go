@@ -11,14 +11,25 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
+// EntityUpdateBroadcaster broadcasts entity changes to connected WebSocket clients.
+type EntityUpdateBroadcaster interface {
+	BroadcastEntityUpdate(entityType string, entityID uuid.UUID, newStatus string)
+}
+
 // Recorder records entity events (immutable activity log).
 type Recorder struct {
-	db  *pgxpool.Pool
-	log logger.Logger
+	db          *pgxpool.Pool
+	log         logger.Logger
+	broadcaster EntityUpdateBroadcaster
 }
 
 func NewRecorder(db *pgxpool.Pool, log logger.Logger) *Recorder {
 	return &Recorder{db: db, log: log}
+}
+
+// SetBroadcaster injects the WebSocket broadcaster for real-time entity updates.
+func (r *Recorder) SetBroadcaster(b EntityUpdateBroadcaster) {
+	r.broadcaster = b
 }
 
 // Record inserts an immutable event into entity_events.
@@ -38,6 +49,24 @@ func (r *Recorder) Record(ctx context.Context, evt domain.EntityEvent) {
 			logger.F("entity_id", evt.EntityID.String()),
 			logger.F("event_type", evt.EventType),
 		)
+		return
+	}
+
+	// Broadcast entity changes to WebSocket clients for real-time UI updates
+	if r.broadcaster != nil {
+		newStatus := ""
+		if evt.Detail != nil {
+			var detail map[string]interface{}
+			if json.Unmarshal(evt.Detail, &detail) == nil {
+				if ns, ok := detail["new_status"].(string); ok {
+					newStatus = ns
+				}
+			}
+		}
+		if newStatus == "" {
+			newStatus = evt.EventType
+		}
+		r.broadcaster.BroadcastEntityUpdate(evt.EntityType, evt.EntityID, newStatus)
 	}
 }
 

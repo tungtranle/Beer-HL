@@ -611,3 +611,69 @@ func (r *Repository) GetAllLostReturns(ctx context.Context, warehouseID uuid.UUI
 	}
 	return results, nil
 }
+
+// ── Handover Records (Bàn giao A/B/C) ──────────────
+
+func (r *Repository) CreateHandoverRecord(ctx context.Context, hr domain.HandoverRecord) (uuid.UUID, error) {
+	var id uuid.UUID
+	err := r.db.QueryRow(ctx,
+		`INSERT INTO handover_records (handover_type, trip_id, stop_id, signatories, status, document_url, photo_urls, items, notes, created_by)
+		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10) RETURNING id`,
+		hr.HandoverType, hr.TripID, hr.StopID, hr.Signatories,
+		hr.Status, hr.DocumentURL, hr.PhotoURLs, hr.Items, hr.Notes, hr.CreatedBy,
+	).Scan(&id)
+	return id, err
+}
+
+func (r *Repository) GetHandoverRecord(ctx context.Context, id uuid.UUID) (*domain.HandoverRecord, error) {
+	var hr domain.HandoverRecord
+	err := r.db.QueryRow(ctx,
+		`SELECT id, handover_type::text, trip_id, stop_id, signatories, status, document_url,
+		        COALESCE(photo_urls, '{}'), COALESCE(items, '[]'::jsonb), reject_reason, notes, created_by, created_at, updated_at
+		 FROM handover_records WHERE id = $1`, id,
+	).Scan(&hr.ID, &hr.HandoverType, &hr.TripID, &hr.StopID, &hr.Signatories,
+		&hr.Status, &hr.DocumentURL, &hr.PhotoURLs, &hr.Items, &hr.RejectReason, &hr.Notes, &hr.CreatedBy, &hr.CreatedAt, &hr.UpdatedAt)
+	if err != nil {
+		return nil, err
+	}
+	return &hr, nil
+}
+
+func (r *Repository) GetHandoversByTrip(ctx context.Context, tripID uuid.UUID) ([]domain.HandoverRecord, error) {
+	rows, err := r.db.Query(ctx,
+		`SELECT id, handover_type::text, trip_id, stop_id, signatories, status, document_url,
+		        COALESCE(photo_urls, '{}'), COALESCE(items, '[]'::jsonb), reject_reason, notes, created_by, created_at, updated_at
+		 FROM handover_records WHERE trip_id = $1 ORDER BY created_at`, tripID,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var records []domain.HandoverRecord
+	for rows.Next() {
+		var hr domain.HandoverRecord
+		if err := rows.Scan(&hr.ID, &hr.HandoverType, &hr.TripID, &hr.StopID, &hr.Signatories,
+			&hr.Status, &hr.DocumentURL, &hr.PhotoURLs, &hr.Items, &hr.RejectReason, &hr.Notes, &hr.CreatedBy, &hr.CreatedAt, &hr.UpdatedAt); err != nil {
+			return nil, err
+		}
+		records = append(records, hr)
+	}
+	return records, nil
+}
+
+func (r *Repository) UpdateHandoverSignatories(ctx context.Context, id uuid.UUID, signatories json.RawMessage, status string) error {
+	_, err := r.db.Exec(ctx,
+		`UPDATE handover_records SET signatories = $2, status = $3, updated_at = NOW() WHERE id = $1`,
+		id, signatories, status,
+	)
+	return err
+}
+
+func (r *Repository) UpdateHandoverReject(ctx context.Context, id uuid.UUID, signatories json.RawMessage, rejectReason *string) error {
+	_, err := r.db.Exec(ctx,
+		`UPDATE handover_records SET signatories = $2, status = 'rejected', reject_reason = $3, updated_at = NOW() WHERE id = $1`,
+		id, signatories, rejectReason,
+	)
+	return err
+}

@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react'
 import { apiFetch } from '@/lib/api'
 import { toast } from '@/lib/useToast'
+import { useDataRefresh } from '@/lib/notifications'
 
 interface EnrichedItem {
   product_id: string; product_name: string; product_sku: string
@@ -51,6 +52,9 @@ export default function PickingOrdersPage() {
   }
 
   useEffect(() => { loadData() }, [])
+
+  // Auto-refresh when orders change via WebSocket
+  useDataRefresh('order', loadData)
 
   const confirmPick = async (order: PickingOrder) => {
     setConfirming(order.id)

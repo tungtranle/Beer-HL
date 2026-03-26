@@ -1,6 +1,6 @@
 # CURRENT_STATE — BHL OMS-TMS-WMS
 
-> **Cập nhật:** 22/03/2026 (session 22/03 — UX Overhaul v4 + Audit + Re-delivery fix + OrderTimeline redesign)  
+> **Cập nhật:** 25/03/2026 (session 25/03 — Full code-vs-docs audit)  
 > **Mục đích:** Mô tả trạng thái THỰC TẾ của hệ thống. AI đọc file này để biết code đang làm gì, **không** phải spec nói gì.  
 > **Quy tắc:** Khi code thay đổi → cập nhật file này. Nếu CURRENT_STATE không khớp code → file này sai.
 
@@ -10,15 +10,16 @@
 
 | Component | Tech | Port | Status |
 |-----------|------|------|--------|
-| Backend API | Go + Gin | :8083 | ✅ Hoạt động (port 8083 từ session 22/03) |
-| Frontend | Next.js 14 + Tailwind | :3005 | ✅ Hoạt động (port 3005 từ session 22/03) |
-| Database | PostgreSQL 16 | :5434 | ✅ 17 migration files (001-014, two 009s, three 010s) |
+| Backend API | Go + Gin | :8080 | ✅ Hoạt động (default port 8080) |
+| Frontend | Next.js 14 + Tailwind | :3000 | ✅ Hoạt động |
+| Database | PostgreSQL 16 | :5434 | ✅ 20 migration pairs (001-017, two 009s, three 010s) |
 | Cache/PubSub | Redis | :6379 | ✅ GPS + pub/sub |
 | VRP Solver | Python + OR-Tools | :8090 | ✅ Hoạt động |
 | OSRM Routing | Docker (Vietnam data) | :5000 | ⚠️ Cần setup data (./setup-osrm.ps1) |
 | Mock Server | Go (Bravo/DMS/Zalo) | :9001-9003 | ✅ Optional — `go run cmd/mock_server/main.go` |
 | Prometheus | Docker | :9090 | ✅ Configured (profile: monitoring) |
 | Grafana | Docker | :3030 | ✅ Configured (profile: monitoring) |
+| Sentry | Cloud (sentry.io) | — | ✅ DSN configured (frontend + backend) |
 
 ---
 
@@ -29,20 +30,29 @@
 - RS256 JWT, 9 roles: admin, dispatcher, driver, warehouse_handler, management, accountant, dvkh, security, workshop
 - Test credentials: tất cả password `demo123`
 
-### Admin — ✅ Hoạt động (16 endpoints) — Updated Phase 6
+### Admin — ✅ Hoạt động (30 endpoints) — Updated Session 25/03
 - **Quản lý người dùng:** List, Get, Create, Update, Delete (soft), Reset password (6 endpoints)
-- **Danh sách quyền:** List roles + default permissions (1 endpoint) — includes workshop role
+- **Danh sách quyền:** List roles (1 endpoint) — includes workshop role
+- **Dynamic RBAC (MỚI Session 24/03):** GET/PUT `/admin/permissions` (matrix), user overrides CRUD (`GET/POST /admin/users/:id/overrides`, `DELETE /admin/users/:id/overrides/:oid`) (5 endpoints)
+- **Session Management (MỚI Session 24/03):** GET `/admin/sessions`, DELETE `/admin/sessions/:id`, DELETE `/admin/users/:id/sessions` (3 endpoints)
+- **Audit Logs:** GET `/admin/audit-logs`, GET `/admin/audit-logs/:id/diff` (2 endpoints)
 - **DB monitoring:** GET `/admin/slow-queries`, POST `/admin/slow-queries/reset` (2 endpoints)
 - **System Health (Enhanced):** GET `/admin/health` — PostgreSQL, Redis, VRP Solver checks + GPS tracking stats + recent operations
 - **Routes CRUD:** GET/POST/PUT/DELETE `/admin/routes` (4 endpoints)
-- **Config + Credit:** configs, credit-limits, audit-logs
-- **Credit limit expiry (MỚI Phase 6):** GET `/admin/credit-limits/expiring` — limits expiring within 7 days
+- **Configs:** GET/PUT `/admin/configs` (2 endpoints)
+- **Credit Limits:** GET/POST/PUT/DELETE `/admin/credit-limits` + GET `/admin/credit-limits/expiring` (5 endpoints)
+- **Credit Limit Audit Trail (MỚI Session 25/03b):** UpdateCreditLimit ghi entity_events type `credit_limit.updated` với old/new values + actor info
 - **App version:** GET `/v1/app/version` (1 endpoint)
+- **PermissionGuard middleware (MỚI Session 24/03):** Redis cache (300s TTL) + DB fallback, admin bypasses all checks
 - Chỉ admin mới truy cập được (trừ app/version)
-- Frontend: `/dashboard/settings` — Quản trị hệ thống
+- Frontend: `/dashboard/settings` — Quản trị hệ thống (Users, Sessions, Configs, Credit Limits)
 - Frontend: `/dashboard/settings/health` — System Health & Monitoring dashboard
+- Frontend: `/dashboard/settings/permissions` — Permission Matrix Editor (MỚI Session 24/03)
+- Frontend: `/dashboard/settings/audit-logs` — Audit Logs with Diff modal
+- Frontend: `/dashboard/settings/routes` — Routes management
+- Frontend: `/dashboard/settings/configs` — System configs
 
-### OMS — ✅ Hoạt động (32 endpoints)
+### OMS — ✅ Hoạt động (18 endpoints)
 - **Products:** Full CRUD (5 endpoints)
 - **Customers:** Full CRUD + credit info (5 endpoints)
 - **ATP:** Single + batch check (2 endpoints)
@@ -69,7 +79,7 @@
 - **Warehouses:** GET `/v1/warehouses` (1 endpoint)
 - **Dashboard stats:** GET `/v1/dashboard/stats` — 5 widget metrics (orders, trips, delivery rate, revenue, discrepancies)
 
-### TMS — ✅ Hoạt động (50+ endpoints) — Updated Session 22/03
+### TMS — ✅ Hoạt động (50+ endpoints) — Updated Session 25/03b
 - **Vehicles/Drivers:** Full CRUD + availability check
 - **Vehicle Documents (MỚI Session 18):** CRUD + expiry alerts (5 endpoints)
   - GET/POST/PUT/DELETE `/v1/vehicles/:id/documents`, GET `/v1/vehicles/expiring-documents`
@@ -81,13 +91,15 @@
 - **Shipments:** Pending list + **pending-dates** (dates with pending shipment counts per warehouse) + **urgent toggle**
 - **Driver Check-in:** Check-in/out hàng ngày + dispatcher view trạng thái toàn kho
 - **Trips:** List, get, update status (dispatcher + driver)
+- **Trips Excel Export (MỚI Session 25/03b):** GET `/v1/trips/export` — xuất Excel 2 sheet (Chuyến xe + Điểm giao)
 - **Driver flow:** my-trips → checkin → start → update-stop (arrive/delivering/deliver/fail/skip) → checklist → ePOD → payment → returns → complete
 - **Stop actions:** arrive, delivering, deliver, fail, skip — Session 11 (added "delivering" intermediate step)
+- **ePOD (CẬP NHẬT Session 25/03b):** Server-side enforce ≥ 1 photo bắt buộc (BRD US-TMS-13 AC#5)
 - **StartTrip (CẬP NHẬT Session 22/03):** Khi tài xế bắt đầu chuyến → tự động cập nhật tất cả đơn hàng sang `in_transit` + ghi event `order.in_transit`
 - **CompleteTrip (SỬa BUG Session 22/03):** Sửa lỗi stop status `partially_delivered` không được chấp nhận → đã thêm vào terminal statuses. Ghi event `order.status_changed` cho mỗi đơn.
 - **Integration hooks:** Khi ePOD delivered/partial → auto push Bravo + Zalo confirm (Task 3.1, 3.5, 3.6)
 
-### WMS — ✅ Hoạt động (28 endpoints) — Updated Session 22/03
+### WMS — ✅ Hoạt động (24 endpoints) — Updated Session BRD v3.2
 - Stock query, inbound + lot management, FEFO picking
 - Gate check (R01: 0 variance), barcode scan, expiry alerts, locations
 - **Return inbound** (Task 3.12): pending returns list + process return into stock
@@ -95,24 +107,43 @@
 - **Gate check queue (MỚI Phase 6):** GET `/warehouse/gate-check-queue` — trips pending gate check today
 - **Bottle classification (MỚI Phase 6):** POST `/warehouse/bottles/classify`, GET `/warehouse/bottles/summary` — phân loại vỏ tốt/hỏng/mất per trip
 - **Picking by Vehicle (MỚI UX v5):** GET `/warehouse/picking-by-vehicle?date=YYYY-MM-DD` — soạn hàng gom theo xe, aggregated products with FEFO, per-stop orders, progress %
+- **Bàn giao A/B/C (MỚI BRD v3.2):** POST `/warehouse/handovers` — tạo bàn giao; POST `/warehouse/handovers/:id/sign` — ký bàn giao; GET `/warehouse/handovers/trip/:tripId` — lấy danh sách bàn giao theo chuyến; GET `/warehouse/handovers/:id` — chi tiết bàn giao
 
-### Integration — ✅ Hoạt động (18 endpoints) — Updated Session 15
-- **Bravo:** Push document, webhook, reconcile (mock mode)
-- **DMS:** Sync order status (mock mode)
-- **Zalo:** Send ZNS, delivery confirmation, **order confirmation** (mock mode)
-- **NPP Portal:** GET/POST confirm/:token (public, no auth)
-- **Order Confirm Portal (MỚI):** GET/POST order-confirm/:token (public, no auth) — view order, PDF, confirm, reject
-- **DLQ** (Task 3.8): List, stats, retry, resolve failed integration calls
+### Integration — ✅ Hoạt động (19 endpoints) — Updated Session 25/03
+- **Bravo:** Push document, webhook, reconcile (mock mode) (3 endpoints)
+- **DMS:** Sync order status (mock mode) (1 endpoint)
+- **Zalo:** Send ZNS (1 endpoint)
+- **Delivery Confirm:** Send + auto-confirm (2 endpoints)
+- **NPP Delivery Portal:** GET/POST `/v1/confirm/:token` (confirm, dispute) (3 public endpoints)
+- **Order Confirm Portal:** GET `/v1/order-confirm/:token` (view, pdf, confirm, reject) (4 public endpoints)
+- **DLQ** (Task 3.8): List, stats, retry, resolve (4 endpoints)
 - **Config:** `INTEGRATION_MOCK=true` → tất cả adapter trả mock data
 
-### Reconciliation — ✅ Hoạt động (12 endpoints) — Updated Session 22/03
+### Reconciliation — ✅ Hoạt động (11 endpoints) — Updated Session 25/03b
+- **Trip reconcile:** POST/GET `/reconciliation/trips/:tripId` (2 endpoints)
+- **Reconciliation list + resolve:** GET `/reconciliation`, POST `/reconciliation/:id/resolve` (2 endpoints)
+- **Discrepancies:** List, resolve, history (3 endpoints)
+- **Daily close:** Generate, list, get by date (3 endpoints)
+- **Excel Export (MỚI Session 25/03b):** GET `/v1/reconciliation/export` — xuất Excel với type/status labels tiếng Việt
 - **Action history (MỚI Phase 6):** GET `/reconciliation/discrepancies/:id/history` — entity_events timeline per discrepancy
 - **RBAC (MỚI Phase 6):** ResolveDiscrepancy requires admin or is_chief_accountant flag
 
-### Test Portal — ✅ Hoạt động (18 endpoints) — Updated Session 19g
+### Test Portal — ✅ Hoạt động (21 endpoints) — Updated Session 26/03
+- **Bảo mật:** `ENABLE_TEST_PORTAL=true|false` env flag — default true (dev), set false trên production
 - **Không cần auth** — module riêng cho QA/UAT testing
-- **Data overview:** orders, order-confirmations, delivery-confirmations, stock, credit-balances, customers, products
-- **Test actions:** reset-data (xóa data test, giữ master data), create-test-order, simulate-delivery
+- **Data overview:** orders, order-confirmations, delivery-confirmations, stock, credit-balances, customers, products (8 endpoints)
+- **Test actions:** reset-data, create-test-order, simulate-delivery, run-scenario, load-scenario, list-scenarios, zalo-inbox (7 endpoints)
+- **GPS Simulation:** scenarios, vehicles, start, stop, status (5+1 endpoints)
+- **9 kịch bản test (MỚI SC-09 Session 26/03):**
+  - SC-01: E2E Happy Path (8 đơn, 3 chuyến)
+  - SC-02: Credit Exceed (vượt hạn mức)
+  - SC-03: ATP Fail (tồn kho không đủ)
+  - SC-04: Zalo Reject (KH từ chối)
+  - SC-05: Dispatch Trip (12 đơn, VRP)
+  - SC-06: Multi-Stop (5 stops, driver flow)
+  - SC-07: Gate Check Fail
+  - SC-08: Reconciliation Discrepancy
+  - **SC-09: VRP Tối ưu (MỚI) — 300 đơn, 5 nhóm trọng lượng (40kg→6.5T), 50 xe WH-HL (3.5T/5T/8T/15T = 284T), ~245T hàng. Mock fallback fixed**
 - **GPS Simulation (MỚI Session 19g):**
   - GET `/v1/test-portal/gps/scenarios` — 7 kịch bản sẵn có
   - GET `/v1/test-portal/gps/vehicles` — Danh sách xe active từ DB
@@ -136,9 +167,15 @@
 - **Discrepancy tickets** (Task 3.10): auto-create with T+1 deadline, resolve with notes
 - **Daily close summary** (Task 3.11): warehouse-level daily aggregation
 
-### Notification — ✅ Hoạt động (5 endpoints + WS + events) — Updated Session 18
-- List (`GET /v1/notifications`), unread count, mark read (`POST /v1/notifications/:id/read`), mark all read (`POST /v1/notifications/read-all`)
+### Notification — ✅ Hoạt động (6 endpoints + WS + events) — Updated Session 25/03b
+- **Link audit (Session 25/03b):** Tất cả 25 notification links đã chuyển sang relative path (không `/dashboard/` prefix). Frontend `NotificationBell.handleClick` tự thêm prefix. Thêm category icons: `eod_checkpoint`, `eod_confirmed`, `eod_rejected`, `document_expiry`.
+- List (`GET /v1/notifications`), unread count, mark read (`POST /v1/notifications/:id/read`), mark all read (`POST /v1/notifications/read-all`), **grouped** (`GET /v1/notifications/grouped`)
 - WebSocket: `/ws/notifications?token=` for real-time push
+- **4-Layer Delivery System (MỚI Session 24/03):**
+  - Layer 1: In-app notification (DB + WebSocket push)
+  - Layer 2: Toast popup (AutoToast 6s cho high, PersistentToast cho urgent)
+  - Layer 3: Sound/vibration based on priority level
+  - Layer 4: External (Zalo ZNS) — mock mode
 - **Priority levels:** urgent, high, normal, low
 - **Entity linking:** notification → entity (entity_type, entity_id) — để navigate từ notification tới source
 - **Entity Events (MỚI Session 17):**
@@ -149,14 +186,15 @@
   - DELETE `/v1/orders/:id/notes/:noteId/pin` — Bỏ ghim ghi chú (MỚI)
   - Bảng `entity_events`: immutable event log cho mọi entity, JSONB detail
   - Bảng `order_notes`: ghi chú nội bộ giữa nhân viên
-- **Event triggers:** order.created, order.confirmed_by_customer, order.rejected_by_customer, order.approved, order.cancelled, **order.in_transit (MỚI Session 22/03)**, **order.status_changed (MỚI Session 22/03)**, order.redelivery_created
+- **Event triggers:** order.created, order.confirmed_by_customer, order.rejected_by_customer, order.approved, order.cancelled, **order.in_transit (MỚI Session 22/03)**, **order.status_changed (MỚI Session 22/03)**, order.redelivery_created, **handover.a_signed, handover.b_signed, handover.c_signed (MỚI BRD v3.2)**
 - **Notification enhancements:** priority (urgent/high/normal/low), entity_type, entity_id — liên kết notification → entity
 - **Notification triggers (auto):** Tạo đơn → notify accountant (pending_approval) hoặc dvkh (pending_customer_confirm). Duyệt công nợ → notify dvkh.
 
-### KPI — ✅ Hoạt động (4 endpoints + cron) — Updated Session 19f
+### KPI — ✅ Hoạt động (5 endpoints + cron) — Updated Session 25/03b
 - KPI report with date range + warehouse filter
 - **Issues report (MỚI):** GET `/v1/kpi/issues?from=&to=&limit=` — Báo cáo giao thất bại, sai lệch, giao trễ
 - **Cancellations report (MỚI):** GET `/v1/kpi/cancellations?from=&to=&limit=` — Báo cáo hủy, từ chối, nợ, chờ duyệt
+- **Redelivery report (MỚI Session 25/03b):** GET `/v1/kpi/redeliveries?from=&to=&limit=` — Số lần giao lại trung bình, top lý do thất bại
 - Manual snapshot generation
 - Daily cron 23:50 ICT for all warehouses
 - **Frontend:** Tab "Tổng quan" / "Có vấn đề" / "Hủy/Nợ" trong KPI dashboard
@@ -183,7 +221,7 @@
 - **Credit limit expiry check (MỚI Phase 6):** mỗi 6 giờ — alerts khi hạn mức công nợ hết hạn trong 7 ngày
   - Records entity_events per expiring limit, typ = credit_limit
 
-### Frontend — 42 pages — Updated Session 22/03
+### Frontend — 44 pages — Updated Session 25/03
 - Login, dashboard (role-specific stat cards), orders CRUD, trips + map, products/customers/vehicles/drivers CRUD
 - **Dashboard:** Role-specific — admin/dispatcher sees operational, accountant sees financial (pending_approvals, discrepancies), dvkh sees orders, management sees KPI — Session 10
 - **Orders page:** Supports `?status=` URL param for pre-filtering — Session 10
@@ -204,6 +242,8 @@
 - **Accountant** approvals queue (enriched with credit details + order items), daily close — NEW Session 7, updated Session 9
 - **Management** KPI dashboard — NEW Session 7
 - **Admin** settings/user management — NEW Session 9
+- **Admin Permissions (MỚI Session 24/03):** `/dashboard/settings/permissions` — Permission Matrix Editor, toggle permissions per role
+- **Admin Credit Limits (MỚI):** `/dashboard/settings/credit-limits` — Credit limit management page
 - **UI Localization:** Toàn bộ giao diện tiếng Việt, không có AI/VRP/ePOD/English text visible — Session 9
 - **UX/UI Design System (MỚI Session 19):**
   - `docs/specs/UXUI_SPEC.md` — Source of truth cho mọi role layout + brand color
@@ -249,22 +289,22 @@
 | `pkg/apperror/` | `pkg/response/` | ERROR_CATALOGUE | DEC-003: Phase 3 |
 | sqlc generated | Raw pgx queries | SAD | DEC-004: Giữ nguyên |
 | Ant Design 5.x | Tailwind CSS | UXUI | DEC-005: Giữ nguyên |
-| 13 trip statuses (code) | DB enum có 13, code dùng ~8 | STATE_MACHINES | Bổ sung dần theo feature |
+| 17 trip statuses (code) | DB enum có 17 (thêm handover_a_signed, unloading_returns, settling, vehicle_breakdown), code dùng ~12 | STATE_MACHINES | Bổ sung dần theo feature |
 | Integration thực (HTTP) | Mock mode mặc định + standalone mock server (cmd/mock_server) | INT | Mock server sẵn sàng, chờ BHL IT sandbox cho real |
 | zerolog structured | stdlib `log` | SAD | Low priority |
 | 11 roles (BRD v3.0) | 9 roles (code): admin, dispatcher, driver, warehouse_handler, accountant, management, dvkh, security, workshop | BRD §9 | Phase 6: tách workshop (done), fleet tab in dispatcher (done), KT Trưởng RBAC (done). Còn lại: đội_trưởng (sub-role of dispatcher), phó_giám_đốc (≈management) |
-| BRD v2.2 | BRD v3.0 (updated session 18) | BRD | Đã sync — Session 18: 33 events, Timeline 10 lớp, 3-layer RBAC |
+| BRD v2.2 | BRD v3.2 (updated BRD v3.2) | BRD | Đã sync — BRD v3.2: Bàn giao A/B/C, US-NEW-20 Import/Export Excel, trip status mở rộng, entity events 26 |
 | API spec v1.0 | API spec v1.1 (updated session 11) | API | Đã sync — Session 11 |
 
 ---
 
-## Database: 38+ bảng, 17 migration files (001-014)
+## Database: 40+ bảng, 20 migration pairs (001-017)
 
-**Migrations applied (17 files):** 001_init → 002_checklist → 003_cutoff_consolidation → 004_wms → 005_epod_payment → 006_zalo_confirm → 007_recon_dlq_kpi → 008_audit_log → 009_driver_checkin + 009_urgent_priority (hai file cùng số) → 010_order_confirmation + 010_order_number_seq + 010_workshop_phase6 (ba file cùng số) → 011_entity_events → 012_redelivery_vehicle_docs → 013_partial_payment_reject → 014_note_type_pinned (MỚI — note_type, is_pinned on order_notes)
+**Migrations applied (20 pairs):** 001_init → 002_checklist → 003_cutoff_consolidation → 004_wms → 005_epod_payment → 006_zalo_confirm → 007_recon_dlq_kpi → 008_audit_log → 009_driver_checkin + 009_urgent_priority (hai file cùng số) → 010_order_confirmation + 010_order_number_seq + 010_workshop_phase6 (ba file cùng số) → 011_entity_events → 012_redelivery_vehicle_docs → 013_partial_payment_reject → 014_note_type_pinned → 015_eod_checkpoints → 016_notification_admin_rbac → **017_handover_records (MỚI — handover_records table + handover_type enum + 4 trip_status values)**
 
 **Enums quan trọng (PostgreSQL):**
 - `order_status` — 13 states
-- `trip_status` — 13 states
+- `trip_status` — 17 states (thêm handover_a_signed, unloading_returns, settling, vehicle_breakdown)
 - `stop_status` — 7 states
 - `zalo_confirm_status` — 5 states
 - `payment_status` — 4 states

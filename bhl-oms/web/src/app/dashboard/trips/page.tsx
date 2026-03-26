@@ -2,7 +2,9 @@
 
 import { useEffect, useState } from 'react'
 import Link from 'next/link'
-import { apiFetch, getUser } from '@/lib/api'
+import toast from 'react-hot-toast'
+import { apiFetch, getUser, getToken } from '@/lib/api'
+import { useDataRefresh } from '@/lib/notifications'
 
 interface Trip {
   id: string; trip_number: string; vehicle_plate: string; driver_name: string
@@ -26,15 +28,41 @@ export default function TripsPage() {
   const [loading, setLoading] = useState(true)
   const [filter, setFilter] = useState('')
 
-  useEffect(() => {
+  const loadTrips = () => {
+    setLoading(true)
     const params = new URLSearchParams()
     if (filter) params.set('status', filter)
-
     apiFetch<any>(`/trips?${params}`)
       .then((r) => setTrips(r.data || []))
       .catch(console.error)
       .finally(() => setLoading(false))
-  }, [filter])
+  }
+
+  useEffect(() => { loadTrips() }, [filter])
+
+  // Auto-refresh when trip status changes via WebSocket
+  useDataRefresh('trip', loadTrips)
+
+  const handleExport = async () => {
+    try {
+      const params = new URLSearchParams()
+      if (filter) params.set('status', filter)
+      const res = await fetch(`/api/trips/export?${params}`, {
+        headers: { Authorization: `Bearer ${getToken()}` },
+      })
+      if (!res.ok) throw new Error('Export failed')
+      const blob = await res.blob()
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = `chuyen-xe-${new Date().toISOString().slice(0, 10)}.xlsx`
+      a.click()
+      URL.revokeObjectURL(url)
+      toast.success('Đã tải xuống file Excel')
+    } catch (err: any) {
+      toast.error('Lỗi xuất Excel: ' + err.message)
+    }
+  }
 
   const filters = [
     { label: 'Tất cả', value: '' },
@@ -48,7 +76,13 @@ export default function TripsPage() {
 
   return (
     <div>
-      <h1 className="text-2xl font-bold text-gray-800 mb-6">Quản lý Chuyến xe</h1>
+      <div className="flex items-center gap-3 mb-6">
+      <h1 className="text-2xl font-bold text-gray-800">Quản lý Chuyến xe</h1>
+      <button onClick={loadTrips} className="p-1.5 rounded-lg hover:bg-gray-100 text-gray-400 hover:text-gray-600 transition" title="Làm mới">
+        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" /></svg>
+      </button>
+      <button onClick={handleExport} className="ml-auto px-3 py-1.5 bg-green-600 text-white text-sm rounded-lg hover:bg-green-700 transition" title="Xuất Excel">📥 Xuất Excel</button>
+    </div>
 
       <div className="flex gap-2 mb-4">
         {filters.map((f) => (

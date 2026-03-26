@@ -4,6 +4,7 @@ import { useEffect, useState, useCallback, useRef } from 'react'
 import { apiFetch, getUser } from '@/lib/api'
 import { toast } from '@/lib/useToast'
 import { useRouter } from 'next/navigation'
+import { useDataRefresh } from '@/lib/notifications'
 
 // ─── Types ───────────────────────────────────────────
 
@@ -156,6 +157,9 @@ export default function ControlTowerPage() {
       setLoading(false)
     }
   }, [])
+
+  // Also refresh instantly via WebSocket when order/trip changes
+  useDataRefresh(['order', 'trip'], loadAll)
 
   // GPS WebSocket
   useEffect(() => {

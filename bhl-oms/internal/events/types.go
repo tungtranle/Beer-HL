@@ -36,6 +36,11 @@ const (
 	TripCreated   = "trip.created"
 	TripStarted   = "trip.started"
 	TripCompleted = "trip.completed"
+
+	// Handover lifecycle
+	HandoverASigned = "handover.a_signed"
+	HandoverBSigned = "handover.b_signed"
+	HandoverCSigned = "handover.c_signed"
 )
 
 // Builder helpers — create domain.EntityEvent with proper fields
@@ -190,6 +195,19 @@ func OrderZaloSentEvent(orderID uuid.UUID, orderNumber, customerName string) dom
 	}
 }
 
+func OrderPlannedEvent(orderID uuid.UUID, userID *uuid.UUID, userName, orderNumber, tripNumber string) domain.EntityEvent {
+	return domain.EntityEvent{
+		EntityType: "order",
+		EntityID:   orderID,
+		EventType:  OrderPlanned,
+		ActorType:  actorType(userID),
+		ActorID:    userID,
+		ActorName:  userName,
+		Title:      fmt.Sprintf("%s xếp đơn %s vào chuyến %s", userName, orderNumber, tripNumber),
+		Detail:     Detail("order_number", orderNumber, "trip_number", tripNumber),
+	}
+}
+
 func OrderRedeliveryCreatedEvent(orderID uuid.UUID, userID *uuid.UUID, userName, orderNumber string, attemptNumber int, reason string) domain.EntityEvent {
 	return domain.EntityEvent{
 		EntityType: "order",
@@ -213,14 +231,56 @@ func actorType(userID *uuid.UUID) string {
 
 func viStatus(s string) string {
 	labels := map[string]string{
-		"draft": "Nháp", "pending_customer_confirm": "Chờ KH xác nhận", "pending_approval": "Chờ duyệt",
-		"confirmed": "Đã xác nhận", "planned": "Đã lên KH", "picking": "Đang soạn hàng",
-		"loaded": "Đã xếp xe", "in_transit": "Đang giao", "delivered": "Đã giao",
-		"partial_delivered": "Giao một phần", "rejected": "Từ chối", "re_delivery": "Giao lại",
-		"on_credit": "Ghi nợ", "cancelled": "Đã hủy",
+		"draft": "Nháp", "pending_customer_confirm": "Chờ NPP xác nhận", "pending_approval": "Chờ duyệt hạn mức",
+		"confirmed": "Đã xác nhận", "processing": "Đang soạn hàng", "planned": "Đã xếp xe", "picking": "Đang đóng hàng",
+		"loaded": "Đã lên xe", "in_transit": "Đang giao", "delivered": "Đã giao",
+		"partial_delivered": "Giao thiếu", "partially_delivered": "Giao thiếu",
+		"rejected": "Khách từ chối", "re_delivery": "Giao lại",
+		"on_credit": "Công nợ", "disputed": "Tranh chấp", "cancelled": "Đã hủy", "completed": "Hoàn tất",
 	}
 	if v, ok := labels[s]; ok {
 		return v
 	}
 	return s
+}
+
+// ── Handover event builders ─────────────────────────
+
+func HandoverASignedEvent(tripID uuid.UUID, userID *uuid.UUID, userName, tripNumber string) domain.EntityEvent {
+	return domain.EntityEvent{
+		EntityType: "trip",
+		EntityID:   tripID,
+		EventType:  HandoverASigned,
+		ActorType:  actorType(userID),
+		ActorID:    userID,
+		ActorName:  userName,
+		Title:      fmt.Sprintf("Bàn giao A hoàn tất cho chuyến %s", tripNumber),
+		Detail:     Detail("trip_number", tripNumber),
+	}
+}
+
+func HandoverBSignedEvent(tripID uuid.UUID, userID *uuid.UUID, userName, tripNumber, customerName string) domain.EntityEvent {
+	return domain.EntityEvent{
+		EntityType: "trip",
+		EntityID:   tripID,
+		EventType:  HandoverBSigned,
+		ActorType:  actorType(userID),
+		ActorID:    userID,
+		ActorName:  userName,
+		Title:      fmt.Sprintf("Bàn giao B cho %s tại chuyến %s", customerName, tripNumber),
+		Detail:     Detail("trip_number", tripNumber, "customer_name", customerName),
+	}
+}
+
+func HandoverCSignedEvent(tripID uuid.UUID, userID *uuid.UUID, userName, tripNumber string) domain.EntityEvent {
+	return domain.EntityEvent{
+		EntityType: "trip",
+		EntityID:   tripID,
+		EventType:  HandoverCSigned,
+		ActorType:  actorType(userID),
+		ActorID:    userID,
+		ActorName:  userName,
+		Title:      fmt.Sprintf("Bàn giao C hoàn tất cho chuyến %s", tripNumber),
+		Detail:     Detail("trip_number", tripNumber),
+	}
 }

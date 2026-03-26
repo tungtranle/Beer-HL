@@ -7,6 +7,257 @@
 
 ## [Unreleased] — Phase 6 complete + UX Overhaul v4 + UX v5 full
 
+### 2026-03-26 — Session: VRP Optimization Demo Scenario
+
+#### Fixed — VRP Utilization: 52% → 98.1% (Definitive Algorithm Rewrite)
+- **`internal/tms/service.go` — `buildMockResult()`:** Viết lại hoàn toàn Phase 1-2 với thuật toán "Pack-First, Route-Later":
+  - **ROOT CAUSE trước đó:** Sector-based packing + time constraint during packing → quá nhiều bin thưa, 1-stop trip 2948km
+  - **Thuật toán mới:**
+    1. **Global FFD:** Sort ALL geos by weight DESC (không chia sector) → best-fit decreasing vào bin có ít chỗ trống nhất
+    2. **Vehicle-on-open:** Khi mở bin mới, chọn xe NHỎ NHẤT vừa đủ (`vPool` sắp ASC, first-fit) → bin 4200kg mở xe 5T (84%), không mở 15T (28%)
+    3. **No time/geo constraint during packing:** Chỉ pack theo trọng lượng. Nearest-neighbor ordering sau
+    4. **Split delivery:** Khi không bin/xe nào chứa hết → tách vào bin có nhiều chỗ trống nhất
+  - **Self-test SC-09 (300 đơn, ~245T, 50 xe):**
+    - Before: 50 trips, 52% util, grade D (27/100)
+    - After: **48 trips, 98.1% util**, 0 unassigned, 82 consolidated stops
+    - Xe 8T: 99%+, xe 5T: 99%+, xe 3.5T: 97%+
+  - Removed: sector-based clustering, `estimateTime` during packing, virtual-cap-then-right-size approach
+  - Removed unused vars: `maxTripMin`, `timeLimitEnabled`, `clusterEnabled`, `packAggression`
+- **`cmd/_test_vrp/main.go`:** Test script tự động: login → load SC-09 → run VRP → kiểm tra ≥85%
+
+#### Added — VRP Auto-Consolidation + Split Delivery
+- **`internal/tms/service.go` — `buildMockResult()`:** Thêm Phase 0 (consolidation) + split delivery vào bin-packing:
+  - **Phase 0 — Ghép đơn:** Nhóm shipment theo `CustomerID` → tạo virtual consolidated node với tổng trọng, giữ DS shipment gốc
+  - **Split Delivery:** Khi đơn quá nặng không vào bin nào nguyên vẹn, tách ra: phần vào bin có chỗ, phần còn lại sang bin/xe khác
+  - **Min split:** 100kg — không tách nhỏ hơn mức này
+  - **Split tracker:** Theo dõi customer bị tách bao nhiêu phần, backfill `splitTotal` sau khi xong
+  - **Phase 3 expand:** Consolidated node expand ra individual stops với `ConsolidatedIDs` list, split stops có `IsSplit`/`SplitPart`/`SplitTotal`/`OriginalWeightKg`
+- **`internal/domain/models.go`:** VRPStop thêm 6 fields (WeightKg, ConsolidatedIDs, IsSplit, SplitPart, SplitTotal, OriginalWeightKg); VRPSummary thêm 2 fields (ConsolidatedStops, SplitDeliveries)
+- **`web/src/app/dashboard/planning/page.tsx`:** Hiển thị badges:
+  - 📦×N (tím) cho điểm ghép đơn — "N đơn cùng NPP gộp 1 điểm giao"
+  - ✂️ X/Y (cam) cho tách đơn — "Phần X trong tổng Y phần"
+  - Badges hiển thị ở: trip sidebar, map popup, bảng chỉnh sửa điểm (Step 5)
+  - Quality panel: thêm khối "Ghép đơn: N điểm" + "Tách đơn: N lần tách" khi có data
+
+#### Improved — VRP Geographic Clustering + 8h Time Constraint
+- **`internal/tms/service.go` — `buildMockResult()`:** Rewrite hoàn toàn thuật toán VRP mock:
+  - **3-phase algorithm:** geo-cluster (angular sweep) → capacity bin-pack (best-fit) → nearest-neighbor ordering
+  - **Configurable criteria:** 6 tiêu chí có priority 1-6 + bật/tắt, gửi từ frontend
+  - **Configurable time limit:** user chọn số giờ/chuyến (default 8h), backend nhận `max_trip_minutes`
+  - **Best-fit packing:** thay vì first-fit vào bin cuối, tìm bin có util% cao nhất → tối đa tải trọng
+  - **Post-process merge:** bins dưới 30% tải tự động merge vào bin khác → giảm số xe
+  - **`VRPCriteria` struct mới:** `max_capacity`, `min_vehicles`, `cluster_region`, `min_distance`, `round_trip`, `time_limit` (priority 1-6), `max_trip_minutes`
+  - **`RunVRPRequest`** thêm field `criteria *VRPCriteria`
+
+#### Added — VRP Criteria UI (Drag-to-Reorder + Time Config)
+- **`web/src/app/dashboard/planning/page.tsx`:** Thay thế grid toggle cũ bằng danh sách kéo thả:
+  - Kéo ↕ để thay đổi thứ tự ưu tiên (1 = cao nhất)
+  - Bấm ✓/✗ để bật/tắt từng tiêu chí
+  - Nút +/- chỉnh giờ/chuyến ngay trên dòng "Giới hạn thời gian" (2h-24h)
+  - Frontend gửi `criteria` object cùng `max_trip_minutes` trong API request
+- **Fix type error:** `getUser()?.token` → `getToken()` trong reconciliation + trips page
+
+#### Added — VRP Quality Assessment Panel
+- **`web/src/app/dashboard/planning/page.tsx`:** Panel đánh giá chất lượng VRP mở sẵn (open by default)
+  - 6 metrics: tỷ lệ xếp, tải trọng TB, quá tải, km/điểm giao, quá 8h, km/chuyến TB
+  - Overall grade A/B/C/D (5 dimensions: assign + util + overload + underutil + route)
+  - Vehicle type breakdown table
+  - Auto-suggestions khi phát hiện vấn đề (8h vượt, distance quá cao, etc.)
+
+#### Fixed — VRP Mock Overload Bug
+- **`internal/tms/service.go` — `buildMockResult()`:** Khi VRP Python solver không chạy (port 8090), Go fallback mock **ép hàng quá tải** khi hết xe → đơn không xếp được giờ vào `unassigned` thay vì overload
+- **Ngọn nguồn:** else branch "All vehicles full" không check capacity, nhét thẳng vào xe ít tải nhất
+
+#### Fixed — SC-09 Weight vs Fleet Capacity Mismatch
+- **`internal/testportal/scenarios.go`:** SC-09 tạo ~695T hàng nhưng fleet WH-HL chỉ có 284T (50 xe: 20×3.5T + 18×5T + 8×8T + 4×15T)
+- **Sửa:** Giảm weight tiers để tổng ~245T (86% fleet capacity):
+  - XS: 40-120kg (100 đơn) | S: 200-400kg (80 đơn) | M: 500-900kg (60 đơn)
+  - L: 1200-2400kg (40 đơn) | XL: 3500-6500kg (20 đơn)
+- **Sửa metadata:** Fleet info từ "70 xe" → "50 xe WH-HL (284T capacity)"
+
+#### Docs Updated
+- CHANGELOG.md (this entry)
+- CURRENT_STATE.md — Test Portal section updated
+
+### 2026-03-25 — Session: Notification Audit + BRD Gap Implementation
+
+#### Fixed — Notification Link Audit (12 links fixed)
+- **`internal/tms/service.go`:** Removed `/dashboard/` prefix from ALL 11 notification links:
+  - Plan approved → warehouse (`/warehouse/picking`), driver (`/driver`)
+  - Trip started/failed/completed → dispatcher (`/control-tower`)
+  - Trip completed → accountant (`/reconciliation`)
+  - NPP rejected → dispatcher + accountant
+  - EOD checkpoint/confirmed/rejected → receiver + driver
+- **`internal/wms/service.go`:** Removed `/dashboard/` prefix from picking completed notification → dispatcher (`/warehouse`)
+- **Root cause:** NotificationBell.tsx `handleClick` prepends `/dashboard` — so links stored with `/dashboard/` resulted in `/dashboard/dashboard/...` = 404
+
+#### Added — Notification Icons for EOD & Document Expiry
+- **`web/src/components/NotificationBell.tsx`:** Added `categoryIcons` for `eod_checkpoint` (📋), `eod_confirmed` (✅), `eod_rejected` (❌), `document_expiry` (📄)
+
+#### Added — TMS & Reconciliation Excel Export (BRD US-NEW-20)
+- **`internal/tms/excel.go` (NEW):** GET `/v1/trips/export` — exports trips to .xlsx with 2 sheets (Chuyến xe + Điểm giao), Vietnamese status labels, BHL orange headers
+- **`internal/reconciliation/excel.go` (NEW):** GET `/v1/reconciliation/export` — exports reconciliations with type/status Vietnamese labels
+- **`web/src/app/dashboard/trips/page.tsx`:** Added "📥 Xuất Excel" export button
+- **`web/src/app/dashboard/reconciliation/page.tsx`:** Added "📥 Xuất Excel" export button
+
+#### Added — ePOD Photo Server Enforcement (BRD US-TMS-13 AC#5)
+- **`internal/tms/service.go` SubmitEPOD:** Server-side validation requires ≥ 1 photo (`photo_urls` non-empty), returns error "cần ít nhất 1 ảnh chứng từ giao hàng"
+
+#### Added — Credit Limit Audit Trail (BRD US-OMS-07 AC#8)
+- **`internal/admin/service.go` UpdateCreditLimit:** Records `entity_events` with old→new diff for credit_limit and effective_to changes
+- **`internal/admin/handler.go`:** Passes actor_id + actor_name to service for audit trail
+
+#### Added — Redelivery Report (BRD US-TMS-14b AC#6)
+- **`internal/kpi/service.go`:** `GetRedeliveryReport` — queries delivery_attempts with summary (total, avg attempts/order, top failure reasons)
+- **`internal/kpi/handler.go`:** GET `/v1/kpi/redeliveries?from=&to=&limit=` — new KPI report endpoint
+
+#### Fixed — Credit Limit Expiry Cron SQL Error
+- **`internal/admin/service.go` CheckCreditLimitExpiry:** Fixed `EXTRACT(DAY FROM cl.effective_to - CURRENT_DATE)` → `(cl.effective_to - CURRENT_DATE)`. PostgreSQL `DATE - DATE` returns integer directly, EXTRACT expects interval/timestamp — was causing `pg_catalog.extract(unknown, integer)` function type mismatch error.
+
+#### Docs Updated
+- CHANGELOG.md (this entry)
+- CURRENT_STATE.md — Updated TMS (export, ePOD enforcement), Reconciliation (export), KPI (redeliveries), Admin (credit audit trail), Notification (link audit)
+
+### 2026-03-25 — Session: Excel Import/Export + Handover Flow Fix
+
+#### Added — Excel Import/Export (US-NEW-20)
+- **Backend `internal/oms/excel.go` (NEW):**
+  - `ExportOrders` handler — GET `/v1/orders/export`, exports all orders to .xlsx with Vietnamese headers, BHL orange header style (#F68634), Vietnamese status labels
+  - `DownloadImportTemplate` handler — GET `/v1/orders/import/template`, generates template with example row + "Hướng dẫn" (instructions) sheet
+  - `ImportOrders` handler — POST `/v1/orders/import` with multipart file upload, validates customers/products, groups rows into orders
+  - `ImportOrders` service method — groups rows by (customer_code, warehouse_id, delivery_date), validates each field, creates orders via `CreateOrder`
+- **Backend `internal/oms/handler.go`:** Registered 3 Excel routes (export, import/template, import)
+- **Frontend `web/src/app/dashboard/orders/page.tsx`:**
+  - Added "📥 Xuất Excel" and "📤 Import Excel" buttons in header
+  - Import modal with: template download, file upload (.xlsx), result display (success/error per row)
+  - Export downloads file as `don-hang-YYYY-MM-DD.xlsx`
+- **Dependency:** Added `github.com/xuri/excelize/v2` v2.10.1
+
+#### Fixed — Handover A Flow from Picking Page
+- **picking-by-vehicle/page.tsx:** "Tạo biên bản bàn giao xuất kho" button now:
+  - Stores trip data + picked items in sessionStorage
+  - Navigates to `/dashboard/handover-a?trip_id=xxx` (was plain `/dashboard/handover-a` with no context)
+- **handover-a/page.tsx — Full rewrite of create flow:**
+  - Reads `trip_id` from URL searchParams → auto-selects trip, auto-populates items
+  - Items table with editable actual_qty (pre-filled from picking data): product_name, product_sku, expected_qty, actual_qty, match indicator
+  - Sends items array in POST body to `/warehouse/handovers` (was missing before)
+  - Auto-signs warehouse_handler role after creation (no extra click needed)
+  - After creation, auto-navigates to detail view showing 3-party signing status
+  - Detail view now shows: items table with match/mismatch, signing status per party (Thủ kho/Tài xế/Bảo vệ), confirm buttons for unsigned roles, photos, notes
+  - 3-party confirm flow: warehouse auto-signed → driver + security see "Xác nhận" buttons
+
+#### Docs Updated
+- CHANGELOG.md (this entry)
+
+### BRD v3.2 — Bàn giao A/B/C + Trip Status Mở rộng + Import/Export Excel
+
+#### Changed — BRD_BHL_OMS_TMS_WMS.md (v3.1 → v3.2)
+- **Header:** v3.1 → v3.2, NPP Portal 300 → 800 users
+- **Section 2.2:** To-Be flow updated — Bàn giao A/B/C thay gate-check
+- **Section 3:** R04/R15 hạn mức tùy chọn 4 trường hợp; R16/R17/R18 mới cho Bàn giao A/B/C
+- **Section 4:** US-OMS-01 4 hạn mức cases; US-OMS-02a thuật ngữ; US-OMS-07 optional hạn mức
+- **Section 5:** US-TMS-01 manual planning + VRP criteria; US-TMS-17 Bàn giao B/C signatures; Trip Status Flow thêm handover_a_signed, vehicle_breakdown
+- **Section 6:** WMS overview (no PDA outbound); US-WMS-03 Bàn giao A 3-party; US-WMS-04 barrier post-Handover A; US-WMS-15 PDA only inbound+inventory; US-WMS-22 Bàn giao B
+- **Section 12:** Timeline layers updated (Layer 6→Bàn giao A, Layer 10→Bàn giao B/C); 12.2 event mapping; 12.4 acceptance criteria
+- **Section 14B:** US-NEW-11 events 23→26; Thêm US-NEW-20 Import/Export Excel
+- **Section 15:** UAT #10 updated cho Bàn giao A/B/C
+
+#### Added — Backend Code
+- **Migration 017:** `handover_records` table + `handover_type` enum + 4 trip_status values (handover_a_signed, unloading_returns, settling, vehicle_breakdown)
+- **Domain model:** `HandoverRecord` struct in `internal/domain/models.go`
+- **Events:** 3 new constants — `handover.a_signed`, `handover.b_signed`, `handover.c_signed` + builder helpers
+- **Trip transitions:** `validTripTransitions` mở rộng — thêm handover_a_signed, vehicle_breakdown, unloading_returns, settling states
+- **WMS endpoints (4 mới):**
+  - POST `/v1/warehouse/handovers` — tạo bàn giao A/B/C
+  - POST `/v1/warehouse/handovers/:id/sign` — ký bàn giao (multi-party)
+  - GET `/v1/warehouse/handovers/trip/:tripId` — list bàn giao theo chuyến
+  - GET `/v1/warehouse/handovers/:id` — chi tiết bàn giao
+- **Repository:** `CreateHandoverRecord`, `GetHandoverRecord`, `GetHandoversByTrip`, `UpdateHandoverSignatories`
+- **Service:** `CreateHandover`, `SignHandover`, `GetHandoversByTrip`, `GetHandoverRecord`
+
+#### Docs Updated
+- CURRENT_STATE.md (migration 017, WMS 20→24 endpoints, trip_status 13→17, BRD v3.2 ref)
+- BRD_BHL_OMS_TMS_WMS.md (v3.2)
+- CHANGELOG.md (this entry)
+
+### 2026-03-25 — Session: Documentation Audit & Sync
+
+#### Changed — CURRENT_STATE.md (source of truth sync)
+- **Header:** Date → 25/03/2026
+- **Admin section:** 16 → 30 endpoints — added RBAC (permissions CRUD, user overrides), sessions (list, revoke), audit-log diff
+- **TMS section:** 50+ → 55 endpoints — added EOD checkpoint module (6 endpoints), trip cancel, move stop, exceptions, control-tower stats; detailed Vehicle/Driver counts
+- **WMS section:** 28 → 20 endpoints (corrected to match actual routes)
+- **Reconciliation section:** 12 → 10 endpoints with detailed endpoint breakdown
+- **Integration section:** 18 → 19 endpoints with detailed breakdown (Bravo 3, DMS 1, Zalo 1, Delivery Confirm 2, NPP Portal 3, Order Confirm Portal 4, DLQ 4, Config 1)
+- **Notification section:** 5 → 6 endpoints + documented 4-Layer Delivery System (Layer 1-4)
+- **TestPortal section:** 18 → 21 endpoints (data overview 8, test actions 7, GPS simulation 6)
+- **Frontend section:** 42 → 44 pages (added settings/permissions, settings/credit-limits)
+- **Database section:** 38+ tables/17 files → 40+ tables/19 migration pairs; added 015_eod_checkpoints + 016_notification_admin_rbac
+- **Spec drift table:** BRD v3.0 → v3.1 reference
+
+#### Changed — BRD_BHL_OMS_TMS_WMS.md (v3.0 → v3.1)
+- **Version:** 3.0 → 3.1, date → 25/03/2026
+- **Section 9.2:** Action-level RBAC `[ ] Chưa triển khai` → `[◐] Partial — PermissionGuard middleware + role_permissions + user_permission_overrides`
+- **Section 11.4:** P1 toast persistent `[ ]` → `[x]` (PersistentToast component, Session 24/03)
+- **Section 11 status:** Updated — 4-Layer Delivery System đã triển khai
+- **US-NEW-13:** Test Portal endpoints 13 → 21
+- **US-NEW-14 (NEW):** Notification 4-Layer Delivery System
+- **US-NEW-15 (NEW):** Admin Dynamic RBAC + Session Management
+- **US-NEW-16 (NEW):** End-of-Day (EOD) Checkpoint System
+- **US-NEW-17 (NEW):** Vehicle/Driver Document Management
+- **US-NEW-18 (NEW):** Sentry Error Tracking
+- **US-NEW-19 (NEW):** Control Tower Enhancements
+
+#### Docs Updated
+- `CURRENT_STATE.md` — Full audit, all module endpoint counts corrected
+- `BRD_BHL_OMS_TMS_WMS.md` — v3.1, 6 new user stories, RBAC/notification status fixed
+- `CHANGELOG.md` — This entry
+
+### 2026-03-24 — Session: Notification 4-Layer + Admin RBAC Module
+
+#### Added — Notification System 4-Layer Delivery
+- **Migration 016:** `actions JSONB`, `group_key TEXT` columns on notifications; `role_permissions`, `user_permission_overrides`, `active_sessions` tables with seed data (96 permissions)
+- **Backend:** `notification/repository.go` — `GetGrouped()`, `GetByCategory()`; `notification/service.go` — `SendWithActions()`, `GetGroupedNotifications()`, `GetByCategory()`; `notification/handler.go` — `GET /v1/notifications/grouped`
+- **Frontend PersistentToast.tsx** — urgent priority: manual dismiss, max 3 stacked, inline action buttons via apiFetch, brand #F68634
+- **Frontend AutoToast.tsx** — high priority: 8s auto-dismiss with progress bar, deep links via router.push
+- **NotificationProvider** (`notifications.tsx`) — 4-layer routing: urgent→PersistentToast, high→AutoToast, normal/low→bell+panel only; auto-toast queue for sequential display
+- **NotificationBell.tsx** — filter chips (Tất cả/OMS/TMS/WMS/Đối soát/Hệ thống), brand #F68634 unread dot (was bg-amber-500), priority badges
+- Removed old `NotificationToast` from dashboard layout (replaced by new toast system)
+
+#### Added — Admin Dynamic RBAC + Session Management
+- **`admin/repository.go`** (NEW) — full RBAC repo: `GetAllRolePermissions`, `UpsertRolePermission`, `GetUserOverrides`, `UpsertUserOverride`, `DeleteUserOverride`, `ListActiveSessions`, `RevokeSession`, `RevokeAllUserSessions`, `GetEffectivePermissions`, `WriteAuditLog`, `GetAuditLogs`, `GetAuditLogByID`, `GetSystemConfigs`, `UpsertSystemConfig`, `ListCreditLimits`
+- **`admin/service.go`** — added repo field, RBAC methods (`GetPermissionMatrix`, `UpdateRolePermission` with audit + cache invalidation), session management, audit log pagination/diff
+- **`admin/handler.go`** — routes: `GET/PUT /permissions`, user overrides CRUD, `GET/DELETE /sessions`, `GET /audit-logs/:id/diff`
+- **`middleware/auth.go`** — `PermissionGuard(resource, action, db, rdb)`: Redis cache (300s TTL) + DB fallback, admin bypasses all checks
+- **`cmd/server/main.go`** — wired `adminRepo` into admin module init
+
+#### Added — Admin Frontend Pages
+- **`settings/permissions/page.tsx`** — Permission Matrix Editor: role tabs, resource×action grid, inline toggle, optimistic update, filter by resource
+- **`settings/page.tsx`** — added "Phiên đăng nhập" tab (active sessions list, revoke single/all), link to Permission Matrix
+- **`settings/audit-logs/page.tsx`** — added Diff modal: field-level old/new comparison, before/after JSON display, ESC to close
+- **Dashboard layout** — added Shield icon + "Phân quyền" link in sidebar nav
+
+#### Docs Updated
+- CHANGELOG.md (this entry)
+
+### 2026-03-23 — Session: Sentry + Test Portal security
+
+#### Added — Sentry error tracking
+- **Sentry Frontend (Next.js):** `sentry.client.config.ts`, `sentry.server.config.ts`, `sentry.edge.config.ts`, `instrumentation.ts`, `global-error.tsx` — DSN configured, Session Replay 10% + 100% on error, Performance tracing 30%
+- **Sentry Backend (Go/Gin):** `sentry-go` + `sentrygin` middleware — captures panics and errors, tracing 30%
+- **Config:** `SentryDSN` env var in `config.go`, `SENTRY_DSN` env variable
+- **`next.config.js`:** Wrapped with `withSentryConfig()`
+
+#### Changed — Test Portal security guard
+- **`ENABLE_TEST_PORTAL` env flag:** Default `true` (dev), set `false` to disable on production
+- **`config.go`:** Added `EnableTestPortal` field
+- **`main.go`:** Test portal routes only registered when `EnableTestPortal=true`, logs `test_portal_disabled` otherwise
+
+#### Changed — Production deployment
+- **`docker-compose.prod.yml`:** Added `SENTRY_DSN`, `ENABLE_TEST_PORTAL` env vars; mounted `./migrations` into postgres container
+- **`nginx.conf`:** Added `bhl.symper.us` as server_name alongside `oms.bhl.vn`
+- **`docs/DEPLOY_GUIDE.md`:** New — hướng dẫn deploy, fix bug, bật test-portal, xem Sentry (non-tech friendly)
+
 ### 2026-03-22 — Session: UX v5 full — §17-§23 implementation
 
 #### Added — 7 remaining v5 features

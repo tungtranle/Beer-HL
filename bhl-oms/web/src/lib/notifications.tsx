@@ -3,7 +3,14 @@
 import { createContext, useContext, useEffect, useState, useCallback, useRef } from 'react'
 import { getToken, apiFetch } from '@/lib/api'
 
-interface Notification {
+interface NotificationAction {
+  label: string
+  method: string
+  endpoint: string
+  body_template?: Record<string, unknown>
+}
+
+export interface Notification {
   id: string
   title: string
   body: string
@@ -12,28 +19,60 @@ interface Notification {
   link?: string
   entity_type?: string
   entity_id?: string
+  actions?: NotificationAction[]
+  group_key?: string
   is_read: boolean
   created_at: string
 }
 
+export interface OrderUpdate {
+  order_id: string
+  new_status: string
+}
+
+export interface EntityUpdate {
+  entity_type: string
+  entity_id: string
+  new_status: string
+}
+
+type OrderUpdateListener = (update: OrderUpdate) => void
+type EntityUpdateListener = (update: EntityUpdate) => void
+
 interface NotificationContextType {
   notifications: Notification[]
   unreadCount: number
+  // 4-layer toast state
+  urgentToasts: Notification[]
+  autoToast: Notification | null
+  dismissUrgentToast: (id: string) => void
+  dismissAutoToast: () => void
+  // Legacy compat
   toast: Notification | null
   dismissToast: () => void
   markRead: (id: string) => void
   markAllRead: () => void
   refresh: () => void
+  // Order update subscriptions
+  subscribeOrderUpdates: (listener: OrderUpdateListener) => () => void
+  // Entity update subscriptions (general: order, trip, handover, etc.)
+  subscribeEntityUpdates: (listener: EntityUpdateListener) => () => void
 }
 
 const NotificationContext = createContext<NotificationContextType>({
   notifications: [],
   unreadCount: 0,
+  urgentToasts: [],
+  autoToast: null,
+  dismissUrgentToast: () => {},
+  dismissAutoToast: () => {},
   toast: null,
   dismissToast: () => {},
   markRead: () => {},
   markAllRead: () => {},
   refresh: () => {},
+  subscribeOrderUpdates: () => () => {},
+  subscribeEntityUpdates: () => () => {},
 })
 
 export function useNotifications() {
@@ -43,9 +82,25 @@ export function useNotifications() {
 export function NotificationProvider({ children }: { children: React.ReactNode }) {
   const [notifications, setNotifications] = useState<Notification[]>([])
   const [unreadCount, setUnreadCount] = useState(0)
-  const [toast, setToast] = useState<Notification | null>(null)
+  // 4-layer: urgent = PersistentToast (manual dismiss), high = AutoToast (8s)
+  const [urgentToasts, setUrgentToasts] = useState<Notification[]>([])
+  const [autoToast, setAutoToast] = useState<Notification | null>(null)
+  const autoToastQueueRef = useRef<Notification[]>([])
   const wsRef = useRef<WebSocket | null>(null)
-  const toastTimerRef = useRef<NodeJS.Timeout | null>(null)
+  const orderUpdateListenersRef = useRef<Set<OrderUpdateListener>>(new Set())
+  const entityUpdateListenersRef = useRef<Set<EntityUpdateListener>>(new Set())
+
+  // Subscribe to order updates — returns unsubscribe function
+  const subscribeOrderUpdates = useCallback((listener: OrderUpdateListener) => {
+    orderUpdateListenersRef.current.add(listener)
+    return () => { orderUpdateListenersRef.current.delete(listener) }
+  }, [])
+
+  // Subscribe to entity updates (general) — returns unsubscribe function
+  const subscribeEntityUpdates = useCallback((listener: EntityUpdateListener) => {
+    entityUpdateListenersRef.current.add(listener)
+    return () => { entityUpdateListenersRef.current.delete(listener) }
+  }, [])
 
   // Fetch notifications from API
   const refresh = useCallback(async () => {
@@ -77,16 +132,41 @@ export function NotificationProvider({ children }: { children: React.ReactNode }
     } catch { /* ignore */ }
   }, [])
 
-  const dismissToast = useCallback(() => {
-    setToast(null)
-    if (toastTimerRef.current) clearTimeout(toastTimerRef.current)
+  // Urgent toast — manual dismiss, max 3 stacked
+  const dismissUrgentToast = useCallback((id: string) => {
+    setUrgentToasts(prev => prev.filter(n => n.id !== id))
   }, [])
 
-  // Show toast for new notification
-  const showToast = useCallback((n: Notification) => {
-    setToast(n)
-    if (toastTimerRef.current) clearTimeout(toastTimerRef.current)
-    toastTimerRef.current = setTimeout(() => setToast(null), 6000)
+  // Auto toast — dismiss current, show next in queue
+  const dismissAutoToast = useCallback(() => {
+    setAutoToast(null)
+    // Show next queued if any
+    setTimeout(() => {
+      if (autoToastQueueRef.current.length > 0) {
+        const next = autoToastQueueRef.current.shift()!
+        setAutoToast(next)
+      }
+    }, 400)
+  }, [])
+
+  // Legacy compat
+  const toast = autoToast
+  const dismissToast = dismissAutoToast
+
+  // Route notification to correct layer
+  const routeNotification = useCallback((n: Notification) => {
+    if (n.priority === 'urgent') {
+      setUrgentToasts(prev => [n, ...prev].slice(0, 5)) // keep max 5, show max 3
+    } else if (n.priority === 'high') {
+      setAutoToast(current => {
+        if (current) {
+          autoToastQueueRef.current.push(n)
+          return current
+        }
+        return n
+      })
+    }
+    // normal/low → only bell + panel (no toast)
   }, [])
 
   // WebSocket connection
@@ -97,7 +177,7 @@ export function NotificationProvider({ children }: { children: React.ReactNode }
     refresh()
 
     const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
-    const wsUrl = `${protocol}//${window.location.hostname}:8080/ws/notifications?token=${token}`
+    const wsUrl = `${protocol}//${window.location.host}/ws/notifications?token=${token}`
     
     let ws: WebSocket
     let reconnectTimer: NodeJS.Timeout
@@ -110,7 +190,7 @@ export function NotificationProvider({ children }: { children: React.ReactNode }
       wsRef.current = ws
 
       ws.onopen = () => {
-        retries = 0 // reset on successful connection
+        retries = 0
       }
 
       ws.onmessage = (event) => {
@@ -120,17 +200,30 @@ export function NotificationProvider({ children }: { children: React.ReactNode }
             const n = msg.data as Notification
             setNotifications(prev => [n, ...prev.slice(0, 9)])
             setUnreadCount(prev => prev + 1)
-            // Show toast for urgent/high priority
-            if (n.priority === 'urgent' || n.priority === 'high' || n.priority === 'normal') {
-              showToast(n)
+            routeNotification(n)
+          } else if (msg.type === 'entity_update' && msg.entity_type) {
+            const eu: EntityUpdate = { entity_type: msg.entity_type, entity_id: msg.entity_id || '', new_status: msg.new_status || '' }
+            entityUpdateListenersRef.current.forEach(listener => {
+              try { listener(eu) } catch { /* ignore */ }
+            })
+            // Also dispatch to legacy order update listeners
+            if (msg.entity_type === 'order') {
+              const ou: OrderUpdate = { order_id: eu.entity_id, new_status: eu.new_status }
+              orderUpdateListenersRef.current.forEach(listener => {
+                try { listener(ou) } catch { /* ignore */ }
+              })
             }
+          } else if (msg.type === 'order_update' && msg.order_id) {
+            const update: OrderUpdate = { order_id: msg.order_id, new_status: msg.new_status || '' }
+            orderUpdateListenersRef.current.forEach(listener => {
+              try { listener(update) } catch { /* ignore */ }
+            })
           }
         } catch { /* ignore parse errors */ }
       }
 
       ws.onclose = () => {
         retries++
-        // Exponential backoff: 5s, 10s, 20s, 40s, 80s
         const delay = Math.min(5000 * Math.pow(2, retries - 1), 80000)
         reconnectTimer = setTimeout(connect, delay)
       }
@@ -146,11 +239,55 @@ export function NotificationProvider({ children }: { children: React.ReactNode }
       clearTimeout(reconnectTimer)
       if (wsRef.current) wsRef.current.close()
     }
-  }, [refresh, showToast])
+  }, [refresh, routeNotification])
 
   return (
-    <NotificationContext.Provider value={{ notifications, unreadCount, toast, dismissToast, markRead, markAllRead, refresh }}>
+    <NotificationContext.Provider value={{
+      notifications, unreadCount,
+      urgentToasts, autoToast, dismissUrgentToast, dismissAutoToast,
+      toast, dismissToast,
+      markRead, markAllRead, refresh,
+      subscribeOrderUpdates,
+      subscribeEntityUpdates,
+    }}>
       {children}
     </NotificationContext.Provider>
   )
+}
+
+/**
+ * Hook for auto-refreshing page data when entities change via WebSocket.
+ * Debounces rapid updates (300ms) to prevent excessive API calls.
+ *
+ * @param entityTypes - Entity type(s) to listen for ('order', 'trip', 'handover', etc.)
+ * @param onRefresh - Callback to reload data
+ * @param entityId - Optional: only trigger for a specific entity ID
+ */
+export function useDataRefresh(
+  entityTypes: string | string[],
+  onRefresh: () => void,
+  entityId?: string | null
+) {
+  const { subscribeEntityUpdates } = useNotifications()
+  const callbackRef = useRef(onRefresh)
+  callbackRef.current = onRefresh
+  const entityIdRef = useRef(entityId)
+  entityIdRef.current = entityId
+  const typesRef = useRef(entityTypes)
+  typesRef.current = entityTypes
+  const debounceRef = useRef<ReturnType<typeof setTimeout>>()
+
+  useEffect(() => {
+    const unsub = subscribeEntityUpdates((update) => {
+      const types = Array.isArray(typesRef.current) ? typesRef.current : [typesRef.current]
+      if (!types.includes(update.entity_type)) return
+      if (entityIdRef.current && update.entity_id !== entityIdRef.current) return
+      clearTimeout(debounceRef.current)
+      debounceRef.current = setTimeout(() => callbackRef.current(), 300)
+    })
+    return () => {
+      unsub()
+      clearTimeout(debounceRef.current)
+    }
+  }, [subscribeEntityUpdates])
 }

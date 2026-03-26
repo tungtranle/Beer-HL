@@ -8,7 +8,29 @@ import (
 	"bhl-oms/pkg/response"
 
 	"github.com/gin-gonic/gin"
+	"github.com/jackc/pgx/v5/pgconn"
 )
+
+// backfillOrderCreatedEvents inserts order.created events for all orders that don't have one yet.
+// Call this after scenario data load to ensure all test orders have timeline events.
+func backfillOrderCreatedEvents(ctx context.Context, db interface {
+	Exec(ctx context.Context, sql string, arguments ...any) (pgconn.CommandTag, error)
+}) error {
+	_, err := db.Exec(ctx, `
+		INSERT INTO entity_events (entity_type, entity_id, event_type, actor_type, actor_name, title, detail, created_at)
+		SELECT 'order', so.id, 'order.created', 'user',
+		  COALESCE((SELECT full_name FROM users WHERE id = so.created_by), 'DVKH'),
+		  'Tạo đơn hàng ' || so.order_number || ' cho ' || c.name,
+		  jsonb_build_object('order_number', so.order_number, 'customer_name', c.name, 'total_amount', so.total_amount),
+		  so.created_at
+		FROM sales_orders so
+		JOIN customers c ON c.id = so.customer_id
+		WHERE NOT EXISTS (
+		  SELECT 1 FROM entity_events ee
+		  WHERE ee.entity_type = 'order' AND ee.entity_id = so.id AND ee.event_type = 'order.created'
+		)`)
+	return err
+}
 
 // ── Scenario metadata ─────────────────────────────
 
@@ -47,6 +69,7 @@ func (h *Handler) ListScenarios(c *gin.Context) {
 		scenarioMultiStop(),
 		scenarioGateCheckFail(),
 		scenarioReconDiscrepancy(),
+		scenarioVRPStress(),
 	}
 	response.OK(c, scenarios)
 }
@@ -97,6 +120,8 @@ func (h *Handler) LoadScenario(c *gin.Context) {
 		loadErr, summary = h.loadScenarioGateCheckFail(ctx)
 	case "SC-08":
 		loadErr, summary = h.loadScenarioReconDiscrepancy(ctx)
+	case "SC-09":
+		loadErr, summary = h.loadScenarioVRPStress(ctx)
 	default:
 		response.BadRequest(c, "Scenario không tồn tại: "+req.ScenarioID)
 		return
@@ -106,6 +131,11 @@ func (h *Handler) LoadScenario(c *gin.Context) {
 		h.log.Error(ctx, "scenario_load_fail", loadErr, logger.F("scenario", req.ScenarioID))
 		response.InternalError(c)
 		return
+	}
+
+	// Backfill order.created events for all orders that don't have one (test data)
+	if err := backfillOrderCreatedEvents(ctx, h.db); err != nil {
+		h.log.Warn(ctx, "backfill_order_events_failed", logger.F("err", err.Error()))
 	}
 
 	h.log.Info(ctx, "scenario_loaded", logger.F("scenario", req.ScenarioID))
@@ -736,7 +766,10 @@ func (h *Handler) loadScenarioMultiStop(ctx context.Context) (error, string) {
 	defer tx.Rollback(ctx)
 
 	// 5 orders, multi-product, realistic quantities (~4.5 tấn tổng, vừa xe 5t)
-	type msItem struct{ sku string; qty int }
+	type msItem struct {
+		sku string
+		qty int
+	}
 	type msOrder struct {
 		custOffset int
 		items      []msItem
@@ -1046,4 +1079,262 @@ func (h *Handler) loadScenarioReconDiscrepancy(ctx context.Context) (error, stri
 		return err, ""
 	}
 	return nil, "✅ 2 chuyến hoàn thành: 1 matched + 1 discrepancy (thiếu 2M). Đăng nhập Kế toán → Đối soát → Xử lý sai lệch."
+}
+
+// ── SC-09: VRP Optimization Demo (300 orders, diverse weights) ──
+
+func scenarioVRPStress() ScenarioMeta {
+	return ScenarioMeta{
+		ID:          "SC-09",
+		Title:       "VRP Tối ưu — 300 đơn, trọng lượng đa dạng, 50 xe WH-HL",
+		Category:    "TMS",
+		Description: "300 đơn hàng confirmed với trọng lượng rất khác nhau (40kg → 6.5 tấn) để thấy rõ VRP tối ưu xếp xe: " +
+			"đơn nhỏ ghép chung, đơn lớn dùng xe 5T/8T, tổng ~245T vs fleet 284T. " +
+			"Fleet WH-HL: 20 xe 3.5T + 18 xe 5T + 8 xe 8T + 4 xe 15T = 50 xe. Toàn bộ 70 tài xế khả dụng.",
+		Roles:       []string{"dispatcher"},
+		DataSummary: "300 đơn confirmed, 5 nhóm trọng lượng, 50 xe WH-HL (4 loại), 70 tài xế. Tổng ~245 tấn.",
+		GPSScenario: "normal_delivery",
+		Steps: []ScenarioStep{
+			{Role: "dispatcher", Page: "/dashboard/planning", Action: "Vào Lập kế hoạch → Chọn kho WH-HL → thấy 300 shipment pending", Expected: "300 shipments, trọng lượng từ 40kg đến 6.5 tấn"},
+			{Role: "dispatcher", Page: "/dashboard/planning", Action: "Chọn tất cả 50 xe WH-HL → VRP Tự động", Expected: "OR-Tools solver tối ưu bin-packing + routing"},
+			{Role: "dispatcher", Page: "/dashboard/planning", Action: "Xem kết quả VRP — so sánh utilization theo loại xe", Expected: "Xe 8T/15T: chở đơn >3.5 tấn. Xe 5T: 2-4 đơn vừa. Xe 3.5T: nhiều đơn nhỏ"},
+			{Role: "dispatcher", Page: "/dashboard/planning", Action: "Kiểm tra capacity utilization — kỳ vọng 75-95%", Expected: "Solver tối ưu: ít xe nhất, đầy nhất, quãng đường ngắn nhất"},
+			{Role: "dispatcher", Page: "/dashboard/planning", Action: "Duyệt kế hoạch → Tạo trips + stops", Expected: "Trips created, orders → planned"},
+		},
+		PreviewData: []ScenarioDataPoint{
+			{Label: "Tổng đơn hàng", Value: "300 đơn confirmed, kho WH-HL"},
+			{Label: "5 nhóm trọng lượng", Value: "XS: 40-120kg (100 đơn) | S: 200-400kg (80 đơn) | M: 500-900kg (60 đơn) | L: 1200-2400kg (40 đơn) | XL: 3500-6500kg (20 đơn)"},
+			{Label: "Fleet WH-HL", Value: "20 xe 3.5T + 18 xe 5T + 8 xe 8T + 4 xe 15T = 50 xe (284T capacity)"},
+			{Label: "Tài xế", Value: "70 tài xế đã check-in sẵn sàng"},
+			{Label: "Mục đích", Value: "Thấy VRP tối ưu: tổng ~245T vs 284T fleet, đơn nhỏ ghép chung, đơn lớn xếp xe to"},
+		},
+	}
+}
+
+func (h *Handler) loadScenarioVRPStress(ctx context.Context) (error, string) {
+	tx, err := h.db.Begin(ctx)
+	if err != nil {
+		return err, ""
+	}
+	defer tx.Rollback(ctx)
+
+	// 1) Boost stock to 200,000 per product (enough for 300 large orders)
+	if _, err := tx.Exec(ctx, `UPDATE stock_quants SET quantity = 200000, reserved_qty = 0`); err != nil {
+		return fmt.Errorf("boost_stock: %w", err), ""
+	}
+
+	// 2) Check-in ALL 70 drivers
+	if _, err := tx.Exec(ctx, `
+		INSERT INTO driver_checkins (driver_id, checkin_date, status, checked_in_at)
+		SELECT d.id, CURRENT_DATE, 'available', NOW() - INTERVAL '1 hour'
+		FROM drivers d WHERE d.status = 'active'
+		ON CONFLICT (driver_id, checkin_date) DO UPDATE SET status = 'available'
+	`); err != nil {
+		return fmt.Errorf("checkin_all: %w", err), ""
+	}
+
+	// 3) Collect master data
+	custRows, err := tx.Query(ctx, `SELECT id FROM customers ORDER BY code`)
+	if err != nil {
+		return fmt.Errorf("list_customers: %w", err), ""
+	}
+	var customerIDs []string
+	for custRows.Next() {
+		var id string
+		if err := custRows.Scan(&id); err != nil {
+			custRows.Close()
+			return fmt.Errorf("scan_customer: %w", err), ""
+		}
+		customerIDs = append(customerIDs, id)
+	}
+	custRows.Close()
+
+	var whHL string
+	if err := tx.QueryRow(ctx, `SELECT id::text FROM warehouses WHERE code = 'WH-HL'`).Scan(&whHL); err != nil {
+		return fmt.Errorf("wh_hl: %w", err), ""
+	}
+	var dvkhUserID string
+	if err := tx.QueryRow(ctx, `SELECT id::text FROM users WHERE role = 'dvkh' LIMIT 1`).Scan(&dvkhUserID); err != nil {
+		return fmt.Errorf("dvkh_user: %w", err), ""
+	}
+
+	type productInfo struct {
+		sku      string
+		weightKg float64
+		price    float64
+	}
+	prodRows, err := tx.Query(ctx, `
+		SELECT sku, weight_kg, price FROM products
+		WHERE is_active = true AND (sku LIKE 'BHL-%' OR sku LIKE 'NGK-%')
+		ORDER BY sku
+	`)
+	if err != nil {
+		return fmt.Errorf("list_products: %w", err), ""
+	}
+	var products []productInfo
+	for prodRows.Next() {
+		var p productInfo
+		if err := prodRows.Scan(&p.sku, &p.weightKg, &p.price); err != nil {
+			prodRows.Close()
+			return fmt.Errorf("scan_product: %w", err), ""
+		}
+		products = append(products, p)
+	}
+	prodRows.Close()
+
+	if len(products) == 0 || len(customerIDs) == 0 {
+		return fmt.Errorf("no products or customers found"), ""
+	}
+
+	// 4) Define 300 orders in 5 weight tiers for clear VRP optimization visibility
+	//
+	// WH-HL fleet: 20×truck_3t5 (3500kg) + 18×truck_5t (5000kg) + 8×truck_8t (8000kg) + 4×truck_15t (15000kg)
+	// Total capacity = 284,000 kg. Target total ~245T (86% utilization).
+	//
+	// Weight tiers designed to showcase bin-packing:
+	//   XS  (40-120 kg)   → 100 orders (8T total): Group 30-80 per truck_3t5
+	//   S   (200-400 kg)  → 80 orders (24T total): Group 9-17 per truck_3t5
+	//   M   (500-900 kg)  → 60 orders (42T total): 4-7 per truck_3t5, 5-10 per truck_5t
+	//   L   (1200-2400 kg)→ 40 orders (72T total): 1-2 per truck_3t5, 2-4 per truck_5t
+	//   XL  (3500-6500 kg)→ 20 orders (100T total): Needs truck_5t (≤5T) or truck_8t (>5T)
+
+	type orderTier struct {
+		numOrders int     // how many orders in this tier
+		minKg     float64 // min total weight
+		maxKg     float64 // max total weight
+		minItems  int     // min products per order
+		maxItems  int     // max products per order
+		label     string  // for logging
+	}
+	tiers := []orderTier{
+		{100, 40, 120, 1, 1, "XS"},    // tiny orders — group many per truck
+		{80, 200, 400, 1, 2, "S"},      // small orders — 9-17 per truck_3t5
+		{60, 500, 900, 1, 2, "M"},      // medium — 4-7 per truck_3t5
+		{40, 1200, 2400, 2, 3, "L"},    // large — 1-2 per truck_3t5 or 2-4 per truck_5t
+		{20, 3500, 6500, 3, 5, "XL"},   // very large — needs truck_5t or truck_8t
+	}
+
+	numCustomers := len(customerIDs)
+	numProducts := len(products)
+	orderIdx := 0
+
+	for _, tier := range tiers {
+		for t := 0; t < tier.numOrders; t++ {
+			orderIdx++
+			seq := fmt.Sprintf("%04d", orderIdx)
+			custID := customerIDs[orderIdx%numCustomers]
+
+			// Determine number of items for this order
+			numItems := tier.minItems
+			if tier.maxItems > tier.minItems {
+				numItems = tier.minItems + (orderIdx % (tier.maxItems - tier.minItems + 1))
+			}
+
+			// Calculate target weight — spread evenly across the range
+			targetWeight := tier.minKg + (tier.maxKg-tier.minKg)*float64(t)/float64(tier.numOrders)
+
+			// Build items to approximate target weight
+			type itemSpec struct {
+				sku      string
+				qty      int
+				price    float64
+				weightKg float64
+			}
+			var items []itemSpec
+			remainingWeight := targetWeight
+			for j := 0; j < numItems && remainingWeight > 0; j++ {
+				p := products[(orderIdx+j)%numProducts]
+				if p.weightKg <= 0 {
+					p.weightKg = 8.5 // default
+				}
+				// Calculate qty to fill remaining weight (split across remaining items)
+				perItemWeight := remainingWeight / float64(numItems-j)
+				qty := int(perItemWeight / p.weightKg)
+				if qty < 5 {
+					qty = 5 // minimum 5 units
+				}
+				actualWeight := float64(qty) * p.weightKg
+				items = append(items, itemSpec{
+					sku:      p.sku,
+					qty:      qty,
+					price:    p.price,
+					weightKg: p.weightKg,
+				})
+				remainingWeight -= actualWeight
+			}
+
+			// Compute totals
+			var totalWeight, totalAmount float64
+			for _, item := range items {
+				totalWeight += float64(item.qty) * item.weightKg
+				totalAmount += float64(item.qty) * item.price
+			}
+
+			// Insert order
+			orderSQL := fmt.Sprintf(`
+			INSERT INTO sales_orders (id, order_number, customer_id, warehouse_id, status, delivery_date,
+			  total_amount, deposit_amount, total_weight_kg, total_volume_m3, created_by, atp_status, credit_status)
+			VALUES (gen_random_uuid(),
+			  'SO-' || TO_CHAR(CURRENT_DATE, 'YYYYMMDD') || '-%s',
+			  '%s', '%s',
+			  'confirmed', CURRENT_DATE,
+			  %f, 0, %f, %.1f,
+			  '%s', 'pass', 'pass')
+			ON CONFLICT (order_number) DO NOTHING
+			RETURNING id
+			`, seq, custID, whHL, totalAmount, totalWeight, totalWeight/500.0, dvkhUserID)
+
+			var orderID string
+			if err := tx.QueryRow(ctx, orderSQL).Scan(&orderID); err != nil {
+				return fmt.Errorf("order_%s_%d: %w", tier.label, t, err), ""
+			}
+
+			// Insert order items
+			for _, item := range items {
+				itemSQL := fmt.Sprintf(`
+				INSERT INTO order_items (order_id, product_id, quantity, unit_price, amount)
+				SELECT '%s', id, %d, %f, %f FROM products WHERE sku = '%s'`,
+					orderID, item.qty, item.price, float64(item.qty)*item.price, item.sku)
+				if _, err := tx.Exec(ctx, itemSQL); err != nil {
+					return fmt.Errorf("item_%s_%d_%s: %w", tier.label, t, item.sku, err), ""
+				}
+			}
+
+			// Build shipment items JSON
+			itemsJSON := "["
+			for j, item := range items {
+				if j > 0 {
+					itemsJSON += ","
+				}
+				itemsJSON += fmt.Sprintf(`{"product_sku":"%s","quantity":%d}`, item.sku, item.qty)
+			}
+			itemsJSON += "]"
+
+			// Insert shipment (pending — ready for VRP)
+			shipSQL := fmt.Sprintf(`
+			INSERT INTO shipments (shipment_number, order_id, customer_id, warehouse_id, status,
+			  delivery_date, total_weight_kg, total_volume_m3, items)
+			VALUES ('SHP-' || TO_CHAR(CURRENT_DATE, 'YYYYMMDD') || '-%s',
+			  '%s', '%s', '%s', 'pending',
+			  CURRENT_DATE, %f, %.1f, '%s'::jsonb)
+			ON CONFLICT (shipment_number) DO NOTHING
+			`, seq, orderID, custID, whHL, totalWeight, totalWeight/500.0, itemsJSON)
+			if _, err := tx.Exec(ctx, shipSQL); err != nil {
+				return fmt.Errorf("shipment_%s_%d: %w", tier.label, t, err), ""
+			}
+		}
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return err, ""
+	}
+
+	return nil, "✅ Đã nạp 300 đơn confirmed (kho WH-HL) với trọng lượng đa dạng (~245T total):\n" +
+		"• XS (40-120kg): 100 đơn — ghép 30-80 đơn/xe 3.5T\n" +
+		"• S (200-400kg): 80 đơn — 9-17 đơn/xe 3.5T\n" +
+		"• M (500-900kg): 60 đơn — 4-7 đơn/xe 3.5T hoặc 5-10/xe 5T\n" +
+		"• L (1200-2400kg): 40 đơn — 1-2/xe 3.5T hoặc 2-4/xe 5T\n" +
+		"• XL (3500-6500kg): 20 đơn — cần xe 5T (≤5T) hoặc xe 8T (>5T)\n\n" +
+		"50 xe WH-HL (20×3.5T + 18×5T + 8×8T + 4×15T = 284T capacity), 70 tài xế sẵn sàng.\n" +
+		"Dispatcher (dispatcher01/demo123) → Lập kế hoạch → VRP Tự động → Xem tối ưu xếp xe."
 }

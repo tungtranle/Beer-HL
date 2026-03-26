@@ -311,16 +311,24 @@ type VRPTrip struct {
 }
 
 type VRPStop struct {
-	ShipmentID         uuid.UUID `json:"shipment_id"`
-	CustomerID         uuid.UUID `json:"customer_id"`
-	CustomerName       string    `json:"customer_name"`
-	CustomerAddress    string    `json:"customer_address"`
-	Latitude           float64   `json:"latitude"`
-	Longitude          float64   `json:"longitude"`
-	StopOrder          int       `json:"stop_order"`
-	EstimatedArrival   string    `json:"estimated_arrival"`
-	EstimatedDeparture string    `json:"estimated_departure"`
-	CumulativeLoadKg   float64   `json:"cumulative_load_kg"`
+	ShipmentID         uuid.UUID   `json:"shipment_id"`
+	CustomerID         uuid.UUID   `json:"customer_id"`
+	CustomerName       string      `json:"customer_name"`
+	CustomerAddress    string      `json:"customer_address"`
+	Latitude           float64     `json:"latitude"`
+	Longitude          float64     `json:"longitude"`
+	StopOrder          int         `json:"stop_order"`
+	EstimatedArrival   string      `json:"estimated_arrival"`
+	EstimatedDeparture string      `json:"estimated_departure"`
+	CumulativeLoadKg   float64     `json:"cumulative_load_kg"`
+	WeightKg           float64     `json:"weight_kg"`
+	// Consolidation: multiple shipments merged into one stop (same customer+address)
+	ConsolidatedIDs    []uuid.UUID `json:"consolidated_ids,omitempty"`
+	// Split delivery: partial weight of a shipment assigned to this stop
+	IsSplit            bool        `json:"is_split,omitempty"`
+	SplitPart          int         `json:"split_part,omitempty"`     // 1, 2, 3...
+	SplitTotal         int         `json:"split_total,omitempty"`    // total parts
+	OriginalWeightKg   float64     `json:"original_weight_kg,omitempty"` // full shipment weight
 }
 
 type VRPSummary struct {
@@ -334,6 +342,8 @@ type VRPSummary struct {
 	AvgCapacityUtil        float64 `json:"avg_capacity_util_pct"`
 	AvgStopsPerTrip        float64 `json:"avg_stops_per_trip"`
 	SolveTimeMs            int     `json:"solve_time_ms"`
+	ConsolidatedStops      int     `json:"consolidated_stops"`
+	SplitDeliveries        int     `json:"split_deliveries"`
 }
 
 // ===== WMS: STOCK MOVE =====
@@ -393,6 +403,24 @@ type GateCheck struct {
 	CheckedBy          uuid.UUID       `json:"checked_by"`
 	ExitTime           *time.Time      `json:"exit_time,omitempty"`
 	CreatedAt          time.Time       `json:"created_at"`
+}
+
+// ===== WMS: HANDOVER RECORD (Bàn giao A/B/C) =====
+type HandoverRecord struct {
+	ID           uuid.UUID       `json:"id"`
+	HandoverType string          `json:"handover_type"` // A, B, C
+	TripID       uuid.UUID       `json:"trip_id"`
+	StopID       *uuid.UUID      `json:"stop_id,omitempty"` // only for type B
+	Signatories  json.RawMessage `json:"signatories"`       // [{role, user_id, name, signed_at, action}]
+	Status       string          `json:"status"`            // pending, partially_signed, completed, rejected
+	DocumentURL  *string         `json:"document_url,omitempty"`
+	PhotoURLs    []string        `json:"photo_urls"`
+	Items        json.RawMessage `json:"items,omitempty"` // [{product_name, product_sku, expected_qty, actual_qty}]
+	RejectReason *string         `json:"reject_reason,omitempty"`
+	Notes        *string         `json:"notes,omitempty"`
+	CreatedBy    uuid.UUID       `json:"created_by"`
+	CreatedAt    time.Time       `json:"created_at"`
+	UpdatedAt    time.Time       `json:"updated_at"`
 }
 
 // ===== WMS: LOT =====
@@ -628,17 +656,94 @@ type DailyCloseSummary struct {
 
 // ===== NOTIFICATION =====
 type Notification struct {
-	ID         uuid.UUID  `json:"id"`
-	UserID     uuid.UUID  `json:"user_id"`
-	Title      string     `json:"title"`
-	Body       string     `json:"body"`
-	Category   string     `json:"category"`
-	Priority   string     `json:"priority"`
-	Link       *string    `json:"link,omitempty"`
+	ID         uuid.UUID       `json:"id"`
+	UserID     uuid.UUID       `json:"user_id"`
+	Title      string          `json:"title"`
+	Body       string          `json:"body"`
+	Category   string          `json:"category"`
+	Priority   string          `json:"priority"`
+	Link       *string         `json:"link,omitempty"`
+	EntityType *string         `json:"entity_type,omitempty"`
+	EntityID   *uuid.UUID      `json:"entity_id,omitempty"`
+	Actions    json.RawMessage `json:"actions,omitempty"`
+	GroupKey   *string         `json:"group_key,omitempty"`
+	IsRead     bool            `json:"is_read"`
+	CreatedAt  time.Time       `json:"created_at"`
+}
+
+// NotificationAction represents an inline action button on a notification
+type NotificationAction struct {
+	Label        string          `json:"label"`
+	Method       string          `json:"method"`
+	Endpoint     string          `json:"endpoint"`
+	BodyTemplate json.RawMessage `json:"body_template,omitempty"`
+}
+
+// NotificationGroup represents a grouped set of notifications
+type NotificationGroup struct {
+	GroupKey      string         `json:"group_key"`
+	Count         int            `json:"count"`
+	LatestTitle   string         `json:"latest_title"`
+	LatestBody    string         `json:"latest_body"`
+	Category      string         `json:"category"`
+	Priority      string         `json:"priority"`
+	EntityType    *string        `json:"entity_type,omitempty"`
+	IsRead        bool           `json:"is_read"`
+	LatestAt      time.Time      `json:"latest_at"`
+	Notifications []Notification `json:"notifications,omitempty"`
+}
+
+// ===== ADMIN RBAC =====
+type RolePermission struct {
+	ID        uuid.UUID  `json:"id"`
+	Role      string     `json:"role"`
+	Resource  string     `json:"resource"`
+	Action    string     `json:"action"`
+	Scope     string     `json:"scope"`
+	IsAllowed bool       `json:"is_allowed"`
+	UpdatedBy *uuid.UUID `json:"updated_by,omitempty"`
+	UpdatedAt time.Time  `json:"updated_at"`
+}
+
+type UserPermissionOverride struct {
+	ID        uuid.UUID  `json:"id"`
+	UserID    uuid.UUID  `json:"user_id"`
+	Resource  string     `json:"resource"`
+	Action    string     `json:"action"`
+	IsAllowed bool       `json:"is_allowed"`
+	Reason    *string    `json:"reason,omitempty"`
+	GrantedBy *uuid.UUID `json:"granted_by,omitempty"`
+	ExpiresAt *time.Time `json:"expires_at,omitempty"`
+	CreatedAt time.Time  `json:"created_at"`
+}
+
+type ActiveSession struct {
+	ID               uuid.UUID  `json:"id"`
+	UserID           uuid.UUID  `json:"user_id"`
+	UserFullName     string     `json:"user_full_name,omitempty"`
+	RefreshTokenHash string     `json:"-"`
+	IPAddress        *string    `json:"ip_address,omitempty"`
+	UserAgent        *string    `json:"user_agent,omitempty"`
+	LastSeenAt       time.Time  `json:"last_seen_at"`
+	CreatedAt        time.Time  `json:"created_at"`
+	RevokedAt        *time.Time `json:"revoked_at,omitempty"`
+}
+
+type PermissionEntry struct {
+	IsAllowed   bool   `json:"is_allowed"`
+	Scope       string `json:"scope"`
+	HasOverride bool   `json:"has_override,omitempty"`
+}
+
+type AuditFilter struct {
+	UserID     *uuid.UUID `json:"user_id,omitempty"`
+	Action     *string    `json:"action,omitempty"`
 	EntityType *string    `json:"entity_type,omitempty"`
-	EntityID   *uuid.UUID `json:"entity_id,omitempty"`
-	IsRead     bool       `json:"is_read"`
-	CreatedAt  time.Time  `json:"created_at"`
+	EntityID   *string    `json:"entity_id,omitempty"`
+	From       *time.Time `json:"from,omitempty"`
+	To         *time.Time `json:"to,omitempty"`
+	Page       int        `json:"page"`
+	PageSize   int        `json:"page_size"`
 }
 
 // ===== ENTITY EVENT (Activity Timeline) =====
@@ -751,4 +856,50 @@ type DriverDocument struct {
 	// Joined fields
 	DriverName   string `json:"driver_name,omitempty"`
 	DaysToExpiry int    `json:"days_to_expiry,omitempty"`
+}
+
+// ===== END-OF-DAY (KẾT CA) =====
+
+// EODSession represents one end-of-day session for a trip (3-station flow).
+type EODSession struct {
+	ID                     uuid.UUID  `json:"id"`
+	TripID                 uuid.UUID  `json:"trip_id"`
+	DriverID               uuid.UUID  `json:"driver_id"`
+	Status                 string     `json:"status"` // in_progress, completed, cancelled
+	TotalStopsDelivered    int        `json:"total_stops_delivered"`
+	TotalStopsFailed       int        `json:"total_stops_failed"`
+	TotalCashCollected     float64    `json:"total_cash_collected"`
+	TotalTransferCollected float64    `json:"total_transfer_collected"`
+	TotalCreditAmount      float64    `json:"total_credit_amount"`
+	StartedAt              time.Time  `json:"started_at"`
+	CompletedAt            *time.Time `json:"completed_at,omitempty"`
+	CreatedAt              time.Time  `json:"created_at"`
+	UpdatedAt              time.Time  `json:"updated_at"`
+	// Joined
+	TripNumber   string          `json:"trip_number,omitempty"`
+	VehiclePlate string          `json:"vehicle_plate,omitempty"`
+	DriverName   string          `json:"driver_name_eod,omitempty"`
+	Checkpoints  []EODCheckpoint `json:"checkpoints,omitempty"`
+}
+
+// EODCheckpoint represents one of the 3 confirmation stations.
+type EODCheckpoint struct {
+	ID                uuid.UUID       `json:"id"`
+	SessionID         uuid.UUID       `json:"session_id"`
+	TripID            uuid.UUID       `json:"trip_id"`
+	CheckpointType    string          `json:"checkpoint_type"` // container_return, cash_handover, vehicle_return
+	CheckpointOrder   int             `json:"checkpoint_order"`
+	Status            string          `json:"status"` // pending, submitted, confirmed, rejected
+	DriverData        json.RawMessage `json:"driver_data,omitempty"`
+	SubmittedAt       *time.Time      `json:"submitted_at,omitempty"`
+	ReceiverID        *uuid.UUID      `json:"receiver_id,omitempty"`
+	ReceiverName      string          `json:"receiver_name,omitempty"`
+	ReceiverData      json.RawMessage `json:"receiver_data,omitempty"`
+	DiscrepancyReason *string         `json:"discrepancy_reason,omitempty"`
+	SignatureURL      *string         `json:"signature_url,omitempty"`
+	ConfirmedAt       *time.Time      `json:"confirmed_at,omitempty"`
+	RejectedAt        *time.Time      `json:"rejected_at,omitempty"`
+	RejectReason      *string         `json:"reject_reason,omitempty"`
+	CreatedAt         time.Time       `json:"created_at"`
+	UpdatedAt         time.Time       `json:"updated_at"`
 }

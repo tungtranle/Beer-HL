@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useState } from 'react'
-import { apiFetch } from '@/lib/api'
+import { apiFetch, getUser, getToken } from '@/lib/api'
 import { formatVND } from '@/lib/status-config'
 import { toast } from '@/lib/useToast'
 
@@ -246,7 +246,31 @@ export default function ReconciliationPage() {
   return (
     <div>
       <div className="flex items-center justify-between mb-6">
-        <h1 className="text-2xl font-bold text-gray-800">Đối soát & Chốt sổ</h1>
+        <div className="flex items-center gap-3">
+          <h1 className="text-2xl font-bold text-gray-800">Đối soát & Chốt sổ</h1>
+          <button
+            onClick={async () => {
+              try {
+                const res = await fetch('/api/reconciliation/export', {
+                  headers: { Authorization: `Bearer ${getToken()}` },
+                })
+                if (!res.ok) throw new Error('Export failed')
+                const blob = await res.blob()
+                const url = URL.createObjectURL(blob)
+                const a = document.createElement('a')
+                a.href = url
+                a.download = `doi-soat-${new Date().toISOString().slice(0, 10)}.xlsx`
+                a.click()
+                URL.revokeObjectURL(url)
+                toast.success('Đã tải xuống file Excel')
+              } catch (err: any) {
+                toast.error('Lỗi xuất Excel: ' + err.message)
+              }
+            }}
+            className="px-3 py-1.5 bg-green-600 text-white text-sm rounded-lg hover:bg-green-700 transition"
+            title="Xuất Excel"
+          >📥 Xuất Excel</button>
+        </div>
         {/* T+1 summary badges */}
         {openCount > 0 ? (
           <div className="flex gap-2">

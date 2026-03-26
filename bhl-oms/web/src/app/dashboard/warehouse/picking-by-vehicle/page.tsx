@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react'
 import { apiFetch } from '@/lib/api'
 import { toast } from '@/lib/useToast'
+import { useDataRefresh } from '@/lib/notifications'
 
 // ── Types ──────────────────────────────────────────
 
@@ -32,6 +33,7 @@ interface VehicleWorkbench {
   trip_id: string; trip_number: string
   vehicle_plate: string; driver_name: string
   departure_time: string; planned_date: string; total_stops: number; status: string
+  handover_status: string // '', 'pending', 'partially_signed', 'completed'
   picking_items: VehiclePickingItem[]
   orders: VehiclePickingOrder[]
   progress: VehiclePickingProgress
@@ -93,6 +95,9 @@ export default function PickingByVehiclePage() {
   }
 
   useEffect(() => { loadData() }, [])
+
+  // Auto-refresh when order/picking status changes via WebSocket
+  useDataRefresh('order', () => loadData(dateStr || undefined))
 
   const confirmPick = async (order: VehiclePickingOrder) => {
     if (!order.picking_order_id) {
@@ -173,7 +178,7 @@ export default function PickingByVehiclePage() {
           <div className="text-xs text-gray-400">đơn cần soạn</div>
         </div>
         <div className="bg-white rounded-xl shadow-sm p-4 border-l-4 border-green-500">
-          <div className="text-xs text-gray-500 uppercase tracking-wide mb-1">Sẵn sàng Gate</div>
+          <div className="text-xs text-gray-500 uppercase tracking-wide mb-1">Sẵn sàng giao</div>
           <div className="text-2xl font-bold text-green-700">{readyForGate}</div>
           <div className="text-xs text-gray-400">xe đã soạn xong</div>
         </div>
@@ -220,11 +225,13 @@ export default function PickingByVehiclePage() {
             const isExpanded = expandedTrip === wb.trip_id
             const pct = wb.progress.percentage
             const isReady = pct >= 100
+            const hasHandover = !!wb.handover_status
+            const handoverDone = wb.handover_status === 'completed'
             const pendingOrders = (wb.orders || []).filter(o => o.pick_status !== 'completed')
             const completedOrders = (wb.orders || []).filter(o => o.pick_status === 'completed')
 
             return (
-              <div key={wb.trip_id} className={`bg-white rounded-xl shadow-sm border-2 transition ${isReady ? 'border-green-400' : 'border-gray-200'}`}>
+              <div key={wb.trip_id} className={`bg-white rounded-xl shadow-sm border-2 transition ${hasHandover ? 'border-blue-400' : isReady ? 'border-green-400' : 'border-gray-200'}`}>
                 {/* Vehicle Header */}
                 <div
                   className="p-5 cursor-pointer hover:bg-gray-50 transition"
@@ -232,7 +239,7 @@ export default function PickingByVehiclePage() {
                 >
                   <div className="flex items-center justify-between">
                     <div className="flex items-center gap-4">
-                      <span className="text-2xl">{isReady ? '✅' : '🚛'}</span>
+                      <span className="text-2xl">{hasHandover ? '📋' : isReady ? '✅' : '🚛'}</span>
                       <div>
                         <div className="flex items-center gap-2">
                           <span className="font-bold text-lg text-gray-800">{wb.vehicle_plate || 'Chưa gán xe'}</span>
@@ -247,8 +254,12 @@ export default function PickingByVehiclePage() {
                     </div>
                     <div className="flex items-center gap-4">
                       <div className="text-right">
-                        {isReady ? (
-                          <div className="text-sm font-bold text-green-600">✅ SẴN SÀNG GATE CHECK</div>
+                        {hasHandover ? (
+                          <div className="text-sm font-bold text-blue-600">
+                            📋 {handoverDone ? 'ĐÃ BÀN GIAO' : wb.handover_status === 'partially_signed' ? 'ĐANG KÝ BÀN GIAO' : 'CHỜ BÀN GIAO'}
+                          </div>
+                        ) : isReady ? (
+                          <div className="text-sm font-bold text-green-600">✅ SẴN SÀNG BÀN GIAO</div>
                         ) : (
                           <div className="text-sm font-semibold text-gray-600">
                             {completedOrders.length}/{(wb.orders || []).length} đơn · {pct}%
@@ -434,14 +445,41 @@ export default function PickingByVehiclePage() {
                         )}
                       </div>
 
-                      {/* Gate Check button when all done */}
-                      {isReady && (
-                        <a
-                          href="/dashboard/gate-check"
+                      {/* Handover A button when all done and no handover yet */}
+                      {isReady && !hasHandover && (
+                        <button
+                          onClick={() => {
+                            // Store trip data + items for handover-a page
+                            const handoverItems = wb.picking_items.map(item => ({
+                              product_name: item.product_name,
+                              product_sku: item.product_sku,
+                              expected_qty: item.total_qty,
+                              actual_qty: item.picked_qty,
+                            }))
+                            sessionStorage.setItem('handover_trip', JSON.stringify({
+                              trip_id: wb.trip_id,
+                              trip_number: wb.trip_number,
+                              vehicle_plate: wb.vehicle_plate,
+                              driver_name: wb.driver_name,
+                              total_stops: wb.total_stops,
+                              items: handoverItems,
+                            }))
+                            window.location.href = `/dashboard/handover-a?trip_id=${wb.trip_id}`
+                          }}
                           className="mt-4 inline-flex items-center justify-center gap-2 w-full h-14 bg-green-600 text-white rounded-xl font-medium text-base hover:bg-green-700 transition"
                         >
-                          🚧 Chuyển sang Gate Check — kiểm tra cổng
-                        </a>
+                          📋 Tạo biên bản bàn giao xuất kho
+                        </button>
+                      )}
+
+                      {/* View existing handover */}
+                      {hasHandover && (
+                        <button
+                          onClick={() => window.location.href = `/dashboard/handover-a?trip_id=${wb.trip_id}`}
+                          className="mt-4 inline-flex items-center justify-center gap-2 w-full h-14 bg-blue-600 text-white rounded-xl font-medium text-base hover:bg-blue-700 transition"
+                        >
+                          📋 Xem biên bản bàn giao ({handoverDone ? 'Hoàn tất' : wb.handover_status === 'partially_signed' ? 'Đang ký' : 'Chờ ký'})
+                        </button>
                       )}
                     </div>
                   </div>

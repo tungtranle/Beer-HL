@@ -417,6 +417,94 @@ func (s *Service) GetCancellationsReport(ctx context.Context, from, to string, l
 	return report, nil
 }
 
+// ─── Redelivery Report (BRD US-TMS-14b AC#6) ───────────────
+
+type RedeliveryReport struct {
+	Summary struct {
+		TotalRedeliveries   int                `json:"total_redeliveries"`
+		AvgAttemptsPerOrder float64            `json:"avg_attempts_per_order"`
+		TopReasons          []RedeliveryReason `json:"top_reasons"`
+	} `json:"summary"`
+	Items []RedeliveryItem `json:"items"`
+}
+
+type RedeliveryReason struct {
+	Reason string `json:"reason"`
+	Count  int    `json:"count"`
+}
+
+type RedeliveryItem struct {
+	ID             string  `json:"id"`
+	OrderNumber    string  `json:"order_number"`
+	CustomerName   string  `json:"customer_name"`
+	AttemptNumber  int     `json:"attempt_number"`
+	PreviousStatus string  `json:"previous_status"`
+	PreviousReason string  `json:"previous_reason"`
+	Amount         float64 `json:"amount"`
+	Date           string  `json:"date"`
+}
+
+func (s *Service) GetRedeliveryReport(ctx context.Context, from, to string, limit int) (*RedeliveryReport, error) {
+	report := &RedeliveryReport{}
+
+	// Redelivery attempts
+	rows, err := s.repo.db.Query(ctx, `
+		SELECT so.id::text, so.order_number, COALESCE(c.name,''), da.attempt_number,
+			COALESCE(da.previous_status::text,''), COALESCE(da.previous_reason,''),
+			COALESCE(so.grand_total,0), so.delivery_date::text
+		FROM delivery_attempts da
+		JOIN sales_orders so ON so.id = da.order_id
+		JOIN customers c ON c.id = so.customer_id
+		WHERE so.delivery_date::text >= $1 AND so.delivery_date::text <= $2
+		ORDER BY da.attempt_number DESC, so.delivery_date DESC LIMIT $3
+	`, from, to, limit)
+	if err != nil {
+		return nil, fmt.Errorf("query redeliveries: %w", err)
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var item RedeliveryItem
+		if err := rows.Scan(&item.ID, &item.OrderNumber, &item.CustomerName, &item.AttemptNumber,
+			&item.PreviousStatus, &item.PreviousReason, &item.Amount, &item.Date); err != nil {
+			continue
+		}
+		report.Items = append(report.Items, item)
+		report.Summary.TotalRedeliveries++
+	}
+
+	// Average attempts per order
+	var avgAttempts float64
+	_ = s.repo.db.QueryRow(ctx, `
+		SELECT COALESCE(AVG(max_attempt)::numeric, 0)
+		FROM (SELECT MAX(attempt_number) as max_attempt FROM delivery_attempts
+			  JOIN sales_orders so ON so.id = delivery_attempts.order_id
+			  WHERE so.delivery_date::text >= $1 AND so.delivery_date::text <= $2
+			  GROUP BY order_id) sub
+	`, from, to).Scan(&avgAttempts)
+	report.Summary.AvgAttemptsPerOrder = avgAttempts
+
+	// Top failure reasons
+	rows2, err := s.repo.db.Query(ctx, `
+		SELECT COALESCE(previous_reason, 'Không rõ'), COUNT(*)
+		FROM delivery_attempts da
+		JOIN sales_orders so ON so.id = da.order_id
+		WHERE so.delivery_date::text >= $1 AND so.delivery_date::text <= $2
+			AND previous_reason IS NOT NULL AND previous_reason != ''
+		GROUP BY previous_reason ORDER BY COUNT(*) DESC LIMIT 10
+	`, from, to)
+	if err == nil {
+		defer rows2.Close()
+		for rows2.Next() {
+			var r RedeliveryReason
+			if err := rows2.Scan(&r.Reason, &r.Count); err == nil {
+				report.Summary.TopReasons = append(report.Summary.TopReasons, r)
+			}
+		}
+	}
+
+	return report, nil
+}
+
 // RunDailySnapshotCron runs at 23:50 daily, generating KPI snapshots for all warehouses.
 func (s *Service) RunDailySnapshotCron(ctx context.Context) {
 	s.log.Info(ctx, "cron_started", logger.F("cron", "kpi_daily_snapshot"))

@@ -27,6 +27,7 @@ func (h *Handler) RegisterRoutes(r *gin.RouterGroup) {
 		kg.GET("/report", h.GetReport)
 		kg.GET("/issues", h.GetIssuesReport)
 		kg.GET("/cancellations", h.GetCancellationsReport)
+		kg.GET("/redeliveries", h.GetRedeliveryReport)
 		kg.POST("/snapshot", h.GenerateSnapshot)
 	}
 }
@@ -81,6 +82,21 @@ func (h *Handler) GetCancellationsReport(c *gin.Context) {
 	results, err := h.svc.GetCancellationsReport(c.Request.Context(), from, to, limit)
 	if err != nil {
 		h.log.Error(c.Request.Context(), "cancellations_report_failed", err)
+		response.InternalError(c)
+		return
+	}
+	response.OK(c, results)
+}
+
+// GET /v1/kpi/redeliveries?from=&to=&limit=
+func (h *Handler) GetRedeliveryReport(c *gin.Context) {
+	from := c.DefaultQuery("from", time.Now().AddDate(0, -1, 0).Format("2006-01-02"))
+	to := c.DefaultQuery("to", time.Now().Format("2006-01-02"))
+	limit, _ := strconv.Atoi(c.DefaultQuery("limit", "50"))
+
+	results, err := h.svc.GetRedeliveryReport(c.Request.Context(), from, to, limit)
+	if err != nil {
+		h.log.Error(c.Request.Context(), "get_redelivery_report_failed", err)
 		response.InternalError(c)
 		return
 	}

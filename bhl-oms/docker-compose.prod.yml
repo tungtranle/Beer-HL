@@ -26,6 +26,8 @@ services:
       - ZALO_OA_TOKEN=${ZALO_OA_TOKEN}
       - ZALO_OA_ID=${ZALO_OA_ID}
       - INTEGRATION_MOCK=${INTEGRATION_MOCK:-false}
+      - SENTRY_DSN=${SENTRY_DSN:-}
+      - ENABLE_TEST_PORTAL=${ENABLE_TEST_PORTAL:-false}
       - LOG_LEVEL=INFO
     volumes:
       - ./keys:/app/keys:ro
@@ -72,6 +74,7 @@ services:
       POSTGRES_DB: bhl_prod
     volumes:
       - pg-data:/var/lib/postgresql/data
+      - ./migrations:/migrations:ro
     command: >
       postgres
         -c shared_preload_libraries=pg_stat_statements

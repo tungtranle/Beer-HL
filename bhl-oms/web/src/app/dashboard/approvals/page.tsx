@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react'
 import { apiFetch } from '@/lib/api'
 import { formatVND } from '@/lib/status-config'
 import { toast } from '@/lib/useToast'
+import { useDataRefresh } from '@/lib/notifications'
 
 interface OrderItem {
   product_code: string
@@ -38,6 +39,9 @@ export default function ApprovalsPage() {
   }
 
   useEffect(() => { loadData() }, [])
+
+  // Auto-refresh when orders change via WebSocket
+  useDataRefresh('order', loadData)
 
   const approveOrder = async (orderId: string) => {
     setProcessing(orderId)
@@ -97,7 +101,12 @@ export default function ApprovalsPage() {
 
   return (
     <div className="max-w-[1200px] mx-auto">
-      <h1 className="text-2xl font-bold text-gray-800 mb-2">📝 Duyệt đơn hàng</h1>
+      <div className="flex items-center gap-3 mb-2">
+      <h1 className="text-2xl font-bold text-gray-800">📝 Duyệt đơn hàng</h1>
+      <button onClick={loadData} className="p-1.5 rounded-lg hover:bg-gray-100 text-gray-400 hover:text-gray-600 transition" title="Làm mới">
+        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" /></svg>
+      </button>
+    </div>
       <p className="text-base text-gray-500 mb-6">Đơn hàng vượt hạn mức nợ cần phê duyệt</p>
 
       {orders.length === 0 ? (

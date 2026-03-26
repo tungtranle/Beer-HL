@@ -6,14 +6,13 @@ import { usePathname, useRouter } from 'next/navigation'
 import { getToken, getUser, clearAuth } from '@/lib/api'
 import { NotificationProvider } from '@/lib/notifications'
 import { NotificationBell } from '@/components/NotificationBell'
-import { NotificationToast } from '@/components/NotificationToast'
 import { ToastContainer } from '@/components/ui/ToastContainer'
 import {
   LayoutDashboard, FileText, PlusCircle, CalendarDays, Truck, Radio,
   MapPin, Package, Users, Car, User, Warehouse, QrCode,
   ShieldCheck, CheckCircle2, Scale, FileBarChart, BarChart3, Bell,
   Settings, SlidersHorizontal, CreditCard, ScrollText, Navigation, Activity,
-  Wrench, Search, LogOut, ChevronDown, PanelLeftClose, PanelLeft,
+  Wrench, Search, LogOut, ChevronDown, PanelLeftClose, PanelLeft, Shield, ClipboardCheck,
   type LucideIcon,
 } from 'lucide-react'
 
@@ -61,12 +60,14 @@ const navGroups: NavGroup[] = [
     ],
   },
   {
-    label: 'Kho & Kiểm tra',
+    label: 'Kho & Bàn giao',
     items: [
       { href: '/dashboard/warehouse', label: 'Quản lý kho', icon: Warehouse, roles: ['admin', 'warehouse'] },
       { href: '/dashboard/pda-scanner', label: 'Quét barcode', icon: QrCode, roles: ['admin', 'dispatcher', 'warehouse'] },
-      { href: '/dashboard/gate-check', label: 'Kiểm tra cổng', icon: ShieldCheck, roles: ['admin', 'warehouse', 'security'] },
+      { href: '/dashboard/handover-a', label: 'Bàn giao xuất kho', icon: ClipboardCheck, roles: ['admin', 'warehouse', 'warehouse_handler'] },
+      { href: '/dashboard/gate-check', label: 'Kiểm soát cổng', icon: ShieldCheck, roles: ['admin', 'security'] },
       { href: '/dashboard/workshop', label: 'Phân xưởng vỏ', icon: Wrench, roles: ['admin', 'warehouse', 'workshop'] },
+      { href: '/dashboard/eod', label: 'Nhận kết ca', icon: CheckCircle2, roles: ['admin', 'warehouse', 'accountant', 'dispatcher'] },
     ],
   },
   {
@@ -82,6 +83,7 @@ const navGroups: NavGroup[] = [
     label: 'Hệ thống',
     items: [
       { href: '/dashboard/settings', label: 'Quản trị hệ thống', icon: Settings, roles: ['admin'] },
+      { href: '/dashboard/settings/permissions', label: 'Phân quyền', icon: Shield, roles: ['admin'] },
       { href: '/dashboard/settings/configs', label: 'Cấu hình', icon: SlidersHorizontal, roles: ['admin'] },
       { href: '/dashboard/settings/credit-limits', label: 'Hạn mức tín dụng', icon: CreditCard, roles: ['admin'] },
       { href: '/dashboard/settings/audit-logs', label: 'Nhật ký hệ thống', icon: ScrollText, roles: ['admin'] },
@@ -111,7 +113,8 @@ const pathLabels: Record<string, string> = {
   '/dashboard/drivers-list': 'Tài xế',
   '/dashboard/warehouse': 'Quản lý kho',
   '/dashboard/pda-scanner': 'Quét barcode',
-  '/dashboard/gate-check': 'Kiểm tra cổng',
+  '/dashboard/gate-check': 'Kiểm soát cổng',
+  '/dashboard/handover-a': 'Bàn giao xuất kho',
   '/dashboard/workshop': 'Phân xưởng vỏ',
   '/dashboard/approvals': 'Duyệt đơn hàng',
   '/dashboard/reconciliation': 'Đối soát',
@@ -119,12 +122,14 @@ const pathLabels: Record<string, string> = {
   '/dashboard/kpi': 'Báo cáo KPI',
   '/dashboard/notifications': 'Thông báo',
   '/dashboard/settings': 'Quản trị hệ thống',
+  '/dashboard/settings/permissions': 'Phân quyền',
   '/dashboard/settings/configs': 'Cấu hình hệ thống',
   '/dashboard/settings/credit-limits': 'Hạn mức tín dụng',
   '/dashboard/settings/audit-logs': 'Nhật ký hệ thống',
   '/dashboard/settings/routes': 'Tuyến giao hàng',
   '/dashboard/settings/health': 'System Health',
   '/dashboard/driver': 'Chuyến xe của tôi',
+  '/dashboard/eod': 'Nhận kết ca',
 }
 
 const roleLabels: Record<string, string> = {
@@ -376,7 +381,6 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
           <div className="flex-1 overflow-y-auto p-6">{children}</div>
         </main>
 
-        <NotificationToast />
         <ToastContainer />
       </div>
     </NotificationProvider>
