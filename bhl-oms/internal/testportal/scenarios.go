@@ -1085,9 +1085,9 @@ func (h *Handler) loadScenarioReconDiscrepancy(ctx context.Context) (error, stri
 
 func scenarioVRPStress() ScenarioMeta {
 	return ScenarioMeta{
-		ID:          "SC-09",
-		Title:       "VRP Tối ưu — 300 đơn, trọng lượng đa dạng, 50 xe WH-HL",
-		Category:    "TMS",
+		ID:       "SC-09",
+		Title:    "VRP Tối ưu — 300 đơn, trọng lượng đa dạng, 50 xe WH-HL",
+		Category: "TMS",
 		Description: "300 đơn hàng confirmed với trọng lượng rất khác nhau (40kg → 6.5 tấn) để thấy rõ VRP tối ưu xếp xe: " +
 			"đơn nhỏ ghép chung, đơn lớn dùng xe 5T/8T, tổng ~245T vs fleet 284T. " +
 			"Fleet WH-HL: 20 xe 3.5T + 18 xe 5T + 8 xe 8T + 4 xe 15T = 50 xe. Toàn bộ 70 tài xế khả dụng.",
@@ -1207,11 +1207,11 @@ func (h *Handler) loadScenarioVRPStress(ctx context.Context) (error, string) {
 		label     string  // for logging
 	}
 	tiers := []orderTier{
-		{100, 40, 120, 1, 1, "XS"},    // tiny orders — group many per truck
-		{80, 200, 400, 1, 2, "S"},      // small orders — 9-17 per truck_3t5
-		{60, 500, 900, 1, 2, "M"},      // medium — 4-7 per truck_3t5
-		{40, 1200, 2400, 2, 3, "L"},    // large — 1-2 per truck_3t5 or 2-4 per truck_5t
-		{20, 3500, 6500, 3, 5, "XL"},   // very large — needs truck_5t or truck_8t
+		{100, 40, 120, 1, 1, "XS"},   // tiny orders — group many per truck
+		{80, 200, 400, 1, 2, "S"},    // small orders — 9-17 per truck_3t5
+		{60, 500, 900, 1, 2, "M"},    // medium — 4-7 per truck_3t5
+		{40, 1200, 2400, 2, 3, "L"},  // large — 1-2 per truck_3t5 or 2-4 per truck_5t
+		{20, 3500, 6500, 3, 5, "XL"}, // very large — needs truck_5t or truck_8t
 	}
 
 	numCustomers := len(customerIDs)

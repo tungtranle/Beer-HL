@@ -311,24 +311,24 @@ type VRPTrip struct {
 }
 
 type VRPStop struct {
-	ShipmentID         uuid.UUID   `json:"shipment_id"`
-	CustomerID         uuid.UUID   `json:"customer_id"`
-	CustomerName       string      `json:"customer_name"`
-	CustomerAddress    string      `json:"customer_address"`
-	Latitude           float64     `json:"latitude"`
-	Longitude          float64     `json:"longitude"`
-	StopOrder          int         `json:"stop_order"`
-	EstimatedArrival   string      `json:"estimated_arrival"`
-	EstimatedDeparture string      `json:"estimated_departure"`
-	CumulativeLoadKg   float64     `json:"cumulative_load_kg"`
-	WeightKg           float64     `json:"weight_kg"`
+	ShipmentID         uuid.UUID `json:"shipment_id"`
+	CustomerID         uuid.UUID `json:"customer_id"`
+	CustomerName       string    `json:"customer_name"`
+	CustomerAddress    string    `json:"customer_address"`
+	Latitude           float64   `json:"latitude"`
+	Longitude          float64   `json:"longitude"`
+	StopOrder          int       `json:"stop_order"`
+	EstimatedArrival   string    `json:"estimated_arrival"`
+	EstimatedDeparture string    `json:"estimated_departure"`
+	CumulativeLoadKg   float64   `json:"cumulative_load_kg"`
+	WeightKg           float64   `json:"weight_kg"`
 	// Consolidation: multiple shipments merged into one stop (same customer+address)
-	ConsolidatedIDs    []uuid.UUID `json:"consolidated_ids,omitempty"`
+	ConsolidatedIDs []uuid.UUID `json:"consolidated_ids,omitempty"`
 	// Split delivery: partial weight of a shipment assigned to this stop
-	IsSplit            bool        `json:"is_split,omitempty"`
-	SplitPart          int         `json:"split_part,omitempty"`     // 1, 2, 3...
-	SplitTotal         int         `json:"split_total,omitempty"`    // total parts
-	OriginalWeightKg   float64     `json:"original_weight_kg,omitempty"` // full shipment weight
+	IsSplit          bool    `json:"is_split,omitempty"`
+	SplitPart        int     `json:"split_part,omitempty"`         // 1, 2, 3...
+	SplitTotal       int     `json:"split_total,omitempty"`        // total parts
+	OriginalWeightKg float64 `json:"original_weight_kg,omitempty"` // full shipment weight
 }
 
 type VRPSummary struct {

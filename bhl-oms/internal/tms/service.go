@@ -146,12 +146,12 @@ func (s *Service) ListPendingDates(ctx context.Context, warehouseID uuid.UUID) (
 
 // VRPCriteria configures optimization priorities and constraints.
 type VRPCriteria struct {
-	MaxCapacity    int `json:"max_capacity"`    // priority 1-6, 0=off
-	MinVehicles    int `json:"min_vehicles"`    // priority 1-6, 0=off
-	ClusterRegion  int `json:"cluster_region"`  // priority 1-6, 0=off
-	MinDistance    int `json:"min_distance"`    // priority 1-6, 0=off
-	RoundTrip      int `json:"round_trip"`      // priority 1-6, 0=off (always on internally)
-	TimeLimit      int `json:"time_limit"`      // priority 1-6, 0=off
+	MaxCapacity    int `json:"max_capacity"`     // priority 1-6, 0=off
+	MinVehicles    int `json:"min_vehicles"`     // priority 1-6, 0=off
+	ClusterRegion  int `json:"cluster_region"`   // priority 1-6, 0=off
+	MinDistance    int `json:"min_distance"`     // priority 1-6, 0=off
+	RoundTrip      int `json:"round_trip"`       // priority 1-6, 0=off (always on internally)
+	TimeLimit      int `json:"time_limit"`       // priority 1-6, 0=off
 	MaxTripMinutes int `json:"max_trip_minutes"` // default 480 (8h)
 }
 
