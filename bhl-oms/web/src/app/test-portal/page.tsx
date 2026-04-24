@@ -503,7 +503,7 @@ function TestCasesTab({ setTab, setPreferredGPSScenario, showToast, refresh }: {
 }
 
 // ===== Tab: Orders =====
-function OrdersTab({ refreshKey }: { refreshKey: number }) {
+function OrdersTab({ refreshKey, showToast, refresh }: { refreshKey: number; showToast: (msg: string) => void; refresh: () => void }) {
   const [items, setItems] = useState<Order[]>([])
   const [loading, setLoading] = useState(true)
 
