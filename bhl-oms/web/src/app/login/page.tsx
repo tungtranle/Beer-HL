@@ -86,15 +86,10 @@ export default function LoginPage() {
           </form>
 
           <div className="mt-6 p-4 bg-gray-50 rounded-lg">
-            <p className="text-xs text-gray-500 font-medium mb-2">Tài khoản thử nghiệm:</p>
-            <div className="space-y-1 text-xs text-gray-600">
-              <p><span className="font-mono bg-gray-200 px-1 rounded">dvkh01</span> — Dịch vụ khách hàng</p>
-              <p><span className="font-mono bg-gray-200 px-1 rounded">dispatcher01</span> — Điều phối viên</p>
-              <p><span className="font-mono bg-gray-200 px-1 rounded">driver01</span> — Tài xế</p>
-              <p><span className="font-mono bg-gray-200 px-1 rounded">accountant01</span> — Kế toán</p>
-              <p><span className="font-mono bg-gray-200 px-1 rounded">admin</span> — Quản trị</p>
-              <p className="text-gray-400 mt-1">Mật khẩu: demo123</p>
-            </div>
+            <p className="text-sm font-medium text-gray-700">Cần hỗ trợ đăng nhập?</p>
+            <p className="text-xs text-gray-500 mt-1">
+              Liên hệ quản trị hệ thống để được cấp tài khoản và phân quyền phù hợp.
+            </p>
           </div>
         </div>
       </div>

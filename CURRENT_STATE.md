@@ -1,6 +1,6 @@
 # CURRENT_STATE — BHL OMS-TMS-WMS
 
-> **Cập nhật:** 25/03/2026 (session 25/03 — Full code-vs-docs audit)  
+> **Cập nhật:** 17/04/2026 (session 17/04 — Control Tower map UX + SC-11 test scenario)  
 > **Mục đích:** Mô tả trạng thái THỰC TẾ của hệ thống. AI đọc file này để biết code đang làm gì, **không** phải spec nói gì.  
 > **Quy tắc:** Khi code thay đổi → cập nhật file này. Nếu CURRENT_STATE không khớp code → file này sai.
 
@@ -11,8 +11,8 @@
 | Component | Tech | Port | Status |
 |-----------|------|------|--------|
 | Backend API | Go + Gin | :8080 | ✅ Hoạt động (default port 8080) |
-| Frontend | Next.js 14 + Tailwind | :3000 | ✅ Hoạt động |
-| Database | PostgreSQL 16 | :5434 | ✅ 20 migration pairs (001-017, two 009s, three 010s) |
+| Frontend | Next.js 14 + Tailwind | :3000 | ✅ Hoạt động (`restart-services.bat` now relaunches frontend in separate CMD window) |
+| Database | PostgreSQL 16 | :5434 | ✅ 22 migration pairs (001-025) |
 | Cache/PubSub | Redis | :6379 | ✅ GPS + pub/sub |
 | VRP Solver | Python + OR-Tools | :8090 | ✅ Hoạt động |
 | OSRM Routing | Docker (Vietnam data) | :5000 | ⚠️ Cần setup data (./setup-osrm.ps1) |
@@ -128,10 +128,10 @@
 - **Action history (MỚI Phase 6):** GET `/reconciliation/discrepancies/:id/history` — entity_events timeline per discrepancy
 - **RBAC (MỚI Phase 6):** ResolveDiscrepancy requires admin or is_chief_accountant flag
 
-### Test Portal — ✅ Hoạt động (21 endpoints) — Updated Session 26/03
+### Test Portal — ✅ Hoạt động (21 endpoints) — Updated Session 17/04
 - **Bảo mật:** `ENABLE_TEST_PORTAL=true|false` env flag — default true (dev), set false trên production
 - **Không cần auth** — module riêng cho QA/UAT testing
-- **Data overview:** orders, order-confirmations, delivery-confirmations, stock, credit-balances, customers, products (8 endpoints)
+- **Data overview:** orders, order detail, order-confirmations, delivery-confirmations, stock, credit-balances, customers, products, drivers (9 endpoints)
 - **Test actions:** reset-data, create-test-order, simulate-delivery, run-scenario, load-scenario, list-scenarios, zalo-inbox (7 endpoints)
 - **GPS Simulation:** scenarios, vehicles, start, stop, status (5+1 endpoints)
 - **9 kịch bản test (MỚI SC-09 Session 26/03):**
@@ -152,7 +152,7 @@
   - GET `/v1/test-portal/gps/status` — Trạng thái realtime (tick, vị trí xe)
   - 7 scenarios: normal_delivery (5 xe), rush_hour (10 xe), gps_lost_signal, idle_vehicle, speed_violation, long_route (QN→HP), from_active_trips (DB)
   - Data flow: Start → goroutine → Redis HSET + PUBLISH → WebSocket hub → Control Tower map
-- **Frontend:** http://localhost:3003/test-portal — 8 tab UI: Kịch bản test, Đơn hàng, Xác nhận đơn Zalo, Xác nhận giao hàng, Tồn kho/ATP, Dư nợ, Tạo đơn test, **Tài xế & Tài khoản**, **Giả lập GPS**
+- **Frontend:** http://localhost:3003/test-portal — 9 tab UI: Kịch bản test, Đơn hàng, Xác nhận đơn Zalo, Xác nhận giao hàng, Tồn kho/ATP, Dư nợ, Tạo đơn test, **Giả lập GPS**, **Tài xế**
 - **Backend:** `internal/testportal/handler.go` — 18+ handler methods, direct DB queries, no service layer (→ TD-019)
 - **Thêm endpoints (session 16 cont.):** SimulateDelivery, RunScenario, ZaloInbox
 - **SQL scripts:**
@@ -210,6 +210,50 @@
   - GPS jitter mô phỏng sai số thực (±5m)
   - Publish qua Redis HSET + PUBLISH (tương thích WebSocket hub)
   - Chạy: `go run ./cmd/gps_simulator/`
+- **GPS Simulation API (MỚI):** In-process simulation controller for dispatcher testing:
+  - POST `/v1/gps/simulate/start` — Bắt đầu giả lập (trip_ids, use_demo, speed_mul)
+  - POST `/v1/gps/simulate/stop` — Dừng giả lập
+  - GET `/v1/gps/simulate/status` — Trạng thái (running, vehicles, uptime)
+  - Loads active trips from DB hoặc demo routes, publishes GPS qua Hub.PublishGPS
+
+### Cost Engine — MỚI (Migration 020) + Planning Redesign Phase 1
+- **6 bảng mới:** toll_stations, toll_expressways, toll_expressway_gates, vehicle_type_cost_defaults, vehicle_cost_profiles, driver_cost_rates
+- **Seed data:** 16 trạm thu phí miền Bắc (15 quốc lộ + Cầu Bạch Đằng), 5 cao tốc + 24 gates, 4 vehicle type defaults (diesel 24,500đ/L), 5 driver rates
+- **Migration 025:** Thay seed data cũ bằng dữ liệu thực tế miền Bắc VN (15 trạm hở QL1A/2/3/5/6/10/18/21B/32/38 + 5 cao tốc CT Hà Nội-HP, Nội Bài-Lào Cai, Pháp Vân-Ninh Bình, HP-HL-VĐ-MC, BG-LS)
+- **VRP Route Geometry Detection (HYBRID):** VRP solver dùng arc-based cho optimization speed, sau khi solve xong dùng OSRM route geometry để detect toll chính xác trên đường thực tế
+  - `get_route_geometry(waypoints)`: gọi OSRM /route/ lấy polyline thực tế
+  - `detect_tolls_on_polyline()`: duyệt từng điểm trên polyline, haversine proximity cho trạm hở, track entry/exit gates IN ORDER cho cao tốc
+  - **Cost mode safeguard (MỚI 17/04/2026):** nếu route được lấy bằng `exclude=toll`, solver tin kết quả OSRM và KHÔNG chạy proximity toll detection lại. Tránh false-positive khi quốc lộ/song hành đi sát trạm BOT nhưng không chạy trên cung thu phí.
+  - Fallback: nếu OSRM fail → dùng arc-based detection
+- **TollType field:** `toll_type` (open/expressway) trong TollPassDetail — phân biệt trên bản đồ (🟠 trạm hở / 🔵 cao tốc)
+- **VRP Cost Optimization:** LUÔN tính chi phí — UseCostOptimization=true mọi lần chạy VRP
+  - Python solver: per-vehicle arc cost = fuel_cost_per_km × distance + toll_cost (point-to-segment matching)
+  - Go service: LUÔN enrichSolverWithCostData + LUÔN set UseCostOptimization=true (không phụ thuộc criteria toggle)
+  - Response: cost_breakdown per trip (fuel_cost_vnd, toll_cost_vnd, total_cost_vnd, tolls_passed[])
+  - Summary: total_cost_vnd, total_fuel_cost_vnd, total_toll_cost_vnd, avg_cost_per_ton_vnd
+- **Cost Readiness API:** `GET /v1/planning/cost-readiness` — returns data counts + ready boolean
+- **Admin APIs:** (admin, dispatcher roles)
+  - CRUD `/v1/cost/toll-stations`, `/v1/cost/toll-expressways` + gates
+  - `/v1/cost/vehicle-type-defaults` (list, update)
+  - `/v1/cost/vehicles/:id/profile` (get, upsert, delete) — per-vehicle override
+  - `/v1/cost/driver-rates` (CRUD)
+- **Frontend — Cost Settings page:** `/dashboard/settings/transport-costs` (4 tabs: Toll Stations, Expressways, Vehicle Defaults, Driver Rates) — full CRUD + **quản lý cổng cao tốc** (thêm/xóa gate inline)
+- **Frontend — Planning page — Toll Visualization:**
+  - Toll markers trên bản đồ: 🟠 trạm hở / 🔵 cao tốc, popup hiển thị tên + phí
+  - Toggle 🚏 hiển thị TẤT CẢ trạm thu phí (đã đi qua = màu, chưa = xám)
+  - Per-trip cost badge: ⛽ fuel + 🚏 toll breakdown
+- **Frontend — Planning page redesign:**
+  - Removed manual cost toggle → auto-detect from cost readiness
+  - Dynamic labels (💰 cost mode / 🗺️ distance mode) throughout
+  - Criteria renamed "Ràng buộc phân bổ", removed min_distance (always active as objective)
+  - Real-time progress reliability (MỚI 17/04): planning page dùng **WebSocket + polling fallback** cho `stage/pct/detail`, tránh tình trạng so sánh 3 phương án bị đứng 0% khi miss event đầu.
+  - Cost readiness status box (green ✅ / amber ⚠️) with data counts + settings link
+  - KPI results: 2 rows — cost summary (8 cards, always visible) first, then operational (6 cards)
+  - Per-trip cost: inline badge with ⛽fuel + 🚏toll breakdown
+  - "Tiêu chí đã dùng" badges above results (criteria used, cost optimize status, time limit)
+  - VRP Quality Assessment: 💰 Phân tích chi phí section (tổng chi phí, xăng/dầu %, cầu đường %, VND/chuyến, VND/km, VND/tấn)
+  - Scenario management: duplicate save prevented (savedJobId), "📥 Tải" button to load saved scenario
+  - "Tối ưu lại" resets state → shows criteria panel (no longer bypasses criteria)
 
 ### Cron Jobs
 - Auto-confirm Zalo delivery 24h expired (mỗi 1 giờ)
@@ -252,7 +296,7 @@
   - 5 UX rules bắt buộc: zero dead ends, instant business feedback, role-aware empty states, trace ID in errors, driver h-12/h-14 tap targets
   - DEC-009: UXUI_SPEC.md per-role specification formalized
   - `.github/instructions/frontend-patterns.instructions.md` — Auto-applied cho .tsx/.ts files, đã cập nhật UX rules + brand color
-- **Test Portal (MỚI Session 16):** http://localhost:3003/test-portal — 8 tab: Kịch bản test, Đơn hàng, Xác nhận đơn Zalo, Xác nhận giao hàng, Tồn kho/ATP, Dư nợ, Tạo đơn test, **Tài xế & Tài khoản (MỚI Session 22/03)**. No auth, standalone module cho QA/UAT.
+- **Test Portal (MỚI Session 16):** http://localhost:3003/test-portal — 8 tab: Kịch bản test, Đơn hàng, Xác nhận đơn Zalo, Xác nhận giao hàng, Tồn kho/ATP, Dư nợ, Tạo đơn test, **Tài xế**. No auth, standalone module cho QA/UAT.
 - **Notification UI (CẬP NHẬT Session 18):**
   - Notification Bell: chuông ở topbar (bên phải, main content area), click mở slide-in panel full-height bên phải
   - Notification Panel: slide-in từ phải, backdrop overlay, ESC/click-outside để đóng, body scroll lock, styled-scrollbar
@@ -268,7 +312,8 @@
 - **Phase 6 Frontend Enhancements (MỚI):**
   - **Centralized status config (MỚI Session 22/03):** `web/src/lib/status-config.ts` — SINGLE SOURCE OF TRUTH cho tất cả status labels/colors (order, trip, stop, recon, Zalo). Tất cả pages import từ đây.
   - **OrderStatusStepper (MỚI Session 22/03):** `web/src/components/OrderStatusStepper.tsx` — 5-step progress stepper (Đã tạo đơn → KH xác nhận → Kho xử lý → Đang vận chuyển → Hoàn thành) with special status banners (rejected, partially_delivered, etc.)
-  - **Tài xế & Tài khoản tab (MỚI Session 22/03):** Tab mới trong Test Portal — driver-account mapping, E2E test guide
+  - **Test Portal scenario sourcing (17/04):** Frontend Test Portal không còn fallback scenario/test case hardcode; danh sách scenario và dữ liệu test chỉ đến từ backend `GET/POST /v1/test-portal/scenarios|load-scenario`.
+  - **Test Portal drivers tab (17/04):** Tab `Tài xế` lấy roster tài xế thực từ `GET /v1/test-portal/drivers`, không còn hiển thị username/password demo hardcode trong UI.
   - **Biên bản giao hàng (MỚI Session 22/03):** ePOD view upgraded — formal header, product table (ordered/delivered/variance), photo gallery, signature display
   - **Workshop page:** `/dashboard/workshop` — Bottle classification form (classify tốt/hỏng/mất) + summary view
   - **Reconciliation page:** T+1 countdown badges, split sub-tabs (Tất cả/Tiền/Hàng/Vỏ), action history modal
@@ -277,6 +322,18 @@
   - **Gate check page:** Queue display with count badge + mandatory fail reason dropdown (6 types)
   - **Picking page:** Priority badge "Soạn trước" for first pending item
   - **Control tower:** Exception descriptions (Vietnamese), bulk move stops (multi-select + modal), fleet tab toggle (trips/fleet)
+  - **Control tower trip progress (MỚI 17/04):** Hiển thị progress bar theo từng chuyến + snapshot ETA countdown/lệch ETA (on-time/late/no-eta) ngay trong danh sách chuyến, lấy dữ liệu từ `/trips/:id` để theo dõi theo điểm giao.
+  - **Control tower map UX (MỚI 17/04):** SVG truck markers (heading rotation + plate badge + glow), route polyline cam đứt nét, stop markers màu theo status, ETA dashed line, trip-map linking (flyTo/fitBounds), GPS simulator button trên map.
+  - **Control tower map lifecycle fix (17/04):** Leaflet map chỉ khởi tạo sau khi page thoát trạng thái loading; thêm `invalidateSize()` sau init và `min-height` cho map container để tránh panel giữa trắng do map effect chạy khi `ref` chưa mount.
+  - **Control tower GPS WS fix (17/04):** Frontend Control Tower kết nối trực tiếp backend WebSocket `/ws/gps`; local dev tự dùng `localhost:8080`, không đi qua Next.js `/api` rewrite vốn chỉ áp dụng cho HTTP `/v1/*`.
+  - **Control tower active route overlay (17/04):** Các chuyến active `in_transit`, `assigned`, `ready` đều hiện tuyến trên map overview; chuyến đang chạy dùng line liền, chuyến chuẩn bị chạy dùng line xám đứt nét; selected trip vẫn được highlight đậm hơn và giữ stop markers.
+  - **Control tower vehicle-to-route linking (17/04):** Bấm trực tiếp vào marker xe hoặc polyline tuyến sẽ tự chọn chuyến tương ứng, flyTo vào vị trí xe và mở chi tiết stop/ETA của chính tuyến đó.
+  - **Control tower GPS start behavior (17/04):** Nút GPS simulator trên map chỉ khởi động giả lập theo chuyến hiện có trong DB/Test Portal; frontend không còn gửi `use_demo=true` để tự dựng data test.
+  - **Control tower road geometry (17/04):** Route overlay ưu tiên geometry từ OSRM để hiển thị theo đường thực tế; fallback mới dùng polyline waypoint nếu OSRM không trả dữ liệu.
+  - **Control tower off-route detection (17/04):** Tính khoảng cách xe → route geometry; nếu vượt ngưỡng ~1.2 km thì marker, popup và trip list hiển thị `Lệch tuyến X km`.
+  - **Login screen hardening (17/04):** Trang `/login` không còn hiển thị danh sách tài khoản demo/mật khẩu; chỉ giữ thông điệp liên hệ quản trị hệ thống để nhận tài khoản.
+  - **SC-11 realistic route data (17/04):** `WH-HL` được neo về KCN Cái Lân; 26 khách đầu tiên được chia thành 7 cụm NPP thực tế (Hồng Gai/Cao Xanh, Bãi Cháy/Tuần Châu, Quảng Yên, Uông Bí, Mạo Khê, Đông Triều, Cẩm Phả/Cửa Ông). GPS simulator mặc định chạy 7 chuyến active; chuyến `completed` giữ lại để test lịch sử thay vì tính vào xe online.
+  - **SC-11 Control Tower (MỚI 17/04):** Test Portal scenario — 8 trips, 26 orders, 3 exceptions (failed_stop + late_eta + idle_vehicle). 12 khách đầu tiên được re-anchor về cụm tuyến thực tế Hạ Long–Quảng Yên–Uông Bí–Cẩm Phả; GPS simulator giữ đủ 8 xe bằng cách để chuyến completed online đứng yên tại điểm cuối.
 
 ---
 

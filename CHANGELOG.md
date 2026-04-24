@@ -7,6 +7,278 @@
 
 ## [Unreleased] — Phase 6 complete + UX Overhaul v4 + UX v5 full
 
+### 2026-04-17 — Session: Control Tower Map UX + SC-11 Test Scenario
+
+#### Added — Control Tower map nâng cấp P0
+- `web/src/app/dashboard/control-tower/page.tsx`:
+  - Vehicle markers: SVG truck icon 32px, heading rotation, plate badge, glow effect
+  - Route visualization: polyline cam đứt nét, stop markers màu theo status (với #order)
+  - ETA dashed line (indigo) từ vehicle → next pending stop
+  - Trip-map linking: click trip → flyTo vehicle zoom 14, click lại → fitBounds all
+  - GPS Simulator button trên map header (bật/tắt, gọi `/gps/simulate/start|stop`)
+
+#### Added — SC-11 Control Tower test scenario (Test Portal)
+- `internal/testportal/scenarios.go`:
+  - SC-11 metadata: 8 steps, 5 preview data points
+  - Load function: 26 orders, 26 shipments, 8 trips (3 in_transit, 2 assigned, 2 ready, 1 completed)
+  - Trip stops with mixed statuses (pending/delivered/failed)
+  - 3 exceptions tự động: 1 P0 failed_stop, 1 P1 late_eta, 1 P1 idle_vehicle
+
+#### Fixed — ListExceptions 500 error
+- `internal/tms/repository.go`:
+  - `ts.customer_name` → `c.name` + `LEFT JOIN customers c ON c.id = ts.customer_id`
+  - Root cause: `trip_stops` không có column `customer_name`, phải join `customers`
+
+#### Fixed — SC-11 trip SQL column name
+- `internal/testportal/scenarios.go`:
+  - `ORDER BY plate` → `ORDER BY plate_number` (column thực tế trong `vehicles` table)
+  - Thêm `total_stops` vào trip INSERT (trước đó luôn = 0)
+
+#### Fixed — GPS Simulator + WebSocket chain (4 bugs)
+- `internal/gps/hub.go`:
+  - WebSocket broadcast type `gps_update` → `position` (frontend checks `type === 'position'`)
+  - Enrich `GPSPoint` + `GPSUpdate` with `vehicle_plate`, `driver_name`, `trip_status`
+- `internal/gps/simulator.go`:
+  - Trip status filter: `planned,in_progress,loading,departed` → `planned,assigned,ready,in_transit,pre_check`
+  - Stop query: `c.lat/c.lng` → `c.latitude/c.longitude`, `ts.sequence_order` → `ts.stop_order`
+  - Direct join `trip_stops → customers` (removed unnecessary shipments/orders chain)
+  - Demo routes: now query active trips for vehicle+driver info instead of just vehicle IDs
+- `internal/testportal/handler.go`:
+  - `publishGPSUpdate` type `gps_update` → `position`, added `vehicle_plate`
+
+#### Fixed — Control Tower map panel trắng sau khi load data
+- `web/src/app/dashboard/control-tower/page.tsx`:
+  - Root cause: effect khởi tạo Leaflet chạy lúc component còn ở nhánh `loading`, nên `mapRef` chưa mount và map không bao giờ được tạo.
+  - Fix: map init effect phụ thuộc `loading`, chỉ chạy sau khi panel map xuất hiện trong DOM.
+  - Thêm `invalidateSize()` sau init để Leaflet reflow đúng trong layout flex.
+  - Thêm `min-height` cho map container để tránh trường hợp panel giữa có DOM nhưng không có chiều cao render.
+
+#### Fixed — Control Tower không nhận được GPS vehicle updates trong local dev
+- `web/src/app/dashboard/control-tower/page.tsx`:
+  - Root cause: page kết nối sai WebSocket endpoint `/api/gps/ws`, trong khi backend expose GPS socket tại `/ws/gps` và `next.config.js` chỉ rewrite HTTP `/api/*` sang `/v1/*`.
+  - Fix: dùng `getToken()` + kết nối trực tiếp tới `/ws/gps`; ở local dev (`:3000`) tự động chuyển host sang `:8080`, còn sau reverse proxy vẫn dùng `window.location.host`.
+  - Kỳ vọng sau fix: counter `xe online` và markers trên map nhận đúng GPS simulator events.
+
+#### Fixed — Control Tower chưa hiển thị tuyến đang chạy và khó nhận ra lệch tuyến
+- `web/src/app/dashboard/control-tower/page.tsx`:
+  - Luôn vẽ overlay route cho các chuyến `in_transit`, không bắt dispatcher phải click từng chuyến mới thấy tuyến.
+  - Tính khoảng cách từ vị trí xe tới polyline tuyến để phát hiện `lệch tuyến`; route lệch chuyển đỏ, marker/popup/list hiển thị số km lệch.
+  - Cache stop coordinates từ `/trips/:id` để map overview và selected trip dùng cùng dữ liệu tuyến thực.
+
+#### Fixed — SC-11 GPS test data dùng tọa độ master data không ổn định
+- `internal/testportal/scenarios.go`:
+  - Gán lại `latitude/longitude/address` cho 12 khách đầu tiên theo cụm tuyến thực tế Hạ Long, Quảng Yên, Uông Bí, Đông Triều, Cẩm Phả.
+  - Mục tiêu: GPS simulator nội suy theo stop thật của SC-11, không chạy trên các tọa độ rải rác/không liên quan tuyến test.
+
+#### Fixed — Control Tower route vẫn là đường chim bay và scenario 8 xe chỉ hiện 7 xe
+- `web/src/app/dashboard/control-tower/page.tsx`:
+  - Bổ sung fetch road geometry từ OSRM public service để route overlay bám theo đường thực tế thay vì nối thẳng waypoint.
+  - Dùng geometry này cho cả vẽ route và tính `lệch tuyến`, tránh false positive do polyline thẳng.
+- `internal/gps/simulator.go`:
+  - Bổ sung `completed` vào danh sách trip được load cho simulator.
+  - Với chuyến `completed`, giữ xe online ở stop cuối với tốc độ 0 để Control Tower/Fleet view phản ánh đủ 8 xe của SC-11.
+
+#### Fixed — SC-11 được neo lại theo 7 tuyến giao hàng thực tế từ WH-HL
+- `internal/testportal/scenarios.go`:
+  - Neo `WH-HL` về khu vực Cái Lân và gán lại 26 khách đầu tiên theo 7 cụm NPP thực tế quanh Hạ Long, Quảng Yên, Uông Bí, Mạo Khê, Đông Triều, Cẩm Phả/Cửa Ông.
+  - Cập nhật metadata SC-11 để phản ánh đúng 7 xe GPS online cho 7 chuyến active và 1 chuyến `completed` chỉ dùng cho lịch sử.
+- `internal/gps/simulator.go`:
+  - Mặc định chỉ load các chuyến active `planned/assigned/ready/in_transit/pre_check`, dùng cùng mốc kho `WH-HL` với scenario để counter `xe online` khớp 7 route thực tế.
+- `web/src/app/dashboard/control-tower/page.tsx`:
+  - Hiển thị route overview cho toàn bộ chuyến active `in_transit`, `assigned`, `ready` thay vì chỉ `in_transit`, giúp 7 xe active đều có tuyến nhìn thấy trên map.
+
+#### Fixed — Control Tower cho phép mở tuyến trực tiếp từ từng xe trên bản đồ
+- `web/src/app/dashboard/control-tower/page.tsx`:
+  - Bấm vào marker xe sẽ tự chọn chuyến active tương ứng, flyTo vào xe và bật route/stop detail của chính tuyến đó.
+  - Mỗi polyline tuyến có tooltip + popup ghi rõ `trip_number` và `vehicle_plate`, đồng thời có thể bấm trực tiếp vào tuyến để xem chi tiết.
+
+#### Fixed — Màn hình đăng nhập không còn lộ tài khoản demo
+- `web/src/app/login/page.tsx`:
+  - Xóa toàn bộ username/password demo khỏi UI login.
+  - Thay bằng thông điệp trung tính yêu cầu liên hệ quản trị hệ thống để được cấp tài khoản.
+
+#### Fixed — Test Portal không còn nhúng sẵn data test trong frontend
+- `web/src/app/test-portal/page.tsx`:
+  - Xóa fallback scenarios/manual test cases hardcode trong bundle frontend; danh sách kịch bản giờ chỉ lấy từ backend `GET /test-portal/scenarios`.
+  - Xóa toàn bộ block tài khoản/mật khẩu demo trong tab Kịch bản test và tab Tài xế.
+  - Tab `Tài xế` chỉ hiển thị roster tài xế thực từ DB, không còn suy diễn username/password demo.
+- `internal/testportal/handler.go`:
+  - Thêm `GET /v1/test-portal/drivers` để Test Portal đọc danh sách tài xế trực tiếp từ DB mà không phụ thuộc API dashboard có auth.
+
+#### Changed — Control Tower không tự dựng demo GPS data từ nút map
+- `web/src/app/dashboard/control-tower/page.tsx`:
+  - Nút bật GPS simulator chỉ gọi start theo active trips hiện có; nếu chưa nạp scenario hoặc chưa có chuyến, người dùng phải nạp data từ Test Portal trước.
+
+**Docs Updated:** CHANGELOG.md, CURRENT_STATE.md, TASK_TRACKER.md, AI_LESSONS.md
+
+### 2026-04-17 — Session: Control Tower Trip Progress + ETA Deviation Completion
+
+#### Added — Trip progress + ETA deviation hiển thị trực tiếp trên danh sách chuyến
+- `web/src/app/dashboard/control-tower/page.tsx`:
+  - Bổ sung snapshot tiến độ theo từng chuyến bằng cách lấy chi tiết `/trips/:id` cho các chuyến active.
+  - Hiển thị progress bar theo điểm giao đã hoàn tất (terminal stops/total stops).
+  - Hiển thị ETA countdown cho điểm kế tiếp và badge lệch ETA (`Đúng tiến độ`, `Lệch ETA`, `Thiếu ETA`).
+  - Đồng bộ màu trạng thái: trễ dùng đỏ, đúng tiến độ dùng xanh.
+
+#### Docs Sync — Chuẩn hóa code/docs cho Control Tower
+- `TASK_TRACKER.md`: cập nhật note method đúng với code (`POST /trips/:id/stops/:stopId/move`, `POST /trips/:id/cancel`) và chi tiết task 5.20.
+- `CURRENT_STATE.md`: thêm trạng thái thực thi Trip progress + ETA deviation ở Control Tower.
+- `BRD_BHL_OMS_TMS_WMS.md`: US-NEW-19 thêm acceptance criteria Trip progress + ETA deviation, bump version lên v3.4.
+
+**Docs Updated:** CURRENT_STATE.md, CHANGELOG.md, TASK_TRACKER.md, BRD_BHL_OMS_TMS_WMS.md, UIX_BHL_OMS_TMS_WMS.md, TST_BHL_OMS_TMS_WMS.md
+
+### 2026-04-17 — Session: VRP Progress UX Reliability (Planning Compare)
+
+#### Fixed — Progress bar đứng 0% khi so sánh 3 phương án
+- `web/src/app/dashboard/planning/page.tsx`:
+  - Bổ sung fallback cập nhật tiến độ từ polling `/planning/jobs/:id` khi trạng thái `processing` (lấy `stage/pct/detail`).
+  - So sánh 3 phương án map `job_id -> mode` ngay khi từng API `run-vrp` trả về, tránh miss WebSocket event đầu.
+  - Tại lúc job kết thúc, ép cập nhật cột progress sang `done/error` và `100%` để UI luôn phản ánh đúng trạng thái cuối.
+  - Seed stage ban đầu `matrix` + detail `Đã tạo job` để người dùng luôn thấy chuyển động ngay sau khi bấm so sánh.
+
+#### Impact
+- Trải nghiệm tiến độ VRP mượt và ổn định hơn trong cả single-run và compare-run.
+- Loại bỏ trạng thái gây hiểu nhầm: solver đang chạy nhưng UI hiển thị 0%.
+
+**Docs Updated:** CURRENT_STATE.md, CHANGELOG.md
+
+### 2026-04-17 — Session: VRP Cost False-Positive Toll Fix + Restart Script Frontend Recovery
+
+#### Fixed — Cost mode cộng phí BOT sai trên đường song song
+- `vrp-solver/main.py`: khi `optimize_for=cost` và route geometry được lấy bằng `exclude=toll`, solver không còn chạy `detect_tolls_on_polyline()` lần hai trên polyline.
+- Root cause: heuristic proximity quanh gate/trạm BOT báo sai với quốc lộ hoặc đường song hành đi gần cao tốc/trạm thu phí nhưng không đi trên cung thu phí.
+- Kết quả mong đợi: cost mode vẫn lấy distance/duration thực từ OSRM `exclude=toll`, nhưng `toll_cost_vnd` không còn bị đội ảo do false-positive.
+
+#### Changed — `restart-services.bat` now also relaunches frontend
+- Script dọn cả port `8080` và `3000` trước khi restart.
+- Khởi động Next.js frontend trong cửa sổ CMD riêng bằng `npm run dev`, sau đó mới build/run backend.
+- Mục tiêu: tránh tình trạng backend đã sống nhưng `http://localhost:3000` vẫn treo do frontend zombie/CLOSE_WAIT.
+
+**Docs Updated:** CURRENT_STATE.md, CHANGELOG.md
+
+### 2026-06-18 — Session: Toll & Fuel Cost - Route Geometry Detection
+
+#### Added — Migration 025: Northern Vietnam Toll Data
+- `migrations/025_toll_data_north_vietnam.up.sql` — 15 open toll stations (QL1A, QL2, QL3, QL5, QL6, QL10, QL18, QL21B, QL32, QL38), Cầu Bạch Đằng special station, 5 expressways (CT HN-HP, Nội Bài-Lào Cai, Pháp Vân-Ninh Bình, HP-HL-VĐ-MC, BG-LS), 24 gates
+- `migrations/025_toll_data_north_vietnam.down.sql` — rollback to original seed data
+
+#### Added — VRP Route Geometry Toll Detection (Hybrid)
+- `vrp-solver/main.py`: `get_route_geometry()` calls OSRM /route/ for actual road polyline
+- `vrp-solver/main.py`: `detect_tolls_on_polyline()` walks polyline point-by-point, haversine proximity for open stations, ordered entry/exit gate tracking for expressways
+- Post-solve: rebuilds full waypoint route per trip, detects tolls on real road geometry, falls back to arc-based if OSRM fails
+- `toll_detection` field: reports 'route_geometry' or 'arc_fallback' per trip
+
+#### Added — Frontend Toll Visualization
+- Planning map: differentiated toll markers (🟠 open / 🔵 expressway) with popup details
+- 🚏 toggle button: show ALL toll stations on map (passed=colored, not-passed=gray)
+- Transport-costs admin: inline gate management (add/delete gates per expressway)
+
+#### Changed
+- `internal/domain/models.go`: TollPassDetail has `toll_type` field (open/expressway)
+- `internal/tms/service.go`: maps TollType from VRP response
+- VRPTrip/VRPSummary TypeScript interfaces: added cost fields + index signature
+
+**Docs Updated:** CURRENT_STATE.md (migration count, seed data, route geometry, toll visualization), CHANGELOG.md
+
+### 2026-06-14 — Session: VRP Cost Fix + Quality Panel + UX Fixes
+
+#### Fixed — VRP Cost = 0 (Root Cause)
+- **`internal/tms/service.go`:** Changed `UseCostOptimization` from conditional (`if criteria.CostOptimize`) to ALWAYS true — Python solver now always calculates `cost_breakdown` for every trip
+- **`web/.../transport-costs/page.tsx`:** Fixed VehicleTypeCostDefault interface field names to match API JSON tags:
+  - `fuel_consumption_l_per_km` → `fuel_consumption_per_km`
+  - `fuel_price_per_l` → `fuel_price_per_liter`
+  - Added `is_active`, `effective_date`, `notes` fields — "Loại xe có định mức" now correctly shows 4
+
+#### Changed — Planning Page UX Improvements
+- **Cost KPIs always visible:** Removed `total_cost_vnd > 0` guard — all 8 cost cards show "Chưa tính"/"—" when no data
+- **"Tiêu chí đã dùng" badges:** Shows enabled criteria, cost optimize status, time limit above results
+- **VRP Quality Assessment — 💰 Phân tích chi phí:** New 6-cell cost metrics grid (total cost, fuel %, toll %, VND/chuyến, VND/km, VND/tấn) — only shows when cost data available
+- **Duplicate save prevention:** `savedJobId` state, button becomes "✅ Đã lưu" after save
+- **Load saved scenario:** "📥 Tải" button in scenario table loads result_json back into UI
+- **"Tối ưu lại" fix:** Both buttons now reset state → shows criteria panel (no longer bypasses criteria selection)
+
+#### Changed — Cost Data Enrichment
+- **Toll stations:** 7 → 20 (added QL18/QL10/QL5/QL1A/QL279/QL3 stations, cầu Bạch Đằng, hầm Đèo Cả)
+- **Expressways:** 5 → 8 (added CT Hạ Long-Vân Đồn, CT Vân Đồn-Móng Cái, CT HN-Thái Nguyên)
+- **Expressway gates:** 12 → 31
+- **Vehicle defaults:** Diesel 22,000 → 24,500 VND/L (T4/2026), adjusted fuel consumption rates
+- **Cost readiness:** `ready: true`, 20 tolls, 8 expressways, 4 vehicle defaults, 5 driver rates
+
+**Docs Updated:** CURRENT_STATE.md, CHANGELOG.md
+
+---
+
+### 2026-04-16 — Session: Planning UX Redesign Phase 1
+
+#### Added
+- **`GET /v1/planning/cost-readiness`:** New API endpoint returns cost data readiness (toll/expressway/vehicle/driver counts + `ready` boolean)
+- **`web/.../settings/transport-costs/page.tsx`:** NEW Cost Settings admin page (4 tabs: Toll Stations, Expressways, Vehicle Defaults, Driver Rates) — full CRUD
+- **Sidebar:** Added "Chi phí vận chuyển" link with DollarSign icon (admin/dispatcher roles)
+
+#### Changed — Planning Page UX Overhaul
+- **Single solver mode:** Removed manual cost toggle — system auto-detects from cost data readiness
+- **Dynamic labels:** Heading/subtitle/button/running/results text changes based on cost readiness (💰 cost mode vs 🗺️ distance mode)
+- **Criteria → Ràng buộc:** Renamed "Tiêu chí tối ưu tuyến đường" → "Ràng buộc phân bổ"; removed `min_distance` from drag list (it's the objective, always active)
+- **Cost Readiness Status:** Replaced cost toggle with readiness indicator (green ✅ / amber ⚠️) showing data counts + link to settings
+- **Results KPI:** Reorganized into 2 rows — cost summary (4 cards) first when available, then operational metrics (6 cards)
+- **Per-trip cost:** Expanded from tooltip to inline badge showing ⛽fuel + 🚏toll breakdown
+- **Backend:** Always enriches solver request with cost data (post-hoc); `UseCostOptimization` flag only controls solver objective
+
+#### Docs Updated
+- CHANGELOG.md (this entry)
+- CURRENT_STATE.md (updated)
+
+---
+
+### 2026-04-16 — Session: Localhost Verify + BRD v3.3 Audit
+
+#### Fixed
+- **`migrations/020_cost_engine.up.sql`:** Removed `notes` column from 6 `toll_expressway_gates` INSERT statements (column didn't exist in CREATE TABLE)
+- **`web/next.config.js`:** Fixed API proxy destination port 8097→8080 (was causing login 500 errors)
+
+#### Changed — BRD v3.2 → v3.3 comprehensive audit
+- Rà soát toàn bộ Acceptance Criteria vs code thực tế
+- ~25 AC items marked `[x]` hoặc `[◐]` (was falsely `[ ]`):
+  - VRP criteria selection (6 drag-to-reorder criteria)
+  - Payment recording (5 payment methods)
+  - Credit limit expiry alert + change history
+  - Redelivery report (KPI endpoint)
+  - Import/Export Excel (8 items US-NEW-20)
+  - EOD bàn giao sổ (EOD checkpoint system)
+  - Checklist photo (field exists, not enforced)
+  - Vehicle documents + expiry cron (migration 012)
+  - Vehicle internal/external classification (is_external)
+  - Driver license expiry alert (driver_documents + cron)
+  - Maintenance schedule (schema + CRUD, no auto-overdue)
+  - Idle vehicle detection (anomaly type + KPI count)
+  - Bàn giao A/B/C (handover_records migration 017+018)
+  - Gate check design (pass/fail, no item counting)
+  - Data-scoping (warehouse_ids in JWT, partial enforce)
+  - Bravo push (adapter exists, not wired to delivery hook)
+
+**Docs Updated:** BRD_BHL_OMS_TMS_WMS.md (v3.3), TASK_TRACKER.md, CHANGELOG.md
+
+### 2026-03-27 — Session: Cost Engine + GPS Simulation API
+
+#### Added — Cost Engine (VRP Cost Optimization)
+- **Migration 020:** 6 new tables: `toll_stations`, `toll_expressways`, `toll_expressway_gates`, `vehicle_type_cost_defaults`, `vehicle_cost_profiles`, `driver_cost_rates`
+- **Seed data:** 7 toll stations (QN/HP), 5 expressways + gates, 4 vehicle type defaults, 5 driver rates
+- **`internal/tms/repository_cost.go`:** Full CRUD for all cost tables + `ResolveVehicleCostInfo` (per-vehicle → type default → fallback)
+- **`internal/tms/service.go`:** `VRPCriteria.CostOptimize` bool, `enrichSolverWithCostData()` loads tolls, per-vehicle cost in solver request, cost_breakdown mapping in response, `computeSummary` aggregates cost fields
+- **`internal/tms/handler_cost.go`:** 14 admin endpoints for toll/expressway/cost CRUD under `/v1/cost/`
+- **`internal/domain/models.go`:** VRPTrip + VRPSummary cost fields, TollStation/TollExpressway/TollExpresswayGate/VehicleTypeCostDefault/VehicleCostProfile/DriverCostRate/VehicleCostInfo/TollPassDetail structs
+- **`vrp-solver/main.py`:** `point_to_segment_distance_km()`, `detect_toll_cost_on_arc()`, `build_vehicle_cost_matrices()`, `SetArcCostEvaluatorOfVehicle` per vehicle when cost mode on, cost_breakdown in response
+- **Frontend:** Cost optimize toggle on planning page, cost summary cards (total/fuel/toll/per-ton), per-trip cost tooltip
+
+#### Added — GPS Simulation API (In-Process)
+- **`internal/gps/simulator.go`:** `SimController` with start/stop/status endpoints
+- POST `/v1/gps/simulate/start` — Start simulation (trip_ids, use_demo, speed_mul)
+- POST `/v1/gps/simulate/stop` — Stop simulation
+- GET `/v1/gps/simulate/status` — Get status (running, vehicles, uptime)
+- Loads active trips from DB, falls back to demo routes, publishes via Hub.PublishGPS
+
+**Docs Updated:** CURRENT_STATE.md, CHANGELOG.md, BRD (US-TMS-01d/01e/01f)
+
 ### 2026-03-26 — Session: VRP Optimization Demo Scenario
 
 #### Fixed — VRP Utilization: 52% → 98.1% (Definitive Algorithm Rewrite)

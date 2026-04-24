@@ -32,6 +32,16 @@
 | L-19 | `buildMockResult` (VRP fallback khi Python solver tắt): KHÔNG ép hàng quá tải vehicle → excess phải sang unassigned | Xe 5T hiện 13T hàng |
 | L-20 | Test data tổng weight PHẢI nhỏ hơn fleet capacity. WH-HL = 50 xe/284T, KHÔNG phải 70 xe | SC-09 tạo 695T vs 284T fleet |
 | L-21 | VRP mock PHẢI gom theo vùng địa lý (angular sweep) + giới hạn 8h/chuyến. Bin-pack thuần weight → chuyến 1000+km | Chuyến 14C-00113 có 1178km |
+| L-22 | `vehicles` table dùng column `plate_number` KHÔNG phải `plate`. Luôn check schema trước khi viết SQL | SC-11 crash column "plate" does not exist |
+| L-23 | `trip_stops` KHÔNG có `customer_name`. Phải JOIN `customers c ON c.id = ts.customer_id` rồi dùng `c.name` | ListExceptions 500 error |
+| L-24 | WebSocket `type` phải MATCH giữa backend (`GPSUpdate.Type`) và frontend (`data.type === '...'`). Kiểm tra cả 2 phía trước khi debug | GPS vehicles không hiện trên map vì `gps_update` ≠ `position` |
+| L-25 | GPS simulator status filter phải match trip statuses thực tế trong DB. SC-11 dùng `in_transit/assigned/ready`, simulator cũ filter `planned/in_progress` | Simulator fallback demo routes thay vì dùng trip data |
+| L-26 | `customers` table columns = `latitude/longitude` (NUMERIC), KHÔNG phải `lat/lng`. `trip_stops` columns = `stop_order`, KHÔNG phải `sequence_order` | Simulator query crash |
+| L-27 | Với page có nhánh `loading`, KHÔNG khởi tạo Leaflet/map trong `useEffect([])` nếu `ref` chỉ render sau loading. Effect phải phụ thuộc trạng thái đã mount map container, rồi gọi `invalidateSize()` sau init | Control Tower panel giữa trắng dù đã có code map |
+| L-28 | Next.js `rewrites()` cho `/api/*` KHÔNG tự cứu WebSocket path sai. Trước khi debug GPS live, phải đối chiếu chính xác frontend WS URL với backend route thực (`/ws/gps`) | Control Tower nối `/api/gps/ws` nên luôn 0 xe online trong local dev |
+| L-29 | Test scenario có GPS/route KHÔNG được phụ thuộc tọa độ customer master data mặc định. Phải re-anchor explicit các customer dùng trong scenario về cụm tuyến test, nếu không simulator sẽ tạo đường chạy nhìn như tọa độ vu vơ | SC-11 Control Tower cần tuyến thực tế để soi lệch tuyến |
+| L-30 | Nếu cần soi lệch tuyến, KHÔNG dùng polyline nối waypoint thẳng để làm chuẩn. Phải dùng road geometry từ OSRM hoặc route engine tương đương, nếu không sẽ vừa nhìn giả vừa báo lệch tuyến sai | Control Tower route overview |
+| L-31 | Counter `xe online` phải bám theo số chuyến active đang được giả lập; `completed` chỉ để test history, không nên auto tính vào fleet online mặc định | SC-11 thực tế cần 7 route active từ WH-HL, không phải ép đủ 8 xe online |
 
 ## 🟢 Đánh giá / Scope (khi plan)
 

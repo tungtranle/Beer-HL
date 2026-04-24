@@ -291,12 +291,19 @@ type VRPJob struct {
 }
 
 type VRPResult struct {
-	JobID      string      `json:"job_id"`
-	Status     string      `json:"status"`
-	SolveTime  int         `json:"solve_time_ms"`
-	Trips      []VRPTrip   `json:"trips"`
-	Unassigned []uuid.UUID `json:"unassigned_shipments"`
-	Summary    VRPSummary  `json:"summary"`
+	JobID          string      `json:"job_id"`
+	Status         string      `json:"status"`
+	Error          string      `json:"error,omitempty"`
+	SolveTime      int         `json:"solve_time_ms"`
+	DistanceSource string      `json:"distance_source,omitempty"`
+	OptimizeFor    string      `json:"optimize_for,omitempty"`
+	Trips          []VRPTrip   `json:"trips"`
+	Unassigned     []uuid.UUID `json:"unassigned_shipments"`
+	Summary        VRPSummary  `json:"summary"`
+	// Progress fields — populated during solving, cleared when done
+	Stage  string `json:"stage,omitempty"`
+	Pct    int    `json:"pct,omitempty"`
+	Detail string `json:"detail,omitempty"`
 }
 
 type VRPTrip struct {
@@ -308,6 +315,23 @@ type VRPTrip struct {
 	TotalDistanceKm  float64    `json:"total_distance_km"`
 	TotalDurationMin int        `json:"total_duration_min"`
 	TotalWeightKg    float64    `json:"total_weight_kg"`
+	// Cost engine fields (always included in response)
+	FuelCostVND   float64          `json:"fuel_cost_vnd"`
+	TollCostVND   float64          `json:"toll_cost_vnd"`
+	DriverCostVND float64          `json:"driver_cost_vnd"`
+	TotalCostVND  float64          `json:"total_cost_vnd"`
+	CostPerTonVND float64          `json:"cost_per_ton_vnd"`
+	TollsPassed   []TollPassDetail `json:"tolls_passed,omitempty"`
+}
+
+// TollPassDetail describes a single toll station/expressway passed on a route.
+type TollPassDetail struct {
+	StationName string   `json:"station_name"`
+	FeeVND      float64  `json:"fee_vnd"`
+	DistanceKm  *float64 `json:"distance_km,omitempty"`
+	Latitude    float64  `json:"latitude,omitempty"`
+	Longitude   float64  `json:"longitude,omitempty"`
+	TollType    string   `json:"toll_type,omitempty"` // "open" or "expressway"
 }
 
 type VRPStop struct {
@@ -344,6 +368,152 @@ type VRPSummary struct {
 	SolveTimeMs            int     `json:"solve_time_ms"`
 	ConsolidatedStops      int     `json:"consolidated_stops"`
 	SplitDeliveries        int     `json:"split_deliveries"`
+	// Cost engine summary (always included in response)
+	TotalCostVND       float64 `json:"total_cost_vnd"`
+	TotalFuelCostVND   float64 `json:"total_fuel_cost_vnd"`
+	TotalTollCostVND   float64 `json:"total_toll_cost_vnd"`
+	TotalDriverCost    float64 `json:"total_driver_cost_vnd"`
+	AvgCostPerTonVND   float64 `json:"avg_cost_per_ton_vnd"`
+	AvgCostPerKmVND    float64 `json:"avg_cost_per_km_vnd"`
+	AvgCostPerShipment float64 `json:"avg_cost_per_shipment_vnd"`
+	TollCostRatioPct   float64 `json:"toll_cost_ratio_pct"`
+}
+
+// ===== VRP SCENARIO HISTORY =====
+
+type VRPScenario struct {
+	ID                    uuid.UUID        `json:"id"`
+	WarehouseID           uuid.UUID        `json:"warehouse_id"`
+	DeliveryDate          string           `json:"delivery_date"`
+	ScenarioName          string           `json:"scenario_name"`
+	VehicleCount          int              `json:"vehicle_count"`
+	ShipmentCount         int              `json:"shipment_count"`
+	CriteriaJSON          json.RawMessage  `json:"criteria_json"`
+	TotalTrips            int              `json:"total_trips"`
+	TotalDistanceKm       float64          `json:"total_distance_km"`
+	TotalDurationMin      int              `json:"total_duration_min"`
+	TotalWeightKg         float64          `json:"total_weight_kg"`
+	TotalCostVND          float64          `json:"total_cost_vnd"`
+	TotalFuelCostVND      float64          `json:"total_fuel_cost_vnd"`
+	TotalTollCostVND      float64          `json:"total_toll_cost_vnd"`
+	TotalDriverCostVND    float64          `json:"total_driver_cost_vnd"`
+	AvgCapacityUtilPct    float64          `json:"avg_capacity_util_pct"`
+	AvgCostPerTonVND      float64          `json:"avg_cost_per_ton_vnd"`
+	AvgCostPerKmVND       float64          `json:"avg_cost_per_km_vnd"`
+	AvgCostPerShipmentVND float64          `json:"avg_cost_per_shipment_vnd"`
+	TollCostRatioPct      float64          `json:"toll_cost_ratio_pct"`
+	UnassignedCount       int              `json:"unassigned_count"`
+	SolveTimeMs           int              `json:"solve_time_ms"`
+	ServiceLevelPct       float64          `json:"service_level_pct"`
+	ResultJSON            *json.RawMessage `json:"result_json,omitempty"`
+	IsApproved            bool             `json:"is_approved"`
+	CreatedBy             *uuid.UUID       `json:"created_by,omitempty"`
+	CreatedAt             time.Time        `json:"created_at"`
+	Notes                 *string          `json:"notes,omitempty"`
+}
+
+// ===== COST ENGINE =====
+
+// TollStation represents an open toll station (fixed fee per pass).
+type TollStation struct {
+	ID               uuid.UUID `json:"id"`
+	StationName      string    `json:"station_name"`
+	RoadName         string    `json:"road_name,omitempty"`
+	TollType         string    `json:"toll_type"`
+	Latitude         float64   `json:"latitude"`
+	Longitude        float64   `json:"longitude"`
+	DetectionRadiusM int       `json:"detection_radius_m"`
+	FeeL1            float64   `json:"fee_l1"`
+	FeeL2            float64   `json:"fee_l2"`
+	FeeL3            float64   `json:"fee_l3"`
+	FeeL4            float64   `json:"fee_l4"`
+	FeeL5            float64   `json:"fee_l5"`
+	IsActive         bool      `json:"is_active"`
+	EffectiveDate    string    `json:"effective_date"`
+	Notes            *string   `json:"notes,omitempty"`
+	CreatedAt        time.Time `json:"created_at"`
+	UpdatedAt        time.Time `json:"updated_at"`
+}
+
+// TollExpressway represents a closed toll expressway (per-km pricing).
+type TollExpressway struct {
+	ID             uuid.UUID            `json:"id"`
+	ExpresswayName string               `json:"expressway_name"`
+	RatePerKmL1    float64              `json:"rate_per_km_l1"`
+	RatePerKmL2    float64              `json:"rate_per_km_l2"`
+	RatePerKmL3    float64              `json:"rate_per_km_l3"`
+	RatePerKmL4    float64              `json:"rate_per_km_l4"`
+	RatePerKmL5    float64              `json:"rate_per_km_l5"`
+	IsActive       bool                 `json:"is_active"`
+	EffectiveDate  string               `json:"effective_date"`
+	Notes          *string              `json:"notes,omitempty"`
+	Gates          []TollExpresswayGate `json:"gates,omitempty"`
+	CreatedAt      time.Time            `json:"created_at"`
+	UpdatedAt      time.Time            `json:"updated_at"`
+}
+
+// TollExpresswayGate represents an entry/exit point on a closed expressway.
+type TollExpresswayGate struct {
+	ID               uuid.UUID `json:"id"`
+	ExpresswayID     uuid.UUID `json:"expressway_id"`
+	GateName         string    `json:"gate_name"`
+	GateType         string    `json:"gate_type"`
+	KmMarker         float64   `json:"km_marker"`
+	Latitude         float64   `json:"latitude"`
+	Longitude        float64   `json:"longitude"`
+	DetectionRadiusM int       `json:"detection_radius_m"`
+	IsActive         bool      `json:"is_active"`
+	CreatedAt        time.Time `json:"created_at"`
+}
+
+// VehicleTypeCostDefault provides fallback cost parameters for a vehicle type.
+type VehicleTypeCostDefault struct {
+	ID                   uuid.UUID `json:"id"`
+	VehicleType          string    `json:"vehicle_type"`
+	TollClass            string    `json:"toll_class"`
+	FuelConsumptionPerKm float64   `json:"fuel_consumption_per_km"`
+	FuelPricePerLiter    float64   `json:"fuel_price_per_liter"`
+	IsActive             bool      `json:"is_active"`
+	EffectiveDate        string    `json:"effective_date"`
+	Notes                *string   `json:"notes,omitempty"`
+	CreatedAt            time.Time `json:"created_at"`
+	UpdatedAt            time.Time `json:"updated_at"`
+}
+
+// VehicleCostProfile provides per-vehicle cost overrides (e.g. old vs new vehicle).
+type VehicleCostProfile struct {
+	ID                   uuid.UUID `json:"id"`
+	VehicleID            uuid.UUID `json:"vehicle_id"`
+	TollClass            string    `json:"toll_class"`
+	FuelConsumptionPerKm float64   `json:"fuel_consumption_per_km"`
+	FuelPricePerLiter    float64   `json:"fuel_price_per_liter"`
+	IsActive             bool      `json:"is_active"`
+	EffectiveDate        string    `json:"effective_date"`
+	Notes                *string   `json:"notes,omitempty"`
+	CreatedAt            time.Time `json:"created_at"`
+	UpdatedAt            time.Time `json:"updated_at"`
+}
+
+// DriverCostRate is a cost parameter for driver compensation.
+type DriverCostRate struct {
+	ID            uuid.UUID `json:"id"`
+	RateName      string    `json:"rate_name"`
+	RateType      string    `json:"rate_type"`
+	Amount        float64   `json:"amount"`
+	VehicleType   *string   `json:"vehicle_type,omitempty"`
+	IsActive      bool      `json:"is_active"`
+	EffectiveDate string    `json:"effective_date"`
+	Notes         *string   `json:"notes,omitempty"`
+	CreatedAt     time.Time `json:"created_at"`
+	UpdatedAt     time.Time `json:"updated_at"`
+}
+
+// VehicleCostInfo is a resolved cost profile for a specific vehicle (ready for solver).
+type VehicleCostInfo struct {
+	VehicleID     uuid.UUID `json:"vehicle_id"`
+	VehicleType   string    `json:"vehicle_type"`
+	TollClass     string    `json:"toll_class"`
+	FuelCostPerKm float64   `json:"fuel_cost_per_km"` // = consumption × price
 }
 
 // ===== WMS: STOCK MOVE =====

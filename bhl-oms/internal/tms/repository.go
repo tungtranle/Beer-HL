@@ -1120,13 +1120,14 @@ func (r *Repository) GetControlTowerStats(ctx context.Context) (*domain.ControlT
 func (r *Repository) ListExceptions(ctx context.Context) ([]domain.TripException, error) {
 	rows, err := r.db.Query(ctx, `
 		SELECT t.id, t.trip_number, COALESCE(v.plate_number,''), COALESCE(d.full_name,''),
-		       ts.id, ts.status::text, COALESCE(ts.customer_name,''),
+		       ts.id, ts.status::text, COALESCE(c.name,''),
 		       ts.estimated_arrival, ts.actual_arrival,
 		       t.status::text AS trip_status, t.started_at
 		FROM trips t
 		LEFT JOIN vehicles v ON v.id = t.vehicle_id
 		LEFT JOIN drivers d ON d.id = t.driver_id
 		LEFT JOIN trip_stops ts ON ts.trip_id = t.id
+		LEFT JOIN customers c ON c.id = ts.customer_id
 		WHERE t.planned_date = CURRENT_DATE
 		  AND (
 		    ts.status IN ('failed','skipped')
@@ -1497,4 +1498,102 @@ func (r *Repository) GetUserIDByDriverID(ctx context.Context, driverID uuid.UUID
 	var userID uuid.UUID
 	err := r.db.QueryRow(ctx, `SELECT user_id FROM drivers WHERE id = $1`, driverID).Scan(&userID)
 	return userID, err
+}
+
+// ===== VRP SCENARIOS =====
+
+func (r *Repository) SaveVRPScenario(ctx context.Context, s *domain.VRPScenario) error {
+	_, err := r.db.Exec(ctx, `
+		INSERT INTO vrp_scenarios (
+			id, warehouse_id, delivery_date, scenario_name,
+			vehicle_count, shipment_count, criteria_json,
+			total_trips, total_distance_km, total_duration_min, total_weight_kg,
+			total_cost_vnd, total_fuel_cost_vnd, total_toll_cost_vnd, total_driver_cost_vnd,
+			avg_capacity_util_pct, avg_cost_per_ton_vnd, avg_cost_per_km_vnd,
+			avg_cost_per_shipment_vnd, toll_cost_ratio_pct,
+			unassigned_count, solve_time_ms, service_level_pct,
+			result_json, is_approved, created_by, notes
+		) VALUES (
+			$1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27
+		)`,
+		s.ID, s.WarehouseID, s.DeliveryDate, s.ScenarioName,
+		s.VehicleCount, s.ShipmentCount, s.CriteriaJSON,
+		s.TotalTrips, s.TotalDistanceKm, s.TotalDurationMin, s.TotalWeightKg,
+		s.TotalCostVND, s.TotalFuelCostVND, s.TotalTollCostVND, s.TotalDriverCostVND,
+		s.AvgCapacityUtilPct, s.AvgCostPerTonVND, s.AvgCostPerKmVND,
+		s.AvgCostPerShipmentVND, s.TollCostRatioPct,
+		s.UnassignedCount, s.SolveTimeMs, s.ServiceLevelPct,
+		s.ResultJSON, s.IsApproved, s.CreatedBy, s.Notes,
+	)
+	return err
+}
+
+func (r *Repository) ListVRPScenarios(ctx context.Context, warehouseID uuid.UUID, deliveryDate string) ([]domain.VRPScenario, error) {
+	rows, err := r.db.Query(ctx, `
+		SELECT id, warehouse_id, delivery_date::text, scenario_name,
+			vehicle_count, shipment_count, criteria_json,
+			total_trips, total_distance_km, total_duration_min, total_weight_kg,
+			total_cost_vnd, total_fuel_cost_vnd, total_toll_cost_vnd, total_driver_cost_vnd,
+			avg_capacity_util_pct, avg_cost_per_ton_vnd, avg_cost_per_km_vnd,
+			avg_cost_per_shipment_vnd, toll_cost_ratio_pct,
+			unassigned_count, solve_time_ms, service_level_pct,
+			is_approved, created_by, created_at, notes
+		FROM vrp_scenarios
+		WHERE warehouse_id = $1 AND delivery_date = $2
+		ORDER BY created_at DESC`, warehouseID, deliveryDate)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var scenarios []domain.VRPScenario
+	for rows.Next() {
+		var s domain.VRPScenario
+		if err := rows.Scan(
+			&s.ID, &s.WarehouseID, &s.DeliveryDate, &s.ScenarioName,
+			&s.VehicleCount, &s.ShipmentCount, &s.CriteriaJSON,
+			&s.TotalTrips, &s.TotalDistanceKm, &s.TotalDurationMin, &s.TotalWeightKg,
+			&s.TotalCostVND, &s.TotalFuelCostVND, &s.TotalTollCostVND, &s.TotalDriverCostVND,
+			&s.AvgCapacityUtilPct, &s.AvgCostPerTonVND, &s.AvgCostPerKmVND,
+			&s.AvgCostPerShipmentVND, &s.TollCostRatioPct,
+			&s.UnassignedCount, &s.SolveTimeMs, &s.ServiceLevelPct,
+			&s.IsApproved, &s.CreatedBy, &s.CreatedAt, &s.Notes,
+		); err != nil {
+			return nil, err
+		}
+		scenarios = append(scenarios, s)
+	}
+	return scenarios, nil
+}
+
+func (r *Repository) GetVRPScenario(ctx context.Context, id uuid.UUID) (*domain.VRPScenario, error) {
+	var s domain.VRPScenario
+	err := r.db.QueryRow(ctx, `
+		SELECT id, warehouse_id, delivery_date::text, scenario_name,
+			vehicle_count, shipment_count, criteria_json,
+			total_trips, total_distance_km, total_duration_min, total_weight_kg,
+			total_cost_vnd, total_fuel_cost_vnd, total_toll_cost_vnd, total_driver_cost_vnd,
+			avg_capacity_util_pct, avg_cost_per_ton_vnd, avg_cost_per_km_vnd,
+			avg_cost_per_shipment_vnd, toll_cost_ratio_pct,
+			unassigned_count, solve_time_ms, service_level_pct,
+			result_json, is_approved, created_by, created_at, notes
+		FROM vrp_scenarios WHERE id = $1`, id).Scan(
+		&s.ID, &s.WarehouseID, &s.DeliveryDate, &s.ScenarioName,
+		&s.VehicleCount, &s.ShipmentCount, &s.CriteriaJSON,
+		&s.TotalTrips, &s.TotalDistanceKm, &s.TotalDurationMin, &s.TotalWeightKg,
+		&s.TotalCostVND, &s.TotalFuelCostVND, &s.TotalTollCostVND, &s.TotalDriverCostVND,
+		&s.AvgCapacityUtilPct, &s.AvgCostPerTonVND, &s.AvgCostPerKmVND,
+		&s.AvgCostPerShipmentVND, &s.TollCostRatioPct,
+		&s.UnassignedCount, &s.SolveTimeMs, &s.ServiceLevelPct,
+		&s.ResultJSON, &s.IsApproved, &s.CreatedBy, &s.CreatedAt, &s.Notes,
+	)
+	if err != nil {
+		return nil, err
+	}
+	return &s, nil
+}
+
+func (r *Repository) DeleteVRPScenario(ctx context.Context, id uuid.UUID) error {
+	_, err := r.db.Exec(ctx, `DELETE FROM vrp_scenarios WHERE id = $1`, id)
+	return err
 }

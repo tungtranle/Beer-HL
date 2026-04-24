@@ -36,8 +36,16 @@ export interface EntityUpdate {
   new_status: string
 }
 
+export interface VRPProgress {
+  job_id: string
+  stage: string
+  pct: number
+  detail: string
+}
+
 type OrderUpdateListener = (update: OrderUpdate) => void
 type EntityUpdateListener = (update: EntityUpdate) => void
+type VRPProgressListener = (progress: VRPProgress) => void
 
 interface NotificationContextType {
   notifications: Notification[]
@@ -57,6 +65,8 @@ interface NotificationContextType {
   subscribeOrderUpdates: (listener: OrderUpdateListener) => () => void
   // Entity update subscriptions (general: order, trip, handover, etc.)
   subscribeEntityUpdates: (listener: EntityUpdateListener) => () => void
+  // VRP progress subscriptions (real-time solving stages)
+  subscribeVRPProgress: (listener: VRPProgressListener) => () => void
 }
 
 const NotificationContext = createContext<NotificationContextType>({
@@ -73,6 +83,7 @@ const NotificationContext = createContext<NotificationContextType>({
   refresh: () => {},
   subscribeOrderUpdates: () => () => {},
   subscribeEntityUpdates: () => () => {},
+  subscribeVRPProgress: () => () => {},
 })
 
 export function useNotifications() {
@@ -89,6 +100,7 @@ export function NotificationProvider({ children }: { children: React.ReactNode }
   const wsRef = useRef<WebSocket | null>(null)
   const orderUpdateListenersRef = useRef<Set<OrderUpdateListener>>(new Set())
   const entityUpdateListenersRef = useRef<Set<EntityUpdateListener>>(new Set())
+  const vrpProgressListenersRef = useRef<Set<VRPProgressListener>>(new Set())
 
   // Subscribe to order updates — returns unsubscribe function
   const subscribeOrderUpdates = useCallback((listener: OrderUpdateListener) => {
@@ -100,6 +112,12 @@ export function NotificationProvider({ children }: { children: React.ReactNode }
   const subscribeEntityUpdates = useCallback((listener: EntityUpdateListener) => {
     entityUpdateListenersRef.current.add(listener)
     return () => { entityUpdateListenersRef.current.delete(listener) }
+  }, [])
+
+  // Subscribe to VRP progress updates — returns unsubscribe function
+  const subscribeVRPProgress = useCallback((listener: VRPProgressListener) => {
+    vrpProgressListenersRef.current.add(listener)
+    return () => { vrpProgressListenersRef.current.delete(listener) }
   }, [])
 
   // Fetch notifications from API
@@ -218,6 +236,11 @@ export function NotificationProvider({ children }: { children: React.ReactNode }
             orderUpdateListenersRef.current.forEach(listener => {
               try { listener(update) } catch { /* ignore */ }
             })
+          } else if (msg.type === 'vrp_progress' && msg.job_id) {
+            const vp: VRPProgress = { job_id: msg.job_id, stage: msg.stage || '', pct: msg.pct || 0, detail: msg.detail || '' }
+            vrpProgressListenersRef.current.forEach(listener => {
+              try { listener(vp) } catch { /* ignore */ }
+            })
           }
         } catch { /* ignore parse errors */ }
       }
@@ -248,8 +271,7 @@ export function NotificationProvider({ children }: { children: React.ReactNode }
       toast, dismissToast,
       markRead, markAllRead, refresh,
       subscribeOrderUpdates,
-      subscribeEntityUpdates,
-    }}>
+      subscribeEntityUpdates,      subscribeVRPProgress,    }}>
       {children}
     </NotificationContext.Provider>
   )

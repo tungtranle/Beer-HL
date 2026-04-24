@@ -606,6 +606,149 @@ CREATE TABLE checklists (
 CREATE INDEX idx_checklists_trip ON checklists (trip_id, checklist_type);
 ```
 
+## 5.8 toll_stations
+
+> Migration 020 — Trạm thu phí hở (open toll). Mỗi trạm có biểu phí theo 5 loại xe (L1–L5).
+
+```sql
+CREATE TABLE toll_stations (
+    id                 UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    station_name       VARCHAR(200) NOT NULL,
+    road_name          VARCHAR(100),                 -- QL18, QL5, QL3…
+    toll_type          VARCHAR(20) NOT NULL DEFAULT 'open'
+                       CHECK (toll_type IN ('open')),
+    latitude           DOUBLE PRECISION NOT NULL,
+    longitude          DOUBLE PRECISION NOT NULL,
+    detection_radius_m INT NOT NULL DEFAULT 200,     -- Bán kính phát hiện (m)
+    fee_l1             NUMERIC(15,2) NOT NULL DEFAULT 0,
+    fee_l2             NUMERIC(15,2) NOT NULL DEFAULT 0,
+    fee_l3             NUMERIC(15,2) NOT NULL DEFAULT 0,
+    fee_l4             NUMERIC(15,2) NOT NULL DEFAULT 0,
+    fee_l5             NUMERIC(15,2) NOT NULL DEFAULT 0,
+    is_active          BOOLEAN NOT NULL DEFAULT true,
+    effective_date     DATE NOT NULL DEFAULT CURRENT_DATE,
+    notes              TEXT,
+    created_at         TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at         TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX idx_toll_stations_active ON toll_stations(is_active) WHERE is_active = true;
+```
+
+**Seed data:** 7 trạm khu vực QN/HP (Đại Yên, Bắc Phả, Biên Cương, Quảng Yên, An Dương, Phù Lỗ, Cầu Bãi Cháy).
+
+## 5.9 toll_expressways
+
+> Migration 020 — Cao tốc kín (closed toll), tính phí theo km × loại xe.
+
+```sql
+CREATE TABLE toll_expressways (
+    id                 UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    expressway_name    VARCHAR(200) NOT NULL,
+    rate_per_km_l1     NUMERIC(10,2) NOT NULL DEFAULT 0,
+    rate_per_km_l2     NUMERIC(10,2) NOT NULL DEFAULT 0,
+    rate_per_km_l3     NUMERIC(10,2) NOT NULL DEFAULT 0,
+    rate_per_km_l4     NUMERIC(10,2) NOT NULL DEFAULT 0,
+    rate_per_km_l5     NUMERIC(10,2) NOT NULL DEFAULT 0,
+    is_active          BOOLEAN NOT NULL DEFAULT true,
+    effective_date     DATE NOT NULL DEFAULT CURRENT_DATE,
+    notes              TEXT,
+    created_at         TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at         TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+```
+
+**Seed data:** 5 tuyến (CT HN-HP, CT HP-QN, CT HN-Lào Cai, CT Cầu Giẽ-NB, CT BG-LS).
+
+## 5.10 toll_expressway_gates
+
+> Migration 020 — Cổng vào/ra cao tốc kín. Liên kết với expressway để tính quãng đường qua km_marker.
+
+```sql
+CREATE TABLE toll_expressway_gates (
+    id                 UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    expressway_id      UUID NOT NULL REFERENCES toll_expressways(id) ON DELETE CASCADE,
+    gate_name          VARCHAR(200) NOT NULL,
+    gate_type          VARCHAR(20) NOT NULL DEFAULT 'entry_exit'
+                       CHECK (gate_type IN ('entry_exit', 'entry_only', 'exit_only')),
+    km_marker          NUMERIC(8,2) NOT NULL,        -- Vị trí km trên cao tốc
+    latitude           DOUBLE PRECISION NOT NULL,
+    longitude          DOUBLE PRECISION NOT NULL,
+    detection_radius_m INT NOT NULL DEFAULT 300,
+    is_active          BOOLEAN NOT NULL DEFAULT true,
+    created_at         TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX idx_exway_gates_expressway ON toll_expressway_gates(expressway_id);
+```
+
+**Seed data:** 4 cổng CT HN-HP (Đình Vũ, Quốc Oai, IC Hưng Yên, IC Hải Dương) + 2 cổng CT HP-QN.
+
+## 5.11 vehicle_type_cost_defaults
+
+> Migration 020 — Chi phí mặc định theo loại xe (fallback khi chưa có cấu hình riêng).
+
+```sql
+CREATE TABLE vehicle_type_cost_defaults (
+    id                      UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    vehicle_type            VARCHAR(20) NOT NULL UNIQUE,  -- truck_3t5, truck_5t…
+    toll_class              VARCHAR(5) NOT NULL
+                            CHECK (toll_class IN ('L1','L2','L3','L4','L5')),
+    fuel_consumption_per_km NUMERIC(6,3) NOT NULL,        -- Lít/km
+    fuel_price_per_liter    NUMERIC(10,2) NOT NULL,        -- VND/lít
+    is_active               BOOLEAN NOT NULL DEFAULT true,
+    effective_date          DATE NOT NULL DEFAULT CURRENT_DATE,
+    notes                   TEXT,
+    created_at              TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at              TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+```
+
+**Seed data:** 4 loại xe — truck_3t5 (L2/0.12/22k), truck_5t (L3/0.18/22k), truck_8t (L3/0.22/22k), truck_15t (L4/0.30/22k).
+
+## 5.12 vehicle_cost_profiles
+
+> Migration 020 — Cấu hình chi phí riêng cho từng xe (xe cũ hao xăng hơn, xe lớn khác toll class).
+
+```sql
+CREATE TABLE vehicle_cost_profiles (
+    id                      UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    vehicle_id              UUID NOT NULL REFERENCES vehicles(id) ON DELETE CASCADE,
+    toll_class              VARCHAR(5) NOT NULL
+                            CHECK (toll_class IN ('L1','L2','L3','L4','L5')),
+    fuel_consumption_per_km NUMERIC(6,3) NOT NULL,
+    fuel_price_per_liter    NUMERIC(10,2) NOT NULL,
+    is_active               BOOLEAN NOT NULL DEFAULT true,
+    effective_date          DATE NOT NULL DEFAULT CURRENT_DATE,
+    notes                   TEXT,
+    created_at              TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at              TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    UNIQUE(vehicle_id)
+);
+```
+
+## 5.13 driver_cost_rates
+
+> Migration 020 — Biểu phí tài xế (lương ngày, phụ cấp chuyến/km, OT).
+
+```sql
+CREATE TABLE driver_cost_rates (
+    id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    rate_name       VARCHAR(100) NOT NULL,
+    rate_type       VARCHAR(30) NOT NULL
+                    CHECK (rate_type IN ('daily_salary', 'per_trip', 'per_km', 'overtime_hourly')),
+    amount          NUMERIC(15,2) NOT NULL,
+    vehicle_type    VARCHAR(20),                     -- NULL = áp dụng tất cả loại xe
+    is_active       BOOLEAN NOT NULL DEFAULT true,
+    effective_date  DATE NOT NULL DEFAULT CURRENT_DATE,
+    notes           TEXT,
+    created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+```
+
+**Seed data:** 5 mức (lương cơ bản 400k/ngày, phụ cấp chuyến 100k, phụ cấp km 500đ, phụ cấp xe 15t 150k/chuyến, OT 50k/giờ).
+
 ---
 
 # 6. WMS TABLES

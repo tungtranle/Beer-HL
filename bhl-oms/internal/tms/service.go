@@ -1,6 +1,7 @@
 package tms
 
 import (
+	"bufio"
 	"bytes"
 	"context"
 	"encoding/json"
@@ -28,6 +29,7 @@ type Service struct {
 	jobs                sync.Map // jobID → *domain.VRPResult
 	hooks               *integration.Hooks
 	notifSvc            NotificationSender
+	vrpBroadcaster      VRPProgressBroadcaster
 	pickingOrderCreator PickingOrderCreator
 	reconSvc            ReconciliationTrigger
 	evtRecorder         *events.Recorder
@@ -38,6 +40,11 @@ type Service struct {
 type NotificationSender interface {
 	Send(ctx context.Context, userID uuid.UUID, title, body, category string, link *string) error
 	SendToRole(ctx context.Context, role, title, body, category string, link *string) error
+}
+
+// VRPProgressBroadcaster sends real-time VRP progress to a specific user via WebSocket.
+type VRPProgressBroadcaster interface {
+	SendRawToUser(userID uuid.UUID, msg map[string]interface{})
 }
 
 // PickingOrderCreator creates picking orders in WMS when trips are approved.
@@ -67,6 +74,11 @@ func (s *Service) SetIntegrationHooks(h *integration.Hooks) {
 // SetNotificationService injects notification service for cron alerts.
 func (s *Service) SetNotificationService(ns NotificationSender) {
 	s.notifSvc = ns
+}
+
+// SetVRPBroadcaster injects the WebSocket hub for real-time VRP progress.
+func (s *Service) SetVRPBroadcaster(b VRPProgressBroadcaster) {
+	s.vrpBroadcaster = b
 }
 
 // SetPickingOrderCreator injects WMS service for auto-creating picking orders on plan approval.
@@ -146,21 +158,24 @@ func (s *Service) ListPendingDates(ctx context.Context, warehouseID uuid.UUID) (
 
 // VRPCriteria configures optimization priorities and constraints.
 type VRPCriteria struct {
-	MaxCapacity    int `json:"max_capacity"`     // priority 1-6, 0=off
-	MinVehicles    int `json:"min_vehicles"`     // priority 1-6, 0=off
-	ClusterRegion  int `json:"cluster_region"`   // priority 1-6, 0=off
-	MinDistance    int `json:"min_distance"`     // priority 1-6, 0=off
-	RoundTrip      int `json:"round_trip"`       // priority 1-6, 0=off (always on internally)
-	TimeLimit      int `json:"time_limit"`       // priority 1-6, 0=off
-	MaxTripMinutes int `json:"max_trip_minutes"` // default 480 (8h)
+	MaxCapacity    int    `json:"max_capacity"`     // priority 1-6, 0=off
+	MinVehicles    int    `json:"min_vehicles"`     // priority 1-6, 0=off
+	ClusterRegion  int    `json:"cluster_region"`   // priority 1-6, 0=off
+	MinDistance    int    `json:"min_distance"`     // priority 1-6, 0=off
+	RoundTrip      int    `json:"round_trip"`       // priority 1-6, 0=off (always on internally)
+	TimeLimit      int    `json:"time_limit"`       // priority 1-6, 0=off
+	MaxTripMinutes int    `json:"max_trip_minutes"` // default 480 (8h)
+	CostOptimize   bool   `json:"cost_optimize"`    // when true, solver minimizes VND instead of distance
+	OptimizeFor    string `json:"optimize_for"`     // "cost" = tối ưu chi phí (fuel+toll), "time" = giao nhanh, "distance" = tối ưu km
 }
 
 type RunVRPRequest struct {
-	WarehouseID  uuid.UUID    `json:"warehouse_id"`
-	DeliveryDate string       `json:"delivery_date"`
-	ShipmentIDs  []uuid.UUID  `json:"shipment_ids,omitempty"`
-	VehicleIDs   []uuid.UUID  `json:"vehicle_ids,omitempty"`
-	Criteria     *VRPCriteria `json:"criteria,omitempty"`
+	WarehouseID      uuid.UUID    `json:"warehouse_id"`
+	DeliveryDate     string       `json:"delivery_date"`
+	ShipmentIDs      []uuid.UUID  `json:"shipment_ids,omitempty"`
+	VehicleIDs       []uuid.UUID  `json:"vehicle_ids,omitempty"`
+	Criteria         *VRPCriteria `json:"criteria,omitempty"`
+	RequestingUserID *uuid.UUID   `json:"-"` // Injected by handler for WS progress broadcast
 }
 
 // RunVRP sends problem to VRP solver and stores result
@@ -223,7 +238,15 @@ func (s *Service) RunVRP(ctx context.Context, req RunVRPRequest) (string, error)
 	// Build VRP solver request
 	jobID := fmt.Sprintf("vrp-%s-%04d", time.Now().Format("20060102"), time.Now().UnixNano()%10000)
 
-	solverReq := buildSolverRequest(depotLat, depotLng, shipments, vehicles, jobID)
+	// Resolve vehicle cost info (per-vehicle profile or type default)
+	costInfos, err := s.repo.ResolveVehicleCostInfo(ctx, vehicles)
+	if err != nil {
+		// Non-blocking: cost data is optional, log and continue
+		s.log.Warn(ctx, "resolve_vehicle_cost_info_failed", logger.F("error", err.Error()))
+		costInfos = nil
+	}
+
+	solverReq := buildSolverRequest(depotLat, depotLng, shipments, vehicles, jobID, costInfos)
 
 	// Store job as processing
 	s.jobs.Store(jobID, &domain.VRPResult{JobID: jobID, Status: "processing"})
@@ -241,17 +264,33 @@ func (s *Service) RunVRP(ctx context.Context, req RunVRPRequest) (string, error)
 		criteria.MaxTripMinutes = 480
 	}
 
+	// Enrich solver request with cost data — always load toll data.
+	// OptimizeFor controls solver objective: "cost", "time", or "distance".
+	optimizeFor := criteria.OptimizeFor
+	if optimizeFor == "" {
+		optimizeFor = "cost" // default: tối ưu chi phí (fuel + toll)
+	}
+	s.enrichSolverWithCostData(ctx, solverReq)
+	solverReq.UseCostOptimization = true
+	solverReq.OptimizeFor = optimizeFor
+	solverReq.MaxTripMinutes = criteria.MaxTripMinutes
+
 	// Call VRP solver asynchronously
-	go s.callVRPSolver(jobID, solverReq, shipments, vehicles, criteria)
+	go s.callVRPSolver(jobID, solverReq, shipments, vehicles, criteria, req.RequestingUserID)
 
 	return jobID, nil
 }
 
 type solverRequest struct {
-	JobID    string          `json:"job_id"`
-	Depot    [2]float64      `json:"depot"`
-	Nodes    []solverNode    `json:"nodes"`
-	Vehicles []solverVehicle `json:"vehicles"`
+	JobID               string              `json:"job_id"`
+	Depot               [2]float64          `json:"depot"`
+	Nodes               []solverNode        `json:"nodes"`
+	Vehicles            []solverVehicle     `json:"vehicles"`
+	UseCostOptimization bool                `json:"use_cost_optimization,omitempty"`
+	OptimizeFor         string              `json:"optimize_for,omitempty"`
+	MaxTripMinutes      int                 `json:"max_trip_minutes,omitempty"`
+	TollStations        []solverTollStation `json:"toll_stations,omitempty"`
+	TollExpressways     []solverTollExway   `json:"toll_expressways,omitempty"`
 }
 
 type solverNode struct {
@@ -262,12 +301,45 @@ type solverNode struct {
 }
 
 type solverVehicle struct {
-	ID       string  `json:"id"`
-	Capacity float64 `json:"capacity"`
-	Plate    string  `json:"plate"`
+	ID            string  `json:"id"`
+	Capacity      float64 `json:"capacity"`
+	Plate         string  `json:"plate"`
+	VehicleType   string  `json:"vehicle_type,omitempty"`
+	TollClass     string  `json:"toll_class,omitempty"`
+	FuelCostPerKm float64 `json:"fuel_cost_per_km,omitempty"`
 }
 
-func buildSolverRequest(depotLat, depotLng float64, shipments []domain.Shipment, vehicles []domain.Vehicle, jobID string) *solverRequest {
+type solverTollStation struct {
+	Name    string  `json:"name"`
+	Lat     float64 `json:"lat"`
+	Lng     float64 `json:"lng"`
+	RadiusM int     `json:"radius_m"`
+	FeeL1   float64 `json:"fee_l1"`
+	FeeL2   float64 `json:"fee_l2"`
+	FeeL3   float64 `json:"fee_l3"`
+	FeeL4   float64 `json:"fee_l4"`
+	FeeL5   float64 `json:"fee_l5"`
+}
+
+type solverTollExway struct {
+	Name        string           `json:"name"`
+	RatePerKmL1 float64          `json:"rate_per_km_l1"`
+	RatePerKmL2 float64          `json:"rate_per_km_l2"`
+	RatePerKmL3 float64          `json:"rate_per_km_l3"`
+	RatePerKmL4 float64          `json:"rate_per_km_l4"`
+	RatePerKmL5 float64          `json:"rate_per_km_l5"`
+	Gates       []solverTollGate `json:"gates"`
+}
+
+type solverTollGate struct {
+	Name     string  `json:"name"`
+	Lat      float64 `json:"lat"`
+	Lng      float64 `json:"lng"`
+	RadiusM  int     `json:"radius_m"`
+	KmMarker float64 `json:"km_marker"`
+}
+
+func buildSolverRequest(depotLat, depotLng float64, shipments []domain.Shipment, vehicles []domain.Vehicle, jobID string, costInfos []domain.VehicleCostInfo) *solverRequest {
 	req := &solverRequest{
 		JobID: jobID,
 		Depot: [2]float64{depotLat, depotLng},
@@ -290,47 +362,249 @@ func buildSolverRequest(depotLat, depotLng float64, shipments []domain.Shipment,
 		})
 	}
 
+	// Build cost info lookup
+	costMap := make(map[string]domain.VehicleCostInfo)
+	for _, ci := range costInfos {
+		costMap[ci.VehicleID.String()] = ci
+	}
+
 	for _, v := range vehicles {
-		req.Vehicles = append(req.Vehicles, solverVehicle{
-			ID:       v.ID.String(),
-			Capacity: v.CapacityKg,
-			Plate:    v.PlateNumber,
-		})
+		sv := solverVehicle{
+			ID:          v.ID.String(),
+			Capacity:    v.CapacityKg,
+			Plate:       v.PlateNumber,
+			VehicleType: v.VehicleType,
+		}
+		if ci, ok := costMap[v.ID.String()]; ok {
+			sv.TollClass = ci.TollClass
+			sv.FuelCostPerKm = ci.FuelCostPerKm
+		}
+		req.Vehicles = append(req.Vehicles, sv)
 	}
 
 	return req
 }
 
 type solverResponse struct {
-	Status    string `json:"status"`
-	SolveTime int    `json:"solve_time_ms"`
-	Routes    []struct {
-		VehicleID string   `json:"vehicle_id"`
-		NodeIDs   []string `json:"node_ids"`
-		Distance  float64  `json:"distance_km"`
-		Duration  int      `json:"duration_min"`
+	Status         string `json:"status"`
+	SolveTime      int    `json:"solve_time_ms"`
+	DistanceSource string `json:"distance_source,omitempty"`
+	OptimizeFor    string `json:"optimize_for,omitempty"`
+	Routes         []struct {
+		VehicleID     string   `json:"vehicle_id"`
+		NodeIDs       []string `json:"node_ids"`
+		Distance      float64  `json:"distance_km"`
+		Duration      int      `json:"duration_min"`
+		CostBreakdown *struct {
+			FuelCostVND  float64 `json:"fuel_cost_vnd"`
+			TollCostVND  float64 `json:"toll_cost_vnd"`
+			TotalCostVND float64 `json:"total_route_cost_vnd"`
+			TollsPassed  []struct {
+				StationName string   `json:"station_name"`
+				FeeVND      float64  `json:"fee_vnd"`
+				DistanceKm  *float64 `json:"distance_km,omitempty"`
+				Latitude    float64  `json:"latitude,omitempty"`
+				Longitude   float64  `json:"longitude,omitempty"`
+				TollType    string   `json:"toll_type,omitempty"`
+			} `json:"tolls_passed"`
+		} `json:"cost_breakdown,omitempty"`
 	} `json:"routes"`
 	Unassigned []string `json:"unassigned"`
 }
 
-func (s *Service) callVRPSolver(jobID string, req *solverRequest, shipments []domain.Shipment, vehicles []domain.Vehicle, criteria *VRPCriteria) {
+func (s *Service) callVRPSolver(jobID string, req *solverRequest, shipments []domain.Shipment, vehicles []domain.Vehicle, criteria *VRPCriteria, userID *uuid.UUID) {
 	body, _ := json.Marshal(req)
 
-	client := &http.Client{Timeout: 120 * time.Second}
+	// Helper to broadcast VRP progress via WebSocket
+	broadcastProgress := func(stage string, pct int, detail string) {
+		if s.vrpBroadcaster == nil || userID == nil {
+			return
+		}
+		s.vrpBroadcaster.SendRawToUser(*userID, map[string]interface{}{
+			"type":   "vrp_progress",
+			"job_id": jobID,
+			"stage":  stage,
+			"pct":    pct,
+			"detail": detail,
+		})
+	}
+
+	client := &http.Client{Timeout: 300 * time.Second}
+
+	// Try streaming endpoint first for real-time progress
+	resp, err := client.Post(s.vrpSolverURL+"/solve-stream", "application/json", bytes.NewReader(body))
+	if err != nil {
+		// Solver unreachable → fall back to mock for demo
+		s.log.Warn(context.Background(), "vrp_solver_unreachable", logger.F("error", err.Error()))
+		broadcastProgress("error", 0, "Solver không khả dụng, dùng thuật toán dự phòng")
+		result := s.buildMockResult(jobID, req.Depot, shipments, vehicles, criteria)
+		result.DistanceSource = "mock"
+		s.jobs.Store(jobID, result)
+		broadcastProgress("done", 100, "Hoàn tất (dự phòng)")
+		return
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		// Streaming endpoint not available — fallback to /solve
+		s.log.Info(context.Background(), "vrp_solve_stream_unavailable_fallback_to_solve")
+		s.callVRPSolverLegacy(jobID, req, shipments, vehicles, criteria, userID)
+		return
+	}
+
+	// Read NDJSON lines from streaming response
+	scanner := bufio.NewScanner(resp.Body)
+	scanner.Buffer(make([]byte, 0, 10*1024*1024), 10*1024*1024) // 10MB buffer for result line
+	var solverResp solverResponse
+	gotResult := false
+
+	for scanner.Scan() {
+		line := scanner.Bytes()
+		if len(line) == 0 {
+			continue
+		}
+
+		var msg struct {
+			Type   string          `json:"type"`
+			Stage  string          `json:"stage"`
+			Pct    int             `json:"pct"`
+			Detail string          `json:"detail"`
+			Data   json.RawMessage `json:"data"`
+			Error  string          `json:"error"`
+		}
+		if err := json.Unmarshal(line, &msg); err != nil {
+			continue
+		}
+
+		switch msg.Type {
+		case "progress":
+			broadcastProgress(msg.Stage, msg.Pct, msg.Detail)
+			// Also update job with progress info
+			s.jobs.Store(jobID, &domain.VRPResult{
+				JobID:  jobID,
+				Status: "processing",
+				Stage:  msg.Stage,
+				Pct:    msg.Pct,
+				Detail: msg.Detail,
+			})
+		case "result":
+			if err := json.Unmarshal(msg.Data, &solverResp); err != nil {
+				s.log.Warn(context.Background(), "vrp_solver_result_unmarshal_error")
+				result := &domain.VRPResult{
+					JobID:  jobID,
+					Status: "failed",
+					Error:  "Không thể đọc kết quả từ VRP solver",
+				}
+				s.jobs.Store(jobID, result)
+				return
+			}
+			gotResult = true
+		case "error":
+			result := &domain.VRPResult{
+				JobID:  jobID,
+				Status: "failed",
+				Error:  fmt.Sprintf("VRP solver lỗi: %s", msg.Error),
+			}
+			s.jobs.Store(jobID, result)
+			broadcastProgress("error", 0, msg.Error)
+			return
+		}
+	}
+
+	if !gotResult {
+		result := &domain.VRPResult{
+			JobID:  jobID,
+			Status: "failed",
+			Error:  "VRP solver không trả về kết quả",
+		}
+		s.jobs.Store(jobID, result)
+		return
+	}
+
+	// Handle no_solution from solver
+	if solverResp.Status == "no_solution" {
+		result := &domain.VRPResult{
+			JobID:     jobID,
+			Status:    "no_solution",
+			SolveTime: solverResp.SolveTime,
+			Error:     "VRP solver không tìm được phương án phù hợp. Thử điều chỉnh xe hoặc đơn hàng.",
+		}
+		for _, nodeID := range solverResp.Unassigned {
+			id, _ := uuid.Parse(nodeID)
+			result.Unassigned = append(result.Unassigned, id)
+		}
+		s.jobs.Store(jobID, result)
+		return
+	}
+
+	// Convert solver response to domain result
+	result := s.convertSolverResult(jobID, &solverResp, shipments, vehicles)
+	s.jobs.Store(jobID, result)
+}
+
+// callVRPSolverLegacy is the original non-streaming /solve call (fallback).
+func (s *Service) callVRPSolverLegacy(jobID string, req *solverRequest, shipments []domain.Shipment, vehicles []domain.Vehicle, criteria *VRPCriteria, userID *uuid.UUID) {
+	body, _ := json.Marshal(req)
+
+	client := &http.Client{Timeout: 300 * time.Second}
 	resp, err := client.Post(s.vrpSolverURL+"/solve", "application/json", bytes.NewReader(body))
 
 	if err != nil {
-		// If solver unreachable, return mock result for demo
+		// Solver unreachable → fall back to mock for demo
+		s.log.Warn(context.Background(), "vrp_solver_unreachable", logger.F("error", err.Error()))
 		result := s.buildMockResult(jobID, req.Depot, shipments, vehicles, criteria)
+		result.DistanceSource = "mock"
 		s.jobs.Store(jobID, result)
 		return
 	}
 	defer resp.Body.Close()
 
 	respBody, _ := io.ReadAll(resp.Body)
+
+	// Check HTTP status — solver returns 500 on crash with {"error": "..."}
+	if resp.StatusCode != http.StatusOK {
+		s.log.Warn(context.Background(), "vrp_solver_http_error",
+			logger.F("status_code", resp.StatusCode))
+		result := &domain.VRPResult{
+			JobID:  jobID,
+			Status: "failed",
+			Error:  fmt.Sprintf("VRP solver trả về lỗi (HTTP %d)", resp.StatusCode),
+		}
+		// Try to extract error message from response
+		var errResp struct {
+			Error string `json:"error"`
+		}
+		if json.Unmarshal(respBody, &errResp) == nil && errResp.Error != "" {
+			result.Error = fmt.Sprintf("VRP solver lỗi: %s", errResp.Error)
+		}
+		s.jobs.Store(jobID, result)
+		return
+	}
+
 	var solverResp solverResponse
 	if err := json.Unmarshal(respBody, &solverResp); err != nil {
-		result := s.buildMockResult(jobID, req.Depot, shipments, vehicles, criteria)
+		s.log.Warn(context.Background(), "vrp_solver_unmarshal_error")
+		result := &domain.VRPResult{
+			JobID:  jobID,
+			Status: "failed",
+			Error:  "Không thể đọc kết quả từ VRP solver",
+		}
+		s.jobs.Store(jobID, result)
+		return
+	}
+
+	// Handle no_solution from solver
+	if solverResp.Status == "no_solution" {
+		result := &domain.VRPResult{
+			JobID:     jobID,
+			Status:    "no_solution",
+			SolveTime: solverResp.SolveTime,
+			Error:     "VRP solver không tìm được phương án phù hợp. Thử điều chỉnh xe hoặc đơn hàng.",
+		}
+		for _, nodeID := range solverResp.Unassigned {
+			id, _ := uuid.Parse(nodeID)
+			result.Unassigned = append(result.Unassigned, id)
+		}
 		s.jobs.Store(jobID, result)
 		return
 	}
@@ -368,6 +642,14 @@ func (s *Service) buildMockResult(jobID string, depot [2]float64, shipments []do
 	const serviceMin = 20.0
 	const windingFactor = 1.3
 	const minSplitKg = 100.0 // don't create splits smaller than 100kg
+
+	// Fuel cost per km by vehicle type (consumption L/km × diesel price 24,500 VND/L)
+	mockCostPerKm := map[string]float64{
+		"truck_3t5": 0.12 * 24500, // 2,940 VND/km
+		"truck_5t":  0.16 * 24500, // 3,920 VND/km
+		"truck_8t":  0.22 * 24500, // 5,390 VND/km
+		"truck_15t": 0.28 * 24500, // 6,860 VND/km
+	}
 
 	// ── Phase 0: Consolidate same-customer shipments ────
 	type consolidatedNode struct {
@@ -674,6 +956,16 @@ func (s *Service) buildMockResult(jobID string, depot [2]float64, shipments []do
 		trip.TotalDurationMin = int(routeDist/avgSpeedKmH*60) + len(b.items)*int(serviceMin)
 		trip.TotalWeightKg = cumWeight
 
+		// Post-hoc cost calculation for mock result using vehicle type defaults
+		if fuelCostPerKm, ok := mockCostPerKm[b.vehicle.VehicleType]; ok {
+			fuelCost := fuelCostPerKm * trip.TotalDistanceKm
+			trip.FuelCostVND = math.Round(fuelCost)
+			trip.TotalCostVND = trip.FuelCostVND // toll = 0 in mock (no route geometry)
+			if trip.TotalWeightKg > 0 {
+				trip.CostPerTonVND = trip.TotalCostVND / (trip.TotalWeightKg / 1000)
+			}
+		}
+
 		result.Trips = append(result.Trips, trip)
 	}
 
@@ -696,9 +988,11 @@ func (s *Service) convertSolverResult(jobID string, resp *solverResponse, shipme
 	}
 
 	result := &domain.VRPResult{
-		JobID:     jobID,
-		Status:    "completed",
-		SolveTime: resp.SolveTime,
+		JobID:          jobID,
+		Status:         "completed",
+		SolveTime:      resp.SolveTime,
+		DistanceSource: resp.DistanceSource,
+		OptimizeFor:    resp.OptimizeFor,
 	}
 
 	var totalDist float64
@@ -740,6 +1034,28 @@ func (s *Service) convertSolverResult(jobID string, resp *solverResponse, shipme
 			assigned++
 		}
 		trip.TotalWeightKg = cumWeight
+
+		// Map cost breakdown from solver response
+		if route.CostBreakdown != nil {
+			cb := route.CostBreakdown
+			trip.FuelCostVND = cb.FuelCostVND
+			trip.TollCostVND = cb.TollCostVND
+			trip.TotalCostVND = cb.TotalCostVND
+			if trip.TotalWeightKg > 0 {
+				trip.CostPerTonVND = cb.TotalCostVND / (trip.TotalWeightKg / 1000)
+			}
+			for _, tp := range cb.TollsPassed {
+				trip.TollsPassed = append(trip.TollsPassed, domain.TollPassDetail{
+					StationName: tp.StationName,
+					FeeVND:      tp.FeeVND,
+					DistanceKm:  tp.DistanceKm,
+					Latitude:    tp.Latitude,
+					Longitude:   tp.Longitude,
+					TollType:    tp.TollType,
+				})
+			}
+		}
+
 		totalDist += route.Distance
 		result.Trips = append(result.Trips, trip)
 	}
@@ -754,6 +1070,54 @@ func (s *Service) convertSolverResult(jobID string, resp *solverResponse, shipme
 	return result
 }
 
+// enrichSolverWithCostData loads toll stations/expressways and adds them to the solver request.
+// Toll data is ALWAYS loaded — the optimize_for field controls how solver uses it.
+func (s *Service) enrichSolverWithCostData(ctx context.Context, req *solverRequest) {
+	// Load active toll stations
+	stations, err := s.repo.ListActiveTollStations(ctx)
+	if err != nil {
+		s.log.Warn(ctx, "load_toll_stations_failed", logger.F("error", err.Error()))
+	} else {
+		for _, st := range stations {
+			req.TollStations = append(req.TollStations, solverTollStation{
+				Name:    st.StationName,
+				Lat:     st.Latitude,
+				Lng:     st.Longitude,
+				RadiusM: st.DetectionRadiusM,
+				FeeL1:   st.FeeL1, FeeL2: st.FeeL2, FeeL3: st.FeeL3,
+				FeeL4: st.FeeL4, FeeL5: st.FeeL5,
+			})
+		}
+	}
+
+	// Load active expressways with gates
+	expressways, err := s.repo.ListActiveTollExpressways(ctx)
+	if err != nil {
+		s.log.Warn(ctx, "load_toll_expressways_failed", logger.F("error", err.Error()))
+	} else {
+		for _, ew := range expressways {
+			exway := solverTollExway{
+				Name:        ew.ExpresswayName,
+				RatePerKmL1: ew.RatePerKmL1, RatePerKmL2: ew.RatePerKmL2,
+				RatePerKmL3: ew.RatePerKmL3, RatePerKmL4: ew.RatePerKmL4,
+				RatePerKmL5: ew.RatePerKmL5,
+			}
+			for _, g := range ew.Gates {
+				if g.IsActive {
+					exway.Gates = append(exway.Gates, solverTollGate{
+						Name:     g.GateName,
+						Lat:      g.Latitude,
+						Lng:      g.Longitude,
+						RadiusM:  g.DetectionRadiusM,
+						KmMarker: g.KmMarker,
+					})
+				}
+			}
+			req.TollExpressways = append(req.TollExpressways, exway)
+		}
+	}
+}
+
 func computeSummary(result *domain.VRPResult, vehicles []domain.Vehicle, shipments []domain.Shipment) domain.VRPSummary {
 	vehicleMap := make(map[string]domain.Vehicle)
 	for _, v := range vehicles {
@@ -766,6 +1130,7 @@ func computeSummary(result *domain.VRPResult, vehicles []domain.Vehicle, shipmen
 	var totalStops int
 	var utilSum float64
 	var assigned int
+	var totalCost, totalFuel, totalToll, totalDriver float64
 
 	for _, trip := range result.Trips {
 		totalDist += trip.TotalDistanceKm
@@ -773,6 +1138,10 @@ func computeSummary(result *domain.VRPResult, vehicles []domain.Vehicle, shipmen
 		totalWeight += trip.TotalWeightKg
 		totalStops += len(trip.Stops)
 		assigned += len(trip.Stops)
+		totalCost += trip.TotalCostVND
+		totalFuel += trip.FuelCostVND
+		totalToll += trip.TollCostVND
+		totalDriver += trip.DriverCostVND
 
 		if v, ok := vehicleMap[trip.VehicleID.String()]; ok && v.CapacityKg > 0 {
 			utilSum += trip.TotalWeightKg / v.CapacityKg * 100
@@ -781,9 +1150,25 @@ func computeSummary(result *domain.VRPResult, vehicles []domain.Vehicle, shipmen
 
 	avgUtil := 0.0
 	avgStops := 0.0
+	avgCostPerTon := 0.0
 	if len(result.Trips) > 0 {
 		avgUtil = utilSum / float64(len(result.Trips))
 		avgStops = float64(totalStops) / float64(len(result.Trips))
+	}
+	avgCostPerKm := 0.0
+	avgCostPerShipment := 0.0
+	tollRatio := 0.0
+	if totalWeight > 0 && totalCost > 0 {
+		avgCostPerTon = totalCost / (totalWeight / 1000)
+	}
+	if totalDist > 0 && totalCost > 0 {
+		avgCostPerKm = totalCost / totalDist
+	}
+	if assigned > 0 && totalCost > 0 {
+		avgCostPerShipment = totalCost / float64(assigned)
+	}
+	if totalCost > 0 {
+		tollRatio = totalToll / totalCost * 100
 	}
 
 	return domain.VRPSummary{
@@ -797,6 +1182,14 @@ func computeSummary(result *domain.VRPResult, vehicles []domain.Vehicle, shipmen
 		AvgCapacityUtil:        avgUtil,
 		AvgStopsPerTrip:        avgStops,
 		SolveTimeMs:            result.SolveTime,
+		TotalCostVND:           totalCost,
+		TotalFuelCostVND:       totalFuel,
+		TotalTollCostVND:       totalToll,
+		TotalDriverCost:        totalDriver,
+		AvgCostPerTonVND:       avgCostPerTon,
+		AvgCostPerKmVND:        avgCostPerKm,
+		AvgCostPerShipment:     avgCostPerShipment,
+		TollCostRatioPct:       tollRatio,
 	}
 }
 

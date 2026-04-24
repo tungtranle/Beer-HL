@@ -28,26 +28,32 @@ const (
 
 // GPSPoint represents a single GPS data point from a driver.
 type GPSPoint struct {
-	VehicleID  uuid.UUID `json:"vehicle_id"`
-	DriverID   uuid.UUID `json:"driver_id,omitempty"`
-	Lat        float64   `json:"lat"`
-	Lng        float64   `json:"lng"`
-	Speed      float64   `json:"speed"`
-	Heading    float64   `json:"heading"`
-	AccuracyM  float64   `json:"accuracy_m,omitempty"`
-	RecordedAt string    `json:"recorded_at,omitempty"`
-	Timestamp  time.Time `json:"ts"`
+	VehicleID    uuid.UUID `json:"vehicle_id"`
+	DriverID     uuid.UUID `json:"driver_id,omitempty"`
+	VehiclePlate string    `json:"vehicle_plate,omitempty"`
+	DriverName   string    `json:"driver_name,omitempty"`
+	TripStatus   string    `json:"trip_status,omitempty"`
+	Lat          float64   `json:"lat"`
+	Lng          float64   `json:"lng"`
+	Speed        float64   `json:"speed"`
+	Heading      float64   `json:"heading"`
+	AccuracyM    float64   `json:"accuracy_m,omitempty"`
+	RecordedAt   string    `json:"recorded_at,omitempty"`
+	Timestamp    time.Time `json:"ts"`
 }
 
 // GPSUpdate is broadcast to dispatcher WebSocket clients.
 type GPSUpdate struct {
-	Type      string    `json:"type"`
-	VehicleID uuid.UUID `json:"vehicle_id"`
-	Lat       float64   `json:"lat"`
-	Lng       float64   `json:"lng"`
-	Speed     float64   `json:"speed"`
-	Heading   float64   `json:"heading"`
-	Timestamp time.Time `json:"ts"`
+	Type         string    `json:"type"`
+	VehicleID    uuid.UUID `json:"vehicle_id"`
+	VehiclePlate string    `json:"vehicle_plate,omitempty"`
+	DriverName   string    `json:"driver_name,omitempty"`
+	TripStatus   string    `json:"trip_status,omitempty"`
+	Lat          float64   `json:"lat"`
+	Lng          float64   `json:"lng"`
+	Speed        float64   `json:"speed"`
+	Heading      float64   `json:"heading"`
+	Timestamp    time.Time `json:"ts"`
 }
 
 // Hub manages WebSocket connections and Redis pub/sub for GPS.
@@ -108,13 +114,16 @@ func (h *Hub) Run(ctx context.Context) {
 // PublishGPS publishes a GPS update to Redis for all subscribers.
 func (h *Hub) PublishGPS(ctx context.Context, point GPSPoint) error {
 	update := GPSUpdate{
-		Type:      "gps_update",
-		VehicleID: point.VehicleID,
-		Lat:       point.Lat,
-		Lng:       point.Lng,
-		Speed:     point.Speed,
-		Heading:   point.Heading,
-		Timestamp: point.Timestamp,
+		Type:         "position",
+		VehicleID:    point.VehicleID,
+		VehiclePlate: point.VehiclePlate,
+		DriverName:   point.DriverName,
+		TripStatus:   point.TripStatus,
+		Lat:          point.Lat,
+		Lng:          point.Lng,
+		Speed:        point.Speed,
+		Heading:      point.Heading,
+		Timestamp:    point.Timestamp,
 	}
 
 	data, err := json.Marshal(update)

@@ -13,6 +13,7 @@ import {
   ShieldCheck, CheckCircle2, Scale, FileBarChart, BarChart3, Bell,
   Settings, SlidersHorizontal, CreditCard, ScrollText, Navigation, Activity,
   Wrench, Search, LogOut, ChevronDown, PanelLeftClose, PanelLeft, Shield, ClipboardCheck,
+  DollarSign,
   type LucideIcon,
 } from 'lucide-react'
 
@@ -88,6 +89,7 @@ const navGroups: NavGroup[] = [
       { href: '/dashboard/settings/credit-limits', label: 'Hạn mức tín dụng', icon: CreditCard, roles: ['admin'] },
       { href: '/dashboard/settings/audit-logs', label: 'Nhật ký hệ thống', icon: ScrollText, roles: ['admin'] },
       { href: '/dashboard/settings/routes', label: 'Tuyến giao hàng', icon: Navigation, roles: ['admin'] },
+      { href: '/dashboard/settings/transport-costs', label: 'Chi phí vận chuyển', icon: DollarSign, roles: ['admin', 'dispatcher'] },
       { href: '/dashboard/settings/health', label: 'System Health', icon: Activity, roles: ['admin'] },
     ],
   },
@@ -127,6 +129,7 @@ const pathLabels: Record<string, string> = {
   '/dashboard/settings/credit-limits': 'Hạn mức tín dụng',
   '/dashboard/settings/audit-logs': 'Nhật ký hệ thống',
   '/dashboard/settings/routes': 'Tuyến giao hàng',
+  '/dashboard/settings/transport-costs': 'Chi phí vận chuyển',
   '/dashboard/settings/health': 'System Health',
   '/dashboard/driver': 'Chuyến xe của tôi',
   '/dashboard/eod': 'Nhận kết ca',

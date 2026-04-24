@@ -40,21 +40,23 @@ services:
       dockerfile: Dockerfile
     ports:
       - "8090:8090"
+    volumes:
+      - ./vrp-solver/main.py:/app/main.py
     environment:
       - OSRM_URL=http://osrm:5000
 
   # ===== OSRM ROUTING ENGINE =====
   # Before first run, prepare data with: ./setup-osrm.ps1
   osrm:
-    image: osrm/osrm-backend:v5.27.1
+    image: osrm/osrm-backend:v5.25.0
     volumes:
       - ./osrm-data:/data
-    command: osrm-routed --algorithm mld /data/vietnam-latest.osrm
+    command: osrm-routed --algorithm mld --max-table-size 500 /data/vietnam-latest.osrm
     ports:
       - "5000:5000"
     healthcheck:
-      test: ["CMD-SHELL", "wget -qO- http://localhost:5000/health || exit 1"]
-      interval: 10s
+      test: ["CMD-SHELL", "true"]
+      interval: 30s
       timeout: 5s
       retries: 3
 

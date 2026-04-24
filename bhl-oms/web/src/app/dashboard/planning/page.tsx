@@ -1,9 +1,10 @@
-'use client'
+﻿'use client'
 
 import React, { useEffect, useState, useRef, useCallback, useMemo } from 'react'
 import { useRouter } from 'next/navigation'
 import { apiFetch, getUser } from '@/lib/api'
 import SearchableSelect from '@/lib/SearchableSelect'
+import { useNotifications } from '@/lib/notifications'
 
 // ─── OSRM routing helper ─────────────────────────────
 async function fetchOSRMRoute(points: [number, number][]): Promise<{ geometry: [number, number][]; legs: { distance_km: number; duration_min: number }[]; total_km: number; total_min: number } | null> {
@@ -34,9 +35,24 @@ function TripDetailModal({ trip, tripIdx, vehicles, warehouse, onClose }: {
   const [routeTotals, setRouteTotals] = useState<{ total_km: number; total_min: number; return_km: number } | null>(null)
   const [routeLoading, setRouteLoading] = useState(true)
   const [isFullscreen, setIsFullscreen] = useState(false)
+  const [showAllTolls, setShowAllTolls] = useState(false)
+  const [allTollStations, setAllTollStations] = useState<any[]>([])
+  const [allExpressways, setAllExpressways] = useState<any[]>([])
+  const tollLayerRef = useRef<any>(null)
   const vehicle = vehicles.find(v => v.id === trip.vehicle_id)
   const cap = vehicle?.capacity_kg || 15000
   const pct = (trip.total_weight_kg / cap * 100).toFixed(0)
+
+  // Load tất cả trạm thu phí từ API
+  useEffect(() => {
+    Promise.all([
+      apiFetch<any>('/cost/toll-stations').catch(() => ({ data: [] })),
+      apiFetch<any>('/cost/toll-expressways').catch(() => ({ data: [] })),
+    ]).then(([s, e]) => {
+      setAllTollStations(s.data || [])
+      setAllExpressways(e.data || [])
+    })
+  }, [])
 
   // Shipment weight per stop (not cumulative)
   const stopsWithWeight = trip.stops.map((s, i) => ({
@@ -100,6 +116,29 @@ function TripDetailModal({ trip, tripIdx, vehicles, warehouse, onClose }: {
       // Return to depot
       if (warehouse) waypoints.push([warehouse.lat, warehouse.lng])
 
+      // Toll station markers — phân biệt trạm hở (🟠) và cao tốc kín (🔵)
+      if (trip.tolls_passed?.length) {
+        const seen = new Set<string>()
+        trip.tolls_passed.forEach((tp: any) => {
+          if (!tp.latitude || !tp.longitude) return
+          const key = `${tp.latitude.toFixed(4)},${tp.longitude.toFixed(4)}`
+          if (seen.has(key)) return
+          seen.add(key)
+          const isExpressway = tp.toll_type === 'expressway'
+          const bgColor = isExpressway ? '#3b82f6' : '#f97316'
+          const emoji = isExpressway ? '🛣️' : '🚏'
+          const tollIcon = L.divIcon({
+            html: `<div style="background:${bgColor};color:white;width:22px;height:22px;border-radius:4px;transform:rotate(45deg);display:flex;align-items:center;justify-content:center;font-size:11px;border:2px solid white;box-shadow:0 2px 6px rgba(0,0,0,.3)"><span style="transform:rotate(-45deg)">${emoji}</span></div>`,
+            className: '', iconSize: [22, 22], iconAnchor: [11, 11]
+          })
+          const distInfo = tp.distance_km ? `<br/>Đoạn: ${tp.distance_km.toFixed(1)}km` : ''
+          const typeLabel = isExpressway ? 'Cao tốc kín' : 'Trạm hở'
+          L.marker([tp.latitude, tp.longitude], { icon: tollIcon })
+            .addTo(map)
+            .bindPopup(`<b>${emoji} ${tp.station_name}</b><br/>Phí: ${(tp.fee_vnd / 1000).toFixed(0)}K VND${distInfo}<br/><i style="color:#888">${typeLabel}</i>`)
+        })
+      }
+
       // Fetch actual road route from OSRM
       setRouteLoading(true)
       const osrm = await fetchOSRMRoute(waypoints)
@@ -147,6 +186,61 @@ function TripDetailModal({ trip, tripIdx, vehicles, warehouse, onClose }: {
     }
   }, [isFullscreen])
 
+  // Toggle hiển thị tất cả trạm thu phí trên map
+  useEffect(() => {
+    if (!mapRef.current) return
+    const map = mapRef.current
+    const L = (window as any).L
+    if (!L) return
+
+    // Xóa layer cũ
+    if (tollLayerRef.current) {
+      map.removeLayer(tollLayerRef.current)
+      tollLayerRef.current = null
+    }
+
+    if (!showAllTolls) return
+
+    const layerGroup = L.layerGroup()
+
+    // Danh sách trạm đã đi qua (để highlight)
+    const passedNames = new Set((trip.tolls_passed || []).map((tp: any) => tp.station_name))
+
+    // Trạm hở
+    allTollStations.forEach((ts: any) => {
+      if (!ts.latitude || !ts.longitude) return
+      const isPassed = passedNames.has(ts.station_name)
+      const bgColor = isPassed ? '#f97316' : '#9ca3af'
+      const opacity = isPassed ? 1 : 0.6
+      const icon = L.divIcon({
+        html: `<div style="background:${bgColor};opacity:${opacity};color:white;width:18px;height:18px;border-radius:3px;transform:rotate(45deg);display:flex;align-items:center;justify-content:center;font-size:9px;border:1.5px solid white;box-shadow:0 1px 4px rgba(0,0,0,.2)"><span style="transform:rotate(-45deg)">🚏</span></div>`,
+        className: '', iconSize: [18, 18], iconAnchor: [9, 9]
+      })
+      const feeLine = `L2: ${((ts.fee_l2 || 0)/1000).toFixed(0)}K | L3: ${((ts.fee_l3 || 0)/1000).toFixed(0)}K | L4: ${((ts.fee_l4 || 0)/1000).toFixed(0)}K`
+      L.marker([ts.latitude, ts.longitude], { icon })
+        .addTo(layerGroup)
+        .bindPopup(`<b>🚏 ${ts.station_name}</b><br/>${ts.road_name || ''}<br/>${feeLine}<br/><i style="color:#888">Trạm hở${isPassed ? ' — ✅ Đi qua' : ''}</i>`)
+    })
+
+    // Cổng cao tốc
+    allExpressways.forEach((ew: any) => {
+      (ew.gates || []).forEach((g: any) => {
+        if (!g.latitude || !g.longitude) return
+        const icon = L.divIcon({
+          html: `<div style="background:#3b82f6;opacity:0.6;color:white;width:18px;height:18px;border-radius:3px;transform:rotate(45deg);display:flex;align-items:center;justify-content:center;font-size:9px;border:1.5px solid white;box-shadow:0 1px 4px rgba(0,0,0,.2)"><span style="transform:rotate(-45deg)">🛣️</span></div>`,
+          className: '', iconSize: [18, 18], iconAnchor: [9, 9]
+        })
+        const rateLine = `L2: ${((ew.rate_per_km_l2 || 0)).toFixed(0)}đ/km | L3: ${((ew.rate_per_km_l3 || 0)).toFixed(0)}đ/km`
+        L.marker([g.latitude, g.longitude], { icon })
+          .addTo(layerGroup)
+          .bindPopup(`<b>🛣️ ${g.gate_name}</b><br/>${ew.expressway_name}<br/>Km: ${g.km_marker}<br/>${rateLine}<br/><i style="color:#888">Cao tốc kín</i>`)
+      })
+    })
+
+    layerGroup.addTo(map)
+    tollLayerRef.current = layerGroup
+  }, [showAllTolls, allTollStations, allExpressways, trip.tolls_passed])
+
   // Leg label helper: "Kho → #1", "#1 → #2", "#N → Kho"
   const legLabel = (legIdx: number) => {
     const numStops = trip.stops.filter(s => s.latitude && s.longitude).length
@@ -176,6 +270,10 @@ function TripDetailModal({ trip, tripIdx, vehicles, warehouse, onClose }: {
             </div>
           </div>
           <div className="flex items-center gap-2">
+            <button onClick={() => setShowAllTolls(!showAllTolls)} title={showAllTolls ? 'Ẩn trạm thu phí' : 'Hiện tất cả trạm thu phí'}
+              className={`w-8 h-8 rounded-full flex items-center justify-center text-lg ${showAllTolls ? 'bg-orange-400/80 hover:bg-orange-500/80' : 'bg-white/20 hover:bg-white/30'}`}>
+              🚏
+            </button>
             <button onClick={() => setIsFullscreen(!isFullscreen)} title={isFullscreen ? 'Thu nhỏ' : 'Phóng to'}
               className="w-8 h-8 rounded-full bg-white/20 hover:bg-white/30 flex items-center justify-center text-lg">
               {isFullscreen ? '⊡' : '⊞'}
@@ -273,6 +371,39 @@ function TripDetailModal({ trip, tripIdx, vehicles, warehouse, onClose }: {
                   <div className="text-gray-400">Tải trọng</div>
                 </div>
               </div>
+              {/* Cost breakdown row */}
+              {((trip.total_cost_vnd ?? 0) > 0 || (trip.fuel_cost_vnd ?? 0) > 0) && (
+                <div className="grid grid-cols-4 gap-2 text-center text-xs mt-2 pt-2 border-t border-gray-200">
+                  <div>
+                    <div className="font-bold text-green-700">{((trip.total_cost_vnd || 0) / 1000).toFixed(0)}K</div>
+                    <div className="text-gray-400">💰 Tổng CP</div>
+                  </div>
+                  <div>
+                    <div className="font-bold text-orange-600">{((trip.fuel_cost_vnd || 0) / 1000).toFixed(0)}K</div>
+                    <div className="text-gray-400">⛽ Xăng/dầu</div>
+                  </div>
+                  <div>
+                    <div className="font-bold text-red-600">{((trip.toll_cost_vnd || 0) / 1000).toFixed(0)}K</div>
+                    <div className="text-gray-400">🚏 Cầu đường</div>
+                  </div>
+                  <div>
+                    <div className="font-bold text-blue-600">{((trip.cost_per_ton_vnd || 0) / 1000).toFixed(0)}K</div>
+                    <div className="text-gray-400">VND/tấn</div>
+                  </div>
+                </div>
+              )}
+              {/* Tolls passed detail */}
+              {trip.tolls_passed && trip.tolls_passed.length > 0 && (
+                <div className="mt-2 pt-2 border-t border-gray-200">
+                  <div className="text-[10px] text-gray-500 mb-1">🚏 Trạm đi qua:</div>
+                  {trip.tolls_passed.map((tp: any, i: number) => (
+                    <div key={i} className="flex justify-between text-[10px] text-gray-600">
+                      <span>{tp.toll_type === 'expressway' ? '🛣️' : '🚏'} {tp.station_name}</span>
+                      <span className="font-medium">{(tp.fee_vnd / 1000).toFixed(0)}K</span>
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
           </div>
         </div>
@@ -485,16 +616,24 @@ interface VRPTrip {
   vehicle_id: string; plate_number?: string; vehicle_type?: string
   stops: VRPStop[]
   total_distance_km: number; total_weight_kg: number; total_duration_min: number
+  tolls_passed?: any[]; toll_cost?: number; fuel_cost?: number; total_cost?: number
+  toll_detection?: string
+  total_cost_vnd?: number; fuel_cost_vnd?: number; toll_cost_vnd?: number; cost_per_ton_vnd?: number
 }
 interface VRPSummary {
   total_trips: number; total_vehicles: number; total_shipments_assigned: number
   total_unassigned: number; total_distance_km: number; total_duration_min: number
   total_weight_kg: number; avg_capacity_util_pct: number; avg_stops_per_trip: number
   solve_time_ms: number; consolidated_stops?: number; split_deliveries?: number
+  total_cost_vnd?: number; total_fuel_cost_vnd?: number; total_toll_cost_vnd?: number
+  total_driver_cost_vnd?: number; avg_cost_per_ton_vnd?: number; avg_cost_per_km_vnd?: number; avg_cost_per_shipment_vnd?: number
+  toll_cost_ratio_pct?: number
+  [key: string]: any
 }
 interface VRPResult {
-  job_id: string; status: string; solve_time_ms: number
+  job_id: string; status: string; error?: string; solve_time_ms: number
   trips: VRPTrip[]; unassigned_shipments: any[]; summary: VRPSummary
+  distance_source?: string; optimize_for?: string
 }
 
 const STEPS = ['Tổng quan', 'Chọn xe', 'Xem đơn hàng', 'Tạo kế hoạch giao hàng', 'Duyệt & Tạo chuyến']
@@ -538,6 +677,24 @@ export default function PlanningPage() {
   const [running, setRunning] = useState(false)
   const [solveProgress, setSolveProgress] = useState(0)
 
+  // Real-time VRP progress (from WebSocket vrp_progress messages)
+  const VRP_STAGES = [
+    { key: 'matrix',      icon: '📍', label: 'Tính ma trận khoảng cách' },
+    { key: 'toll',        icon: '🛣️', label: 'Phân tích trạm BOT' },
+    { key: 'toll_matrix', icon: '🚫', label: 'Ma trận tránh BOT' },
+    { key: 'solving',     icon: '⚙️', label: 'Phân bổ xe & điểm giao' },
+    { key: 'routes',      icon: '🗺️', label: 'Tính lộ trình chi tiết' },
+    { key: 'done',        icon: '✅', label: 'Hoàn tất' },
+  ]
+  const STAGE_ORDER: Record<string, number> = { '': -1, matrix: 0, toll: 1, toll_matrix: 2, solving: 3, routes: 4, done: 5, error: 6 }
+  const [singleProgress, setSingleProgress] = useState({ pct: 0, stage: '', detail: '' })
+  const [compareProgress, setCompareProgress] = useState({
+    cost:     { pct: 0, stage: '', detail: '' },
+    time:     { pct: 0, stage: '', detail: '' },
+    distance: { pct: 0, stage: '', detail: '' },
+  })
+  const vrpJobMapRef = useRef<Record<string, 'cost' | 'time' | 'distance' | 'single'>>({})
+
   // Step 5: driver assignment & approval
   const [driverAssign, setDriverAssign] = useState<Record<string, string>>({})
   const [approving, setApproving] = useState(false)
@@ -564,16 +721,33 @@ export default function PlanningPage() {
     { key: 'max_capacity', icon: '⚖️', color: 'text-blue-500', label: 'Tải trọng tối đa', desc: 'Không vượt capacity xe', enabled: true },
     { key: 'min_vehicles', icon: '🚛', color: 'text-red-500', label: 'Tối thiểu số xe', desc: 'Dùng ít xe nhất có thể', enabled: true },
     { key: 'cluster_region', icon: '📍', color: 'text-teal-500', label: 'Gom nhóm theo vùng', desc: 'Gom điểm gần nhau cùng xe', enabled: true },
-    { key: 'min_distance', icon: '📏', color: 'text-amber-500', label: 'Tối thiểu quãng đường', desc: 'Giảm tổng km di chuyển', enabled: true },
-    { key: 'round_trip', icon: '🔄', color: 'text-purple-500', label: 'Khứ hồi về kho', desc: 'Kho → điểm giao → về kho', enabled: true },
     { key: 'time_limit', icon: '⏱', color: 'text-green-500', label: 'Giới hạn thời gian/chuyến', desc: 'Thời gian lái + giao hàng', enabled: true },
   ])
   const [maxTripHours, setMaxTripHours] = useState(8)
+  const [costOptimize, setCostOptimize] = useState(false)
+  const [optimizeFor, setOptimizeFor] = useState<'cost' | 'time' | 'distance'>('cost')
+  const [costReadiness, setCostReadiness] = useState<{
+    ready: boolean; toll_station_count: number; expressway_count: number;
+    vehicle_default_count: number; driver_rate_count: number;
+  } | null>(null)
   const [dragIdx, setDragIdx] = useState<number | null>(null)
+  const [savedScenarios, setSavedScenarios] = useState<any[]>([])
+  const [savingScenario, setSavingScenario] = useState(false)
+  const [scenarioName, setScenarioName] = useState('')
+  const [showScenarios, setShowScenarios] = useState(false)
+  const [savedJobId, setSavedJobId] = useState('')
+  const [compareResult, setCompareResult] = useState<{ cost: VRPResult | null; time: VRPResult | null; distance: VRPResult | null } | null>(null)
+  const [comparing, setComparing] = useState(false)
+
+  const { subscribeVRPProgress } = useNotifications()
 
   // ─── Init ──────────────────────────────────────────
   useEffect(() => {
     apiFetch<any>('/warehouses').then(r => setWarehouses(r.data || [])).catch(console.error)
+    apiFetch<any>('/planning/cost-readiness').then(r => {
+      setCostReadiness(r.data || null)
+      if (r.data?.ready) setCostOptimize(true)
+    }).catch(console.error)
   }, [])
 
   // Auto-detect delivery date from pending shipments
@@ -677,11 +851,8 @@ export default function PlanningPage() {
     setError('')
     setVrpResult(null)
     setSolveProgress(0)
-
-    // Fake progress animation
-    progressRef.current = setInterval(() => {
-      setSolveProgress(prev => Math.min(prev + 2, 90))
-    }, 600)
+    setSavedJobId('')
+    setSingleProgress({ pct: 0, stage: '', detail: '' })
 
     try {
       const vehicleIdsToSend = Array.from(selectedVehicleIds)
@@ -702,24 +873,40 @@ export default function PlanningPage() {
             max_capacity: critMap['max_capacity'] || 0,
             min_vehicles: critMap['min_vehicles'] || 0,
             cluster_region: critMap['cluster_region'] || 0,
-            min_distance: critMap['min_distance'] || 0,
-            round_trip: critMap['round_trip'] || 0,
+            min_distance: 1,
+            round_trip: 1,
             time_limit: critMap['time_limit'] || 0,
             max_trip_minutes: maxTripHours * 60,
+            cost_optimize: costReadiness?.ready || false,
+            optimize_for: optimizeFor,
           },
         },
       })
       const jid = res.data?.job_id
       setJobId(jid)
+      vrpJobMapRef.current[jid] = 'single'
 
       // Poll for result
       pollRef.current = setInterval(async () => {
         try {
           const r: any = await apiFetch(`/planning/jobs/${jid}`)
-          if (r.data?.status === 'completed' || r.data?.status === 'failed') {
+          if (r.data?.status === 'processing') {
+            // Fallback progress source when WS messages are delayed/missed.
+            if (typeof r.data.pct === 'number' || r.data.stage || r.data.detail) {
+              setSingleProgress({
+                pct: typeof r.data.pct === 'number' ? r.data.pct : 0,
+                stage: r.data.stage || '',
+                detail: r.data.detail || '',
+              })
+              if (typeof r.data.pct === 'number') setSolveProgress(r.data.pct)
+            }
+          }
+          if (r.data?.status === 'completed' || r.data?.status === 'failed' || r.data?.status === 'no_solution') {
             clearInterval(pollRef.current)
             clearInterval(progressRef.current)
             setSolveProgress(100)
+            setSingleProgress({ pct: 100, stage: 'done', detail: '' })
+            delete vrpJobMapRef.current[jid]
             setVrpResult(r.data)
             setRunning(false)
 
@@ -741,12 +928,143 @@ export default function PlanningPage() {
     }
   }
 
+  // ─── Compare 3 optimization modes ──────────────────────────
+  const compareStrategies = async () => {
+    if (!warehouseId || !deliveryDate || activeShipments.length === 0 || selectedVehicleIds.size === 0) {
+      setError('Vui lòng chọn kho, ngày giao, đơn hàng và xe trước.')
+      return
+    }
+    setComparing(true)
+    setError('')
+    setCompareResult(null)
+    setSolveProgress(0)
+    setCompareProgress({
+      cost:     { pct: 0, stage: '', detail: '' },
+      time:     { pct: 0, stage: '', detail: '' },
+      distance: { pct: 0, stage: '', detail: '' },
+    })
+
+    const vehicleIdsToSend = Array.from(selectedVehicleIds)
+    const critMap: Record<string, number> = {}
+    criteriaOrder.forEach((c, idx) => { critMap[c.key] = c.enabled ? idx + 1 : 0 })
+
+    const buildBody = (mode: string) => ({
+      warehouse_id: warehouseId,
+      delivery_date: deliveryDate,
+      vehicle_ids: vehicleIdsToSend,
+      criteria: {
+        max_capacity: critMap['max_capacity'] || 0,
+        min_vehicles: critMap['min_vehicles'] || 0,
+        cluster_region: critMap['cluster_region'] || 0,
+        min_distance: 1,
+        round_trip: 1,
+        time_limit: critMap['time_limit'] || 0,
+        max_trip_minutes: maxTripHours * 60,
+        cost_optimize: costReadiness?.ready || false,
+        optimize_for: mode,
+      },
+    })
+
+    const pollJob = (jid: string, mode: 'cost' | 'time' | 'distance'): Promise<VRPResult | null> => {
+      return new Promise((resolve) => {
+        const poll = setInterval(async () => {
+          try {
+            const r: any = await apiFetch(`/planning/jobs/${jid}`)
+            if (r.data?.status === 'processing') {
+              // Fallback progress source when WS messages are delayed/missed.
+              setCompareProgress(prev => ({
+                ...prev,
+                [mode]: {
+                  pct: typeof r.data?.pct === 'number' ? r.data.pct : prev[mode].pct,
+                  stage: r.data?.stage || prev[mode].stage,
+                  detail: r.data?.detail || prev[mode].detail,
+                }
+              }))
+            }
+            if (r.data?.status === 'completed' || r.data?.status === 'failed' || r.data?.status === 'no_solution') {
+              clearInterval(poll)
+              const doneStage = r.data?.status === 'completed' ? 'done' : 'error'
+              setCompareProgress(prev => ({
+                ...prev,
+                [mode]: {
+                  pct: 100,
+                  stage: doneStage,
+                  detail: doneStage === 'done' ? '' : (r.data?.error || 'Không thể giải phương án'),
+                }
+              }))
+              resolve(r.data)
+            }
+          } catch { /* keep polling */ }
+        }, 2000)
+        setTimeout(() => { clearInterval(poll); resolve(null) }, 180000)
+      })
+    }
+
+    try {
+      // Launch all 3 modes in parallel and map job IDs as soon as each response arrives.
+      const startMode = async (mode: 'cost' | 'time' | 'distance') => {
+        const res: any = await apiFetch('/planning/run-vrp', { method: 'POST', body: buildBody(mode) })
+        const jid = res?.data?.job_id
+        if (jid) vrpJobMapRef.current[jid] = mode
+        return { res, jid }
+      }
+
+      const [a, b, c] = await Promise.all([
+        startMode('cost'),
+        startMode('time'),
+        startMode('distance'),
+      ])
+
+      const resA = a.res
+      const resB = b.res
+      const resC = c.res
+
+      // Seed UI to avoid all columns staying at 0% before first event.
+      if (a.jid) setCompareProgress(prev => ({ ...prev, cost: { ...prev.cost, stage: 'matrix', detail: 'Đã tạo job' } }))
+      if (b.jid) setCompareProgress(prev => ({ ...prev, time: { ...prev.time, stage: 'matrix', detail: 'Đã tạo job' } }))
+      if (c.jid) setCompareProgress(prev => ({ ...prev, distance: { ...prev.distance, stage: 'matrix', detail: 'Đã tạo job' } }))
+
+      // Poll all 3 jobs in parallel
+      const [resultA, resultB, resultC] = await Promise.all([
+        pollJob(resA.data?.job_id, 'cost'),
+        pollJob(resB.data?.job_id, 'time'),
+        pollJob(resC.data?.job_id, 'distance'),
+      ])
+
+      clearInterval(progressRef.current)
+      setSolveProgress(100)
+      // Cleanup job map
+      if (resA.data?.job_id) delete vrpJobMapRef.current[resA.data.job_id]
+      if (resB.data?.job_id) delete vrpJobMapRef.current[resB.data.job_id]
+      if (resC.data?.job_id) delete vrpJobMapRef.current[resC.data.job_id]
+      setCompareResult({ cost: resultA, time: resultB, distance: resultC })
+    } catch (err: any) {
+      clearInterval(progressRef.current)
+      setError(err.message)
+    }
+    setComparing(false)
+  }
+
   useEffect(() => {
     return () => {
       if (pollRef.current) clearInterval(pollRef.current)
       if (progressRef.current) clearInterval(progressRef.current)
     }
   }, [])
+
+  // Subscribe to VRP progress events from WebSocket
+  useEffect(() => {
+    return subscribeVRPProgress(({ job_id, stage, pct, detail }) => {
+      const mode = vrpJobMapRef.current[job_id]
+      if (!mode) return
+      if (mode === 'single') {
+        setSingleProgress({ pct, stage, detail })
+        setSolveProgress(pct)
+      } else {
+        setCompareProgress(prev => ({ ...prev, [mode]: { pct, stage, detail } }))
+      }
+    })
+  }, [subscribeVRPProgress])
 
   // ─── Drag & Drop helpers ────────────────────────────
   const recalcTrips = useCallback((trips: VRPTrip[]) => {
@@ -901,6 +1219,75 @@ export default function PlanningPage() {
       },
     }
   }, [manualAssign, vehicles, shipments, activeShipments])
+
+  // ─── Scenarios ──────────────────────────────────────
+  const loadScenarios = useCallback(async () => {
+    if (!warehouseId || !deliveryDate) return
+    try {
+      const r = await apiFetch<any>(`/planning/scenarios?warehouse_id=${warehouseId}&delivery_date=${deliveryDate}`)
+      setSavedScenarios(r.data || [])
+    } catch { /* ignore */ }
+  }, [warehouseId, deliveryDate])
+
+  useEffect(() => { loadScenarios() }, [loadScenarios])
+
+  const saveScenario = async () => {
+    if (!vrpResult || !jobId) return
+    setSavingScenario(true)
+    try {
+      const critMap: Record<string, number> = {}
+      criteriaOrder.forEach((c, idx) => { critMap[c.key] = c.enabled ? idx + 1 : 0 })
+      await apiFetch('/planning/scenarios', {
+        method: 'POST',
+        body: {
+          warehouse_id: warehouseId,
+          delivery_date: deliveryDate,
+          job_id: jobId,
+          scenario_name: scenarioName || `Phương án ${new Date().toLocaleTimeString('vi-VN')}`,
+          criteria_json: critMap,
+        },
+      })
+      setScenarioName('')
+      setSavedJobId(jobId)
+      await loadScenarios()
+    } catch (err: any) {
+      alert('Lưu thất bại: ' + err.message)
+    } finally {
+      setSavingScenario(false)
+    }
+  }
+
+  const deleteScenario = async (id: string) => {
+    if (!confirm('Xóa phương án này?')) return
+    await apiFetch(`/planning/scenarios/${id}`, { method: 'DELETE' }).catch(() => {})
+    await loadScenarios()
+  }
+
+  const loadScenarioResult = async (scenarioId: string) => {
+    try {
+      const r = await apiFetch<any>(`/planning/scenarios/${scenarioId}`)
+      const scenario = r.data
+      if (scenario?.result_json) {
+        const result = typeof scenario.result_json === 'string'
+          ? JSON.parse(scenario.result_json)
+          : scenario.result_json
+        setVrpResult(result)
+        setJobId('')
+        setSavedJobId('loaded')
+        if (result?.trips) {
+          const init: Record<string, string> = {}
+          result.trips.forEach((t: VRPTrip, i: number) => {
+            if (drivers[i]) init[t.vehicle_id] = drivers[i].id
+          })
+          setDriverAssign(init)
+        }
+      } else {
+        alert('Phương án này không có dữ liệu kết quả chi tiết')
+      }
+    } catch (err: any) {
+      alert('Không tải được phương án: ' + err.message)
+    }
+  }
 
   // ─── Approve ────────────────────────────────────────
   const approvePlan = async () => {
@@ -1586,18 +1973,23 @@ export default function PlanningPage() {
           {/* Pre-run info */}
           {!vrpResult && !running && (
             <div className="bg-white rounded-xl shadow-sm p-6 text-center">
-              <div className="text-5xl mb-4">🗺️</div>
-              <h2 className="text-xl font-bold text-gray-800 mb-2">Sẵn sàng tối ưu tuyến đường</h2>
+              <div className="text-5xl mb-4">{costReadiness?.ready ? '💰' : '🗺️'}</div>
+              <h2 className="text-xl font-bold text-gray-800 mb-2">
+                {costReadiness?.ready ? 'Sẵn sàng tối ưu chi phí vận chuyển' : 'Sẵn sàng tối ưu tuyến đường'}
+              </h2>
               <p className="text-gray-500 mb-6 max-w-lg mx-auto">
-                Hệ thống sẽ sử dụng thuật toán tối ưu để phân bổ
+                Hệ thống sẽ phân bổ
                 <strong className="text-amber-700"> {activeShipments.length} đơn hàng</strong> vào
-                <strong className="text-blue-700"> {selectedVehicleIds.size} xe</strong>,
-                tối ưu quãng đường và tải trọng.
+                <strong className="text-blue-700"> {selectedVehicleIds.size} xe</strong>
+                {costReadiness?.ready
+                  ? <>, tối ưu <strong className="text-green-700">tổng chi phí (xăng + cầu đường)</strong> đồng thời đảm bảo quãng đường ngắn.</>
+                  : <>, tối ưu quãng đường và tải trọng.</>
+                }
               </p>
 
               {/* VRP Optimization Criteria — Drag to reorder priorities */}
               <div className="bg-gray-50 rounded-xl p-4 mb-6 text-left max-w-lg mx-auto">
-                <h3 className="font-semibold text-gray-700 text-sm mb-1">⚙️ Tiêu chí tối ưu tuyến đường</h3>
+                <h3 className="font-semibold text-gray-700 text-sm mb-1">⚙️ Ràng buộc phân bổ</h3>
                 <p className="text-[11px] text-gray-400 mb-3">Kéo ↕ để thay đổi thứ tự ưu tiên · Bấm để bật/tắt · Số 1 = ưu tiên cao nhất</p>
                 <div className="space-y-1.5 text-xs">
                   {criteriaOrder.map((c, idx) => (
@@ -1647,6 +2039,46 @@ export default function PlanningPage() {
                     </div>
                   ))}
                 </div>
+                {/* Optimization Mode Selector */}
+                <div className="mt-3 bg-orange-50 border border-orange-200 rounded-lg p-3">
+                  <div className="flex items-center gap-2 mb-2">
+                    <span className="text-sm">🎯</span>
+                    <span className="text-xs font-semibold text-orange-800">Phương thức tối ưu</span>
+                  </div>
+                  <div className="grid grid-cols-3 gap-2">
+                    <button type="button"
+                      onClick={() => setOptimizeFor('cost')}
+                      className={`p-2 rounded-lg border text-left transition-all ${
+                        optimizeFor === 'cost'
+                          ? 'border-green-500 bg-green-50 ring-2 ring-green-200'
+                          : 'border-gray-200 bg-white hover:border-green-300'
+                      }`}>
+                      <div className="text-xs font-bold text-green-700">💰 Tối ưu chi phí</div>
+                      <div className="text-[10px] text-gray-500 mt-0.5">Tránh BOT · Tối ưu xăng + phí</div>
+                    </button>
+                    <button type="button"
+                      onClick={() => setOptimizeFor('time')}
+                      className={`p-2 rounded-lg border text-left transition-all ${
+                        optimizeFor === 'time'
+                          ? 'border-blue-500 bg-blue-50 ring-2 ring-blue-200'
+                          : 'border-gray-200 bg-white hover:border-blue-300'
+                      }`}>
+                      <div className="text-xs font-bold text-blue-700">⚡ Giao nhanh</div>
+                      <div className="text-[10px] text-gray-500 mt-0.5">Đường nhanh nhất · Có thể qua BOT</div>
+                    </button>
+                    <button type="button"
+                      onClick={() => setOptimizeFor('distance')}
+                      className={`p-2 rounded-lg border text-left transition-all ${
+                        optimizeFor === 'distance'
+                          ? 'border-purple-500 bg-purple-50 ring-2 ring-purple-200'
+                          : 'border-gray-200 bg-white hover:border-purple-300'
+                      }`}>
+                      <div className="text-xs font-bold text-purple-700">📏 Tối ưu quãng đường</div>
+                      <div className="text-[10px] text-gray-500 mt-0.5">Đường ngắn nhất · Có thể qua BOT</div>
+                    </button>
+                  </div>
+                </div>
+
                 {(() => {
                   const availDrivers = driverCheckins.filter((d: any) => d.checkin_status === 'available' || d.status === 'available').length || drivers.length
                   const effectiveVehicles = Math.min(selectedVehicleIds.size, availDrivers > 0 ? availDrivers : selectedVehicleIds.size)
@@ -1657,6 +2089,53 @@ export default function PlanningPage() {
                     </div>
                   ) : null
                 })()}
+              </div>
+
+              {/* Cost Readiness Status */}
+              <div className={`rounded-xl p-4 mb-6 text-left max-w-lg mx-auto border ${
+                costReadiness?.ready
+                  ? 'bg-gradient-to-r from-green-50 to-emerald-50 border-green-200'
+                  : 'bg-gradient-to-r from-amber-50 to-yellow-50 border-amber-200'
+              }`}>
+                <div className="flex items-center justify-between">
+                  <div>
+                    <h3 className={`font-semibold text-sm flex items-center gap-1.5 ${
+                      costReadiness?.ready ? 'text-green-800' : 'text-amber-800'
+                    }`}>
+                      {costReadiness?.ready ? '✅ Dữ liệu chi phí đầy đủ' : '⚠️ Chưa có dữ liệu chi phí'}
+                    </h3>
+                    <p className={`text-[11px] mt-0.5 ${costReadiness?.ready ? 'text-green-600' : 'text-amber-600'}`}>
+                      {costReadiness?.ready
+                        ? 'Solver sẽ tự động tối ưu chi phí (xăng + cầu đường) · Kết quả hiển thị cả VND và km'
+                        : 'Solver sẽ tối ưu quãng đường. Thêm dữ liệu chi phí để mở khóa tối ưu VND'
+                      }
+                    </p>
+                  </div>
+                  <span className={`text-2xl ${costReadiness?.ready ? '' : 'opacity-50'}`}>
+                    {costReadiness?.ready ? '💰' : '📏'}
+                  </span>
+                </div>
+                {costReadiness && (
+                  <div className="mt-2 flex flex-wrap gap-2 text-[11px]">
+                    <span className={`px-2 py-0.5 rounded-full ${costReadiness.toll_station_count > 0 ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-400'}`}>
+                      🚏 {costReadiness.toll_station_count} trạm BOT
+                    </span>
+                    <span className={`px-2 py-0.5 rounded-full ${costReadiness.expressway_count > 0 ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-400'}`}>
+                      🛣️ {costReadiness.expressway_count} tuyến thu phí
+                    </span>
+                    <span className={`px-2 py-0.5 rounded-full ${costReadiness.vehicle_default_count > 0 ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-400'}`}>
+                      🚛 {costReadiness.vehicle_default_count} loại xe
+                    </span>
+                    <span className={`px-2 py-0.5 rounded-full ${costReadiness.driver_rate_count > 0 ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-400'}`}>
+                      👤 {costReadiness.driver_rate_count} bảng lương
+                    </span>
+                    {!costReadiness.ready && (
+                      <a href="/dashboard/settings/transport-costs" className="px-2 py-0.5 rounded-full bg-blue-100 text-blue-700 hover:bg-blue-200 transition">
+                        → Cài đặt chi phí
+                      </a>
+                    )}
+                  </div>
+                )}
               </div>
 
               <div className="grid grid-cols-3 gap-4 max-w-md mx-auto mb-6 text-sm">
@@ -1676,35 +2155,205 @@ export default function PlanningPage() {
                   <div className="text-xs text-gray-500">Chuyến ước tính</div>
                 </div>
               </div>
-              <button onClick={runVRP}
-                className="px-8 py-3 bg-brand-500 text-white rounded-xl hover:bg-brand-600 transition font-medium text-lg shadow-lg shadow-brand-200">
-                🗺️ Tạo kế hoạch giao hàng
-              </button>
-              <p className="text-xs text-gray-400 mt-3">Thời gian giải tùy thuộc số lượng đơn, có thể mất 10-60 giây</p>
+              <div className="flex gap-3 items-center justify-center">
+                <button onClick={runVRP}
+                  className="px-8 py-3 bg-brand-500 text-white rounded-xl hover:bg-brand-600 transition font-medium text-lg shadow-lg shadow-brand-200">
+                  {optimizeFor === 'cost' ? '💰 Tạo kế hoạch tối ưu chi phí' : optimizeFor === 'time' ? '⚡ Tạo kế hoạch giao nhanh' : '📏 Tạo kế hoạch tối ưu km'}
+                </button>
+                {costReadiness?.ready && (
+                  <button onClick={compareStrategies}
+                    className="px-6 py-3 bg-white text-orange-600 border-2 border-orange-300 rounded-xl hover:bg-orange-50 transition font-medium text-sm shadow">
+                    ⚖️ So sánh 3 phương án
+                  </button>
+                )}
+              </div>
+              <p className="text-xs text-gray-400 mt-3">
+                {costReadiness?.ready
+                  ? 'Solver tính xăng + cầu đường cho mỗi tuyến · Kết quả hiển thị VND và km'
+                  : 'Thời gian giải tùy thuộc số lượng đơn, có thể mất 10-60 giây'}
+              </p>
             </div>
           )}
 
-          {/* Running animation */}
+          {/* Running animation — Vietnamese stage progress */}
           {running && (
-            <div className="bg-white rounded-xl shadow-sm p-8 text-center">
-              <div className="text-5xl mb-4 animate-bounce">⚙️</div>
-              <h2 className="text-xl font-bold text-gray-800 mb-2">Đang tối ưu tuyến đường...</h2>
-              <p className="text-gray-500 mb-6">Đang tính toán phân bổ tối ưu cho {activeShipments.length} đơn hàng</p>
-              <div className="max-w-md mx-auto mb-4">
-                <div className="bg-gray-200 rounded-full h-4 overflow-hidden">
-                  <div className="bg-amber-500 h-full rounded-full transition-all duration-300"
-                    style={{ width: `${solveProgress}%` }} />
+            <div className="bg-white rounded-xl shadow-sm p-8">
+              <div className="text-center mb-6">
+                <div className="text-4xl mb-3">⚙️</div>
+                <h2 className="text-xl font-bold text-gray-800">
+                  {optimizeFor === 'cost' ? '💰 Đang tối ưu chi phí vận chuyển...' : optimizeFor === 'time' ? '⚡ Đang tính toán giao nhanh nhất...' : '🧭 Đang tối ưu quãng đường...'}
+                </h2>
+                <p className="text-sm text-gray-400">{activeShipments.length} shipments · {selectedVehicles.length} xe</p>
+              </div>
+              <div className="max-w-sm mx-auto space-y-2">
+                {VRP_STAGES.map(s => {
+                  const done = STAGE_ORDER[singleProgress.stage] > STAGE_ORDER[s.key]
+                  const active = singleProgress.stage === s.key
+                  return (
+                    <div key={s.key} className={`flex items-center gap-3 px-4 py-2 rounded-lg text-sm transition-all ${
+                      done ? 'text-gray-400' : active ? 'bg-amber-50 text-amber-800 font-medium' : 'text-gray-300'
+                    }`}>
+                      <span className="w-6 text-center">{done ? '✅' : active ? s.icon : '○'}</span>
+                      <span>{s.label}</span>
+                      {active && singleProgress.detail && <span className="text-xs text-amber-600 ml-auto">{singleProgress.detail}</span>}
+                    </div>
+                  )
+                })}
+              </div>
+              <div className="max-w-sm mx-auto mt-4">
+                <div className="bg-gray-100 rounded-full h-2 overflow-hidden">
+                  <div className="bg-amber-500 h-full rounded-full transition-all duration-500"
+                    style={{ width: `${singleProgress.pct || solveProgress}%` }} />
                 </div>
-                <div className="text-sm text-gray-500 mt-2">{solveProgress}% — Đang xử lý...</div>
+                <div className="text-xs text-gray-400 mt-1 text-center">{singleProgress.pct || solveProgress}%</div>
               </div>
             </div>
           )}
 
+          {/* Comparing animation — 3-column Vietnamese stage progress */}
+          {comparing && (
+            <div className="bg-white rounded-xl shadow-sm p-6">
+              <div className="text-center mb-5">
+                <h2 className="text-xl font-bold text-gray-800">⚖️ Đang so sánh 3 phương án song song...</h2>
+                <p className="text-sm text-gray-400 mt-1">{activeShipments.length} đơn × 3 lần giải — VRP chạy đồng thời</p>
+              </div>
+              <div className="grid grid-cols-3 gap-4">
+                {([
+                  { key: 'cost'     as const, icon: '💰', label: 'Tối ưu chi phí', border: 'border-green-200',  activeCls: 'bg-green-50 text-green-800',  bar: 'bg-green-500' },
+                  { key: 'time'     as const, icon: '⚡', label: 'Giao nhanh',      border: 'border-blue-200',   activeCls: 'bg-blue-50 text-blue-800',    bar: 'bg-blue-500' },
+                  { key: 'distance' as const, icon: '🧭', label: 'Tối ưu km',       border: 'border-purple-200', activeCls: 'bg-purple-50 text-purple-800', bar: 'bg-purple-500' },
+                ]).map(mode => {
+                  const prog = compareProgress[mode.key]
+                  const isDone = prog.stage === 'done'
+                  return (
+                    <div key={mode.key} className={`border ${mode.border} rounded-xl p-4 ${isDone ? 'opacity-75' : ''}`}>
+                      <div className="font-semibold text-sm mb-3 flex items-center gap-2">
+                        <span>{mode.icon}</span>
+                        <span>{mode.label}</span>
+                        {isDone && <span className="ml-auto text-green-600 text-xs">✅ Xong</span>}
+                      </div>
+                      <div className="space-y-1.5">
+                        {VRP_STAGES.map(s => {
+                          const done = STAGE_ORDER[prog.stage] > STAGE_ORDER[s.key]
+                          const active = prog.stage === s.key
+                          return (
+                            <div key={s.key} className={`flex items-center gap-2 px-2 py-1 rounded text-xs ${
+                              done ? 'text-gray-400' : active ? `${mode.activeCls} font-medium` : 'text-gray-300'
+                            }`}>
+                              <span>{done ? '✅' : active ? s.icon : '○'}</span>
+                              <span>{s.label}</span>
+                            </div>
+                          )
+                        })}
+                      </div>
+                      <div className="mt-3">
+                        <div className="bg-gray-100 rounded-full h-1.5 overflow-hidden">
+                          <div className={`${mode.bar} h-full rounded-full transition-all duration-500`}
+                            style={{ width: `${prog.pct}%` }} />
+                        </div>
+                        <div className="text-xs text-gray-400 mt-0.5 text-right">{prog.pct}%</div>
+                        {prog.detail && <div className="text-xs text-gray-500 truncate mt-1">{prog.detail}</div>}
+                      </div>
+                    </div>
+                  )
+                })}
+              </div>
+              <div className="text-center mt-4 text-sm text-gray-500">
+                Hoàn thành: {[compareProgress.cost, compareProgress.time, compareProgress.distance].filter(p => p.stage === 'done').length}/3
+              </div>
+            </div>
+          )}
+
+          {/* Comparison Result */}
+          {compareResult && !comparing && (
+            <div className="bg-white rounded-xl shadow-sm p-6 mb-6">
+              <div className="flex items-center justify-between mb-4">
+                <h2 className="text-lg font-bold text-gray-800">⚖️ So sánh 3 phương án tối ưu</h2>
+                <button onClick={() => setCompareResult(null)}
+                  className="text-gray-400 hover:text-gray-600 text-sm">✕ Đóng</button>
+              </div>
+              {(() => {
+                const modeDescs: Record<string, string> = {
+                  cost: 'Tránh đường có phí BOT, tối ưu xăng + cầu đường',
+                  time: 'Ưu tiên đường nhanh nhất, cân bằng thời gian các xe',
+                  distance: 'Ưu tiên quãng đường ngắn nhất',
+                }
+                const modes = [
+                  { key: 'cost' as const, label: '💰 Tối ưu chi phí', color: 'green', result: compareResult.cost },
+                  { key: 'time' as const, label: '⚡ Giao nhanh', color: 'blue', result: compareResult.time },
+                  { key: 'distance' as const, label: '📏 Tối ưu km', color: 'purple', result: compareResult.distance },
+                ]
+                const validModes = modes.filter(m => m.result?.summary)
+                if (validModes.length === 0) return <p className="text-red-500">Không thể so sánh — tất cả phương án đều lỗi</p>
+                const colorMap: Record<string, string> = { green: 'border-green-200 bg-green-50/50', blue: 'border-blue-200 bg-blue-50/50', purple: 'border-purple-200 bg-purple-50/50' }
+                const textColorMap: Record<string, string> = { green: 'text-green-700', blue: 'text-blue-700', purple: 'text-purple-700' }
+                const btnColorMap: Record<string, string> = { green: 'bg-green-600 hover:bg-green-700', blue: 'bg-blue-600 hover:bg-blue-700', purple: 'bg-purple-600 hover:bg-purple-700' }
+                const bestCost = Math.min(...validModes.map(m => m.result!.summary.total_cost_vnd || Infinity))
+                const bestTime = Math.min(...validModes.map(m => m.result!.summary.total_duration_min || Infinity))
+                const bestDist = Math.min(...validModes.map(m => m.result!.summary.total_distance_km || Infinity))
+                // Compute max single trip duration for each mode
+                const getMaxTripMin = (r: VRPResult) => Math.max(...(r.trips || []).map(t => t.total_duration_min || 0), 0)
+                const bestMaxTrip = Math.min(...validModes.map(m => getMaxTripMin(m.result!)))
+                return (
+                  <div>
+                    <div className={`grid gap-4 mb-4`} style={{ gridTemplateColumns: `repeat(${validModes.length}, minmax(0, 1fr))` }}>
+                      {validModes.map(m => {
+                        const s = m.result!.summary
+                        const isBestCost = (s.total_cost_vnd || 0) === bestCost
+                        const isBestTime = (s.total_duration_min || 0) === bestTime
+                        const isBestDist = (s.total_distance_km || 0) === bestDist
+                        const maxTrip = getMaxTripMin(m.result!)
+                        const isBestMaxTrip = maxTrip === bestMaxTrip
+                        return (
+                          <div key={m.key} className={`border-2 ${colorMap[m.color]} rounded-xl p-4`}>
+                            <div className={`text-sm font-bold ${textColorMap[m.color]} mb-1`}>{m.label}</div>
+                            <div className="text-[10px] text-gray-500 mb-3">{modeDescs[m.key]}</div>
+                            <div className="space-y-2 text-sm">
+                              <div className="flex justify-between"><span className="text-gray-600">Đơn giao</span><span className="font-bold">{s.total_shipments_assigned}/{s.total_shipments_assigned + (s.total_unassigned || 0)}</span></div>
+                              {(s.total_unassigned || 0) > 0 && (
+                                <div className="flex justify-between"><span className="text-red-500">⚠️ Chưa giao</span><span className="font-bold text-red-600">{s.total_unassigned}</span></div>
+                              )}
+                              <div className="flex justify-between"><span className="text-gray-600">Khối lượng</span><span>{((s.total_weight_kg || 0) / 1000).toFixed(1)} tấn</span></div>
+                              <div className="flex justify-between"><span className="text-gray-600">Số chuyến</span><span>{s.total_trips}</span></div>
+                              <div className="flex justify-between"><span className="text-gray-600">TB tải trọng</span><span>{(s.avg_capacity_util_pct || 0).toFixed(0)}%</span></div>
+                              <div className="flex justify-between border-t pt-1"><span className="text-gray-600">Tổng chi phí</span><span className={`font-bold ${isBestCost ? 'text-green-600' : ''}`}>{((s.total_cost_vnd || 0) / 1_000_000).toFixed(1)}M đ {isBestCost ? '⭐' : ''}</span></div>
+                              <div className="flex justify-between"><span className="text-gray-600">┗ Xăng/dầu</span><span className="text-orange-600">{((s.total_fuel_cost_vnd || 0) / 1_000_000).toFixed(1)}M</span></div>
+                              <div className="flex justify-between"><span className="text-gray-600">┗ Cầu đường</span><span className="text-red-600">{((s.total_toll_cost_vnd || 0) / 1_000_000).toFixed(1)}M</span></div>
+                              <div className="flex justify-between border-t pt-1"><span className="text-gray-600">Tổng thời gian</span><span className={`font-bold ${isBestTime ? 'text-blue-600' : ''}`}>{Math.round((s.total_duration_min || 0) / 60)}h{(s.total_duration_min || 0) % 60}p {isBestTime ? '⭐' : ''}</span></div>
+                              <div className="flex justify-between"><span className="text-gray-600">Chuyến dài nhất</span><span className={`${isBestMaxTrip ? 'text-blue-600 font-bold' : ''}`}>{Math.floor(maxTrip / 60)}h{maxTrip % 60}p {isBestMaxTrip ? '⭐' : ''}</span></div>
+                              <div className="flex justify-between"><span className="text-gray-600">Quãng đường</span><span className={isBestDist ? 'text-purple-600 font-bold' : ''}>{(s.total_distance_km || 0).toFixed(0)} km {isBestDist ? '⭐' : ''}</span></div>
+                              <div className="flex justify-between"><span className="text-gray-600">VND/tấn</span><span>{((s.avg_cost_per_ton_vnd || 0) / 1000).toFixed(0)}K</span></div>
+                            </div>
+                          </div>
+                        )
+                      })}
+                    </div>
+                    {/* Action buttons */}
+                    <div className="flex gap-3 justify-center flex-wrap">
+                      {validModes.map(m => (
+                        <button key={m.key} onClick={() => {
+                          setVrpResult(m.result)
+                          setOptimizeFor(m.key)
+                          setCompareResult(null)
+                        }} className={`px-5 py-2 ${btnColorMap[m.color]} text-white rounded-lg text-sm font-medium`}>
+                          ✅ Chọn {m.label}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                )
+              })()}
+            </div>
+          )}
+
           {/* VRP Failed */}
-          {vrpResult && !vrpResult.trips && !running && (
+          {vrpResult && (!vrpResult.trips || vrpResult.trips.length === 0) && !running && (
             <div className="bg-red-50 border border-red-200 rounded-xl p-5 text-center">
               <p className="text-red-700 font-medium text-lg mb-2">❌ Không tạo được kế hoạch</p>
-              <p className="text-red-600 text-sm mb-4">VRP solver không tìm được phương án phù hợp. Hãy thử điều chỉnh xe hoặc đơn hàng.</p>
+              <p className="text-red-600 text-sm mb-4">{vrpResult.error || 'VRP solver không tìm được phương án phù hợp. Hãy thử điều chỉnh xe hoặc đơn hàng.'}</p>
+              {vrpResult.distance_source === 'mock' && (
+                <p className="text-amber-600 text-xs mb-3">⚠️ VRP solver không khả dụng — đang dùng kết quả mock</p>
+              )}
               <button onClick={() => { setVrpResult(null); setJobId(''); }}
                 className="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 text-sm">
                 ← Quay lại chỉnh sửa
@@ -1718,13 +2367,65 @@ export default function PlanningPage() {
               {/* Summary KPI */}
               <div className="bg-gradient-to-r from-green-50 to-emerald-50 border border-green-200 rounded-xl p-5">
                 <div className="flex items-center justify-between mb-4">
-                  <h2 className="font-bold text-green-800 text-lg">✅ Kết quả tối ưu tuyến đường</h2>
+                  <h2 className="font-bold text-green-800 text-lg">✅ Kết quả tối ưu</h2>
                   <span className="text-xs bg-green-200 text-green-800 px-2 py-1 rounded-full">
                     Giải trong {vrpResult.summary?.solve_time_ms || vrpResult.solve_time_ms}ms
                   </span>
                 </div>
 
-                <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-3 mb-4">
+                {/* Tiêu chí đã sử dụng */}
+                <div className="flex items-center gap-2 mb-4 flex-wrap">
+                  <span className="text-xs font-medium text-gray-500">Tiêu chí đã dùng:</span>
+                  {criteriaOrder.filter(c => c.enabled).map((c, i) => (
+                    <span key={c.key} className="inline-flex items-center gap-1 px-2 py-1 rounded-full bg-amber-50 border border-amber-200 text-xs text-amber-700">
+                      <span className="font-bold">{i+1}</span> {c.icon} {c.label}
+                    </span>
+                  ))}
+                  {costReadiness?.ready && <span className="inline-flex items-center gap-1 px-2 py-1 rounded-full bg-green-50 border border-green-200 text-xs text-green-700">💰 Tối ưu chi phí (fuel+toll)</span>}
+                  <span className="inline-flex items-center gap-1 px-2 py-1 rounded-full bg-blue-50 border border-blue-200 text-xs text-blue-700">🔄 Chuyến về kho</span>
+                  {criteriaOrder.find(c => c.key === 'time_limit' && c.enabled) && (
+                    <span className="inline-flex items-center gap-1 px-2 py-1 rounded-full bg-green-50 border border-green-200 text-xs text-green-700">⏱ Tối đa {maxTripHours}h/chuyến</span>
+                  )}
+                </div>
+
+                {/* Cost Summary */}
+                <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-8 gap-3 mb-3">
+                  <div className="bg-green-50 rounded-lg p-3 text-center shadow-sm border border-green-200 col-span-2">
+                    {(vrpResult.summary?.total_cost_vnd || 0) > 0 ? (
+                      <div className="text-3xl font-bold text-green-700">{((vrpResult.summary?.total_cost_vnd || 0) / 1000000).toFixed(1)}M</div>
+                    ) : (
+                      <div className="text-xl font-bold text-gray-400">Chưa tính</div>
+                    )}
+                    <div className="text-xs text-green-600 font-medium">💰 Tổng chi phí (VND)</div>
+                  </div>
+                  <div className="bg-orange-50 rounded-lg p-3 text-center shadow-sm border border-orange-200">
+                    <div className="text-xl font-bold text-orange-700">{(vrpResult.summary?.total_fuel_cost_vnd || 0) > 0 ? `${((vrpResult.summary?.total_fuel_cost_vnd || 0) / 1000000).toFixed(1)}M` : '—'}</div>
+                    <div className="text-xs text-orange-600">⛽ Xăng/dầu</div>
+                  </div>
+                  <div className="bg-red-50 rounded-lg p-3 text-center shadow-sm border border-red-200">
+                    <div className="text-xl font-bold text-red-700">{(vrpResult.summary?.total_toll_cost_vnd || 0) > 0 ? `${((vrpResult.summary?.total_toll_cost_vnd || 0) / 1000000).toFixed(1)}M` : '—'}</div>
+                    <div className="text-xs text-red-600">🚏 Cầu đường</div>
+                  </div>
+                  <div className="bg-violet-50 rounded-lg p-3 text-center shadow-sm border border-violet-200">
+                    <div className="text-xl font-bold text-violet-700">{(vrpResult.summary?.total_driver_cost_vnd || 0) > 0 ? `${((vrpResult.summary?.total_driver_cost_vnd || 0) / 1000000).toFixed(1)}M` : '—'}</div>
+                    <div className="text-xs text-violet-600">👤 Tài xế</div>
+                  </div>
+                  <div className="bg-blue-50 rounded-lg p-3 text-center shadow-sm border border-blue-200">
+                    <div className="text-xl font-bold text-blue-700">{(vrpResult.summary?.avg_cost_per_ton_vnd || 0) > 0 ? `${((vrpResult.summary?.avg_cost_per_ton_vnd || 0) / 1000).toFixed(0)}K` : '—'}</div>
+                    <div className="text-xs text-blue-600">📊 VND/tấn</div>
+                  </div>
+                  <div className="bg-cyan-50 rounded-lg p-3 text-center shadow-sm border border-cyan-200">
+                    <div className="text-xl font-bold text-cyan-700">{(vrpResult.summary?.avg_cost_per_km_vnd || 0) > 0 ? (vrpResult.summary?.avg_cost_per_km_vnd || 0).toFixed(0) : '—'}</div>
+                    <div className="text-xs text-cyan-600">🛣️ VND/km</div>
+                  </div>
+                  <div className="bg-amber-50 rounded-lg p-3 text-center shadow-sm border border-amber-200">
+                    <div className="text-xl font-bold text-amber-700">{(vrpResult.summary?.avg_cost_per_shipment_vnd || 0) > 0 ? `${((vrpResult.summary?.avg_cost_per_shipment_vnd || 0) / 1000).toFixed(0)}K` : '—'}</div>
+                    <div className="text-xs text-amber-600">📦 VND/đơn</div>
+                  </div>
+                </div>
+
+                {/* Operational metrics — always visible */}
+                <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3 mb-4">
                   <div className="bg-white rounded-lg p-3 text-center shadow-sm">
                     <div className="text-2xl font-bold text-amber-700">{vrpResult.trips.length}</div>
                     <div className="text-xs text-gray-500">Chuyến xe</div>
@@ -1774,6 +2475,9 @@ export default function PlanningPage() {
                             </span>
                           </div>
                           <span className="w-28 text-right text-gray-500">{trip.stops.length} điểm · {trip.total_distance_km?.toFixed(1)}km</span>
+                          {(trip.total_cost_vnd ?? 0) > 0 && (
+                            <span className="w-16 text-right text-green-600 font-medium">{((trip.total_cost_vnd ?? 0)/1000).toFixed(0)}K</span>
+                          )}
                           <span className="text-blue-500 hover:text-blue-700">🗺️ ▸</span>
                         </div>
                       )
@@ -1891,6 +2595,50 @@ export default function PlanningPage() {
                           </div>
                         </div>
 
+                        {/* Cost metrics in quality assessment */}
+                        {(vrpResult.summary?.total_cost_vnd || 0) > 0 && (() => {
+                          const costPerTrip = vrpResult.trips.length > 0 ? (vrpResult.summary?.total_cost_vnd || 0) / vrpResult.trips.length : 0
+                          const fuelPct = (vrpResult.summary?.total_cost_vnd || 0) > 0 ? ((vrpResult.summary?.total_fuel_cost_vnd || 0) / (vrpResult.summary?.total_cost_vnd || 1) * 100) : 0
+                          const tollPct = vrpResult.summary?.toll_cost_ratio_pct || 0
+                          return (
+                            <div className="mt-3">
+                              <div className="text-xs font-semibold text-gray-600 mb-2">💰 Phân tích chi phí</div>
+                              <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3">
+                                <div className="bg-green-50 rounded-lg p-2.5 border border-green-200">
+                                  <div className="text-xs text-gray-500 mb-1">Tổng chi phí</div>
+                                  <div className="font-bold text-green-700">{((vrpResult.summary?.total_cost_vnd || 0) / 1000000).toFixed(1)}M</div>
+                                  <div className="text-[10px] text-gray-400">VND</div>
+                                </div>
+                                <div className="bg-orange-50 rounded-lg p-2.5 border border-orange-200">
+                                  <div className="text-xs text-gray-500 mb-1">Xăng/dầu</div>
+                                  <div className="font-bold text-orange-700">{fuelPct.toFixed(0)}%</div>
+                                  <div className="text-[10px] text-gray-400">{((vrpResult.summary?.total_fuel_cost_vnd || 0) / 1000000).toFixed(1)}M</div>
+                                </div>
+                                <div className="bg-red-50 rounded-lg p-2.5 border border-red-200">
+                                  <div className="text-xs text-gray-500 mb-1">Cầu đường</div>
+                                  <div className="font-bold text-red-700">{tollPct.toFixed(0)}%</div>
+                                  <div className="text-[10px] text-gray-400">{((vrpResult.summary?.total_toll_cost_vnd || 0) / 1000000).toFixed(1)}M</div>
+                                </div>
+                                <div className="bg-blue-50 rounded-lg p-2.5 border border-blue-200">
+                                  <div className="text-xs text-gray-500 mb-1">Chi phí/chuyến TB</div>
+                                  <div className="font-bold text-blue-700">{(costPerTrip / 1000).toFixed(0)}K</div>
+                                  <div className="text-[10px] text-gray-400">VND/chuyến</div>
+                                </div>
+                                <div className="bg-cyan-50 rounded-lg p-2.5 border border-cyan-200">
+                                  <div className="text-xs text-gray-500 mb-1">VND/km</div>
+                                  <div className="font-bold text-cyan-700">{(vrpResult.summary?.avg_cost_per_km_vnd || 0).toFixed(0)}</div>
+                                  <div className="text-[10px] text-gray-400">Đơn giá vận chuyển</div>
+                                </div>
+                                <div className="bg-amber-50 rounded-lg p-2.5 border border-amber-200">
+                                  <div className="text-xs text-gray-500 mb-1">VND/tấn</div>
+                                  <div className="font-bold text-amber-700">{((vrpResult.summary?.avg_cost_per_ton_vnd || 0) / 1000).toFixed(0)}K</div>
+                                  <div className="text-[10px] text-gray-400">Chi phí/tấn hàng</div>
+                                </div>
+                              </div>
+                            </div>
+                          )
+                        })()}
+
                         {/* Consolidation & Split stats */}
                         {((vrpResult.summary?.consolidated_stops || 0) > 0 || (vrpResult.summary?.split_deliveries || 0) > 0) && (
                           <div className="flex gap-3">
@@ -1987,7 +2735,7 @@ export default function PlanningPage() {
                         className="px-3 py-1.5 bg-amber-100 text-amber-700 rounded-lg text-xs font-medium hover:bg-amber-200 transition">
                         📦 Quay bước 3 — Bớt đơn hàng
                       </button>
-                      <button onClick={() => { setVrpResult(null); setJobId(''); runVRP() }}
+                      <button onClick={() => { setVrpResult(null); setJobId(''); setSavedJobId('') }}
                         className="px-3 py-1.5 bg-green-100 text-green-700 rounded-lg text-xs font-medium hover:bg-green-200 transition">
                         🔄 Tối ưu lại
                       </button>
@@ -2027,6 +2775,176 @@ export default function PlanningPage() {
                 </ul>
               </div>
 
+              {/* ─── Save Scenario + Scenario History ─── */}
+              <div className="bg-white rounded-xl shadow-sm border p-4">
+                <div className="flex items-center justify-between mb-3">
+                  <h3 className="font-semibold text-gray-800 text-sm">💾 Lưu & So sánh phương án</h3>
+                  <button onClick={() => setShowScenarios(!showScenarios)}
+                    className="text-xs text-blue-600 hover:text-blue-800">
+                    {showScenarios ? 'Ẩn lịch sử' : `📋 Xem lịch sử (${savedScenarios.length})`}
+                  </button>
+                </div>
+
+                {/* Save current result */}
+                <div className="flex gap-2 mb-3">
+                  <input type="text" placeholder="Tên phương án (vd: PA1 - Ưu tiên chi phí)"
+                    value={scenarioName} onChange={e => setScenarioName(e.target.value)}
+                    className="flex-1 px-3 py-2 border rounded-lg text-sm focus:ring-2 focus:ring-brand-500 focus:border-brand-500" />
+                  <button onClick={saveScenario} disabled={savingScenario || !jobId || savedJobId === jobId}
+                    className={`px-4 py-2 rounded-lg disabled:opacity-50 text-sm font-medium whitespace-nowrap transition ${
+                      savedJobId === jobId ? 'bg-green-100 text-green-700 border border-green-300' : 'bg-brand-500 text-white hover:bg-brand-600'
+                    }`}>
+                    {savingScenario ? '⏳ Đang lưu...' : savedJobId === jobId ? '✅ Đã lưu' : '💾 Lưu phương án'}
+                  </button>
+                </div>
+
+                {/* Scenario comparison table */}
+                {showScenarios && savedScenarios.length > 0 && (
+                  <div className="mt-3">
+                    <div className="overflow-x-auto">
+                      <table className="w-full text-xs border-collapse">
+                        <thead>
+                          <tr className="bg-gray-50 text-gray-600">
+                            <th className="text-left p-2 font-medium">Phương án</th>
+                            <th className="text-right p-2 font-medium">Chi phí</th>
+                            <th className="text-right p-2 font-medium">Km</th>
+                            <th className="text-right p-2 font-medium">Chuyến</th>
+                            <th className="text-right p-2 font-medium">Tải TB</th>
+                            <th className="text-right p-2 font-medium">Service %</th>
+                            <th className="text-right p-2 font-medium">VND/tấn</th>
+                            <th className="text-center p-2 font-medium">Thời gian</th>
+                            <th className="text-center p-2 font-medium">Thao tác</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {savedScenarios.map((s, i) => {
+                            // Pareto: check if any other scenario dominates this one
+                            const isDominated = savedScenarios.some(other =>
+                              other.id !== s.id &&
+                              other.total_cost_vnd <= s.total_cost_vnd &&
+                              other.service_level_pct >= s.service_level_pct &&
+                              (other.total_cost_vnd < s.total_cost_vnd || other.service_level_pct > s.service_level_pct)
+                            )
+                            return (
+                              <tr key={s.id} className={`border-t ${isDominated ? 'opacity-50 bg-gray-50' : 'bg-white'} ${s.is_approved ? 'ring-2 ring-green-300' : ''}`}>
+                                <td className="p-2">
+                                  <div className="font-medium text-gray-800">{s.scenario_name || `PA ${i + 1}`}</div>
+                                  <div className="text-[10px] text-gray-400">{new Date(s.created_at).toLocaleString('vi-VN')}</div>
+                                  {isDominated && <span className="text-[10px] text-red-400">⊘ Bị chi phối</span>}
+                                  {!isDominated && s.total_cost_vnd > 0 && <span className="text-[10px] text-green-600">★ Pareto tối ưu</span>}
+                                </td>
+                                <td className="p-2 text-right font-medium text-green-700">
+                                  {s.total_cost_vnd > 0 ? `${(s.total_cost_vnd / 1000000).toFixed(1)}M` : '—'}
+                                </td>
+                                <td className="p-2 text-right">{s.total_distance_km?.toFixed(0)}</td>
+                                <td className="p-2 text-right">{s.total_trips}</td>
+                                <td className="p-2 text-right">{s.avg_capacity_util_pct?.toFixed(0)}%</td>
+                                <td className="p-2 text-right font-medium">{s.service_level_pct?.toFixed(0)}%</td>
+                                <td className="p-2 text-right">{s.avg_cost_per_ton_vnd > 0 ? `${(s.avg_cost_per_ton_vnd / 1000).toFixed(0)}K` : '—'}</td>
+                                <td className="p-2 text-center text-gray-400">{s.solve_time_ms}ms</td>
+                                <td className="p-2 text-center">
+                                  <div className="flex items-center gap-1.5 justify-center">
+                                    <button onClick={() => loadScenarioResult(s.id)}
+                                      className="px-2 py-1 bg-blue-50 text-blue-600 hover:bg-blue-100 rounded text-xs font-medium" title="Tải phương án này vào xem">
+                                      📥 Tải
+                                    </button>
+                                    <button onClick={() => deleteScenario(s.id)}
+                                      className="text-red-400 hover:text-red-600 text-xs" title="Xóa">🗑️</button>
+                                  </div>
+                                </td>
+                              </tr>
+                            )
+                          })}
+                        </tbody>
+                      </table>
+                    </div>
+
+                    {/* Pareto Chart (2-axis: Cost vs Service Level) */}
+                    {savedScenarios.length >= 2 && savedScenarios.some(s => s.total_cost_vnd > 0) && (
+                      <div className="mt-4 bg-gray-50 rounded-xl p-4">
+                        <h4 className="text-xs font-semibold text-gray-600 mb-3">📊 Biểu đồ Pareto: Chi phí ↔ Mức phục vụ</h4>
+                        <div className="relative h-48 border border-gray-200 bg-white rounded-lg p-2">
+                          {/* Y axis label */}
+                          <div className="absolute -left-1 top-1/2 -translate-y-1/2 -rotate-90 text-[10px] text-gray-400 whitespace-nowrap">
+                            Mức phục vụ (%)
+                          </div>
+                          {/* X axis label */}
+                          <div className="absolute bottom-0 left-1/2 -translate-x-1/2 text-[10px] text-gray-400">
+                            Tổng chi phí (triệu VND) →
+                          </div>
+                          {/* Plot area */}
+                          <div className="relative w-full h-full">
+                            {(() => {
+                              const costs = savedScenarios.filter(s => s.total_cost_vnd > 0).map(s => s.total_cost_vnd)
+                              const minC = Math.min(...costs) * 0.9
+                              const maxC = Math.max(...costs) * 1.1
+                              const rangeC = maxC - minC || 1
+                              return savedScenarios.filter(s => s.total_cost_vnd > 0).map((s, i) => {
+                                const x = ((s.total_cost_vnd - minC) / rangeC) * 85 + 5 // 5-90% horizontal
+                                const y = 100 - ((s.service_level_pct - 80) / 20) * 85 - 5 // 80-100% → 5-90% vertical
+                                const isDominated = savedScenarios.some(other =>
+                                  other.id !== s.id &&
+                                  other.total_cost_vnd <= s.total_cost_vnd &&
+                                  other.service_level_pct >= s.service_level_pct &&
+                                  (other.total_cost_vnd < s.total_cost_vnd || other.service_level_pct > s.service_level_pct)
+                                )
+                                return (
+                                  <div key={s.id}
+                                    className={`absolute w-6 h-6 rounded-full flex items-center justify-center text-[10px] font-bold border-2 cursor-pointer transition-transform hover:scale-125 ${
+                                      isDominated
+                                        ? 'bg-gray-200 border-gray-300 text-gray-500'
+                                        : 'bg-green-400 border-green-600 text-white shadow-lg'
+                                    }`}
+                                    style={{ left: `${x}%`, top: `${y}%`, transform: 'translate(-50%, -50%)' }}
+                                    title={`${s.scenario_name || `PA ${i + 1}`}\nChi phí: ${(s.total_cost_vnd / 1000000).toFixed(1)}M\nPhục vụ: ${s.service_level_pct?.toFixed(0)}%\n${isDominated ? '⊘ Bị chi phối' : '★ Pareto tối ưu'}`}
+                                  >
+                                    {i + 1}
+                                  </div>
+                                )
+                              })
+                            })()}
+                          </div>
+                        </div>
+                        <div className="mt-2 text-[10px] text-gray-500">
+                          <span className="inline-block w-3 h-3 bg-green-400 rounded-full mr-1 align-middle border border-green-600"></span> Pareto tối ưu (không bị chi phối)
+                          <span className="ml-3 inline-block w-3 h-3 bg-gray-200 rounded-full mr-1 align-middle border border-gray-300"></span> Bị chi phối (có PA tốt hơn ở cả 2 trục)
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Pareto recommendation */}
+                    {savedScenarios.length >= 2 && (() => {
+                      const pareto = savedScenarios.filter(s => s.total_cost_vnd > 0 && !savedScenarios.some(other =>
+                        other.id !== s.id &&
+                        other.total_cost_vnd <= s.total_cost_vnd &&
+                        other.service_level_pct >= s.service_level_pct &&
+                        (other.total_cost_vnd < s.total_cost_vnd || other.service_level_pct > s.service_level_pct)
+                      ))
+                      if (pareto.length === 0) return null
+                      const cheapest = pareto.reduce((a, b) => a.total_cost_vnd < b.total_cost_vnd ? a : b)
+                      const bestService = pareto.reduce((a, b) => a.service_level_pct > b.service_level_pct ? a : b)
+                      return (
+                        <div className="mt-3 bg-blue-50 border border-blue-200 rounded-lg p-3 text-xs text-blue-800">
+                          <strong>💡 Gợi ý:</strong>
+                          {cheapest.id === bestService.id
+                            ? <> Phương án &quot;{cheapest.scenario_name}&quot; tối ưu nhất cả chi phí lẫn mức phục vụ.</>
+                            : <> Nếu ưu tiên <strong>tiết kiệm</strong> → &quot;{cheapest.scenario_name}&quot; ({(cheapest.total_cost_vnd / 1000000).toFixed(1)}M).
+                              Nếu ưu tiên <strong>phục vụ đầy đủ</strong> → &quot;{bestService.scenario_name}&quot; ({bestService.service_level_pct?.toFixed(0)}% đơn hàng).
+                              Trade-off: +{((bestService.total_cost_vnd - cheapest.total_cost_vnd) / 1000000).toFixed(1)}M để phục vụ thêm {(bestService.service_level_pct - cheapest.service_level_pct).toFixed(0)}% đơn.</>
+                          }
+                        </div>
+                      )
+                    })()}
+                  </div>
+                )}
+
+                {showScenarios && savedScenarios.length === 0 && (
+                  <div className="text-center text-gray-400 text-xs py-4">
+                    Chưa có phương án nào được lưu. Bấm &quot;Lưu phương án&quot; để bắt đầu so sánh.
+                  </div>
+                )}
+              </div>
+
               {/* Trip cards with drag & drop */}
               {vrpResult.trips.map((trip, tripIdx) => {
                 const vehicle = vehicles.find(v => v.id === trip.vehicle_id)
@@ -2049,6 +2967,14 @@ export default function PlanningPage() {
                         </span>
                         <span>{trip.stops.length} điểm</span>
                         {trip.total_duration_min > 0 && <span>~{trip.total_duration_min} phút</span>}
+                        {(trip.total_cost_vnd ?? 0) > 0 && (
+                          <span className="inline-flex items-center gap-1 text-green-700 font-medium bg-green-50 px-2 py-0.5 rounded-full border border-green-200">
+                            💰 {((trip.total_cost_vnd ?? 0) / 1000).toFixed(0)}K
+                            <span className="text-[10px] text-green-500 font-normal">
+                              (⛽{((trip.fuel_cost_vnd ?? 0)/1000).toFixed(0)}K + 🚏{((trip.toll_cost_vnd ?? 0)/1000).toFixed(0)}K)
+                            </span>
+                          </span>
+                        )}
                         <button onClick={() => setSelectedTripIdx(tripIdx)}
                           className="px-3 py-1 bg-blue-50 text-blue-700 rounded-lg hover:bg-blue-100 transition text-xs font-medium">
                           🗺️ Xem bản đồ
@@ -2119,7 +3045,7 @@ export default function PlanningPage() {
 
               {/* Re-run VRP */}
               <div className="flex justify-center">
-                <button onClick={() => { setVrpResult(null); setJobId(''); runVRP() }}
+                <button onClick={() => { setVrpResult(null); setJobId(''); setSavedJobId('') }}
                   className="px-6 py-2.5 bg-amber-100 text-amber-700 rounded-lg hover:bg-amber-200 transition font-medium">
                   🔄 Tối ưu lại từ đầu
                 </button>

@@ -286,6 +286,8 @@ Từ BRD §14 — 12 tiêu chí nghiệm thu. Mỗi tiêu chí cần **Passed** 
 | UAT-03 | Driver App giao hàng | Tài xế nhận trip → checklist → giao 3 điểm → ePOD | Driver login → start trip → deliver + photo → complete | ☐ |
 | UAT-04 | Thu tiền + vỏ | Tài xế thu tiền mặt / chuyển khoản + thu vỏ tại NPP | Deliver → collect payment → collect containers → submit | ☐ |
 | UAT-05 | GPS tracking | Dispatcher xem vị trí tài xế real-time trên bản đồ | Driver drives → dispatcher opens map → sees moving marker | ☐ |
+| UAT-05A | Control Tower progress + ETA deviation | Dispatcher thấy progress bar theo điểm giao và badge ETA (đúng tiến độ/trễ) cho từng chuyến active | Seed 2 chuyến active có estimated_arrival khác nhau → mở Control Tower → đối chiếu tiến độ + ETA badge theo dữ liệu stop | ☐ |
+| UAT-05B | Control Tower realistic route coverage | Dispatcher thấy đủ 7 tuyến active của SC-11 xuất phát từ WH-HL, không còn marker/route rơi ra biển | Load SC-11 → start GPS simulate → mở Control Tower → xác nhận 7 xe online, 7 route active hiển thị theo cụm Hạ Long/Quảng Yên/Uông Bí/Đông Triều/Cẩm Phả | ☐ |
 | UAT-06 | Gate check PDA | Thủ kho scan barcode đối chiếu phiếu xuất kho | Scan items on PDA → system beeps match/mismatch | ☐ |
 | UAT-07 | Reconciliation tự động | Hoàn thành trip → hệ thống tự tạo bản đối soát | Complete trip → check /reconciliation → record exists | ☐ |
 | UAT-08 | Phát hiện chênh lệch | Giao thiếu hàng → hệ thống phát hiện discrepancy | Deliver 9/10 → recon → discrepancy ticket auto-created | ☐ |

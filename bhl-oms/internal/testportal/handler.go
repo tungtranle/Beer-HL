@@ -48,6 +48,7 @@ func (h *Handler) RegisterRoutes(r *gin.RouterGroup) {
 		tp.GET("/credit-balances", h.ListCreditBalances)
 		tp.GET("/customers", h.ListCustomers)
 		tp.GET("/products", h.ListProducts)
+		tp.GET("/drivers", h.ListDrivers)
 
 		// Test actions
 		tp.POST("/reset-data", h.ResetTestData)
@@ -498,6 +499,46 @@ func (h *Handler) ListProducts(c *gin.Context) {
 	for rows.Next() {
 		var r Row
 		if err := rows.Scan(&r.ID, &r.SKU, &r.Name, &r.Price, &r.DepositPrice, &r.WeightKg, &r.VolumeM3); err != nil {
+			continue
+		}
+		items = append(items, r)
+	}
+	if items == nil {
+		items = []Row{}
+	}
+	response.OK(c, items)
+}
+
+// GET /v1/test-portal/drivers
+func (h *Handler) ListDrivers(c *gin.Context) {
+	ctx := c.Request.Context()
+	rows, err := h.db.Query(ctx, `
+		SELECT d.id, d.full_name, COALESCE(d.phone, ''), d.license_number,
+			d.status::text, d.warehouse_id::text, d.user_id::text
+		FROM drivers d
+		WHERE d.status::text = 'active'
+		ORDER BY d.full_name
+	`)
+	if err != nil {
+		response.InternalError(c)
+		return
+	}
+	defer rows.Close()
+
+	type Row struct {
+		ID            string  `json:"id"`
+		FullName      string  `json:"full_name"`
+		Phone         string  `json:"phone"`
+		LicenseNumber *string `json:"license_number"`
+		Status        string  `json:"status"`
+		WarehouseID   string  `json:"warehouse_id"`
+		UserID        string  `json:"user_id"`
+	}
+
+	var items []Row
+	for rows.Next() {
+		var r Row
+		if err := rows.Scan(&r.ID, &r.FullName, &r.Phone, &r.LicenseNumber, &r.Status, &r.WarehouseID, &r.UserID); err != nil {
 			continue
 		}
 		items = append(items, r)
@@ -1845,8 +1886,9 @@ func (h *Handler) publishGPSUpdate(ctx context.Context, state *vehicleSim, now t
 
 	// Publish to channel (WebSocket hub picks this up)
 	update, _ := json.Marshal(map[string]interface{}{
-		"type": "gps_update", "vehicle_id": state.ID,
-		"lat": state.Lat, "lng": state.Lng,
+		"type": "position", "vehicle_id": state.ID,
+		"vehicle_plate": state.Plate,
+		"lat":           state.Lat, "lng": state.Lng,
 		"speed": state.Speed, "heading": state.Heading, "ts": ts,
 	})
 	h.rdb.Publish(ctx, "gps:updates", string(update))

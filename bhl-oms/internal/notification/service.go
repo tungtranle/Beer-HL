@@ -201,6 +201,24 @@ func (h *Hub) SendToUser(userID uuid.UUID, n *domain.Notification) {
 	}
 }
 
+// SendRawToUser pushes a raw JSON message to all WebSocket connections for that user.
+// Used for VRP progress updates and other non-notification messages.
+func (h *Hub) SendRawToUser(userID uuid.UUID, msg map[string]interface{}) {
+	data, err := json.Marshal(msg)
+	if err != nil {
+		return
+	}
+
+	h.mu.RLock()
+	defer h.mu.RUnlock()
+	for _, ch := range h.clients[userID] {
+		select {
+		case ch <- data:
+		default:
+		}
+	}
+}
+
 // BroadcastEntityUpdate sends an entity change to ALL connected WebSocket clients.
 // Enables real-time UI refresh when any entity (order, trip, handover) changes status.
 func (h *Hub) BroadcastEntityUpdate(entityType string, entityID uuid.UUID, newStatus string) {

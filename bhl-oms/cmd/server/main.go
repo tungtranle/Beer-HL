@@ -244,6 +244,7 @@ func main() {
 	// Wire notification into TMS + WMS + start document expiry cron
 	tmsSvc.SetNotificationService(notifSvc)
 	tmsSvc.SetReconciliationService(reconSvc)
+	tmsSvc.SetVRPBroadcaster(notifHub) // VRP real-time progress via WebSocket
 	wmsSvc.SetNotificationService(notifSvc)
 	go tmsSvc.RunDocumentExpiryCron(appCtx)
 	appLog.Info(ctx, "document_expiry_cron_started", logger.F("cron", "07:00_daily"))
@@ -251,6 +252,10 @@ func main() {
 	// GPS routes (REST)
 	gpsHandler := gps.NewHandler(gpsHub, pool)
 	gpsHandler.RegisterRoutes(protected)
+
+	// GPS Simulation (admin/dispatcher only)
+	gpsSim := gps.NewSimController(gpsHub, pool, appLog)
+	gpsSim.RegisterRoutes(protected)
 
 	// Admin module — user management
 	adminRepo := admin.NewRepository(pool, appLog)

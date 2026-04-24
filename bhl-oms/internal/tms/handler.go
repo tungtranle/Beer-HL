@@ -30,6 +30,11 @@ func (h *Handler) RegisterRoutes(r *gin.RouterGroup) {
 	planning.POST("/run-vrp", middleware.RequireRole("admin", "dispatcher"), h.RunVRP)
 	planning.GET("/jobs/:jobId", h.GetVRPResult)
 	planning.POST("/approve", middleware.RequireRole("admin", "dispatcher"), h.ApprovePlan)
+	planning.GET("/cost-readiness", middleware.RequireRole("admin", "dispatcher"), h.GetCostReadiness)
+	planning.POST("/scenarios", middleware.RequireRole("admin", "dispatcher"), h.SaveVRPScenario)
+	planning.GET("/scenarios", middleware.RequireRole("admin", "dispatcher"), h.ListVRPScenarios)
+	planning.GET("/scenarios/:id", middleware.RequireRole("admin", "dispatcher"), h.GetVRPScenario)
+	planning.DELETE("/scenarios/:id", middleware.RequireRole("admin", "dispatcher"), h.DeleteVRPScenario)
 
 	// Shipments (pending for VRP)
 	r.GET("/shipments/pending", h.ListPendingShipments)
@@ -114,6 +119,34 @@ func (h *Handler) RegisterRoutes(r *gin.RouterGroup) {
 
 	// Offline sync — batch process queued actions
 	driver.POST("/sync", h.OfflineSync)
+
+	// Cost Engine Admin
+	cost := r.Group("/cost")
+	cost.Use(middleware.RequireRole("admin", "dispatcher"))
+	// Toll stations
+	cost.GET("/toll-stations", h.ListTollStations)
+	cost.POST("/toll-stations", h.CreateTollStation)
+	cost.PUT("/toll-stations/:id", h.UpdateTollStation)
+	cost.DELETE("/toll-stations/:id", h.DeleteTollStation)
+	// Toll expressways + gates
+	cost.GET("/toll-expressways", h.ListTollExpressways)
+	cost.POST("/toll-expressways", h.CreateTollExpressway)
+	cost.PUT("/toll-expressways/:id", h.UpdateTollExpressway)
+	cost.DELETE("/toll-expressways/:id", h.DeleteTollExpressway)
+	cost.POST("/toll-expressways/:id/gates", h.CreateTollExpresswayGate)
+	cost.DELETE("/toll-expressways/:id/gates/:gateId", h.DeleteTollExpresswayGate)
+	// Vehicle type cost defaults
+	cost.GET("/vehicle-type-defaults", h.ListVehicleTypeCostDefaults)
+	cost.PUT("/vehicle-type-defaults/:id", h.UpdateVehicleTypeCostDefault)
+	// Vehicle cost profiles (per-vehicle override)
+	cost.GET("/vehicles/:id/profile", h.GetVehicleCostProfile)
+	cost.PUT("/vehicles/:id/profile", h.UpsertVehicleCostProfile)
+	cost.DELETE("/vehicles/:id/profile", h.DeleteVehicleCostProfile)
+	// Driver cost rates
+	cost.GET("/driver-rates", h.ListDriverCostRates)
+	cost.POST("/driver-rates", h.CreateDriverCostRate)
+	cost.PUT("/driver-rates/:id", h.UpdateDriverCostRate)
+	cost.DELETE("/driver-rates/:id", h.DeleteDriverCostRate)
 }
 
 func (h *Handler) ListPendingDates(c *gin.Context) {
@@ -358,6 +391,10 @@ func (h *Handler) RunVRP(c *gin.Context) {
 		response.BadRequest(c, "warehouse_id và delivery_date là bắt buộc")
 		return
 	}
+
+	// Pass requesting user ID for real-time progress broadcast
+	userID := middleware.GetUserID(c)
+	req.RequestingUserID = &userID
 
 	jobID, err := h.svc.RunVRP(c.Request.Context(), req)
 	if err != nil {

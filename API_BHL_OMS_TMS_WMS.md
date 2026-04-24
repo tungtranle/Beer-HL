@@ -1174,6 +1174,109 @@ Invalidate refresh token trong DB.
 
 ---
 
+# 13.5 COST ENGINE ENDPOINTS
+
+> Migration 020 — US-TMS-01d/01e. Quản lý biểu phí phục vụ VRP cost optimization.
+
+| | |
+|-|---|
+| Roles | `admin`, `dispatcher` |
+| Route Group | `/v1/cost/...` |
+
+### GET /v1/cost/toll-stations
+**Danh sách tất cả trạm thu phí hở**
+
+**Response 200:**
+```json
+{ "data": [{ "id": "uuid", "station_name": "Trạm Đại Yên", "road_name": "QL18", "toll_type": "open", "latitude": 20.9556, "longitude": 107.0103, "detection_radius_m": 200, "fee_l1": 15000, "fee_l2": 25000, "fee_l3": 40000, "fee_l4": 80000, "fee_l5": 120000, "is_active": true, "effective_date": "2026-03-27", "notes": "..." }] }
+```
+
+### POST /v1/cost/toll-stations
+**Tạo trạm thu phí mới**
+
+**Request:**
+```json
+{ "station_name": "Trạm ABC", "road_name": "QL18", "latitude": 20.95, "longitude": 107.01, "fee_l1": 15000, "fee_l2": 25000, "fee_l3": 40000, "fee_l4": 80000, "fee_l5": 120000 }
+```
+
+### PUT /v1/cost/toll-stations/:id
+**Cập nhật trạm thu phí** — truyền full object (trừ id, created_at)
+
+### DELETE /v1/cost/toll-stations/:id
+**Xoá trạm thu phí**
+
+### GET /v1/cost/toll-expressways
+**Danh sách cao tốc kín** — bao gồm gates[] lồng nhau
+
+**Response 200:**
+```json
+{ "data": [{ "id": "uuid", "expressway_name": "CT Hà Nội - Hải Phòng", "rate_per_km_l1": 1400, "rate_per_km_l2": 2000, "rate_per_km_l3": 2800, "rate_per_km_l4": 4200, "rate_per_km_l5": 6000, "is_active": true, "gates": [{ "id": "uuid", "gate_name": "Nút giao Đình Vũ", "gate_type": "entry_exit", "km_marker": 0, "latitude": 20.83, "longitude": 106.72, "is_active": true }] }] }
+```
+
+### POST /v1/cost/toll-expressways
+**Tạo tuyến cao tốc mới**
+
+### PUT /v1/cost/toll-expressways/:id
+**Cập nhật tuyến cao tốc**
+
+### DELETE /v1/cost/toll-expressways/:id
+**Xoá tuyến cao tốc** — CASCADE xoá gates
+
+### POST /v1/cost/toll-expressways/:id/gates
+**Thêm cổng vào/ra cho cao tốc**
+
+**Request:**
+```json
+{ "gate_name": "IC Hưng Yên", "gate_type": "entry_exit", "km_marker": 52, "latitude": 20.84, "longitude": 106.10 }
+```
+
+### DELETE /v1/cost/toll-expressways/:id/gates/:gateId
+**Xoá cổng cao tốc**
+
+### GET /v1/cost/vehicle-type-defaults
+**Danh sách chi phí mặc định theo loại xe**
+
+**Response 200:**
+```json
+{ "data": [{ "id": "uuid", "vehicle_type": "truck_3t5", "toll_class": "L2", "fuel_consumption_per_km": 0.120, "fuel_price_per_liter": 22000, "is_active": true }] }
+```
+
+### PUT /v1/cost/vehicle-type-defaults/:id
+**Cập nhật chi phí mặc định loại xe**
+
+### GET /v1/cost/vehicles/:id/profile
+**Lấy cấu hình chi phí riêng của xe** — 404 nếu chưa có
+
+### PUT /v1/cost/vehicles/:id/profile
+**Tạo/cập nhật cấu hình chi phí riêng cho xe** (upsert)
+
+**Request:**
+```json
+{ "toll_class": "L3", "fuel_consumption_per_km": 0.25, "fuel_price_per_liter": 22500, "notes": "Xe cũ, hao xăng hơn" }
+```
+
+### DELETE /v1/cost/vehicles/:id/profile
+**Xoá cấu hình riêng** — xe sẽ dùng lại defaults theo loại xe
+
+### GET /v1/cost/driver-rates
+**Danh sách biểu phí tài xế**
+
+**Response 200:**
+```json
+{ "data": [{ "id": "uuid", "rate_name": "Lương tài xế cơ bản", "rate_type": "daily_salary", "amount": 400000, "vehicle_type": null, "is_active": true }] }
+```
+
+### POST /v1/cost/driver-rates
+**Tạo biểu phí tài xế mới**
+
+### PUT /v1/cost/driver-rates/:id
+**Cập nhật biểu phí tài xế**
+
+### DELETE /v1/cost/driver-rates/:id
+**Xoá biểu phí tài xế**
+
+---
+
 # 14. GPS ENDPOINTS
 
 ### POST /v1/driver/gps/batch
@@ -1190,6 +1293,50 @@ Invalidate refresh token trong DB.
 **Real-time GPS stream** — Redis pub/sub
 
 **Kết nối:** `ws://host/ws/gps?token=<access_token>`
+
+### POST /v1/gps/simulate/start
+**Bắt đầu giả lập GPS** — US-TMS-01f. Tạo simulation loop cho các trip đang active hoặc demo routes.
+
+| | |
+|-|---|
+| Roles | `admin`, `dispatcher` |
+
+**Request:**
+```json
+{ "trip_ids": ["uuid", "uuid"], "use_demo": false, "speed_mul": 1.5 }
+```
+- `trip_ids`: (optional) chỉ simulate các trip cụ thể
+- `use_demo`: true = dùng 4 tuyến demo QN area (Hạ Long, Uông Bí, Cẩm Phả, HP)
+- `speed_mul`: hệ số tốc độ (1.0 = bình thường, 2.0 = gấp đôi)
+
+**Response 200:**
+```json
+{ "data": { "message": "Simulation started", "vehicles": 4 } }
+```
+
+### POST /v1/gps/simulate/stop
+**Dừng giả lập GPS**
+
+| | |
+|-|---|
+| Roles | `admin`, `dispatcher` |
+
+**Response 200:**
+```json
+{ "data": { "message": "Simulation stopped" } }
+```
+
+### GET /v1/gps/simulate/status
+**Trạng thái giả lập GPS hiện tại**
+
+| | |
+|-|---|
+| Roles | `admin`, `dispatcher` |
+
+**Response 200:**
+```json
+{ "data": { "running": true, "vehicles": 4, "started_at": "2026-03-27T10:00:00Z" } }
+```
 
 ---
 

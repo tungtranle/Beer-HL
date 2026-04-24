@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useState, useCallback, useRef } from 'react'
-import { apiFetch, getUser } from '@/lib/api'
+import { apiFetch, getToken, getUser } from '@/lib/api'
 import { toast } from '@/lib/useToast'
 import { useRouter } from 'next/navigation'
 import { useDataRefresh } from '@/lib/notifications'
@@ -62,7 +62,51 @@ interface TripStop {
   id: string
   stop_order: number
   customer_name: string
+  customer_address?: string
   status: string
+  estimated_arrival?: string
+  actual_arrival?: string
+  latitude?: number
+  longitude?: number
+}
+
+interface TripProgressSnapshot {
+  deliveredStops: number
+  terminalStops: number
+  totalStops: number
+  completionPct: number
+  etaText: string
+  deviationText: string
+  deviationType: 'on-time' | 'late' | 'no-eta'
+}
+
+interface TripRouteOverlay {
+  warehouseLat?: number
+  warehouseLng?: number
+  stops: TripStop[]
+}
+
+async function fetchOSRMGeometry(points: [number, number][]): Promise<[number, number][] | null> {
+  if (points.length < 2) return null
+
+  const coords = points.map((point) => `${point[1]},${point[0]}`).join(';')
+  const urls = [
+    `https://router.project-osrm.org/route/v1/driving/${coords}?overview=full&geometries=geojson&steps=false`,
+  ]
+
+  for (const url of urls) {
+    try {
+      const res = await fetch(url)
+      if (!res.ok) continue
+      const data = await res.json()
+      if (data.code !== 'Ok' || !data.routes?.[0]?.geometry?.coordinates) continue
+      return data.routes[0].geometry.coordinates.map((coord: [number, number]) => [coord[1], coord[0]] as [number, number])
+    } catch {
+      continue
+    }
+  }
+
+  return null
 }
 
 // ─── Constants ───────────────────────────────────────
@@ -104,6 +148,73 @@ const emptyStateText: Record<string, string> = {
   admin: 'Không có cảnh báo — tốt lắm! 🎉',
 }
 
+const OFF_ROUTE_THRESHOLD_KM = 1.2
+const ROUTE_VISIBLE_STATUSES = ['in_transit', 'assigned', 'ready']
+
+function tripStatusColor(status: string) {
+  if (status === 'in_transit') return '#16a34a'
+  if (status === 'assigned' || status === 'ready') return '#d97706'
+  return '#6b7280'
+}
+
+function approxKmBetween(lat1: number, lng1: number, lat2: number, lng2: number) {
+  const latKm = (lat2 - lat1) * 111.32
+  const avgLatRad = ((lat1 + lat2) / 2) * Math.PI / 180
+  const lngKm = (lng2 - lng1) * 111.32 * Math.cos(avgLatRad)
+  return Math.sqrt(latKm * latKm + lngKm * lngKm)
+}
+
+function pointToSegmentKm(point: [number, number], start: [number, number], end: [number, number]) {
+  const meanLat = ((point[0] + start[0] + end[0]) / 3) * Math.PI / 180
+  const latScale = 111.32
+  const lngScale = 111.32 * Math.cos(meanLat)
+
+  const px = point[1] * lngScale
+  const py = point[0] * latScale
+  const ax = start[1] * lngScale
+  const ay = start[0] * latScale
+  const bx = end[1] * lngScale
+  const by = end[0] * latScale
+
+  const dx = bx - ax
+  const dy = by - ay
+  if (dx === 0 && dy === 0) {
+    return Math.sqrt((px - ax) ** 2 + (py - ay) ** 2)
+  }
+
+  const t = Math.max(0, Math.min(1, ((px - ax) * dx + (py - ay) * dy) / (dx * dx + dy * dy)))
+  const projX = ax + t * dx
+  const projY = ay + t * dy
+  return Math.sqrt((px - projX) ** 2 + (py - projY) ** 2)
+}
+
+function pointToRouteKm(point: [number, number], coords: [number, number][]) {
+  if (coords.length === 0) return Infinity
+  if (coords.length === 1) return approxKmBetween(point[0], point[1], coords[0][0], coords[0][1])
+
+  let minDist = Infinity
+  for (let index = 0; index < coords.length - 1; index++) {
+    minDist = Math.min(minDist, pointToSegmentKm(point, coords[index], coords[index + 1]))
+  }
+  return minDist
+}
+
+function buildRouteCoords(route?: TripRouteOverlay) {
+  if (!route) return [] as [number, number][]
+
+  const coords: [number, number][] = []
+  if (route.warehouseLat && route.warehouseLng) {
+    coords.push([route.warehouseLat, route.warehouseLng])
+  }
+
+  route.stops
+    .filter((stop) => stop.latitude && stop.longitude)
+    .sort((left, right) => left.stop_order - right.stop_order)
+    .forEach((stop) => coords.push([stop.latitude!, stop.longitude!]))
+
+  return coords
+}
+
 // ─── Main Page ───────────────────────────────────────
 
 export default function ControlTowerPage() {
@@ -131,6 +242,12 @@ export default function ControlTowerPage() {
   const [actionLoading, setActionLoading] = useState(false)
   const [driverModal, setDriverModal] = useState<GPSVehicle | null>(null)
   const [leftView, setLeftView] = useState<'trips' | 'fleet'>('trips')
+  const [tripProgressMap, setTripProgressMap] = useState<Record<string, TripProgressSnapshot>>({})
+  const [tripRouteMap, setTripRouteMap] = useState<Record<string, TripRouteOverlay>>({})
+  const [routeGeometryMap, setRouteGeometryMap] = useState<Record<string, [number, number][]>>({})
+  const [routeDeviationMap, setRouteDeviationMap] = useState<Record<string, number>>({})
+  const routeLayersRef = useRef<any[]>([])
+  const [gpsSimRunning, setGpsSimRunning] = useState(false)
   useEffect(() => {
     if (!user || !['admin', 'dispatcher', 'management'].includes(user.role)) {
       router.replace('/dashboard')
@@ -150,7 +267,9 @@ export default function ControlTowerPage() {
       ])
       setStats(statsRes.data)
       setExceptions(exceptionsRes.data || [])
-      setTrips(tripsRes.data || [])
+      const nextTrips = tripsRes.data || []
+      setTrips(nextTrips)
+      loadTripProgress(nextTrips)
     } catch (err) {
       console.error('Control tower load failed:', err)
     } finally {
@@ -158,17 +277,169 @@ export default function ControlTowerPage() {
     }
   }, [])
 
+  const buildEtaSnapshot = (stops: any[]): Omit<TripProgressSnapshot, 'totalStops'> => {
+    const nowMs = Date.now()
+    const deliveredStops = stops.filter(s => s.status === 'delivered').length
+    const terminalStops = stops.filter((s) => ['delivered', 'failed', 'skipped'].includes(s.status)).length
+
+    const nextPending = stops
+      .filter((s) => ['pending', 'arrived', 'delivering', 're_delivery'].includes(s.status))
+      .sort((a, b) => (a.stop_order || 0) - (b.stop_order || 0))[0]
+
+    if (!nextPending?.estimated_arrival) {
+      return {
+        deliveredStops,
+        terminalStops,
+        completionPct: 0,
+        etaText: 'Không có ETA',
+        deviationText: 'Thiếu ETA',
+        deviationType: 'no-eta',
+      }
+    }
+
+    const etaMs = new Date(nextPending.estimated_arrival).getTime()
+    if (Number.isNaN(etaMs)) {
+      return {
+        deliveredStops,
+        terminalStops,
+        completionPct: 0,
+        etaText: 'ETA không hợp lệ',
+        deviationText: 'Thiếu ETA',
+        deviationType: 'no-eta',
+      }
+    }
+
+    const diffMin = Math.round((etaMs - nowMs) / 60000)
+    if (diffMin >= 0) {
+      return {
+        deliveredStops,
+        terminalStops,
+        completionPct: 0,
+        etaText: `ETA ${nextPending.customer_name}: còn ${diffMin} phút`,
+        deviationText: `Đúng tiến độ (+${diffMin}m)`,
+        deviationType: 'on-time',
+      }
+    }
+
+    const lateMin = Math.abs(diffMin)
+    return {
+      deliveredStops,
+      terminalStops,
+      completionPct: 0,
+      etaText: `ETA ${nextPending.customer_name}: trễ ${lateMin} phút`,
+      deviationText: `Lệch ETA -${lateMin}m`,
+      deviationType: 'late',
+    }
+  }
+
+  const loadTripProgress = useCallback(async (tripList: Trip[]) => {
+    const active = tripList.filter(t => ['in_transit', 'assigned', 'ready'].includes(t.status))
+    if (active.length === 0) {
+      setTripProgressMap({})
+      setTripRouteMap({})
+      return
+    }
+
+    const routeEntries: Array<readonly [string, TripRouteOverlay]> = []
+    const snapshots = await Promise.all(active.map(async (t) => {
+      try {
+        const res: any = await apiFetch(`/trips/${t.id}`)
+        const stops = res?.data?.stops || []
+        routeEntries.push([
+          t.id,
+          {
+            warehouseLat: res?.data?.warehouse_lat,
+            warehouseLng: res?.data?.warehouse_lng,
+            stops,
+          },
+        ] as const)
+        const base = buildEtaSnapshot(stops)
+        const totalStops = Number(t.total_stops || 0)
+        const completionPct = totalStops > 0
+          ? Math.round((base.terminalStops / totalStops) * 100)
+          : 0
+
+        return [
+          t.id,
+          {
+            ...base,
+            totalStops,
+            completionPct,
+          } as TripProgressSnapshot,
+        ] as const
+      } catch {
+        return [
+          t.id,
+          {
+            deliveredStops: 0,
+            terminalStops: 0,
+            totalStops: Number(t.total_stops || 0),
+            completionPct: 0,
+            etaText: 'Đang cập nhật ETA...',
+            deviationText: 'Đang cập nhật',
+            deviationType: 'no-eta',
+          } as TripProgressSnapshot,
+        ] as const
+      }
+    }))
+
+    setTripProgressMap(Object.fromEntries(snapshots))
+    setTripRouteMap(Object.fromEntries(routeEntries))
+  }, [])
+
+  useEffect(() => {
+    const routeVisibleTrips = trips.filter((trip) => ROUTE_VISIBLE_STATUSES.includes(trip.status))
+    if (routeVisibleTrips.length === 0) {
+      setRouteGeometryMap({})
+      return
+    }
+
+    let cancelled = false
+    Promise.all(routeVisibleTrips.map(async (trip) => {
+      const baseCoords = buildRouteCoords(tripRouteMap[trip.id])
+      if (baseCoords.length < 2) return [trip.id, baseCoords] as const
+      const geometry = await fetchOSRMGeometry(baseCoords)
+      return [trip.id, geometry && geometry.length > 1 ? geometry : baseCoords] as const
+    })).then((entries) => {
+      if (cancelled) return
+      setRouteGeometryMap(Object.fromEntries(entries))
+    })
+
+    return () => {
+      cancelled = true
+    }
+  }, [tripRouteMap, trips])
+
+  useEffect(() => {
+    const nextDeviationMap: Record<string, number> = {}
+
+    trips
+      .filter((trip) => ROUTE_VISIBLE_STATUSES.includes(trip.status))
+      .forEach((trip) => {
+        const vehicle = vehicles.find((entry) => entry.vehicle_plate === trip.vehicle_plate)
+        const coords = routeGeometryMap[trip.id] || buildRouteCoords(tripRouteMap[trip.id])
+        if (!vehicle || coords.length < 2) return
+
+        nextDeviationMap[trip.id] = pointToRouteKm([vehicle.lat, vehicle.lng], coords)
+      })
+
+    setRouteDeviationMap(nextDeviationMap)
+  }, [routeGeometryMap, tripRouteMap, trips, vehicles])
+
   // Also refresh instantly via WebSocket when order/trip changes
   useDataRefresh(['order', 'trip'], loadAll)
 
   // GPS WebSocket
   useEffect(() => {
     if (typeof window === 'undefined') return
-    const token = localStorage.getItem('bhl_token')
+    const token = getToken()
     if (!token) return
 
     const proto = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
-    const ws = new WebSocket(`${proto}//${window.location.host}/api/gps/ws?token=${token}`)
+    const wsHost = window.location.port === '3000'
+      ? `${window.location.hostname}:8080`
+      : window.location.host
+    const ws = new WebSocket(`${proto}//${wsHost}/ws/gps?token=${token}`)
     ws.onmessage = (e) => {
       try {
         const data = JSON.parse(e.data)
@@ -191,13 +462,12 @@ export default function ControlTowerPage() {
 
   // Initialize Leaflet map
   useEffect(() => {
-    if (typeof window === 'undefined' || !mapRef.current) return
+    if (loading || typeof window === 'undefined' || !mapRef.current || leafletMapRef.current) return
     let cancelled = false
 
     const initMap = async () => {
       const L = (await import('leaflet')).default
-      await import('leaflet/dist/leaflet.css')
-      if (cancelled || leafletMapRef.current) return
+      if (cancelled || !mapRef.current || leafletMapRef.current) return
 
       const map = L.map(mapRef.current!, { zoomControl: true }).setView([20.86, 106.68], 12)
       L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
@@ -205,10 +475,25 @@ export default function ControlTowerPage() {
         maxZoom: 19,
       }).addTo(map)
       leafletMapRef.current = map
+
+      // Leaflet can initialize before the flex layout settles, leaving a blank canvas.
+      window.setTimeout(() => {
+        if (!cancelled && leafletMapRef.current) {
+          leafletMapRef.current.invalidateSize()
+        }
+      }, 0)
     }
     initMap()
-    return () => { cancelled = true }
-  }, [])
+    return () => {
+      cancelled = true
+      if (leafletMapRef.current) {
+        leafletMapRef.current.remove()
+        leafletMapRef.current = null
+      }
+      markersRef.current = []
+      routeLayersRef.current = []
+    }
+  }, [loading])
 
   // Update markers when vehicles change
   useEffect(() => {
@@ -221,27 +506,169 @@ export default function ControlTowerPage() {
       const anomalyPlates = new Set(exceptions.map(e => e.vehicle_plate))
 
       filtered.forEach(v => {
-        const isAnomaly = anomalyPlates.has(v.vehicle_plate)
+        const tripForVehicle = trips.find(t => t.vehicle_plate === v.vehicle_plate && ['in_transit', 'assigned', 'ready'].includes(t.status))
+        const routeDeviationKm = tripForVehicle ? routeDeviationMap[tripForVehicle.id] : undefined
+        const isOffRoute = typeof routeDeviationKm === 'number' && routeDeviationKm > OFF_ROUTE_THRESHOLD_KM
+        const isAnomaly = anomalyPlates.has(v.vehicle_plate) || isOffRoute
         const color = isAnomaly ? '#ef4444' : v.speed > 5 ? '#22c55e' : v.speed >= 0 ? '#f59e0b' : '#9ca3af'
-        const pulseHtml = isAnomaly
-          ? `<div style="position:relative"><div style="position:absolute;top:-6px;left:-6px;width:24px;height:24px;border-radius:50%;background:rgba(239,68,68,.3);animation:ping 1.5s cubic-bezier(0,0,.2,1) infinite"></div><div style="width:12px;height:12px;border-radius:50%;background:${color};border:2px solid white;box-shadow:0 1px 3px rgba(0,0,0,.3);position:relative;z-index:1"></div></div>`
-          : `<div style="width:12px;height:12px;border-radius:50%;background:${color};border:2px solid white;box-shadow:0 1px 3px rgba(0,0,0,.3)"></div>`
+        const glowColor = isAnomaly ? 'rgba(239,68,68,.35)' : v.speed > 5 ? 'rgba(34,197,94,.25)' : 'rgba(245,158,11,.2)'
+        const heading = v.heading || 0
+        const pulseRing = isAnomaly
+          ? `<div style="position:absolute;top:-8px;left:-8px;width:48px;height:48px;border-radius:50%;background:rgba(239,68,68,.25);animation:ping 1.5s cubic-bezier(0,0,.2,1) infinite"></div>`
+          : ''
+        const truckSvg = `<svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 24 24" fill="${color}" style="filter:drop-shadow(0 2px 4px rgba(0,0,0,.3));transform:rotate(${heading}deg)"><path d="M18 18.5a1.5 1.5 0 100-3 1.5 1.5 0 000 3zM6 18.5a1.5 1.5 0 100-3 1.5 1.5 0 000 3zM20 8h-3V4H3a2 2 0 00-2 2v11h2a3 3 0 016 0h6a3 3 0 016 0h2v-5l-3-4zM17 9.5V12h4.46L19.5 9.5H17z"/></svg>`
+        const plateLabel = `<div style="position:absolute;top:-18px;left:50%;transform:translateX(-50%);white-space:nowrap;background:${color};color:#fff;font-size:9px;font-weight:700;padding:1px 5px;border-radius:3px;box-shadow:0 1px 3px rgba(0,0,0,.3);letter-spacing:.3px">${v.vehicle_plate}</div>`
+        const html = `<div style="position:relative;width:32px;height:32px">${pulseRing}${plateLabel}<div style="width:32px;height:32px;border-radius:50%;background:${glowColor};display:flex;align-items:center;justify-content:center">${truckSvg}</div></div>`
+
         const icon = L.divIcon({
           className: '',
-          html: pulseHtml,
-          iconSize: [12, 12],
+          html,
+          iconSize: [32, 32],
+          iconAnchor: [16, 16],
         })
+
+        // Rich popup with trip progress
+        const progress = tripForVehicle ? tripProgressMap[tripForVehicle.id] : null
+        const progressHtml = progress
+          ? `<div style="margin-top:6px;border-top:1px solid #e5e7eb;padding-top:6px"><div style="display:flex;justify-content:space-between;font-size:11px;color:#6b7280"><span>${progress.terminalStops}/${progress.totalStops} điểm</span><span style="color:${progress.deviationType === 'late' ? '#dc2626' : '#16a34a'}">${progress.deviationText}</span></div><div style="margin-top:3px;height:4px;background:#e5e7eb;border-radius:2px;overflow:hidden"><div style="height:100%;width:${progress.completionPct}%;background:${progress.deviationType === 'late' ? '#dc2626' : '#16a34a'};border-radius:2px"></div></div></div>`
+          : ''
+        const routeAlertHtml = isOffRoute && typeof routeDeviationKm === 'number'
+          ? `<div style="margin-top:4px;font-size:11px;font-weight:700;color:#dc2626">Lệch tuyến ${routeDeviationKm.toFixed(1)} km</div>`
+          : ''
+        const tripHintHtml = tripForVehicle
+          ? `<div style="margin-top:6px;font-size:11px;color:#2563eb;font-weight:600">Bấm vào xe để mở tuyến ${tripForVehicle.trip_number}</div>`
+          : ''
+        const popupContent = `<div style="min-width:180px"><div style="display:flex;align-items:center;gap:6px"><b style="font-size:13px">${v.vehicle_plate}</b><span style="font-size:11px;color:#6b7280">${v.speed} km/h</span></div><div style="font-size:12px;color:#374151;margin-top:2px">${v.driver_name}</div><div style="font-size:11px;color:${tripStatusColor(v.trip_status)};margin-top:1px">${tripStatusLabel[v.trip_status] || v.trip_status}</div>${progressHtml}${routeAlertHtml}${tripHintHtml}${isAnomaly && !isOffRoute ? '<div style="margin-top:4px;font-size:11px;font-weight:700;color:#dc2626">⚠ Cảnh báo hoạt động</div>' : ''}</div>`
+
         const marker = L.marker([v.lat, v.lng], { icon })
           .addTo(leafletMapRef.current)
-          .bindPopup(`<b>${v.vehicle_plate}</b><br>${v.driver_name}<br>${v.speed} km/h${isAnomaly ? '<br><b style="color:red">⚠ Cảnh báo</b>' : ''}`)
-        marker.on('click', () => setDriverModal(v))
+          .bindPopup(popupContent, { maxWidth: 250 })
+        marker.on('click', () => {
+          if (tripForVehicle) {
+            setSelectedTrip(tripForVehicle)
+            setTripStops(tripRouteMap[tripForVehicle.id]?.stops || [])
+            if (leafletMapRef.current) {
+              leafletMapRef.current.flyTo([v.lat, v.lng], 14, { duration: 0.8 })
+            }
+          }
+          setDriverModal(v)
+        })
         markersRef.current.push(marker)
       })
     })
-  }, [vehicles, mapFilter])
+  }, [vehicles, mapFilter, tripProgressMap, routeDeviationMap, trips, exceptions, tripRouteMap])
+
+  // Draw active routes overview + selected trip details
+  useEffect(() => {
+    if (!leafletMapRef.current || typeof window === 'undefined') return
+    // Clean previous route layers
+    routeLayersRef.current.forEach(l => l.remove())
+    routeLayersRef.current = []
+
+    import('leaflet').then(({ default: L }) => {
+      const map = leafletMapRef.current
+      trips
+        .filter((trip) => ROUTE_VISIBLE_STATUSES.includes(trip.status))
+        .forEach((trip) => {
+          const coords = routeGeometryMap[trip.id] || buildRouteCoords(tripRouteMap[trip.id])
+          if (coords.length < 2) return
+
+          const isSelected = selectedTrip?.id === trip.id
+          const deviationKm = routeDeviationMap[trip.id]
+          const isOffRoute = typeof deviationKm === 'number' && deviationKm > OFF_ROUTE_THRESHOLD_KM
+          const isInTransit = trip.status === 'in_transit'
+
+          const routePolyline = L.polyline(coords, {
+            color: isSelected ? '#F68634' : isOffRoute ? '#dc2626' : isInTransit ? '#0f766e' : '#6b7280',
+            weight: isSelected ? 5 : isOffRoute ? 4 : isInTransit ? 3 : 2,
+            opacity: isSelected ? 0.85 : isInTransit ? 0.45 : 0.35,
+            dashArray: isSelected ? '8 4' : isOffRoute ? '10 6' : isInTransit ? undefined : '6 8',
+          }).addTo(map)
+          routePolyline
+            .bindTooltip(`${trip.trip_number} • ${trip.vehicle_plate}`, {
+              direction: 'top',
+              sticky: true,
+              opacity: 0.92,
+            })
+            .bindPopup(
+              `<div style="min-width:190px"><div style="font-size:13px;font-weight:700">${trip.trip_number}</div><div style="font-size:12px;color:#374151;margin-top:3px">Xe ${trip.vehicle_plate} • ${trip.driver_name}</div><div style="font-size:11px;color:${tripStatusColor(trip.status)};margin-top:4px">${tripStatusLabel[trip.status] || trip.status}</div><div style="font-size:11px;color:#6b7280;margin-top:6px">${trip.total_stops} điểm giao • ${Math.round(trip.total_distance_km || 0)} km</div><div style="margin-top:6px;font-size:11px;color:#2563eb;font-weight:600">Bấm vào tuyến để xem chi tiết stop</div></div>`,
+              { maxWidth: 240 }
+            )
+          routePolyline.on('click', () => {
+            setSelectedTrip(trip)
+            setTripStops(tripRouteMap[trip.id]?.stops || [])
+          })
+          routeLayersRef.current.push(routePolyline)
+        })
+
+      if (!selectedTrip) return
+
+      const selectedStops = tripStops.length > 0 ? tripStops : (tripRouteMap[selectedTrip.id]?.stops || [])
+      const stopsWithCoords = selectedStops.filter(s => s.latitude && s.longitude)
+      if (stopsWithCoords.length === 0) return
+
+      // Sort by stop_order
+      const sorted = [...stopsWithCoords].sort((a, b) => a.stop_order - b.stop_order)
+      const coords = routeGeometryMap[selectedTrip.id] || buildRouteCoords({
+        warehouseLat: tripRouteMap[selectedTrip.id]?.warehouseLat,
+        warehouseLng: tripRouteMap[selectedTrip.id]?.warehouseLng,
+        stops: selectedStops,
+      })
+
+      // Stop markers
+      const stopStatusIcon: Record<string, { color: string; symbol: string }> = {
+        delivered: { color: '#16a34a', symbol: '✓' },
+        arrived: { color: '#F68634', symbol: '◉' },
+        delivering: { color: '#F68634', symbol: '◉' },
+        failed: { color: '#dc2626', symbol: '✗' },
+        skipped: { color: '#9ca3af', symbol: '⊘' },
+        pending: { color: '#6b7280', symbol: '' },
+        re_delivery: { color: '#d97706', symbol: '↻' },
+      }
+      sorted.forEach(s => {
+        const st = stopStatusIcon[s.status] || stopStatusIcon.pending
+        const sIcon = L.divIcon({
+          className: '',
+          html: `<div style="position:relative"><div style="width:24px;height:24px;border-radius:50%;background:${st.color};border:2.5px solid #fff;box-shadow:0 1px 4px rgba(0,0,0,.3);display:flex;align-items:center;justify-content:center;color:#fff;font-size:${st.symbol ? '12' : '11'}px;font-weight:700">${st.symbol || s.stop_order}</div><div style="position:absolute;top:-16px;left:50%;transform:translateX(-50%);white-space:nowrap;background:#1f2937;color:#fff;font-size:9px;padding:1px 5px;border-radius:3px;box-shadow:0 1px 2px rgba(0,0,0,.2)">#${s.stop_order} ${s.customer_name?.substring(0, 15) || ''}</div></div>`,
+          iconSize: [24, 24],
+          iconAnchor: [12, 12],
+        })
+        const etaStr = s.estimated_arrival ? new Date(s.estimated_arrival).toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' }) : ''
+        const actualStr = s.actual_arrival ? new Date(s.actual_arrival).toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' }) : ''
+        const popupHtml = `<div style="min-width:160px"><div style="font-weight:700;font-size:13px">#${s.stop_order} ${s.customer_name || ''}</div>${s.customer_address ? `<div style="font-size:11px;color:#6b7280;margin-top:2px">📍 ${s.customer_address}</div>` : ''}${etaStr ? `<div style="font-size:11px;margin-top:3px">⏰ ETA: ${etaStr}</div>` : ''}${actualStr ? `<div style="font-size:11px;color:#16a34a">✓ Đến: ${actualStr}</div>` : ''}<div style="margin-top:3px;font-size:11px;font-weight:600;color:${st.color}">${s.status === 'delivered' ? 'Đã giao' : s.status === 'pending' ? 'Chờ giao' : s.status === 'arrived' ? 'Đã đến' : s.status === 'failed' ? 'Thất bại' : s.status === 'delivering' ? 'Đang giao' : s.status}</div></div>`
+        const stopMarker = L.marker([s.latitude!, s.longitude!], { icon: sIcon })
+          .addTo(map)
+          .bindPopup(popupHtml, { maxWidth: 220 })
+        routeLayersRef.current.push(stopMarker)
+      })
+
+      // Vehicle on this trip — draw dashed ETA line to next pending stop
+      const vehicle = vehicles.find(veh => veh.vehicle_plate === selectedTrip.vehicle_plate)
+      const nextPending = sorted.find(s => ['pending', 'arrived', 'delivering', 're_delivery'].includes(s.status))
+      if (vehicle && nextPending) {
+        const etaLine = L.polyline(
+          [[vehicle.lat, vehicle.lng], [nextPending.latitude!, nextPending.longitude!]],
+          { color: '#6366f1', weight: 2, opacity: 0.6, dashArray: '5 8' }
+        ).addTo(map)
+        routeLayersRef.current.push(etaLine)
+      }
+
+      // Fit bounds to show entire route
+      const allPts: [number, number][] = [...coords]
+      if (vehicle) allPts.push([vehicle.lat, vehicle.lng])
+      if (allPts.length > 0) {
+        map.fitBounds(L.latLngBounds(allPts).pad(0.15), { maxZoom: 15 })
+      }
+    })
+  }, [selectedTrip, tripStops, tripRouteMap, routeGeometryMap, routeDeviationMap, trips, vehicles])
 
   // Load stops for a trip (for move stop)
   const loadTripStops = async (tripId: string) => {
+    const cachedRoute = tripRouteMap[tripId]
+    if (cachedRoute?.stops?.length) {
+      setTripStops(cachedRoute.stops)
+      return
+    }
     try {
       const res: any = await apiFetch(`/trips/${tripId}`)
       setTripStops(res.data?.stops || [])
@@ -249,9 +676,50 @@ export default function ControlTowerPage() {
   }
 
   const handleTripClick = (t: Trip) => {
+    if (selectedTrip?.id === t.id) {
+      // Deselect — clear route
+      setSelectedTrip(null)
+      setTripStops([])
+      if (leafletMapRef.current && vehicles.length > 0) {
+        import('leaflet').then(({ default: L }) => {
+          const pts = vehicles.map(v => [v.lat, v.lng] as [number, number])
+          leafletMapRef.current.fitBounds(L.latLngBounds(pts).pad(0.15), { maxZoom: 14 })
+        })
+      }
+      return
+    }
     setSelectedTrip(t)
+    setTripStops(tripRouteMap[t.id]?.stops || [])
     loadTripStops(t.id)
+    // Fly to vehicle if online
+    const vehicle = vehicles.find(v => v.vehicle_plate === t.vehicle_plate)
+    if (vehicle && leafletMapRef.current) {
+      leafletMapRef.current.flyTo([vehicle.lat, vehicle.lng], 14, { duration: 0.8 })
+    }
   }
+
+  const toggleGpsSimulator = async () => {
+    try {
+      if (gpsSimRunning) {
+        await apiFetch('/gps/simulate/stop', { method: 'POST' })
+        setGpsSimRunning(false)
+        toast.success('GPS giả lập đã tắt')
+      } else {
+        await apiFetch('/gps/simulate/start', { method: 'POST' })
+        setGpsSimRunning(true)
+        toast.success('GPS giả lập đã bật — dùng dữ liệu chuyến hiện có trong hệ thống')
+      }
+    } catch (err: any) {
+      toast.error(err.message || 'Lỗi GPS simulator')
+    }
+  }
+
+  // Check GPS sim status on mount
+  useEffect(() => {
+    apiFetch('/gps/simulate/status').then((res: any) => {
+      setGpsSimRunning(res?.data?.running === true)
+    }).catch(() => {})
+  }, [])
 
   const handleMoveStop = async () => {
     if (!moveStopModal || !moveTargetTrip) return
@@ -376,6 +844,9 @@ export default function ControlTowerPage() {
             <>
             <div className="space-y-0.5 px-2 pb-2">
               {activeTrips.map(t => (
+                (() => {
+                  const progress = tripProgressMap[t.id]
+                  return (
                 <div key={t.id}
                   className={`flex items-center gap-2 px-2 py-2 rounded-lg hover:bg-gray-50 cursor-pointer text-sm ${selectedTrip?.id === t.id ? 'bg-brand-50 ring-1 ring-brand-300' : ''}`}
                   onClick={() => handleTripClick(t)}
@@ -384,9 +855,39 @@ export default function ControlTowerPage() {
                   <div className="flex-1 min-w-0">
                     <div className="font-medium text-gray-800 truncate">{t.trip_number}</div>
                     <div className="text-xs text-gray-400 truncate">{t.vehicle_plate} — {t.driver_name}</div>
+                    {progress && (
+                      <>
+                        <div className="mt-1 h-1.5 bg-gray-200 rounded-full overflow-hidden">
+                          <div
+                            className={`h-full ${progress.deviationType === 'late' ? 'bg-red-500' : 'bg-green-500'}`}
+                            style={{ width: `${Math.min(100, Math.max(0, progress.completionPct))}%` }}
+                          />
+                        </div>
+                        <div className="mt-1 flex items-center gap-1 text-[11px]">
+                          <span className="text-gray-500">{progress.terminalStops}/{progress.totalStops} điểm</span>
+                          <span className={`px-1.5 py-0.5 rounded-full ${
+                            progress.deviationType === 'late'
+                              ? 'bg-red-50 text-red-600'
+                              : progress.deviationType === 'on-time'
+                                ? 'bg-green-50 text-green-600'
+                                : 'bg-gray-100 text-gray-500'
+                          }`}>
+                            {progress.deviationText}
+                          </span>
+                        </div>
+                        <div className="text-[11px] text-gray-500 truncate">{progress.etaText}</div>
+                        {typeof routeDeviationMap[t.id] === 'number' && routeDeviationMap[t.id] > OFF_ROUTE_THRESHOLD_KM && (
+                          <div className="text-[11px] font-semibold text-red-600 truncate">
+                            Lệch tuyến {routeDeviationMap[t.id].toFixed(1)} km
+                          </div>
+                        )}
+                      </>
+                    )}
                   </div>
                   <span className="text-xs text-gray-500">{t.total_stops} stops</span>
                 </div>
+                  )
+                })()
               ))}
             </div>
 
@@ -525,9 +1026,19 @@ export default function ControlTowerPage() {
             </button>
           ))}
           <span className="ml-auto text-gray-400">{vehicles.length} xe online</span>
+          <button
+            onClick={toggleGpsSimulator}
+            className={`ml-2 px-2.5 py-1 rounded-full font-medium transition ${
+              gpsSimRunning
+                ? 'bg-red-100 text-red-600 hover:bg-red-200'
+                : 'bg-green-100 text-green-600 hover:bg-green-200'
+            }`}
+          >
+            {gpsSimRunning ? '⏹ Tắt GPS giả lập' : '▶ Bật GPS giả lập'}
+          </button>
         </div>
         {/* Map container */}
-        <div ref={mapRef} className="flex-1" />
+        <div ref={mapRef} className="flex-1 min-h-[420px]" />
       </div>
 
       {/* ═══ RIGHT COLUMN (25%) — Alerts + Exceptions ═══ */}

@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState, useCallback } from 'react'
+import { useEffect, useState } from 'react'
 import SearchableSelect from '@/lib/SearchableSelect'
 
 const API = '/api/test-portal'
@@ -66,7 +66,7 @@ const tabs: { key: Tab; label: string; icon: string }[] = [
   { key: 'credit', label: 'Dư nợ / Tín dụng', icon: '💰' },
   { key: 'create-order', label: 'Tạo đơn test', icon: '➕' },
   { key: 'gps-sim', label: 'Giả lập GPS', icon: '📡' },
-  { key: 'drivers', label: 'Tài xế & Tài khoản', icon: '🚛' },
+  { key: 'drivers', label: 'Tài xế', icon: '🚛' },
 ]
 
 const statusBadge = (status: string) => {
@@ -149,14 +149,12 @@ export default function TestPortalPage() {
         </div>
       </div>
 
-      {/* Toast */}
       {toast && (
         <div className="fixed top-4 right-4 bg-green-600 text-white px-6 py-3 rounded-lg shadow-lg z-50 animate-bounce">
           {toast}
         </div>
       )}
 
-      {/* Tabs */}
       <div className="max-w-7xl mx-auto px-6 mt-4">
         <div className="flex gap-1 flex-wrap bg-white rounded-xl p-1 shadow-sm">
           {tabs.map(t => (
@@ -169,7 +167,6 @@ export default function TestPortalPage() {
         </div>
       </div>
 
-      {/* Content */}
       <div className="max-w-7xl mx-auto px-6 py-4">
         {tab === 'test-cases' && <TestCasesTab setTab={setTab} showToast={showToast} refresh={refresh} />}
         {tab === 'orders' && <OrdersTab refreshKey={refreshKey} showToast={showToast} refresh={refresh} />}
@@ -185,380 +182,23 @@ export default function TestPortalPage() {
   )
 }
 
-// ===== Tab: Test Cases =====
-interface TestCase {
-  id: string
-  category: string
-  categoryColor: string
-  title: string
-  description: string
-  precondition: string
-  steps: { action: string; expected: string }[]
-  dataRules: string[]
-  businessRules: string[]
-}
-
-const testCases: TestCase[] = [
-  {
-    id: 'TC-OMS-01',
-    category: 'OMS',
-    categoryColor: 'bg-blue-100 text-blue-700',
-    title: 'Tạo đơn hàng thành công (Happy Path)',
-    description: 'Tạo đơn bình thường với NPP có đủ hạn mức và tồn kho đủ → đơn chuyển sang chờ KH xác nhận',
-    precondition: 'Reset data, chọn NPP có credit_limit > tổng đơn, kho có đủ tồn',
-    steps: [
-      { action: 'Tab "Tạo đơn test" → Chọn 1 NPP bất kỳ có hạn mức cao (VD: BG-1, 500 triệu)', expected: 'Hiện thông tin NPP, hạn mức' },
-      { action: 'Chọn kho WH-HL', expected: '' },
-      { action: 'Chọn SP: BHL-LON-330 × 10 thùng', expected: 'Tổng ~ 1.85 triệu' },
-      { action: 'Nhấn "Tạo đơn hàng test"', expected: '✅ Tạo thành công' },
-      { action: 'Kiểm tra tab "Đơn hàng"', expected: 'Đơn ở trạng thái Chờ KH xác nhận' },
-      { action: 'Kiểm tra tab "Xác nhận đơn Zalo"', expected: 'Có 1 record status = sent' },
-      { action: 'Kiểm tra tab "Tồn kho"', expected: 'Reserved tăng +10 cho BHL-LON-330' },
-    ],
-    dataRules: [
-      'NPP phải có credit_limit > tổng tiền đơn hàng',
-      'Kho phải có stock available > số lượng đặt',
-      'Đơn tạo thành công → status = pending_customer_confirm',
-      'Reserved tăng ngay lúc tạo đơn (ATP trừ)',
-    ],
-    businessRules: ['BR-OMS-01 (ATP)', 'BR-OMS-02 (Credit)', 'BR-OMS-03 (Mã đơn)'],
-  },
-  {
-    id: 'TC-OMS-02',
-    category: 'OMS',
-    categoryColor: 'bg-blue-100 text-blue-700',
-    title: 'Tạo đơn nhiều sản phẩm',
-    description: 'Tạo đơn với 3 sản phẩm khác nhau → kiểm tra tổng tiền và reserved cho từng SP',
-    precondition: 'NPP có hạn mức đủ, kho có tồn cả 3 SP',
-    steps: [
-      { action: 'Tab "Tạo đơn" → Chọn NPP + kho WH-HL', expected: '' },
-      { action: 'Thêm 3 SP: BHL-LON-330 × 20, BHL-GOLD-330 × 10, NGK-CHANH-330 × 15', expected: 'Tổng ~ 7.8 triệu' },
-      { action: 'Tạo đơn', expected: '✅ Thành công' },
-      { action: 'Tab "Tồn kho"', expected: 'Reserved tăng cho cả 3 SP tại WH-HL' },
-    ],
-    dataRules: [
-      'Mỗi order_item tạo 1 dòng reserved riêng',
-      'Tổng tiền = SUM(price × quantity) tất cả items',
-    ],
-    businessRules: ['BR-OMS-01 (ATP per product per warehouse)'],
-  },
-  {
-    id: 'TC-OMS-03',
-    category: 'OMS',
-    categoryColor: 'bg-blue-100 text-blue-700',
-    title: 'Tạo đơn — ATP không đủ',
-    description: 'Đặt số lượng vượt tồn kho → bị từ chối, stock không bị trừ',
-    precondition: 'Tab Tồn kho → ghi nhận available hiện tại',
-    steps: [
-      { action: 'Tab "Tồn kho" → Ghi nhận available BHL-LON-330', expected: 'VD: 500' },
-      { action: 'Tạo đơn BHL-LON-330 × 99999 thùng', expected: '❌ Lỗi ATP_INSUFFICIENT' },
-      { action: 'Tab "Tồn kho"', expected: 'Reserved KHÔNG thay đổi (rollback)' },
-    ],
-    dataRules: [
-      'Số lượng đặt phải > available stock',
-      'Khi ATP check fail → đơn không được tạo',
-      'Stock reserved KHÔNG thay đổi khi reject',
-    ],
-    businessRules: ['BR-OMS-01 — Draft không trừ ATP'],
-  },
-  {
-    id: 'TC-OMS-04',
-    category: 'CREDIT',
-    categoryColor: 'bg-orange-100 text-orange-700',
-    title: 'Tạo đơn — Vượt hạn mức tín dụng',
-    description: 'Tạo đơn cho NPP có hạn mức nhỏ (VD: TB-127 hoặc HD-59) → đơn chuyển pending_approval chờ kế toán duyệt',
-    precondition: 'Chọn NPP có credit_limit thấp: TB-127 (20 triệu) hoặc HD-59 (10 triệu)',
-    steps: [
-      { action: 'Tab "Dư nợ" → Ghi nhận available_limit của NPP nhỏ', expected: '' },
-      { action: 'Tạo đơn lớn cho NPP đó (tổng > available_limit)', expected: 'Đơn tạo thành công nhưng status = pending_approval' },
-      { action: 'Tab "Đơn hàng"', expected: 'Đơn hiện trạng thái Chờ duyệt credit' },
-      { action: 'Tab "Xác nhận đơn Zalo"', expected: 'KHÔNG có record (chưa gửi Zalo)' },
-    ],
-    dataRules: [
-      'NPP phải có hạn mức nhỏ (TB-127 = 20tr, HD-59 = 10tr)',
-      'Tổng đơn phải > available_limit của NPP',
-      'Đơn vượt credit → pending_approval, KHÔNG gửi Zalo',
-      'Kế toán duyệt xong → chuyển pending_customer_confirm → gửi Zalo',
-    ],
-    businessRules: ['BR-OMS-02 (Credit exceed → pending_approval)'],
-  },
-  {
-    id: 'TC-CREDIT-01',
-    category: 'CREDIT',
-    categoryColor: 'bg-orange-100 text-orange-700',
-    title: 'Kiểm tra dư nợ trước/sau tạo đơn',
-    description: 'Tạo đơn → xác nhận qua Zalo → kiểm tra dư nợ tăng tương ứng',
-    precondition: 'Reset data, ghi nhận dư nợ ban đầu',
-    steps: [
-      { action: 'Tab "Dư nợ" → Ghi nhận NPP available_limit = X', expected: '' },
-      { action: 'Tạo đơn cho NPP, tổng tiền = Y', expected: '' },
-      { action: 'Tab "Dư nợ" → NPP available_limit', expected: 'Chưa thay đổi (chưa confirm)' },
-      { action: 'Tab "Xác nhận đơn Zalo" → Xác nhận đơn', expected: '' },
-      { action: 'Tab "Dư nợ" → NPP available_limit', expected: 'Giảm Y (debit entry created)' },
-    ],
-    dataRules: [
-      'Dư nợ chỉ tăng SAU KHI đơn được xác nhận (confirmed)',
-      'Đơn pending_customer_confirm chưa tạo debit entry',
-    ],
-    businessRules: ['BR-OMS-02 (Credit after confirm)'],
-  },
-  {
-    id: 'TC-CONFIRM-01',
-    category: 'CONFIRM',
-    categoryColor: 'bg-green-100 text-green-700',
-    title: 'KH xác nhận đơn qua Zalo (Happy Path)',
-    description: 'Tạo đơn → mô phỏng KH nhấn xác nhận → đơn chuyển confirmed',
-    precondition: 'Tạo ít nhất 1 đơn (credit OK)',
-    steps: [
-      { action: 'Tab "Xác nhận đơn Zalo" → có record status = sent', expected: '' },
-      { action: 'Nhấn "✅ Xác nhận đơn hàng (vai KH)"', expected: 'Toast: Đơn đã xác nhận!' },
-      { action: 'Tab "Đơn hàng"', expected: 'Status → confirmed' },
-      { action: 'Tab "Dư nợ"', expected: 'Available_limit giảm' },
-    ],
-    dataRules: [
-      'Phải có đơn ở trạng thái pending_customer_confirm',
-      'Tab Zalo confirm phải hiện token status = sent',
-    ],
-    businessRules: ['SM-01 (Customer confirm → confirmed)'],
-  },
-  {
-    id: 'TC-CONFIRM-02',
-    category: 'CONFIRM',
-    categoryColor: 'bg-green-100 text-green-700',
-    title: 'KH từ chối đơn qua Zalo',
-    description: 'Tạo đơn → KH từ chối → đơn hủy, stock giải phóng, dư nợ không đổi',
-    precondition: 'Tạo ít nhất 1 đơn',
-    steps: [
-      { action: 'Tab "Xác nhận đơn Zalo" → Nhấn "❌ Từ chối"', expected: 'Nhập lý do → OK' },
-      { action: 'Tab "Đơn hàng"', expected: 'Status → cancelled' },
-      { action: 'Tab "Tồn kho"', expected: 'Reserved GIẢM (stock released)' },
-      { action: 'Tab "Dư nợ"', expected: 'Available_limit KHÔNG thay đổi' },
-    ],
-    dataRules: [
-      'KH từ chối → đơn cancel → release reserved',
-      'Dư nợ không bị ảnh hưởng khi reject',
-    ],
-    businessRules: ['SM-01 (Customer reject → cancelled)'],
-  },
-  {
-    id: 'TC-ATP-02',
-    category: 'ATP',
-    categoryColor: 'bg-purple-100 text-purple-700',
-    title: 'Reserved tăng/giảm khi tạo/hủy đơn',
-    description: 'Kiểm tra reserved_qty tăng sau tạo đơn và giảm sau hủy đơn',
-    precondition: 'Reset data, ghi nhận reserved ban đầu',
-    steps: [
-      { action: 'Tab "Tồn kho" → Ghi nhận reserved BHL-LON-330 = R₀', expected: '' },
-      { action: 'Tạo đơn BHL-LON-330 × 20', expected: '' },
-      { action: 'Tab "Tồn kho"', expected: 'Reserved = R₀ + 20' },
-      { action: 'Tab "Xác nhận đơn Zalo" → Từ chối đơn', expected: '' },
-      { action: 'Tab "Tồn kho"', expected: 'Reserved = R₀ (phục hồi)' },
-    ],
-    dataRules: [
-      'Tạo đơn → reserved += quantity (per product per warehouse)',
-      'Hủy/từ chối đơn → reserved -= quantity (release)',
-    ],
-    businessRules: ['BR-OMS-01 (ATP Reserve/Release)'],
-  },
-  {
-    id: 'TC-E2E-01',
-    category: 'E2E',
-    categoryColor: 'bg-red-100 text-red-700',
-    title: 'Luồng đầy đủ: Đơn hàng → Xác nhận → Giao hàng',
-    description: 'Test toàn bộ luồng từ tạo đơn → KH xác nhận → giao hàng → NPP xác nhận giao (qua Zalo)',
-    precondition: 'Reset data trước khi bắt đầu',
-    steps: [
-      { action: 'Nhấn "Reset Data"', expected: 'Clean state' },
-      { action: 'Tạo đơn: NPP bất kỳ + kho WH-HL + BHL-LON-330 × 10', expected: 'Đơn pending_customer_confirm' },
-      { action: 'Tab "Xác nhận đơn Zalo" → Xác nhận', expected: 'Đơn → confirmed' },
-      { action: 'Kiểm tra "Dư nợ"', expected: 'Available_limit giảm' },
-      { action: 'Kiểm tra "Tồn kho"', expected: 'Reserved = 10' },
-      { action: 'API: POST /api/test-portal/simulate-delivery (order_id)', expected: 'Đơn → delivered' },
-      { action: 'Tab "Xác nhận giao hàng"', expected: 'Xuất hiện record sent' },
-    ],
-    dataRules: [
-      'Luồng đầy đủ: draft → pending_confirm → confirmed → delivered',
-      'Mỗi bước chuyển status phải kiểm tra ở tab tương ứng',
-      'Simulate delivery cần order_id (copy từ tab Đơn hàng)',
-    ],
-    businessRules: ['SM-01 Full flow', 'BR-OMS-01', 'BR-OMS-02'],
-  },
-  {
-    id: 'TC-E2E-02',
-    category: 'E2E',
-    categoryColor: 'bg-red-100 text-red-700',
-    title: 'Luồng vượt credit → Kế toán duyệt → Xác nhận',
-    description: 'NPP hạn mức nhỏ → đơn pending_approval → kế toán duyệt → KH xác nhận',
-    precondition: 'Chọn NPP hạn mức nhỏ (TB-127 = 20tr hoặc HD-59 = 10tr)',
-    steps: [
-      { action: 'Tạo đơn lớn cho NPP nhỏ (tổng > hạn mức)', expected: 'Đơn pending_approval' },
-      { action: 'Tab "Đơn hàng" → Không có Zalo confirm', expected: '' },
-      { action: 'Dashboard → Login accountant01 (demo123) → Approve', expected: 'Đơn → pending_customer_confirm' },
-      { action: 'Tab "Xác nhận đơn Zalo" → Xác nhận', expected: 'Đơn → confirmed' },
-    ],
-    dataRules: [
-      'NPP hạn mức nhỏ: TB-127 = 20tr, HD-59 = 10tr',
-      'Đơn > hạn mức → pending_approval (KHÔNG gửi Zalo)',
-      'Kế toán duyệt → chuyển thành pending_customer_confirm → gửi Zalo',
-    ],
-    businessRules: ['BR-OMS-02 + SM-01 (Credit approval path)'],
-  },
-]
-
-// Hardcoded fallback scenarios (used if API not reachable)
-const fallbackScenarios: ScenarioMeta[] = [
-  {
-    id: 'SC-01', title: 'Luồng giao hàng đầy đủ (Happy Path)', category: 'E2E',
-    description: '8 đơn hàng multi-product (~6.5 tấn) qua tất cả 8 vai trò: DVKH → Zalo → Kế toán → Dispatcher (3 chuyến VRP) → Soạn hàng → Kiểm cổng → Tài xế → Đối soát.',
-    roles: ['dvkh','accountant','dispatcher','warehouse','security','driver','accountant','management'],
-    data_summary: '8 đơn hàng cho 8 NPP (multi-product, ~6.5 tấn), 3 chuyến xe, GPS giả lập',
-    gps_scenario: 'normal_delivery',
-    steps: [
-      { role:'dvkh', page:'/dashboard/orders/new', action:'Tạo đơn NPP-001: BHL-LON-330 × 200 + BHL-CHAI-450 × 80', expected:'Đơn Chờ KH xác nhận' },
-      { role:'dvkh', page:'/test-portal → Zalo', action:'✅ Xác nhận tất cả 8 đơn', expected:'Tất cả → Đã xác nhận' },
-      { role:'dispatcher', page:'/dashboard/planning', action:'Chọn 3 xe → VRP → Duyệt', expected:'3 chuyến, 8 điểm giao, notify warehouse' },
-      { role:'warehouse', page:'/dashboard/warehouse', action:'Soạn hàng 8 picking orders', expected:'All completed → trip ready' },
-      { role:'security', page:'/dashboard/gate-check', action:'Kiểm cổng 3 chuyến → PASS', expected:'Trips → In Transit' },
-      { role:'driver', page:'/dashboard/driver', action:'driver01: Giao từng điểm → ePOD → Thu tiền', expected:'Stops delivered' },
-      { role:'accountant', page:'/dashboard/reconciliation', action:'Đối soát 3 chuyến', expected:'0 discrepancy' },
-      { role:'management', page:'/dashboard/kpi', action:'Xem KPI', expected:'OTD = 100%' },
-    ],
-    preview_data: [
-      { label: 'NPP', value: '8 NPP (NPP-001 → NPP-008), Quảng Ninh + Hải Phòng' },
-      { label: 'Sản phẩm', value: 'Multi: BHL-LON-330, BHL-CHAI-450, BHL-GOLD-330, NGK-CHANH-330... ~6.5 tấn' },
-      { label: 'Chuyến xe', value: '3 chuyến, 8 điểm giao (truck_5t + truck_3t5)' },
-    ],
-  },
-  {
-    id: 'SC-02', title: 'Vượt hạn mức tín dụng → Kế toán duyệt', category: 'CREDIT',
-    description: 'NPP có hạn mức thấp (20-30 triệu), tạo đơn lớn vượt hạn mức → đơn tự động chuyển pending_approval → Kế toán phải duyệt.',
-    roles: ['dvkh','accountant'],
-    data_summary: '2 NPP hạn mức 25 triệu, 1 NPP hạn mức 500 triệu (contrast). Đơn 40 triệu cho NPP nhỏ.',
-    steps: [
-      { role:'dvkh', page:'/dashboard/orders/new', action:'Tạo đơn 40 triệu cho NPP hạn mức 25M', expected:'Status = Chờ duyệt credit' },
-      { role:'dvkh', page:'/dashboard/orders', action:'Kiểm tra danh sách → Badge 🟠 Chờ duyệt', expected:'KHÔNG có Zalo confirmation' },
-      { role:'accountant', page:'/dashboard/approvals', action:'Login accountant01 → Duyệt đơn', expected:'Đơn → pending_customer_confirm, Zalo gửi' },
-      { role:'dvkh', page:'/test-portal → Zalo', action:'KH xác nhận', expected:'Đơn confirmed' },
-    ],
-    preview_data: [
-      { label: 'NPP vượt hạn mức', value: 'NPP-016 (hạn mức 25 triệu, dư nợ ~20 triệu)' },
-      { label: 'Đơn hàng', value: 'BHL-LON-330 × 200 (~37 triệu)' },
-    ],
-  },
-  {
-    id: 'SC-03', title: 'Tồn kho không đủ (ATP Fail)', category: 'ATP',
-    description: 'Tạo đơn với số lượng vượt tồn kho → đơn bị từ chối. Reserved KHÔNG thay đổi.',
-    roles: ['dvkh'],
-    data_summary: 'Tồn kho BHL-LON-330: 100 thùng (giảm xuống thấp). Đặt 500 → fail.',
-    steps: [
-      { role:'dvkh', page:'/test-portal → Tồn kho', action:'Kiểm tra available BHL-LON-330 = 100', expected:'Reserved = 0' },
-      { role:'dvkh', page:'/dashboard/orders/new', action:'Tạo đơn BHL-LON-330 × 500', expected:'❌ Lỗi ATP không đủ' },
-      { role:'dvkh', page:'/test-portal → Tồn kho', action:'Kiểm tra reserved', expected:'Reserved vẫn = 0' },
-      { role:'dvkh', page:'/dashboard/orders/new', action:'Tạo đơn BHL-LON-330 × 50', expected:'✅ Thành công' },
-    ],
-    preview_data: [
-      { label: 'Sản phẩm', value: 'BHL-LON-330 — chỉ 100 thùng' },
-      { label: 'Thử vượt', value: '500 thùng → ATP fail' },
-    ],
-  },
-  {
-    id: 'SC-04', title: 'KH từ chối đơn qua Zalo', category: 'ZALO',
-    description: 'Đơn gửi Zalo → KH từ chối → đơn hủy, stock reserved giải phóng.',
-    roles: ['dvkh'],
-    data_summary: '2 đơn Zalo: 1 xác nhận, 1 từ chối → so sánh kết quả.',
-    steps: [
-      { role:'dvkh', page:'/test-portal → Tồn kho', action:'Ghi nhận reserved hiện tại', expected:'Reserved = 70' },
-      { role:'dvkh', page:'/test-portal → Zalo', action:'✅ Xác nhận đơn 1', expected:'Đơn 1 confirmed' },
-      { role:'dvkh', page:'/test-portal → Zalo', action:'❌ Từ chối đơn 2', expected:'Đơn 2 cancelled, reserved giảm' },
-      { role:'dvkh', page:'/test-portal → Tồn kho', action:'Kiểm tra reserved', expected:'Reserved = 50' },
-    ],
-    preview_data: [
-      { label: 'Đơn 1', value: 'NPP-001, BHL-LON-330 × 50 (sẽ xác nhận)' },
-      { label: 'Đơn 2', value: 'NPP-002, BHL-LON-330 × 20 (sẽ từ chối)' },
-    ],
-  },
-  {
-    id: 'SC-05', title: 'Lập chuyến xe & Điều phối (12 đơn)', category: 'TMS',
-    description: '12 đơn confirmed (~8 tấn, multi-product) → Dispatcher lập VRP hoặc THỦ CÔNG → 4 chuyến → GPS tracking.',
-    roles: ['dispatcher'],
-    data_summary: '12 đơn confirmed, multi-product, 8 tấn tổng, 5 xe available.',
-    gps_scenario: 'normal_delivery',
-    steps: [
-      { role:'dispatcher', page:'/dashboard/planning', action:'Login dispatcher01 → 12 đơn chờ (~8 tấn)', expected:'12 shipments pending' },
-      { role:'dispatcher', page:'/dashboard/planning', action:'Chọn 4-5 xe → VRP hoặc Lập thủ công', expected:'VRP: 4 chuyến tối ưu. Thủ công: kéo thả' },
-      { role:'dispatcher', page:'/dashboard/planning', action:'Duyệt kế hoạch', expected:'4 trips, notify warehouse + drivers' },
-      { role:'dispatcher', page:'/dashboard/control-tower', action:'Xem bản đồ', expected:'4 chuyến trên bản đồ' },
-    ],
-    preview_data: [
-      { label: 'Đơn', value: '12 đơn confirmed (NPP-001 → NPP-012), ~8 tấn' },
-      { label: 'Xe', value: '5 xe: truck_3t5 + truck_5t' },
-      { label: '2 chế độ', value: 'VRP Tự động (AI) hoặc Lập thủ công (kéo thả)' },
-    ],
-  },
-  {
-    id: 'SC-06', title: 'Giao hàng 5 điểm — multi-product (Driver)', category: 'DRIVER',
-    description: '1 chuyến 5 tấn × 5 điểm, multi-product (~4.5 tấn, mỗi stop 800-1200kg) → driver01 giao + thu tiền.',
-    roles: ['driver','dispatcher'],
-    data_summary: '1 chuyến 5 tấn, 5 stops, multi-product, tổng ~4.5 tấn.',
-    gps_scenario: 'normal_delivery',
-    steps: [
-      { role:'driver', page:'/dashboard/driver', action:'Login driver01 → Nhận chuyến → Checklist', expected:'1 chuyến, 5 điểm' },
-      { role:'driver', page:'/dashboard/driver', action:'Điểm 1: NPP-001, 120 thùng bia + 40 két chai → ePOD → 26.8M', expected:'Stop 1 delivered' },
-      { role:'driver', page:'/dashboard/driver', action:'Lặp 4 điểm còn lại', expected:'All 5 delivered' },
-      { role:'driver', page:'/dashboard/driver', action:'Hoàn thành chuyến', expected:'Trip completed, notify kế toán + dispatcher' },
-    ],
-    preview_data: [
-      { label: 'Chuyến', value: 'Xe 5 tấn, tài xế driver01, 5 điểm' },
-      { label: 'Sản phẩm', value: 'BHL-LON-330, BHL-CHAI-450, BHL-GOLD-330, NGK-CHANH-330' },
-      { label: 'Tổng', value: '~110 triệu, thu tiền mặt/CK tại mỗi điểm' },
-    ],
-  },
-  {
-    id: 'SC-07', title: 'Kiểm tra cổng lỗi (Gate Check Fail)', category: 'WMS',
-    description: 'Chuyến xe soạn hàng → kiểm cổng thiếu → Fail → Dispatcher xử lý.',
-    roles: ['warehouse','security','dispatcher'],
-    data_summary: '1 chuyến loaded, kiểm cổng thiếu 5 thùng.',
-    steps: [
-      { role:'warehouse', page:'/dashboard/warehouse', action:'Xem picking order completed', expected:'Hàng đã soạn' },
-      { role:'security', page:'/dashboard/gate-check', action:'Login baove01 → Kiểm tra → Thiếu 5 thùng → FAIL', expected:'Gate check FAIL' },
-      { role:'dispatcher', page:'/dashboard/control-tower', action:'Xem alert cổng', expected:'Exception alert' },
-    ],
-    preview_data: [
-      { label: 'Items', value: 'BHL-LON-330 × 150 (expected) vs 145 (actual)' },
-    ],
-  },
-  {
-    id: 'SC-08', title: 'Đối soát có chênh lệch (Discrepancy)', category: 'RECON',
-    description: 'Chuyến đã giao → đối soát phát hiện chênh lệch tiền → Kế toán xử lý.',
-    roles: ['accountant','management'],
-    data_summary: '2 chuyến delivered: 1 matched, 1 thiếu 2 triệu.',
-    steps: [
-      { role:'accountant', page:'/dashboard/reconciliation', action:'Login accountant01 → Xem Đối soát', expected:'1 matched, 1 discrepancy' },
-      { role:'accountant', page:'/dashboard/reconciliation', action:'Xử lý chênh lệch -2M', expected:'Discrepancy resolved' },
-      { role:'management', page:'/dashboard/kpi', action:'Login manager01 → Xem KPI', expected:'1 discrepancy reported' },
-    ],
-    preview_data: [
-      { label: 'Chuyến 1', value: 'Matched (0 chênh lệch)' },
-      { label: 'Chuyến 2', value: 'Thu thiếu 2 triệu' },
-    ],
-  },
-]
-
 function TestCasesTab({ setTab, showToast, refresh }: { setTab: (t: Tab) => void; showToast: (m: string) => void; refresh: () => void }) {
-  const [scenarios, setScenarios] = useState<ScenarioMeta[]>(fallbackScenarios)
-  const [loading, setLoading] = useState(false)
+  const [scenarios, setScenarios] = useState<ScenarioMeta[]>([])
+  const [loading, setLoading] = useState(true)
   const [loadingId, setLoadingId] = useState<string | null>(null)
   const [activeScenario, setActiveScenario] = useState<ScenarioMeta | null>(null)
   const [expandedId, setExpandedId] = useState<string | null>(null)
   const [filterCat, setFilterCat] = useState<string>('all')
   const [completedSteps, setCompletedSteps] = useState<Record<string, boolean>>({})
-  const [showManual, setShowManual] = useState(false)
 
-  // Try to load from API, fallback to hardcoded
   useEffect(() => {
-    api<ScenarioMeta[]>('/scenarios').then(d => {
-      if (d && d.length > 0) setScenarios(d)
-    })
+    setLoading(true)
+    api<ScenarioMeta[]>('/scenarios')
+      .then((data) => {
+        const nextScenarios = (data || []).sort((a, b) => a.id.localeCompare(b.id, undefined, { numeric: true }))
+        setScenarios(nextScenarios)
+      })
+      .finally(() => setLoading(false))
   }, [])
 
   const categories = ['all', ...Array.from(new Set(scenarios.map(s => s.category)))]
@@ -580,9 +220,9 @@ function TestCasesTab({ setTab, showToast, refresh }: { setTab: (t: Tab) => void
       setExpandedId(scenarioId)
       setCompletedSteps({})
       refresh()
-    } else {
-      showToast('❌ Lỗi nạp dữ liệu — kiểm tra console')
+      return
     }
+    showToast('❌ Lỗi nạp dữ liệu — kiểm tra backend Test Portal')
   }
 
   const toggleStep = (key: string) => {
@@ -614,77 +254,17 @@ function TestCasesTab({ setTab, showToast, refresh }: { setTab: (t: Tab) => void
 
   return (
     <div className="space-y-4">
-      {/* Header */}
       <div className="bg-gradient-to-r from-gray-900 to-gray-800 text-white rounded-xl p-6">
         <div className="flex items-start justify-between">
           <div>
             <h3 className="font-bold text-xl mb-2">🎯 Kịch bản Test — Chọn & Nạp dữ liệu</h3>
             <p className="text-gray-300 text-sm">
-              Mỗi kịch bản đi kèm dữ liệu riêng. Nhấn <strong>&quot;Nạp data&quot;</strong> để xóa dữ liệu cũ và tải dữ liệu test mới.
-              <br />Sau đó thực hiện từng bước, đánh dấu hoàn thành ✅ và kiểm tra kết quả ở các tab.
+              Test Portal không còn nhúng sẵn dữ liệu test trong frontend.
+              <br />Chỉ khi bạn nhấn <strong>&quot;Nạp data&quot;</strong> thì hệ thống mới reset dữ liệu nghiệp vụ cũ và nạp bộ data test tương ứng từ backend.
             </p>
           </div>
-          <button onClick={() => setShowManual(!showManual)}
-            className="px-3 py-1.5 bg-white/10 hover:bg-white/20 rounded-lg text-xs font-medium transition flex-shrink-0">
-            {showManual ? '✕ Ẩn' : '📖 Manual test cases'}
-          </button>
         </div>
 
-        {/* Account reference */}
-        <details className="mt-4 bg-white/10 border border-white/20 rounded-lg">
-          <summary className="px-4 py-2.5 cursor-pointer text-sm font-semibold text-amber-300 hover:text-amber-200">
-            🔐 Danh sách tài khoản test (mật khẩu: demo123)
-          </summary>
-          <div className="px-4 pb-3 pt-1">
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-2 text-xs">
-              <div className="bg-white/5 rounded p-2">
-                <div className="text-amber-300 font-semibold mb-1">👩‍💼 ĐVKH (Nhân viên KD)</div>
-                <div className="text-gray-300">dvkh01 / demo123</div>
-                <div className="text-gray-400 text-[10px] mt-0.5">Tạo đơn, theo dõi đơn hàng</div>
-              </div>
-              <div className="bg-white/5 rounded p-2">
-                <div className="text-amber-300 font-semibold mb-1">🧾 Kế toán</div>
-                <div className="text-gray-300">accountant01 / demo123</div>
-                <div className="text-gray-400 text-[10px] mt-0.5">Duyệt credit, đối soát</div>
-              </div>
-              <div className="bg-white/5 rounded p-2">
-                <div className="text-amber-300 font-semibold mb-1">🗺️ Dispatcher</div>
-                <div className="text-gray-300">dispatcher01 / demo123</div>
-                <div className="text-gray-400 text-[10px] mt-0.5">Lập chuyến, điều phối</div>
-              </div>
-              <div className="bg-white/5 rounded p-2">
-                <div className="text-amber-300 font-semibold mb-1">📦 Thủ kho</div>
-                <div className="text-gray-300">warehouse01 / demo123</div>
-                <div className="text-gray-400 text-[10px] mt-0.5">Soạn hàng, picking</div>
-              </div>
-              <div className="bg-white/5 rounded p-2">
-                <div className="text-amber-300 font-semibold mb-1">🛡️ Bảo vệ</div>
-                <div className="text-gray-300">baove01 / demo123</div>
-                <div className="text-gray-400 text-[10px] mt-0.5">Kiểm tra cổng</div>
-              </div>
-              <div className="bg-white/5 rounded p-2">
-                <div className="text-amber-300 font-semibold mb-1">🚛 Tài xế</div>
-                <div className="text-gray-300">driver01 ~ driver08 / demo123</div>
-                <div className="text-gray-400 text-[10px] mt-0.5">Nhận chuyến, giao hàng</div>
-              </div>
-              <div className="bg-white/5 rounded p-2">
-                <div className="text-amber-300 font-semibold mb-1">📊 Quản lý</div>
-                <div className="text-gray-300">manager01 / demo123</div>
-                <div className="text-gray-400 text-[10px] mt-0.5">KPI, báo cáo tổng hợp</div>
-              </div>
-              <div className="bg-white/5 rounded p-2">
-                <div className="text-amber-300 font-semibold mb-1">⚙️ Admin</div>
-                <div className="text-gray-300">admin / demo123</div>
-                <div className="text-gray-400 text-[10px] mt-0.5">Quản lý hệ thống</div>
-              </div>
-            </div>
-            <div className="mt-2 text-[10px] text-gray-400">
-              📌 Dashboard: <span className="text-gray-300">http://localhost:3001/dashboard</span> · Mỗi role tự redirect về trang phù hợp sau khi đăng nhập
-            </div>
-          </div>
-        </details>
-
-        {/* Active scenario indicator */}
         {activeScenario && (
           <div className="mt-4 bg-green-500/20 border border-green-400/30 rounded-lg p-3 flex items-center gap-3">
             <span className="relative flex h-3 w-3">
@@ -697,7 +277,6 @@ function TestCasesTab({ setTab, showToast, refresh }: { setTab: (t: Tab) => void
           </div>
         )}
 
-        {/* Category filter */}
         <div className="flex gap-2 mt-4 flex-wrap">
           {categories.map(c => (
             <button key={c} onClick={() => setFilterCat(c)}
@@ -710,7 +289,10 @@ function TestCasesTab({ setTab, showToast, refresh }: { setTab: (t: Tab) => void
         </div>
       </div>
 
-      {/* Scenario cards */}
+      {!filtered.length && (
+        <EmptyState text="Chưa có kịch bản nào được trả về từ backend. Hãy kiểm tra Test Portal backend hoặc cấu hình ENABLE_TEST_PORTAL." />
+      )}
+
       {filtered.map(sc => {
         const isExpanded = expandedId === sc.id
         const isActive = activeScenario?.id === sc.id
@@ -722,7 +304,6 @@ function TestCasesTab({ setTab, showToast, refresh }: { setTab: (t: Tab) => void
           <div key={sc.id} className={`bg-white rounded-xl shadow-sm border-2 overflow-hidden transition-all ${
             isActive ? 'border-green-400 ring-2 ring-green-100' : 'border-gray-100 hover:border-gray-200'
           }`}>
-            {/* Card header — clickable to expand */}
             <button
               onClick={() => setExpandedId(isExpanded ? null : sc.id)}
               className="w-full px-5 py-4 flex items-center gap-3 hover:bg-gray-50 transition text-left"
@@ -733,30 +314,21 @@ function TestCasesTab({ setTab, showToast, refresh }: { setTab: (t: Tab) => void
               <span className="font-mono text-sm text-gray-400">{sc.id}</span>
               <div className="flex-1 min-w-0">
                 <span className="font-semibold text-gray-900">{sc.title}</span>
-                {!isExpanded && (
-                  <p className="text-xs text-gray-400 mt-0.5 truncate">{sc.description}</p>
-                )}
+                {!isExpanded && <p className="text-xs text-gray-400 mt-0.5 truncate">{sc.description}</p>}
               </div>
-
-              {/* Roles */}
               <div className="hidden md:flex gap-1 mr-2 flex-shrink-0">
                 {Array.from(new Set(sc.roles)).slice(0, 4).map((r, i) => (
-                  <span key={i} className="w-7 h-7 rounded-full bg-gray-100 flex items-center justify-center text-sm"
-                    title={r}>{roleIcon[r] || '👤'}</span>
+                  <span key={i} className="w-7 h-7 rounded-full bg-gray-100 flex items-center justify-center text-sm" title={r}>{roleIcon[r] || '👤'}</span>
                 ))}
               </div>
-
-              {/* Chevron */}
               <svg className={`w-5 h-5 text-gray-400 transition-transform flex-shrink-0 ${isExpanded ? 'rotate-180' : ''}`}
                 fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
               </svg>
             </button>
 
-            {/* Expanded content */}
             {isExpanded && (
               <div className="border-t">
-                {/* Big "Nạp data" section */}
                 <div className="px-5 py-4 bg-gradient-to-r from-orange-50 to-amber-50 flex items-center justify-between gap-4">
                   <div className="flex-1">
                     <p className="text-sm text-gray-700">{sc.description}</p>
@@ -766,172 +338,129 @@ function TestCasesTab({ setTab, showToast, refresh }: { setTab: (t: Tab) => void
                     onClick={(e) => { e.stopPropagation(); handleLoadScenario(sc.id) }}
                     disabled={isLoading}
                     className={`px-6 py-3 rounded-xl text-base font-bold transition flex items-center gap-2 flex-shrink-0 shadow-md ${
-                      isActive
-                        ? 'bg-green-600 text-white hover:bg-green-700'
-                        : 'bg-[#F68634] text-white hover:bg-[#e5762a]'
+                      isActive ? 'bg-green-600 text-white hover:bg-green-700' : 'bg-[#F68634] text-white hover:bg-[#e5762a]'
                     } disabled:opacity-50`}>
-                    {isLoading ? (
-                      <><span className="animate-spin">⏳</span> Đang nạp...</>
-                    ) : isActive ? (
-                      <><span>✅</span> Nạp lại data</>
-                    ) : (
-                      <><span>▶️</span> Nạp data cho kịch bản này</>
-                    )}
+                    {isLoading ? <><span className="animate-spin">⏳</span> Đang nạp...</> : isActive ? <><span>✅</span> Nạp lại data</> : <><span>▶️</span> Nạp data cho kịch bản này</>}
                   </button>
                 </div>
 
                 <div className="px-5 pb-5 bg-gray-50 space-y-4 pt-4">
-
-                {/* Data preview */}
-                <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
-                  <h4 className="text-xs font-bold text-blue-700 uppercase mb-2">📊 Dữ liệu sẽ được nạp</h4>
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
-                    {sc.preview_data.map((dp, i) => (
-                      <div key={i} className="flex gap-2 text-sm">
-                        <span className="text-blue-500 font-medium min-w-[80px]">{dp.label}:</span>
-                        <span className="text-blue-900">{dp.value}</span>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-
-                {/* Step-by-step guide */}
-                <div>
-                  <div className="flex items-center justify-between mb-2">
-                    <h4 className="text-xs font-bold text-gray-500 uppercase">
-                      📝 Các bước thực hiện ({doneSteps}/{totalSteps})
-                    </h4>
-                    {isActive && totalSteps > 0 && (
-                      <div className="flex items-center gap-2">
-                        <div className="w-24 bg-gray-200 rounded-full h-1.5">
-                          <div className="bg-green-500 h-1.5 rounded-full transition-all"
-                            style={{ width: `${(doneSteps / totalSteps) * 100}%` }} />
+                  <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
+                    <h4 className="text-xs font-bold text-blue-700 uppercase mb-2">📊 Dữ liệu sẽ được nạp</h4>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+                      {sc.preview_data.map((dp, i) => (
+                        <div key={i} className="flex gap-2 text-sm">
+                          <span className="text-blue-500 font-medium min-w-[80px]">{dp.label}:</span>
+                          <span className="text-blue-900">{dp.value}</span>
                         </div>
-                        <span className="text-xs text-gray-500">{Math.round((doneSteps / totalSteps) * 100)}%</span>
-                      </div>
-                    )}
+                      ))}
+                    </div>
                   </div>
-                  <div className="space-y-2">
-                    {sc.steps.map((s, i) => {
-                      const stepKey = `${sc.id}-${i}`
-                      const isDone = completedSteps[stepKey]
-                      return (
-                        <div key={i} className={`flex gap-3 items-start rounded-lg p-3 border transition ${
-                          isDone ? 'bg-green-50 border-green-200' : 'bg-white border-gray-200'
-                        }`}>
-                          {isActive ? (
-                            <button onClick={() => toggleStep(stepKey)}
-                              className={`w-6 h-6 rounded-full flex items-center justify-center flex-shrink-0 transition text-xs font-bold ${
-                                isDone ? 'bg-green-500 text-white' : 'bg-gray-200 text-gray-500 hover:bg-gray-300'
-                              }`}>
-                              {isDone ? '✓' : i + 1}
-                            </button>
-                          ) : (
-                            <span className="bg-amber-100 text-amber-700 font-bold text-xs rounded-full w-6 h-6 flex items-center justify-center flex-shrink-0">
-                              {i + 1}
-                            </span>
-                          )}
-                          <div className="flex-1">
-                            <div className="flex items-center gap-2 mb-1">
-                              <span className="w-6 h-6 rounded-full bg-gray-100 flex items-center justify-center text-xs"
-                                title={s.role}>{roleIcon[s.role] || '👤'}</span>
-                              <span className="text-xs text-gray-400 font-medium">{s.role}</span>
-                              <span className="text-xs text-gray-300">→</span>
-                              <span className="text-xs text-gray-400 font-mono">{s.page}</span>
-                            </div>
-                            <p className={`text-sm font-medium ${isDone ? 'text-green-700 line-through' : 'text-gray-800'}`}>{s.action}</p>
-                            {s.expected && (
-                              <p className="text-xs text-green-600 mt-1">✓ Kỳ vọng: {s.expected}</p>
-                            )}
+
+                  <div>
+                    <div className="flex items-center justify-between mb-2">
+                      <h4 className="text-xs font-bold text-gray-500 uppercase">📝 Các bước thực hiện ({doneSteps}/{totalSteps})</h4>
+                      {isActive && totalSteps > 0 && (
+                        <div className="flex items-center gap-2">
+                          <div className="w-24 bg-gray-200 rounded-full h-1.5">
+                            <div className="bg-green-500 h-1.5 rounded-full transition-all" style={{ width: `${(doneSteps / totalSteps) * 100}%` }} />
                           </div>
+                          <span className="text-xs text-gray-500">{Math.round((doneSteps / totalSteps) * 100)}%</span>
                         </div>
-                      )
-                    })}
+                      )}
+                    </div>
+                    <div className="space-y-2">
+                      {sc.steps.map((s, i) => {
+                        const stepKey = `${sc.id}-${i}`
+                        const isDone = completedSteps[stepKey]
+                        return (
+                          <div key={i} className={`flex gap-3 items-start rounded-lg p-3 border transition ${isDone ? 'bg-green-50 border-green-200' : 'bg-white border-gray-200'}`}>
+                            {isActive ? (
+                              <button onClick={() => toggleStep(stepKey)}
+                                className={`w-6 h-6 rounded-full flex items-center justify-center flex-shrink-0 transition text-xs font-bold ${isDone ? 'bg-green-500 text-white' : 'bg-gray-200 text-gray-500 hover:bg-gray-300'}`}>
+                                {isDone ? '✓' : i + 1}
+                              </button>
+                            ) : (
+                              <span className="bg-amber-100 text-amber-700 font-bold text-xs rounded-full w-6 h-6 flex items-center justify-center flex-shrink-0">{i + 1}</span>
+                            )}
+                            <div className="flex-1">
+                              <div className="flex items-center gap-2 mb-1">
+                                <span className="w-6 h-6 rounded-full bg-gray-100 flex items-center justify-center text-xs" title={s.role}>{roleIcon[s.role] || '👤'}</span>
+                                <span className="text-xs text-gray-400 font-medium">{s.role}</span>
+                                <span className="text-xs text-gray-300">→</span>
+                                <span className="text-xs text-gray-400 font-mono">{s.page}</span>
+                              </div>
+                              <p className={`text-sm font-medium ${isDone ? 'text-green-700 line-through' : 'text-gray-800'}`}>{s.action}</p>
+                              {s.expected && <p className="text-xs text-green-600 mt-1">✓ Kỳ vọng: {s.expected}</p>}
+                            </div>
+                          </div>
+                        )
+                      })}
+                    </div>
                   </div>
-                </div>
 
-                {/* GPS link */}
-                {sc.gps_scenario && (
-                  <div className="bg-emerald-50 border border-emerald-200 rounded-lg p-3 flex items-center justify-between">
-                    <span className="text-sm text-emerald-700">
-                      📡 Kịch bản GPS: <strong>{sc.gps_scenario}</strong>
-                    </span>
-                    <button onClick={() => setTab('gps-sim')}
-                      className="px-3 py-1.5 bg-emerald-600 text-white rounded-lg text-xs font-medium hover:bg-emerald-700 transition">
-                      Mở GPS Simulator →
-                    </button>
-                  </div>
-                )}
-
-                {/* Quick nav */}
-                <div className="flex gap-2 pt-2 border-t flex-wrap">
-                  {sc.roles.includes('dvkh') && (
-                    <button onClick={() => setTab('create-order')}
-                      className="px-3 py-1.5 bg-[#F68634] text-white rounded-lg text-xs font-medium hover:bg-[#e5762a] transition">
-                      ➕ Tạo đơn test
-                    </button>
+                  {sc.gps_scenario && (
+                    <div className="bg-emerald-50 border border-emerald-200 rounded-lg p-3 flex items-center justify-between">
+                      <span className="text-sm text-emerald-700">📡 Kịch bản GPS: <strong>{sc.gps_scenario}</strong></span>
+                      <button onClick={() => setTab('gps-sim')}
+                        className="px-3 py-1.5 bg-emerald-600 text-white rounded-lg text-xs font-medium hover:bg-emerald-700 transition">
+                        Mở GPS Simulator →
+                      </button>
+                    </div>
                   )}
-                  <button onClick={() => setTab('orders')}
-                    className="px-3 py-1.5 bg-gray-600 text-white rounded-lg text-xs font-medium hover:bg-gray-700 transition">
-                    📋 Đơn hàng
-                  </button>
-                  <button onClick={() => setTab('order-confirm')}
-                    className="px-3 py-1.5 bg-brand-500 text-white rounded-lg text-xs font-medium hover:bg-brand-600 transition">
-                    📱 Zalo
-                  </button>
-                  <button onClick={() => setTab('stock')}
-                    className="px-3 py-1.5 bg-green-600 text-white rounded-lg text-xs font-medium hover:bg-green-700 transition">
-                    📦 Tồn kho
-                  </button>
-                  <button onClick={() => setTab('credit')}
-                    className="px-3 py-1.5 bg-orange-600 text-white rounded-lg text-xs font-medium hover:bg-orange-700 transition">
-                    💰 Dư nợ
-                  </button>
+
+                  <div className="flex gap-2 pt-2 border-t flex-wrap">
+                    {sc.roles.includes('dvkh') && (
+                      <button onClick={() => setTab('create-order')}
+                        className="px-3 py-1.5 bg-[#F68634] text-white rounded-lg text-xs font-medium hover:bg-[#e5762a] transition">
+                        ➕ Tạo đơn test
+                      </button>
+                    )}
+                    <button onClick={() => setTab('orders')}
+                      className="px-3 py-1.5 bg-gray-600 text-white rounded-lg text-xs font-medium hover:bg-gray-700 transition">
+                      📋 Đơn hàng
+                    </button>
+                    <button onClick={() => setTab('order-confirm')}
+                      className="px-3 py-1.5 bg-brand-500 text-white rounded-lg text-xs font-medium hover:bg-brand-600 transition">
+                      📱 Zalo
+                    </button>
+                    <button onClick={() => setTab('stock')}
+                      className="px-3 py-1.5 bg-green-600 text-white rounded-lg text-xs font-medium hover:bg-green-700 transition">
+                      📦 Tồn kho
+                    </button>
+                    <button onClick={() => setTab('credit')}
+                      className="px-3 py-1.5 bg-orange-600 text-white rounded-lg text-xs font-medium hover:bg-orange-700 transition">
+                      💰 Dư nợ
+                    </button>
+                  </div>
                 </div>
-              </div>
               </div>
             )}
           </div>
         )
       })}
-
-      {/* Manual test cases (collapsible) */}
-      {showManual && (
-        <div className="space-y-3 mt-6">
-          <h3 className="text-lg font-semibold text-gray-700 border-t pt-4">📖 Manual Test Cases (tham khảo)</h3>
-          {testCases.map(tc => (
-            <div key={tc.id} className="bg-white rounded-lg shadow-sm border p-4">
-              <div className="flex items-center gap-2 mb-2">
-                <span className={`px-2 py-0.5 rounded text-xs font-bold ${tc.categoryColor}`}>{tc.category}</span>
-                <span className="font-mono text-xs text-gray-400">{tc.id}</span>
-                <span className="font-medium text-sm">{tc.title}</span>
-              </div>
-              <p className="text-xs text-gray-500">{tc.description}</p>
-            </div>
-          ))}
-        </div>
-      )}
     </div>
   )
 }
 
 // ===== Tab: Orders =====
-function OrdersTab({ refreshKey, showToast, refresh }: { refreshKey: number; showToast: (m: string) => void; refresh: () => void }) {
-  const [orders, setOrders] = useState<Order[]>([])
+function OrdersTab({ refreshKey }: { refreshKey: number }) {
+  const [items, setItems] = useState<Order[]>([])
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
     setLoading(true)
-    api<Order[]>('/orders').then(d => { setOrders(d || []); setLoading(false) })
+    api<Order[]>('/orders').then(d => { setItems(d || []); setLoading(false) })
   }, [refreshKey])
 
   if (loading) return <Spinner />
-  if (!orders.length) return <EmptyState text="Chưa có đơn hàng nào. Tạo đơn test ở tab ➕" />
+  if (!items.length) return <EmptyState text="Chưa có đơn hàng test nào. Hãy nạp kịch bản hoặc tạo đơn test mới." />
 
   return (
     <div className="bg-white rounded-xl shadow-sm overflow-hidden">
       <div className="px-6 py-4 border-b bg-gray-50">
-        <h2 className="font-bold text-lg">📋 Danh sách đơn hàng ({orders.length})</h2>
+        <h2 className="font-bold text-lg">📋 Đơn hàng test ({items.length})</h2>
+        <p className="text-sm text-gray-500 mt-1">Danh sách đơn hàng đang có trong môi trường Test Portal.</p>
       </div>
       <div className="overflow-x-auto">
         <table className="w-full text-sm">
@@ -941,34 +470,27 @@ function OrdersTab({ refreshKey, showToast, refresh }: { refreshKey: number; sho
               <th className="px-4 py-3 text-left">Khách hàng</th>
               <th className="px-4 py-3 text-left">Trạng thái</th>
               <th className="px-4 py-3 text-right">Tổng tiền</th>
+              <th className="px-4 py-3 text-left">ATP</th>
+              <th className="px-4 py-3 text-left">Credit</th>
               <th className="px-4 py-3 text-left">Ngày giao</th>
-              <th className="px-4 py-3 text-left">Xác nhận KH</th>
               <th className="px-4 py-3 text-left">Tạo lúc</th>
             </tr>
           </thead>
           <tbody className="divide-y">
-            {orders.map(o => (
-              <tr key={o.id} className="hover:bg-amber-50 transition">
-                <td className="px-4 py-3 font-mono font-medium text-amber-700">{o.order_number}</td>
-                <td className="px-4 py-3">{o.customer_name}</td>
+            {items.map(item => (
+              <tr key={item.id} className="hover:bg-amber-50">
+                <td className="px-4 py-3 font-mono text-amber-700">{item.order_number}</td>
+                <td className="px-4 py-3">{item.customer_name}</td>
                 <td className="px-4 py-3">
-                  <span className={`px-2 py-1 rounded-full text-xs font-medium ${statusBadge(o.status)}`}>
-                    {statusLabel[o.status] || o.status}
+                  <span className={`px-2 py-1 rounded-full text-xs font-medium ${statusBadge(item.status)}`}>
+                    {statusLabel[item.status] || item.status}
                   </span>
-                  {o.reject_reason && (
-                    <div className="mt-1 text-xs text-red-600">Lý do: {o.reject_reason}</div>
-                  )}
                 </td>
-                <td className="px-4 py-3 text-right font-medium">{fmtMoney(o.total_amount)}</td>
-                <td className="px-4 py-3">{o.delivery_date}</td>
-                <td className="px-4 py-3">
-                  {o.confirm_token ? (
-                    <span className={`px-2 py-1 rounded-full text-xs font-medium ${statusBadge(o.confirm_status || 'sent')}`}>
-                      {statusLabel[o.confirm_status || 'sent'] || o.confirm_status}
-                    </span>
-                  ) : <span className="text-gray-400">-</span>}
-                </td>
-                <td className="px-4 py-3 text-gray-500 text-xs">{fmtDate(o.created_at)}</td>
+                <td className="px-4 py-3 text-right font-medium">{fmtMoney(item.total_amount)}</td>
+                <td className="px-4 py-3 text-xs text-gray-600">{item.atp_status || '-'}</td>
+                <td className="px-4 py-3 text-xs text-gray-600">{item.credit_status || '-'}</td>
+                <td className="px-4 py-3 text-xs text-gray-600">{fmtDate(item.delivery_date)}</td>
+                <td className="px-4 py-3 text-xs text-gray-600">{fmtDate(item.created_at)}</td>
               </tr>
             ))}
           </tbody>
@@ -1695,26 +1217,10 @@ function DriversTab() {
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
-    fetch('/api/v1/drivers', { headers: { Authorization: `Bearer ${localStorage.getItem('token')}` } })
-      .then(r => r.json())
-      .then(d => setDrivers(d.data || []))
-      .catch(() => {})
+    api<DriverInfo[]>('/drivers')
+      .then(d => setDrivers(d || []))
       .finally(() => setLoading(false))
   }, [])
-
-  // Mapping username từ user_id (pattern: d1000000-...-00000000XXXX → driverXX)
-  const getUsername = (userId: string): string => {
-    // Tìm số cuối cùng từ UUID
-    const suffix = userId.replace(/-/g, '').slice(-4)
-    const num = parseInt(suffix, 10)
-    if (num > 0 && num <= 70) return `driver${num.toString().padStart(2, '0')}`
-    // Fallback cho seed.sql cũ (b0000000-...)
-    if (userId.startsWith('b0000000')) {
-      const old = parseInt(userId.slice(-4), 10) - 4
-      if (old > 0 && old <= 8) return `driver${old.toString().padStart(2, '0')}`
-    }
-    return `driver??`
-  }
 
   const getWarehouseName = (whId: string) => {
     if (whId?.includes('0001')) return '🏭 Kho Hạ Long'
@@ -1726,25 +1232,19 @@ function DriversTab() {
 
   return (
     <div>
-      {/* E2E Test Guide */}
       <div className="bg-amber-50 border border-amber-200 rounded-xl p-5 mb-6">
-        <h3 className="font-bold text-amber-800 text-lg mb-3">📋 Hướng dẫn Test E2E — Tài xế</h3>
+        <h3 className="font-bold text-amber-800 text-lg mb-3">📋 Hướng dẫn test với dữ liệu do Test Portal nạp</h3>
         <div className="space-y-2 text-sm text-amber-900">
-          <p><strong>Bước 1:</strong> Đăng nhập tài khoản <code className="bg-amber-100 px-1 rounded">dispatcher01</code> → Tạo chuyến, gán tài xế</p>
-          <p><strong>Bước 2:</strong> Ghi nhớ tên tài xế đã gán (xem bảng bên dưới)</p>
-          <p><strong>Bước 3:</strong> Đăng nhập bằng tài khoản tương ứng (mật khẩu: <code className="bg-amber-100 px-1 rounded">demo123</code>)</p>
-          <p><strong>Bước 4:</strong> Vào trang Tài xế → Xem chuyến → Bắt đầu giao → ePOD → Thu tiền → Hoàn thành</p>
-        </div>
-        <div className="mt-3 p-3 bg-white rounded-lg border border-amber-100">
-          <p className="text-xs text-amber-700 font-medium mb-1">💡 Mẹo test nhanh:</p>
-          <p className="text-xs text-amber-600">Dùng <strong>driver01</strong> (Phạm Văn Đức) hoặc <strong>driver09</strong> (Bùi Văn Sáng) — đây là 2 tài xế thường được gán chuyến nhất.</p>
+          <p><strong>Bước 1:</strong> Vào tab Kịch bản test và nhấn <strong>Nạp data</strong> cho scenario cần kiểm thử.</p>
+          <p><strong>Bước 2:</strong> Nếu scenario sinh chuyến giao hàng, đối chiếu danh sách tài xế thực tế ở bảng bên dưới.</p>
+          <p><strong>Bước 3:</strong> Phân công hoặc kiểm tra chuyến ở các màn hình nghiệp vụ tương ứng.</p>
+          <p><strong>Bước 4:</strong> Không dùng tài khoản/mật khẩu hardcode từ Test Portal; đăng nhập bằng tài khoản được hệ thống hoặc quản trị cấp.</p>
         </div>
       </div>
 
-      {/* Driver-Account Mapping Table */}
       <div className="bg-white rounded-xl shadow-sm overflow-hidden">
         <div className="px-5 py-4 border-b bg-gray-50 flex items-center justify-between">
-          <h3 className="font-semibold text-gray-800">🚛 Danh sách Tài xế — Tài khoản đăng nhập</h3>
+          <h3 className="font-semibold text-gray-800">🚛 Danh sách tài xế hiện có</h3>
           <span className="text-xs text-gray-500 bg-gray-200 px-2 py-1 rounded-full">{drivers.length} tài xế</span>
         </div>
         <div className="overflow-x-auto">
@@ -1753,8 +1253,6 @@ function DriversTab() {
               <tr>
                 <th className="text-left py-3 px-4">#</th>
                 <th className="text-left py-3 px-4">Tên tài xế</th>
-                <th className="text-left py-3 px-4">Tài khoản</th>
-                <th className="text-left py-3 px-4">Mật khẩu</th>
                 <th className="text-left py-3 px-4">SĐT</th>
                 <th className="text-left py-3 px-4">GPLX</th>
                 <th className="text-left py-3 px-4">Kho</th>
@@ -1766,12 +1264,6 @@ function DriversTab() {
                 <tr key={d.id} className="hover:bg-amber-50 transition">
                   <td className="py-2.5 px-4 text-gray-400">{idx + 1}</td>
                   <td className="py-2.5 px-4 font-medium text-gray-900">{d.full_name}</td>
-                  <td className="py-2.5 px-4">
-                    <code className="px-2 py-0.5 bg-blue-50 text-blue-700 rounded text-xs font-mono">{getUsername(d.user_id)}</code>
-                  </td>
-                  <td className="py-2.5 px-4">
-                    <code className="px-2 py-0.5 bg-gray-100 text-gray-600 rounded text-xs font-mono">demo123</code>
-                  </td>
                   <td className="py-2.5 px-4 text-gray-600">{d.phone}</td>
                   <td className="py-2.5 px-4 text-gray-600 font-mono text-xs">{d.license_number || '-'}</td>
                   <td className="py-2.5 px-4 text-xs">{getWarehouseName(d.warehouse_id)}</td>
@@ -1787,38 +1279,10 @@ function DriversTab() {
                 </tr>
               ))}
               {drivers.length === 0 && (
-                <tr><td colSpan={8} className="text-center py-10 text-gray-400">Chưa có dữ liệu tài xế trong hệ thống</td></tr>
+                <tr><td colSpan={6} className="text-center py-10 text-gray-400">Chưa có dữ liệu tài xế trong hệ thống</td></tr>
               )}
             </tbody>
           </table>
-        </div>
-      </div>
-
-      {/* Quick Reference Card */}
-      <div className="mt-6 grid grid-cols-1 md:grid-cols-2 gap-4">
-        <div className="bg-white rounded-xl shadow-sm p-5 border-l-4 border-blue-500">
-          <h4 className="font-semibold text-blue-800 mb-2">👤 Tài khoản hệ thống (test)</h4>
-          <div className="space-y-1.5 text-sm">
-            <p><code className="bg-blue-50 px-1 rounded">dvkh01</code> — Dịch vụ khách hàng</p>
-            <p><code className="bg-blue-50 px-1 rounded">dispatcher01</code> — Điều phối viên</p>
-            <p><code className="bg-blue-50 px-1 rounded">accountant01</code> — Kế toán</p>
-            <p><code className="bg-blue-50 px-1 rounded">warehouse01</code> — Thủ kho</p>
-            <p><code className="bg-blue-50 px-1 rounded">security01</code> — Bảo vệ</p>
-            <p><code className="bg-blue-50 px-1 rounded">admin</code> — Quản trị</p>
-          </div>
-        </div>
-        <div className="bg-white rounded-xl shadow-sm p-5 border-l-4 border-green-500">
-          <h4 className="font-semibold text-green-800 mb-2">🔑 Luồng test E2E đầy đủ</h4>
-          <ol className="space-y-1.5 text-sm text-green-900 list-decimal list-inside">
-            <li><strong>dvkh01</strong> → Tạo đơn hàng</li>
-            <li><strong>KH</strong> → Xác nhận qua link Zalo</li>
-            <li><strong>accountant01</strong> → Duyệt công nợ</li>
-            <li><strong>dispatcher01</strong> → Tạo chuyến, gán tài xế</li>
-            <li><strong>warehouse01</strong> → Soạn hàng, xếp xe</li>
-            <li><strong>security01</strong> → Kiểm tra cổng</li>
-            <li><strong>driver01</strong> → Giao hàng, ePOD, thu tiền</li>
-            <li><strong>accountant01</strong> → Đối soát</li>
-          </ol>
         </div>
       </div>
     </div>

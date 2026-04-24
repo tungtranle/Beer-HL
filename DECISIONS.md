@@ -217,4 +217,19 @@ Cả 2 modal ghi log `actor_type = 'dvkh'`, `on_behalf_of = 'npp'` vào entity_e
 
 ---
 
-*Cập nhật: 22/03/2026 — DEC-012/013 từ BHL_UX_VIBE_CODING_SPEC_v4.md*
+## DEC-014: Hybrid toll detection — arc-based for VRP solver + route geometry for post-solve reporting
+
+**Date:** 2026-06-18  
+**Context:** Arc-based toll detection (point-to-segment matching on straight lines between stops) is fast but inaccurate — real roads curve significantly. Expressway entry/exit detection per-arc fails when vehicle enters on one leg and exits on another.  
+**Decision:** Keep arc-based detection in VRP solver cost matrix (speed-critical), add OSRM route geometry-based detection after solve for accurate per-trip toll reporting. Fallback to arc-based if OSRM fails.  
+**Rationale:**
+- VRP solver needs fast cost matrix computation (hundreds of arcs)
+- Post-solve reporting runs once per trip, can afford OSRM call
+- Route geometry walks actual road polyline → accurate proximity detection
+- Expressway gates tracked IN ORDER across full route → correct entry/exit pairing
+**Impact:** `vrp-solver/main.py` — 2 new functions, modified post-solve loop. Backend unchanged (already passes all toll data). Frontend shows toll_type differentiation.  
+**Docs Impact:** CURRENT_STATE.md (Cost Engine section), CHANGELOG.md
+
+---
+
+*Cập nhật: 18/06/2026 — DEC-014 from toll route geometry session*

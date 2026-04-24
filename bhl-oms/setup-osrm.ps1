@@ -13,7 +13,7 @@
 #>
 
 $ErrorActionPreference = "Stop"
-$OSRM_IMAGE = "osrm/osrm-backend:v5.27.1"
+$OSRM_IMAGE = "osrm/osrm-backend:v5.25.0"
 $DATA_DIR = Join-Path $PSScriptRoot "osrm-data"
 $PBF_URL = "https://download.geofabrik.de/asia/vietnam-latest.osm.pbf"
 $PBF_FILE = "vietnam-latest.osm.pbf"

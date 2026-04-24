@@ -1,6 +1,6 @@
 # 📊 TASK TRACKER — BHL OMS-TMS-WMS
 
-> **Cập nhật lần cuối:** 21/03/2026 — Session 19g: Phase 6 complete (18/18 tasks)  
+> **Cập nhật lần cuối:** 16/04/2026 — Session 21: Localhost verify + BRD v3.3 audit  
 > **Trạng thái dự án:** 🟢 Đang phát triển (In development)
 
 ---
@@ -9,25 +9,25 @@
 
 ```
 ╔══════════════════════════════════════════════════════════════╗
-║  TỔNG TASK: 128 │  HOÀN THÀNH: 119 │  TIẾN ĐỘ: 93.0%    ║
+║  TỔNG TASK: 130 │  HOÀN THÀNH: 121 │  TIẾN ĐỘ: 93.1%    ║
 ╠══════════════════════════════════════════════════════════════╣
-║  █████████████████████████████████████████████████░░░ 93.0%   ║
+║  █████████████████████████████████████████████████░░░ 93.1%   ║
 ╠══════════════════════════════════════════════════════════════╣
-║  ☐ Not Started: 9   │  🔄 In Progress: 0  │  ☑ Done: 119  ║
+║  ☐ Not Started: 9   │  🔄 In Progress: 0  │  ☑ Done: 121  ║
 ║  ⚠ Blocked: 0       │  ❌ Cancelled: 0                     ║
 ╚══════════════════════════════════════════════════════════════╝
 ```
 
 | Metric | Value |
 |--------|-------|
-| **Tổng tasks** | 128 |
-| **Hoàn thành** | 119 |
+| **Tổng tasks** | 130 |
+| **Hoàn thành** | 121 |
 | **Đang làm** | 0 |
 | **Chưa bắt đầu** | 9 |
 | **Bị block** | 0 |
-| **% Hoàn thành** | **93.0%** |
+| **% Hoàn thành** | **93.1%** |
 | **Go-live target** | ~15/05/2026 |
-| **Ngày hôm nay** | 21/03/2026 |
+| **Ngày hôm nay** | 16/04/2026 |
 
 ---
 
@@ -51,6 +51,9 @@ Phase 5 ─ UX Overhaul & Admin Console (32 tasks)
 
 Phase 6 ─ Gap Analysis & Role Deepening (18 tasks)
   Done   ████████████████████████████████████████████████████  18/18  (100%)
+
+Phase 7 ─ Cost Engine & GPS Simulation (2 tasks)
+  Done   ████████████████████████████████████████████████████  2/2  (100%)
 ```
 
 ### Phân bổ trạng thái (Pie chart dạng text)
@@ -309,10 +312,10 @@ Actual:   78 →  ?
 | 5.17 | Dispatcher: Exception detection API | Dev | ✅ | P0 | GET /trips/exceptions — late_eta, idle_vehicle, failed_stop |
 | 5.18 | Dispatcher: Control tower stats API | Dev | ✅ | P0 | GET /trips/control-tower/stats — 14 metrics |
 | 5.19 | Dispatcher: Map + exception panel split-screen | Dev | ✅ | P0 | 3-column cockpit: LEFT 25% + CENTER 50% map + RIGHT 25% |
-| 5.20 | Dispatcher: Trip progress + ETA deviation | Dev | ✅ | P0 | Inline progress bar + ETA countdown per trip |
+| 5.20 | Dispatcher: Trip progress + ETA deviation | Dev | ✅ | P0 | Inline progress bar + ETA countdown/lệch ETA badge theo từng chuyến |
 | 5.21 | Dispatcher: Alert items with inline CTA | Dev | ✅ | P0 | P0/P1 alerts, border-left accent, re-delivery CTA |
-| 5.22 | Dispatcher: Move stop between trips API | Dev | ✅ | P1 | PUT /trips/:id/stops/move + modal UI |
-| 5.23 | Dispatcher: Cancel trip + redistribute | Dev | ✅ | P1 | PUT /trips/:id/cancel + confirmation modal |
+| 5.22 | Dispatcher: Move stop between trips API | Dev | ✅ | P1 | POST /trips/:id/stops/:stopId/move + modal UI |
+| 5.23 | Dispatcher: Cancel trip + redistribute | Dev | ✅ | P1 | POST /trips/:id/cancel + confirmation modal |
 | 5.24 | Dispatcher: VRP action bar (brand color) | Dev | ✅ | P1 | bg-brand-500 VRP btn |
 | 5.25 | Dispatcher: Driver/vehicle status modals (UXUI) | Dev | ✅ | P1 | Driver info modal: vehicle, trip, speed, GPS |
 | 5.26 | Dispatcher: Trip anomaly dots on map | Dev | ✅ | P1 | CSS @keyframes ping-ring pulsing red markers |
@@ -388,7 +391,22 @@ Actual:   78 →  ?
 - [x] Action-level RBAC distinguishes KT vs KT Trưởng
 
 ---
+## 🔧 PHASE 7 — Cost Engine & GPS Simulation (MỚI)
 
+> Tối ưu VRP theo chi phí thực tế (phí cầu đường + nhiên liệu + tài xế) + giả lập GPS cho testing.
+
+| # | Task | Owner | Status | Ưu tiên | Ghi chú |
+|---|------|-------|--------|---------|---------|
+| 7.1 | Cost Engine: VRP cost optimization + Admin CRUD | Dev | ☑ | P0 | Migration 020: 6 tables, seed data QN/HP. 19 API endpoints, Python solver per-vehicle cost matrix, frontend cost toggle + summary. US-TMS-01d/01e |
+| 7.2 | GPS Simulation API | Dev | ☑ | P1 | 3 endpoints (start/stop/status), route interpolation 35-55 km/h, GPS jitter ±5m, demo routes QN. US-TMS-01f |
+
+### Phase 7 Gate ─ `2/2`
+- [x] Migration 020 SQL tạo đủ 6 tables + seed data
+- [x] Go code + Python solver + Frontend compile clean (0 errors)
+
+⚠️ **Chưa verify localhost** — Docker/DB không khả dụng tại thời điểm implement. Cần test khi DB online.
+
+---
 ## �📋 LỊCH SỬ CẬP NHẬT
 
 | Ngày | Task # | Hành động | Ghi chú |
@@ -420,6 +438,9 @@ Actual:   78 →  ?
 | 21/03/2026 | — | Session 19f: GPS Simulator + KPI Reports | GPS simulator standalone + test portal GPS tab, KPI issues/cancellations reports, enhanced system health. **101/110** |
 | 21/03/2026 | — | Session 19g: Gap Analysis → Phase 6 | Phản biện 11 role UX gaps, điều chỉnh priorities (6 hạ mức, 2 giữ P0), thêm Phase 6 (18 tasks: 5 P0 + 8 P1 + 5 P2/P3). **101/128 (78.9%)** |
 | 21/03/2026 | 6.1-6.18 | Session 19g: Phase 6 complete | Implemented all 18 tasks: KT recon workbench (T+1/split/history), workshop role+bottle classification, admin audit diff+credit expiry cron, KPI drill links, Zalo+ePOD, picking queue+gate check queue, mandatory fail reason, exception descriptions, bulk move stops, RBAC, fleet tab. **119/128 (93.0%)** |
+| 27/03/2026 | 7.1-7.2 | Session 20: Cost Engine + GPS Simulation | Migration 020 (6 tables + seed), 19 cost admin API endpoints, VRP solver per-vehicle cost matrix (fuel+toll), frontend cost toggle+summary, GPS simulate API (3 endpoints). Docs: DBS+API+BRD v3.3. **121/130 (93.1%)** |
+| 16/04/2026 | — | Session 21: Localhost verify + BRD v3.3 audit | Fix migration 020 (remove notes column from gate INSERTs), fix proxy port 8097→8080 in next.config.js, localhost verified (backend :8080 + frontend :3000 + login OK). BRD v3.2→v3.3: rà soát toàn bộ AC vs code thực tế, đánh dấu ~15 AC đã triển khai (VRP criteria, payment recording, credit limit, redelivery report, import/export Excel, EOD bàn giao, checklist photo). **121/130 (93.1%)** |
+| 17/04/2026 | — | Session 22: Control Tower Map UX + SC-11 | Map P0: SVG truck markers, route polyline, stop markers, trip-map linking, GPS sim button. SC-11 test scenario (8 trips, 26 orders, 3 exceptions) được neo lại thành 7 tuyến giao hàng thực tế từ WH-HL; Control Tower hiển thị route cho đủ 7 xe active. Fixed ListExceptions `ts.customer_name` bug + SC-11 `plate`→`plate_number`. **121/130 (93.1%)** |
 
 ---
 

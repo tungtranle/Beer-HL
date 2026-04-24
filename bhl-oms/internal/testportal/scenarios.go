@@ -70,6 +70,8 @@ func (h *Handler) ListScenarios(c *gin.Context) {
 		scenarioGateCheckFail(),
 		scenarioReconDiscrepancy(),
 		scenarioVRPStress(),
+		scenarioRealJune13(),
+		scenarioControlTower(),
 	}
 	response.OK(c, scenarios)
 }
@@ -122,6 +124,10 @@ func (h *Handler) LoadScenario(c *gin.Context) {
 		loadErr, summary = h.loadScenarioReconDiscrepancy(ctx)
 	case "SC-09":
 		loadErr, summary = h.loadScenarioVRPStress(ctx)
+	case "SC-10":
+		loadErr, summary = h.loadScenarioRealJune13(ctx)
+	case "SC-11":
+		loadErr, summary = h.loadScenarioControlTower(ctx)
 	default:
 		response.BadRequest(c, "Scenario không tồn tại: "+req.ScenarioID)
 		return
@@ -1337,4 +1343,580 @@ func (h *Handler) loadScenarioVRPStress(ctx context.Context) (error, string) {
 		"• XL (3500-6500kg): 20 đơn — cần xe 5T (≤5T) hoặc xe 8T (>5T)\n\n" +
 		"50 xe WH-HL (20×3.5T + 18×5T + 8×8T + 4×15T = 284T capacity), 70 tài xế sẵn sàng.\n" +
 		"Dispatcher (dispatcher01/demo123) → Lập kế hoạch → VRP Tự động → Xem tối ưu xếp xe."
+}
+
+// ── SC-10: Real June 13 Data — 105 orders, ~156 shipments ──
+
+func scenarioRealJune13() ScenarioMeta {
+	return ScenarioMeta{
+		ID:       "SC-10",
+		Title:    "Dữ liệu thực 13/06 — 105 đơn, ~156 chuyến, 736 tấn",
+		Category: "TMS",
+		Description: "105 đơn hàng thực tế ngày 13/06 (đã tách sẵn), tổng 736 tấn hàng. " +
+			"Mỗi đơn 1 sản phẩm, mỗi shipment ≤ 7.5T (fit xe 8T). " +
+			"Dữ liệu gốc từ thực tế vận hành Beer Hạ Long. " +
+			"5 sản phẩm: Lon 330ml, Chai 450ml, Chai 330ml, Keg 30L, PET 2L. " +
+			"27 NPP giao đi 10+ tỉnh: QN, HP, HD, BG, TB, NĐ, BN, TN, HN...",
+		Roles:       []string{"dispatcher"},
+		DataSummary: "105 đơn confirmed (~156 shipments ≤7.5T), 27 NPP, kho WH-HL. Tổng ~736 tấn.",
+		GPSScenario: "normal_delivery",
+		Steps: []ScenarioStep{
+			{Role: "dispatcher", Page: "/dashboard/planning", Action: "Vào Lập kế hoạch → Chọn kho WH-HL, ngày hôm nay", Expected: "~156 shipments pending, tổng ~736 tấn"},
+			{Role: "dispatcher", Page: "/dashboard/planning", Action: "Chọn tất cả xe (67 xe: 47×8T, 10×3.5T, 10×15T) → Chạy VRP", Expected: "VRP xếp hết hoặc gần hết, tối ưu quãng đường"},
+			{Role: "dispatcher", Page: "/dashboard/planning", Action: "Kiểm tra gộp điểm giao — cùng NPP nhiều đơn → gộp trên 1 xe", Expected: "VRP gộp đơn cùng NPP vào 1 trip khi đủ tải"},
+			{Role: "dispatcher", Page: "/dashboard/planning", Action: "So sánh 3 phương án: chi phí / thời gian / km", Expected: "Chênh lệch nhỏ do ít đường toll"},
+			{Role: "dispatcher", Page: "/dashboard/planning", Action: "Duyệt kế hoạch → Tạo trips + stops", Expected: "Trips created, shipments → planned"},
+		},
+		PreviewData: []ScenarioDataPoint{
+			{Label: "Tổng đơn hàng", Value: "105 đơn confirmed → ~156 shipments (≤7.5T/ship), kho WH-HL"},
+			{Label: "Sản phẩm", Value: "BHL-LON-330, BHL-CHAI-450, BHL-CHAI-355, BHL-DRAFT-30, NGK-CHANH-330"},
+			{Label: "Trọng lượng", Value: "Tổng ~736 tấn, mỗi shipment ≤ 7.5T, fit xe 8T (chiếm 70% fleet)"},
+			{Label: "Đội xe", Value: "67 xe: 47 xe 8T (70%), 10 xe 3.5T, 10 xe 15T"},
+			{Label: "NPP", Value: "27 NPP: QN (12), HD (2), HP (1), BG (1), TB (2), NĐ (2), BN (1), TN (2), HN (1)..."},
+		},
+	}
+}
+
+func (h *Handler) loadScenarioRealJune13(ctx context.Context) (error, string) {
+	tx, err := h.db.Begin(ctx)
+	if err != nil {
+		return err, ""
+	}
+	defer tx.Rollback(ctx)
+
+	// 1) Boost stock
+	if _, err := tx.Exec(ctx, `UPDATE stock_quants SET quantity = 500000, reserved_qty = 0`); err != nil {
+		return fmt.Errorf("boost_stock: %w", err), ""
+	}
+
+	// 2) Check-in ALL drivers
+	if _, err := tx.Exec(ctx, `
+		INSERT INTO driver_checkins (driver_id, checkin_date, status, checked_in_at)
+		SELECT d.id, CURRENT_DATE, 'available', NOW() - INTERVAL '1 hour'
+		FROM drivers d WHERE d.status = 'active'
+		ON CONFLICT (driver_id, checkin_date) DO UPDATE SET status = 'available'
+	`); err != nil {
+		return fmt.Errorf("checkin_all: %w", err), ""
+	}
+
+	// 3) Get master data IDs
+	var whHL, dvkhUserID string
+	if err := tx.QueryRow(ctx, `SELECT id::text FROM warehouses WHERE code = 'WH-HL'`).Scan(&whHL); err != nil {
+		return fmt.Errorf("wh_hl: %w", err), ""
+	}
+	if err := tx.QueryRow(ctx, `SELECT id::text FROM users WHERE role = 'dvkh' LIMIT 1`).Scan(&dvkhUserID); err != nil {
+		return fmt.Errorf("dvkh_user: %w", err), ""
+	}
+
+	// 4) 105 orders from real June 13 data (each order = 1 product, 1 SKU)
+	type orderSpec struct {
+		code         string
+		customerCode string
+		sku          string
+		qty          int
+	}
+
+	// Product lookup
+	type prodInfo struct {
+		weight float64
+		price  float64
+	}
+	prods := map[string]prodInfo{
+		"BHL-LON-330":   {8.5, 180000},
+		"BHL-CHAI-450":  {14.0, 250000},
+		"BHL-CHAI-355":  {15.0, 250000},
+		"BHL-DRAFT-30":  {32.0, 800000},
+		"NGK-CHANH-330": {25.2, 180000},
+	}
+
+	orders := []orderSpec{
+		{"DH-001", "BG-112", "BHL-CHAI-450", 140},
+		{"DH-002", "BN-24", "BHL-DRAFT-30", 352},
+		{"DH-003", "QY-121", "BHL-CHAI-355", 130},
+		{"DH-004", "HD-54", "BHL-LON-330", 600},
+		{"DH-005", "QN-HH", "BHL-DRAFT-30", 220},
+		{"DH-006", "TY-122", "BHL-DRAFT-30", 130},
+		{"DH-007", "VD2-143", "BHL-DRAFT-30", 105},
+		{"DH-008", "NT1-3-110", "BHL-DRAFT-30", 50},
+		{"DH-009", "HD-70", "BHL-DRAFT-30", 845},
+		{"DH-010", "HP-4745", "BHL-DRAFT-30", 320},
+		{"DH-011", "MC4-93", "BHL-LON-330", 1900},
+		{"DH-012", "QN-HH2", "BHL-LON-330", 800},
+		{"DH-013", "QN-HH", "BHL-LON-330", 1900},
+		{"DH-014", "TB-133", "BHL-DRAFT-30", 1180},
+		{"DH-015", "NG-109", "BHL-DRAFT-30", 360},
+		{"DH-016", "NT6BC-115", "BHL-DRAFT-30", 76},
+		{"DH-017", "HH2-70", "BHL-CHAI-355", 400},
+		{"DH-018", "CP2-29", "BHL-CHAI-355", 150},
+		{"DH-019", "NĐ-4766", "BHL-CHAI-355", 25},
+		{"DH-020", "NĐ-4767", "BHL-DRAFT-30", 90},
+		{"DH-021", "HB-73", "BHL-LON-330", 1800},
+		{"DH-022", "TB-125", "BHL-DRAFT-30", 670},
+		{"DH-023", "QN-TN", "BHL-DRAFT-30", 140},
+		{"DH-024", "HH1-35", "BHL-DRAFT-30", 110},
+		{"DH-025", "HNI-48", "BHL-LON-330", 3600},
+		{"DH-026", "TN-4793", "BHL-DRAFT-30", 360},
+		{"DH-027", "HH2-69", "BHL-LON-330", 1900},
+		{"DH-028", "DT1-34", "BHL-LON-330", 3520},
+		{"DH-029", "TY-122", "BHL-DRAFT-30", 130},
+		{"DH-030", "QN-HH2", "BHL-LON-330", 800},
+		{"DH-031", "HD-70", "BHL-CHAI-355", 5},
+		{"DH-032", "HD-54", "BHL-LON-330", 600},
+		{"DH-033", "QN-HH", "BHL-DRAFT-30", 100},
+		{"DH-034", "HH1-35", "BHL-DRAFT-30", 110},
+		{"DH-035", "QY-121", "BHL-CHAI-355", 130},
+		{"DH-036", "HD-70", "BHL-DRAFT-30", 110},
+		{"DH-037", "HD-70", "BHL-DRAFT-30", 165},
+		{"DH-038", "BG-112", "BHL-CHAI-450", 140},
+		{"DH-039", "CP2-29", "BHL-LON-330", 850},
+		{"DH-040", "CP2-29", "BHL-CHAI-355", 150},
+		{"DH-041", "HNI-48", "BHL-LON-330", 900},
+		{"DH-042", "HNI-48", "BHL-LON-330", 900},
+		{"DH-043", "HNI-48", "BHL-LON-330", 900},
+		{"DH-044", "HNI-48", "BHL-LON-330", 900},
+		{"DH-045", "VD2-143", "BHL-LON-330", 300},
+		{"DH-046", "VD2-143", "BHL-DRAFT-30", 105},
+		{"DH-047", "NT6BC-115", "BHL-LON-330", 350},
+		{"DH-048", "NT6BC-115", "BHL-DRAFT-30", 30},
+		{"DH-049", "NT6BC-115", "BHL-LON-330", 250},
+		{"DH-050", "NT6BC-115", "NGK-CHANH-330", 46},
+		{"DH-051", "NT1-3-110", "BHL-LON-330", 800},
+		{"DH-052", "NT1-3-110", "BHL-CHAI-355", 100},
+		{"DH-053", "NT1-3-110", "BHL-CHAI-355", 200},
+		{"DH-054", "NT1-3-110", "BHL-LON-330", 800},
+		{"DH-055", "NT1-3-110", "BHL-DRAFT-30", 50},
+		{"DH-056", "QN-HH", "BHL-LON-330", 300},
+		{"DH-057", "QN-HH", "BHL-LON-330", 700},
+		{"DH-058", "HP-4745", "BHL-DRAFT-30", 130},
+		{"DH-059", "HP-4745", "BHL-DRAFT-30", 190},
+		{"DH-060", "QN-HH", "BHL-CHAI-355", 50},
+		{"DH-061", "QN-HH", "BHL-DRAFT-30", 120},
+		{"DH-062", "TB-125", "BHL-DRAFT-30", 170},
+		{"DH-063", "TB-125", "BHL-DRAFT-30", 120},
+		{"DH-064", "HD-70", "BHL-DRAFT-30", 170},
+		{"DH-065", "NĐ-4766", "BHL-CHAI-355", 25},
+		{"DH-066", "QN-TN", "BHL-DRAFT-30", 140},
+		{"DH-067", "VD2-143", "BHL-LON-330", 700},
+		{"DH-068", "NĐ-4767", "BHL-DRAFT-30", 90},
+		{"DH-069", "CP2-29", "BHL-LON-330", 800},
+		{"DH-070", "CP2-29", "BHL-LON-330", 650},
+		{"DH-071", "QN-HH", "BHL-LON-330", 900},
+		{"DH-072", "HH2-70", "BHL-CHAI-355", 200},
+		{"DH-073", "HB-73", "BHL-LON-330", 900},
+		{"DH-074", "DT1-34", "BHL-LON-330", 1760},
+		{"DH-075", "TB-133", "BHL-DRAFT-30", 200},
+		{"DH-076", "MC4-93", "BHL-LON-330", 950},
+		{"DH-077", "QN-HH", "BHL-LON-330", 950},
+		{"DH-078", "HD-70", "BHL-DRAFT-30", 200},
+		{"DH-079", "BN-24", "BHL-DRAFT-30", 176},
+		{"DH-080", "TN-4793", "BHL-DRAFT-30", 180},
+		{"DH-081", "NT6BC-115", "BHL-LON-330", 950},
+		{"DH-082", "MC4-93", "BHL-LON-330", 950},
+		{"DH-083", "QN-HH", "BHL-LON-330", 950},
+		{"DH-084", "HH2-69", "BHL-LON-330", 950},
+		{"DH-085", "HH2-70", "BHL-CHAI-355", 200},
+		{"DH-086", "HB-73", "BHL-LON-330", 900},
+		{"DH-087", "DT1-34", "BHL-LON-330", 1760},
+		{"DH-088", "TB-133", "BHL-DRAFT-30", 200},
+		{"DH-089", "TB-133", "BHL-DRAFT-30", 190},
+		{"DH-090", "TB-133", "BHL-DRAFT-30", 200},
+		{"DH-091", "NG-109", "BHL-DRAFT-30", 180},
+		{"DH-092", "NT6BC-115", "BHL-LON-330", 950},
+		{"DH-093", "TB-125", "BHL-CHAI-355", 130},
+		{"DH-094", "TB-125", "BHL-DRAFT-30", 190},
+		{"DH-095", "QN-HH", "BHL-LON-330", 950},
+		{"DH-096", "HH2-69", "BHL-LON-330", 950},
+		{"DH-097", "HH2-70", "BHL-CHAI-355", 200},
+		{"DH-098", "HB-73", "BHL-LON-330", 900},
+		{"DH-099", "DT1-34", "BHL-LON-330", 1760},
+		{"DH-100", "TB-133", "BHL-DRAFT-30", 200},
+		{"DH-101", "MC4-93", "BHL-LON-330", 950},
+		{"DH-102", "QN-HH", "BHL-LON-330", 950},
+		{"DH-103", "HD-70", "BHL-DRAFT-30", 200},
+		{"DH-104", "BN-24", "BHL-DRAFT-30", 176},
+		{"DH-105", "TN-4793", "BHL-DRAFT-30", 180},
+	}
+
+	maxShipKg := 7500.0
+	shipmentIdx := 0
+
+	for i, o := range orders {
+		p := prods[o.sku]
+		totalWeight := p.weight * float64(o.qty)
+		totalAmount := p.price * float64(o.qty)
+
+		// Get customer ID
+		var custID string
+		if err := tx.QueryRow(ctx, `SELECT id::text FROM customers WHERE code = $1`, o.customerCode).Scan(&custID); err != nil {
+			return fmt.Errorf("customer_%s(%s): %w", o.code, o.customerCode, err), ""
+		}
+
+		seq := fmt.Sprintf("%03d", i+1)
+
+		// Insert order
+		var orderID string
+		if err := tx.QueryRow(ctx, fmt.Sprintf(`
+			INSERT INTO sales_orders (id, order_number, customer_id, warehouse_id, status, delivery_date,
+			  total_amount, deposit_amount, total_weight_kg, total_volume_m3, created_by, atp_status, credit_status)
+			VALUES (gen_random_uuid(),
+			  'ORD-' || TO_CHAR(CURRENT_DATE, 'YYYYMMDD') || '-%s',
+			  '%s', '%s', 'confirmed', CURRENT_DATE,
+			  %f, 0, %f, %.1f, '%s', 'passed', 'passed')
+			RETURNING id::text
+		`, seq, custID, whHL, totalAmount, totalWeight, totalWeight/500.0, dvkhUserID)).Scan(&orderID); err != nil {
+			return fmt.Errorf("order_%s: %w", o.code, err), ""
+		}
+
+		// Insert order item
+		if _, err := tx.Exec(ctx, fmt.Sprintf(`
+			INSERT INTO order_items (order_id, product_id, quantity, unit_price, amount)
+			SELECT '%s', id, %d, %f, %f FROM products WHERE sku = '%s'
+		`, orderID, o.qty, p.price, totalAmount, o.sku)); err != nil {
+			return fmt.Errorf("item_%s: %w", o.code, err), ""
+		}
+
+		// Split into shipments ≤ 7500kg
+		numShips := 1
+		if totalWeight > maxShipKg {
+			numShips = int(totalWeight/maxShipKg) + 1
+		}
+		qtyPerShip := o.qty / numShips
+
+		for s := 0; s < numShips; s++ {
+			shipmentIdx++
+			shipSeq := fmt.Sprintf("%03d", shipmentIdx)
+			shipQty := qtyPerShip
+			if s == numShips-1 {
+				shipQty = o.qty - qtyPerShip*(numShips-1)
+			}
+			shipWeight := p.weight * float64(shipQty)
+
+			itemsJSON := fmt.Sprintf(`[{"product_sku":"%s","quantity":%d,"weight_kg":%.1f}]`,
+				o.sku, shipQty, shipWeight)
+
+			if _, err := tx.Exec(ctx, fmt.Sprintf(`
+				INSERT INTO shipments (shipment_number, order_id, customer_id, warehouse_id, status,
+				  delivery_date, total_weight_kg, total_volume_m3, items)
+				VALUES ('SHP-' || TO_CHAR(CURRENT_DATE, 'YYYYMMDD') || '-%s',
+				  '%s', '%s', '%s', 'pending',
+				  CURRENT_DATE, %f, %.1f, '%s'::jsonb)
+			`, shipSeq, orderID, custID, whHL, shipWeight, shipWeight/500.0, itemsJSON)); err != nil {
+				return fmt.Errorf("ship_%s_%d: %w", o.code, s, err), ""
+			}
+		}
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return err, ""
+	}
+
+	return nil, fmt.Sprintf("✅ Đã nạp dữ liệu thực 13/06:\n"+
+		"• 105 đơn hàng confirmed → %d shipments pending (≤7.5T/ship)\n"+
+		"• Tổng ~736 tấn hàng, kho WH-HL\n"+
+		"• 5 sản phẩm: Lon 330ml, Chai 450ml, Chai 330ml, Keg 30L, PET 2L\n"+
+		"• 27 NPP, đội xe 67 chiếc (47×8T, 10×3.5T, 10×15T)\n\n"+
+		"Dispatcher (dispatcher01/demo123) → Lập kế hoạch → VRP.\n"+
+		"%d shipments sẵn sàng.", shipmentIdx, shipmentIdx)
+}
+
+// ── SC-11: Control Tower Comprehensive Test ──
+
+func scenarioControlTower() ScenarioMeta {
+	return ScenarioMeta{
+		ID:       "SC-11",
+		Title:    "Trung tâm Điều phối — Test toàn diện (8 chuyến, GPS)",
+		Category: "TMS",
+		Description: "8 chuyến xe đa trạng thái (3 in_transit, 2 assigned, 2 ready, 1 completed) " +
+			"với 3-5 điểm giao mỗi chuyến (mix pending/delivered/failed). " +
+			"GPS giả lập auto-start cho 7 xe active theo 7 cụm tuyến giao hàng từ WH-HL. " +
+			"Test bản đồ, route visualization, stop markers, exception alerts, move stops, cancel trip.",
+		Roles:       []string{"dispatcher", "admin"},
+		DataSummary: "8 chuyến xe, 30 điểm giao, 7 xe GPS online, 7 tuyến thực tế từ WH-HL, 3 exceptions (1 P0 + 2 P1).",
+		GPSScenario: "normal_delivery",
+		Steps: []ScenarioStep{
+			{Role: "dispatcher", Page: "/dashboard/control-tower", Action: "Vào Trung tâm điều phối", Expected: "8 chuyến hiện trong trip list, metric cards cập nhật"},
+			{Role: "dispatcher", Page: "/dashboard/control-tower", Action: "Click 1 chuyến in_transit → xem route trên bản đồ", Expected: "Polyline route + stop markers hiện trên map, xe flyTo"},
+			{Role: "dispatcher", Page: "/dashboard/control-tower", Action: "Kiểm tra GPS — 7 xe active hiển thị tuyến trên map real-time", Expected: "Truck markers với biển số, heading xoay, speed color; 7 tuyến active hiện theo cụm địa lý"},
+			{Role: "dispatcher", Page: "/dashboard/control-tower", Action: "Xem panel Cảnh báo — 3 exceptions", Expected: "1 P0 (failed_stop) + 2 P1 (late_eta, idle_vehicle)"},
+			{Role: "dispatcher", Page: "/dashboard/control-tower", Action: "Click 'Giao lại' trên exception P0", Expected: "Stop chuyển re_delivery, exception refresh"},
+			{Role: "dispatcher", Page: "/dashboard/control-tower", Action: "Chuyển 1 stop từ chuyến A sang chuyến B", Expected: "Move stop thành công, trip list cập nhật"},
+			{Role: "dispatcher", Page: "/dashboard/control-tower", Action: "Hủy 1 chuyến status 'ready'", Expected: "Chuyến bị hủy, mất khỏi active list"},
+			{Role: "dispatcher", Page: "/dashboard/control-tower", Action: "Tab Đội xe — xem 7 xe online", Expected: "Fleet view hiện 7 xe với speed + status"},
+		},
+		PreviewData: []ScenarioDataPoint{
+			{Label: "Chuyến xe", Value: "8 chuyến: 3 in_transit, 2 assigned, 2 ready, 1 completed"},
+			{Label: "Điểm giao", Value: "~30 stops theo 7 cụm NPP thực tế quanh Hạ Long, Quảng Yên, Uông Bí, Đông Triều, Cẩm Phả"},
+			{Label: "GPS", Value: "7 xe online, GPS giả lập auto-start từ WH-HL đến các cụm NPP Quảng Ninh"},
+			{Label: "Exceptions", Value: "3 cảnh báo: 1 P0 (giao thất bại), 1 P1 (trễ ETA), 1 P1 (xe chưa xuất bến)"},
+			{Label: "Login", Value: "dispatcher01/demo123 hoặc admin01/demo123"},
+		},
+	}
+}
+
+func (h *Handler) loadScenarioControlTower(ctx context.Context) (error, string) {
+	tx, err := h.db.Begin(ctx)
+	if err != nil {
+		return err, ""
+	}
+	defer tx.Rollback(ctx)
+
+	// 1) Boost stock
+	if _, err := tx.Exec(ctx, `UPDATE stock_quants SET quantity = 500000, reserved_qty = 0`); err != nil {
+		return fmt.Errorf("boost_stock: %w", err), ""
+	}
+
+	// 2) Check-in all drivers
+	if _, err := tx.Exec(ctx, `
+		INSERT INTO driver_checkins (driver_id, checkin_date, status, checked_in_at)
+		SELECT d.id, CURRENT_DATE, 'available', NOW() - INTERVAL '1 hour'
+		FROM drivers d WHERE d.status = 'active'
+		ON CONFLICT (driver_id, checkin_date) DO UPDATE SET status = 'available'
+	`); err != nil {
+		return fmt.Errorf("checkin: %w", err), ""
+	}
+
+	// 3) Get master IDs
+	var whHL, dvkhUser string
+	if err := tx.QueryRow(ctx, `SELECT id FROM warehouses WHERE code = 'WH-HL'`).Scan(&whHL); err != nil {
+		return fmt.Errorf("wh: %w", err), ""
+	}
+	if err := tx.QueryRow(ctx, `SELECT id FROM users WHERE role::text = 'dvkh' LIMIT 1`).Scan(&dvkhUser); err != nil {
+		return fmt.Errorf("dvkh: %w", err), ""
+	}
+	if _, err := tx.Exec(ctx, `
+		UPDATE warehouses
+		SET latitude = 20.9639, longitude = 107.0895, address = 'Nhà máy Bia Hạ Long, KCN Cái Lân, Hạ Long, Quảng Ninh'
+		WHERE code = 'WH-HL'
+	`); err != nil {
+		return fmt.Errorf("wh_hl_coords: %w", err), ""
+	}
+
+	// 4) Re-anchor first 26 customers onto 7 realistic delivery corridors from WH-HL.
+	type ctCustomerCoord struct {
+		offset  int
+		lat     float64
+		lng     float64
+		address string
+	}
+	coordDefs := []ctCustomerCoord{
+		// Route 1: Hồng Gai → Cao Xanh
+		{0, 20.9698, 107.0940, "Hồng Gai, Hạ Long, Quảng Ninh"},
+		{1, 20.9754, 107.1058, "Trần Hưng Đạo, Hạ Long, Quảng Ninh"},
+		{2, 20.9825, 107.1201, "Cao Xanh, Hạ Long, Quảng Ninh"},
+		{3, 20.9886, 107.1319, "Hà Khẩu, Hạ Long, Quảng Ninh"},
+		// Route 2: Bãi Cháy → Hùng Thắng → Tuần Châu
+		{4, 20.9562, 107.0108, "Bãi Cháy, Hạ Long, Quảng Ninh"},
+		{5, 20.9471, 106.9962, "Hùng Thắng, Hạ Long, Quảng Ninh"},
+		{6, 20.9318, 106.9797, "Tuần Châu, Hạ Long, Quảng Ninh"},
+		// Route 3: Quảng Yên corridor
+		{7, 20.9347, 106.8652, "Liên Hòa, Quảng Yên, Quảng Ninh"},
+		{8, 20.9169, 106.8266, "Hà An, Quảng Yên, Quảng Ninh"},
+		{9, 20.8988, 106.7903, "Phong Cốc, Quảng Yên, Quảng Ninh"},
+		{10, 20.8836, 106.7564, "Tiền Phong, Quảng Yên, Quảng Ninh"},
+		// Route 4: Uông Bí urban
+		{11, 21.0282, 106.7812, "Quang Trung, Uông Bí, Quảng Ninh"},
+		{12, 21.0345, 106.7691, "Yên Thanh, Uông Bí, Quảng Ninh"},
+		{13, 21.0418, 106.7550, "Nam Khê, Uông Bí, Quảng Ninh"},
+		// Route 5: Mạo Khê → Đông Triều south
+		{14, 21.0211, 106.6692, "Mạo Khê, Đông Triều, Quảng Ninh"},
+		{15, 21.0377, 106.6425, "Kim Sơn, Đông Triều, Quảng Ninh"},
+		{16, 21.0529, 106.6208, "Hồng Phong, Đông Triều, Quảng Ninh"},
+		// Route 6: Đông Triều north
+		{17, 21.0826, 106.6039, "Đông Triều, Quảng Ninh"},
+		{18, 21.0988, 106.5894, "Bình Khê, Đông Triều, Quảng Ninh"},
+		{19, 21.1129, 106.5762, "Tràng Lương, Đông Triều, Quảng Ninh"},
+		// Route 7: Cẩm Phả → Cửa Ông east
+		{20, 21.0114, 107.2936, "Cẩm Trung, Cẩm Phả, Quảng Ninh"},
+		{21, 21.0228, 107.3174, "Cẩm Thịnh, Cẩm Phả, Quảng Ninh"},
+		{22, 21.0358, 107.3431, "Cửa Ông, Cẩm Phả, Quảng Ninh"},
+		// Completed route: nội thành Hạ Long gần nhà máy
+		{23, 20.9661, 107.0708, "Giếng Đáy, Hạ Long, Quảng Ninh"},
+		{24, 20.9727, 107.0585, "Hà Khẩu, Hạ Long, Quảng Ninh"},
+		{25, 20.9783, 107.0459, "Việt Hưng, Hạ Long, Quảng Ninh"},
+	}
+	for _, coord := range coordDefs {
+		if _, err := tx.Exec(ctx, `
+			UPDATE customers c
+			SET latitude = $1, longitude = $2, address = $3
+			WHERE c.id = (
+				SELECT id FROM customers ORDER BY code LIMIT 1 OFFSET $4
+			)
+		`, coord.lat, coord.lng, coord.address, coord.offset); err != nil {
+			return fmt.Errorf("control_tower_coords_%d: %w", coord.offset, err), ""
+		}
+	}
+
+	// 5) Create 24 confirmed orders for 8 trips × 3 orders each
+	type ctOrder struct {
+		custOffset int
+		sku        string
+		qty        int
+		weightKg   int
+	}
+	orders := []ctOrder{
+		// Trip 1 (in_transit) — 4 stops
+		{0, "BHL-LON-330", 120, 1020}, {1, "BHL-CHAI-450", 60, 840},
+		{2, "BHL-LON-330", 80, 680}, {3, "BHL-GOLD-330", 50, 425},
+		// Trip 2 (in_transit) — 3 stops
+		{4, "BHL-LON-330", 100, 850}, {5, "BHL-CHAI-450", 40, 560},
+		{6, "NGK-CHANH-330", 80, 656},
+		// Trip 3 (in_transit) — 4 stops
+		{7, "BHL-LON-330", 90, 765}, {8, "BHL-GOLD-330", 70, 595},
+		{9, "BHL-CHAI-450", 50, 700}, {10, "BHL-LON-330", 60, 510},
+		// Trip 4 (assigned) — 3 stops
+		{11, "BHL-LON-330", 100, 850}, {12, "BHL-CHAI-450", 30, 420},
+		{13, "NGK-CHANH-330", 60, 492},
+		// Trip 5 (assigned) — 3 stops
+		{14, "BHL-LON-330", 80, 680}, {15, "BHL-GOLD-330", 40, 340},
+		{16, "BHL-LON-330", 70, 595},
+		// Trip 6 (ready) — 3 stops
+		{17, "BHL-LON-330", 90, 765}, {18, "BHL-CHAI-450", 50, 700},
+		{19, "BHL-LON-330", 60, 510},
+		// Trip 7 (ready) — 3 stops
+		{20, "BHL-LON-330", 100, 850}, {21, "NGK-CHANH-330", 70, 574},
+		{22, "BHL-LON-330", 50, 425},
+		// Trip 8 (completed) — 3 stops
+		{23, "BHL-LON-330", 80, 680}, {24, "BHL-CHAI-450", 40, 560},
+		{25, "BHL-LON-330", 60, 510},
+	}
+
+	orderIDs := make([]string, 0, len(orders))
+	for i, o := range orders {
+		seq := fmt.Sprintf("%04d", i+1)
+		var orderID string
+		oSQL := fmt.Sprintf(`
+		INSERT INTO sales_orders (id, order_number, customer_id, warehouse_id, status, delivery_date,
+		  total_amount, total_weight_kg, total_volume_m3, created_by, atp_status, credit_status)
+		SELECT gen_random_uuid(),
+		  'CT-' || TO_CHAR(CURRENT_DATE, 'YYYYMMDD') || '-%s',
+		  c.id, '%s', 'confirmed', CURRENT_DATE,
+		  %d, %d, 2.0, '%s', 'pass', 'pass'
+		FROM customers c ORDER BY c.code LIMIT 1 OFFSET %d
+		RETURNING id`, seq, whHL, o.qty*185000, o.weightKg, dvkhUser, o.custOffset)
+		if err := tx.QueryRow(ctx, oSQL).Scan(&orderID); err != nil {
+			return fmt.Errorf("order_%d: %w", i, err), ""
+		}
+		orderIDs = append(orderIDs, orderID)
+
+		itemSQL := fmt.Sprintf(`
+		INSERT INTO order_items (order_id, product_id, quantity, unit_price, amount)
+		SELECT '%s', id, %d, price, price * %d FROM products WHERE sku = '%s'`,
+			orderID, o.qty, o.qty, o.sku)
+		if _, err := tx.Exec(ctx, itemSQL); err != nil {
+			return fmt.Errorf("item_%d: %w", i, err), ""
+		}
+	}
+
+	// 6) Create shipments for each order
+	for i, orderID := range orderIDs {
+		shipSQL := fmt.Sprintf(`
+		INSERT INTO shipments (shipment_number, order_id, customer_id, warehouse_id, status,
+		  delivery_date, total_weight_kg, total_volume_m3)
+		SELECT 'SHP-CT-' || TO_CHAR(CURRENT_DATE, 'YYYYMMDD') || '-%04d',
+		  '%s', so.customer_id, so.warehouse_id, 'pending',
+		  CURRENT_DATE, so.total_weight_kg, so.total_volume_m3
+		FROM sales_orders so WHERE so.id = '%s'`, i+1, orderID, orderID)
+		if _, err := tx.Exec(ctx, shipSQL); err != nil {
+			return fmt.Errorf("ship_%d: %w", i, err), ""
+		}
+	}
+
+	// 7) Create 8 trips with different statuses
+	type tripDef struct {
+		status     string
+		vehOffset  int
+		drvOffset  int
+		orderStart int
+		orderEnd   int // exclusive
+	}
+	tripDefs := []tripDef{
+		{"in_transit", 0, 0, 0, 4},
+		{"in_transit", 1, 1, 4, 7},
+		{"in_transit", 2, 2, 7, 11},
+		{"assigned", 3, 3, 11, 14},
+		{"assigned", 4, 4, 14, 17},
+		{"ready", 5, 5, 17, 20},
+		{"ready", 6, 6, 20, 23},
+		{"completed", 7, 7, 23, 26},
+	}
+
+	tripIDs := make([]string, 0, 8)
+	for i, td := range tripDefs {
+		seq := fmt.Sprintf("%03d", i+1)
+		var tripID string
+		startedAt := "NULL"
+		completedAt := "NULL"
+		if td.status == "in_transit" {
+			startedAt = "NOW() - INTERVAL '1 hour'"
+		}
+		if td.status == "completed" {
+			startedAt = "NOW() - INTERVAL '3 hours'"
+			completedAt = "NOW() - INTERVAL '30 minutes'"
+		}
+
+		tripSQL := fmt.Sprintf(`
+		INSERT INTO trips (id, trip_number, vehicle_id, driver_id, warehouse_id,
+		  status, planned_date, total_stops, total_distance_km, total_weight_kg, started_at, completed_at)
+		SELECT gen_random_uuid(),
+		  'TR-CT-' || TO_CHAR(CURRENT_DATE, 'YYYYMMDD') || '-%s',
+		  v.id, d.id, '%s',
+		  '%s'::trip_status, CURRENT_DATE, %d, %d, %d, %s, %s
+		FROM (SELECT id FROM vehicles WHERE status::text = 'active' ORDER BY plate_number LIMIT 1 OFFSET %d) v,
+		     (SELECT id FROM drivers WHERE status::text = 'active' ORDER BY id LIMIT 1 OFFSET %d) d
+		RETURNING id`, seq, whHL, td.status, td.orderEnd-td.orderStart, 50+i*15, 2000+i*300, startedAt, completedAt, td.vehOffset, td.drvOffset)
+		if err := tx.QueryRow(ctx, tripSQL).Scan(&tripID); err != nil {
+			return fmt.Errorf("trip_%d: %w", i, err), ""
+		}
+		tripIDs = append(tripIDs, tripID)
+
+		// Create trip stops from orders
+		for j := td.orderStart; j < td.orderEnd && j < len(orderIDs); j++ {
+			stopOrder := j - td.orderStart + 1
+			// Determine stop status based on trip status
+			stopStatus := "pending"
+			if td.status == "completed" {
+				stopStatus = "delivered"
+			} else if td.status == "in_transit" && stopOrder == 1 {
+				stopStatus = "delivered" // first stop already delivered
+			}
+			// Make one stop failed for P0 exception
+			if i == 0 && stopOrder == 2 {
+				stopStatus = "failed"
+			}
+
+			// ETA times: past for exceptions, future for normal
+			etaOffset := fmt.Sprintf("%d minutes", stopOrder*30)
+			// Trip 2 (in_transit), stop 3 (pending) — ETA in the past for late_eta exception
+			if i == 1 && stopOrder == 3 {
+				etaOffset = "-25 minutes"
+			}
+			// Trip 4 (assigned), stop 1 — ETA far in the past for idle_vehicle exception
+			if i == 3 && stopOrder == 1 {
+				etaOffset = "-180 minutes"
+			}
+
+			stopSQL := fmt.Sprintf(`
+			INSERT INTO trip_stops (trip_id, shipment_id, customer_id, stop_order, status,
+			  estimated_arrival, estimated_departure)
+			SELECT '%s', s.id, s.customer_id, %d, '%s'::stop_status,
+			  NOW() + INTERVAL '%s', NOW() + INTERVAL '%s' + INTERVAL '15 minutes'
+			FROM shipments s WHERE s.order_id = '%s' LIMIT 1`,
+				tripID, stopOrder, stopStatus, etaOffset, etaOffset, orderIDs[j])
+			if _, err := tx.Exec(ctx, stopSQL); err != nil {
+				return fmt.Errorf("stop_%d_%d: %w", i, j, err), ""
+			}
+		}
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return err, ""
+	}
+
+	return nil, "✅ SC-11 Control Tower loaded:\n" +
+		"• 8 chuyến xe (3 in_transit, 2 assigned, 2 ready, 1 completed)\n" +
+		"• ~30 điểm giao theo 7 cụm tuyến thực tế từ WH-HL đi Hạ Long–Quảng Yên–Uông Bí–Đông Triều–Cẩm Phả\n" +
+		"• 7 xe GPS online cho 7 chuyến active; 1 chuyến completed giữ lại để test lịch sử\n" +
+		"• 3 exceptions (1 P0 failed_stop, 1 P1 late_eta, 1 P1 idle_vehicle)\n" +
+		"• Bật GPS giả lập từ Control Tower hoặc Test Portal → GPS tab\n\n" +
+		"Đăng nhập dispatcher01/demo123 → Trung tâm điều phối."
 }

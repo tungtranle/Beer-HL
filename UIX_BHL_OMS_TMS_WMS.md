@@ -340,6 +340,13 @@ Hiển thị: thông tin xe + tài xế, danh sách stops (order, NPP, time wind
 └──────────────────────────────────────────────────────┘
 ```
 
+Control Tower triển khai thực tế theo layout 3 cột:
+- Cột trái: KPI + danh sách chuyến active + progress bar theo stop + ETA countdown + badge lệch ETA (đúng tiến độ/trễ/thiếu ETA).
+- Cột giữa: bản đồ GPS real-time (Leaflet) + filter trạng thái xe; các chuyến `in_transit`, `assigned`, `ready` đều có route overview trên map, trong đó chuyến đang chạy dùng line nổi bật hơn và lệch tuyến hiển thị đỏ.
+- Cột phải: panel cảnh báo P0/P1 với CTA xử lý nhanh.
+
+SC-11 demo data cho Control Tower dùng nhà máy `WH-HL` tại Cái Lân làm điểm xuất phát và 7 cụm NPP thực tế quanh Quảng Ninh để người điều phối nhìn thấy tuyến giao hàng hợp lý thay vì marker rải rác.
+
 ### WEB-TMS-05: Gán xe / tài xế thủ công
 
 Drag-drop interface hoặc form: chọn chuyến → chọn xe + tài xế → gán. Hiển thị constraint violations (capacity, time window).
