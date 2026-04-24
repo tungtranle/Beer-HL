@@ -8,31 +8,19 @@ on:
 jobs:
   deploy:
     name: Deploy on Mac mini
-    # Runner tự hosted trên Mac mini — không cần SSH từ ngoài
     runs-on: self-hosted
 
     steps:
-      - name: 📥 Pull latest code
-        run: |
-          DEPLOY_DIR="/Users/tungtranle/Projects/Beer-HL"
-          if [ ! -d "$DEPLOY_DIR/.git" ]; then
-            echo "❌ Thư mục deploy không tồn tại: $DEPLOY_DIR"
-            exit 1
-          fi
-          cd "$DEPLOY_DIR"
-          git fetch origin --prune
-          git reset --hard origin/master
-          echo "✅ Code cập nhật: $(git log -1 --pretty=format:'%h %s')"
+      - name: 📥 Checkout code
+        uses: actions/checkout@v4
 
       - name: 🐳 Build Docker images
         run: |
-          cd /Users/tungtranle/Projects/Beer-HL
           docker compose -f bhl-oms/docker-compose.prod.yml build web api vrp
           echo "✅ Build images xong"
 
       - name: 🔄 Restart services
         run: |
-          cd /Users/tungtranle/Projects/Beer-HL
           docker compose -f bhl-oms/docker-compose.prod.yml up -d
           echo "✅ Services đã restart"
 
@@ -48,15 +36,16 @@ jobs:
           for i in 1 2 3 4 5; do
             if curl -sf http://localhost:8080/health > /dev/null 2>&1; then
               echo "✅ API healthy — Deploy thành công!"
-              docker compose -f /Users/tungtranle/Projects/Beer-HL/bhl-oms/docker-compose.prod.yml ps
+              docker compose -f bhl-oms/docker-compose.prod.yml ps
               exit 0
             fi
             echo "Lần thử $i/5 — đợi thêm 5s..."
             sleep 5
           done
           echo "❌ API không phản hồi sau 40s"
-          docker compose -f /Users/tungtranle/Projects/Beer-HL/bhl-oms/docker-compose.prod.yml logs api --tail 30
+          docker compose -f bhl-oms/docker-compose.prod.yml logs api --tail 30
           exit 1
+
 
 
       - name: 🐳 Build Docker images
