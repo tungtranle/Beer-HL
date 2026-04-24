@@ -202,7 +202,7 @@ export default function TestPortalPage() {
 
       <div className="max-w-7xl mx-auto px-6 py-4">
         {tab === 'test-cases' && <TestCasesTab setTab={setTab} setPreferredGPSScenario={setPreferredGPSScenario} showToast={showToast} refresh={refresh} />}
-        {tab === 'orders' && <OrdersTab refreshKey={refreshKey} />}
+        {tab === 'orders' && <OrdersTab refreshKey={refreshKey} showToast={showToast} refresh={refresh} />}
         {tab === 'order-confirm' && <OrderConfirmTab refreshKey={refreshKey} showToast={showToast} refresh={refresh} />}
         {tab === 'delivery-confirm' && <DeliveryConfirmTab refreshKey={refreshKey} />}
         {tab === 'stock' && <StockTab refreshKey={refreshKey} />}
