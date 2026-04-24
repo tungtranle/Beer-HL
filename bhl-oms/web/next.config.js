@@ -11,6 +11,17 @@ const nextConfig = {
   typescript: {
     ignoreBuildErrors: false,
   },
+  // Disable static cache for HTML pages so new deploys take effect immediately
+  async headers() {
+    return [
+      {
+        source: '/(.*)',
+        headers: [
+          { key: 'Cache-Control', value: 'no-cache, no-store, must-revalidate' },
+        ],
+      },
+    ]
+  },
   async rewrites() {
     return [
       {
