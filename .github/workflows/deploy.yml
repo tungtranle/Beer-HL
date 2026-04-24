@@ -1,6 +1,5 @@
 name: 🚀 Auto Deploy to Production
 
-# Trigger khi có code push lên branch master
 on:
   push:
     branches: [ "master" ]
@@ -20,67 +19,28 @@ jobs:
       - name: 🐳 Build Docker images
         run: |
           docker compose -f bhl-oms/docker-compose.prod.yml build web api vrp
-          echo "✅ Build images xong"
+          echo "Build images xong"
 
       - name: 🔄 Restart services
         run: |
           docker compose -f bhl-oms/docker-compose.prod.yml up -d
-          echo "✅ Services đã restart"
+          echo "Services da restart"
 
       - name: 🧹 Cleanup old images
-        run: |
-          docker image prune -f
-          echo "✅ Cleanup xong"
+        run: docker image prune -f
 
       - name: 🏥 Health Check
         run: |
-          echo "Đợi API khởi động..."
           sleep 15
           for i in 1 2 3 4 5; do
             if curl -sf http://localhost:8080/health > /dev/null 2>&1; then
-              echo "✅ API healthy — Deploy thành công!"
+              echo "API healthy - Deploy thanh cong!"
               docker compose -f bhl-oms/docker-compose.prod.yml ps
               exit 0
             fi
-            echo "Lần thử $i/5 — đợi thêm 5s..."
+            echo "Thu $i/5 - doi them 5s..."
             sleep 5
           done
-          echo "❌ API không phản hồi sau 40s"
+          echo "API khong phan hoi"
           docker compose -f bhl-oms/docker-compose.prod.yml logs api --tail 30
-          exit 1
-
-
-
-      - name: 🐳 Build Docker images
-        run: |
-          cd /Users/tungtranle/Projects/Beer-HL
-          docker compose -f bhl-oms/docker-compose.prod.yml build web api vrp
-          echo "✅ Build images xong"
-
-      - name: 🔄 Restart services
-        run: |
-          cd /Users/tungtranle/Projects/Beer-HL
-          docker compose -f bhl-oms/docker-compose.prod.yml up -d
-          echo "✅ Services đã restart"
-
-      - name: 🧹 Cleanup old images
-        run: |
-          docker image prune -f
-          echo "✅ Cleanup xong"
-
-      - name: 🏥 Health Check
-        run: |
-          echo "Đợi API khởi động..."
-          sleep 15
-          for i in 1 2 3 4 5; do
-            if curl -sf http://localhost:8080/health > /dev/null 2>&1; then
-              echo "✅ API healthy — Deploy thành công!"
-              docker compose -f /Users/tungtranle/Projects/Beer-HL/bhl-oms/docker-compose.prod.yml ps
-              exit 0
-            fi
-            echo "Lần thử $i/5 — đợi thêm 5s..."
-            sleep 5
-          done
-          echo "❌ API không phản hồi sau 40s"
-          docker compose -f /Users/tungtranle/Projects/Beer-HL/bhl-oms/docker-compose.prod.yml logs api --tail 30
           exit 1
