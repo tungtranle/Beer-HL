@@ -10,6 +10,9 @@ jobs:
     name: Deploy on Mac mini
     runs-on: self-hosted
 
+    env:
+      PATH: /opt/homebrew/bin:/opt/homebrew/sbin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin
+
     steps:
       - name: 📥 Checkout code
         uses: actions/checkout@v4
