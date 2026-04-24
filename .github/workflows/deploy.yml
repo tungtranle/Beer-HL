@@ -1,4 +1,4 @@
-name: 🚀 Auto Deploy to Production
+name: Auto Deploy to Production
 
 on:
   push:
@@ -11,25 +11,29 @@ jobs:
 
     env:
       PATH: /opt/homebrew/bin:/opt/homebrew/sbin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin
+      DEPLOY_KEYS_DIR: /Users/tungtranle/Projects/Beer-HL/bhl-oms/keys
 
     steps:
-      - name: 📥 Checkout code
+      - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: 🐳 Build Docker images
+      - name: Copy secret keys (not in git)
+        run: cp -r "$DEPLOY_KEYS_DIR" bhl-oms/keys
+
+      - name: Build Docker images
         run: |
           docker compose -f bhl-oms/docker-compose.prod.yml build web api vrp
-          echo "Build images xong"
+          echo "Build xong"
 
-      - name: 🔄 Restart services
+      - name: Restart services
         run: |
           docker compose -f bhl-oms/docker-compose.prod.yml up -d
           echo "Services da restart"
 
-      - name: 🧹 Cleanup old images
+      - name: Cleanup old images
         run: docker image prune -f
 
-      - name: 🏥 Health Check
+      - name: Health Check
         run: |
           sleep 15
           for i in 1 2 3 4 5; do
@@ -41,6 +45,6 @@ jobs:
             echo "Thu $i/5 - doi them 5s..."
             sleep 5
           done
-          echo "API khong phan hoi"
+          echo "API khong phan hoi sau 40s"
           docker compose -f bhl-oms/docker-compose.prod.yml logs api --tail 30
           exit 1
