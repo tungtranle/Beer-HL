@@ -58,6 +58,8 @@ services:
       - "3000:3000"
     environment:
       - NEXT_PUBLIC_API_URL=http://api:8080
+      - INTERNAL_API_ORIGIN=http://api:8080
+      - INTERNAL_OSRM_ORIGIN=http://osrm:5000
     depends_on:
       - api
     restart: unless-stopped
@@ -124,7 +126,7 @@ services:
           memory: 2G
 
   osrm:
-    image: osrm/osrm-backend:v5.27.1
+    image: osrm/osrm-backend:latest
     volumes:
       - ./osrm-data:/data
     command: osrm-routed --algorithm mld /data/vietnam-latest.osrm
