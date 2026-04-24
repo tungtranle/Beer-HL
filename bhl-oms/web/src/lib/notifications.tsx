@@ -53,6 +53,7 @@ interface NotificationContextType {
   // 4-layer toast state
   urgentToasts: Notification[]
   autoToast: Notification | null
+  autoToastQueueCount: number
   dismissUrgentToast: (id: string) => void
   dismissAutoToast: () => void
   // Legacy compat
@@ -74,6 +75,7 @@ const NotificationContext = createContext<NotificationContextType>({
   unreadCount: 0,
   urgentToasts: [],
   autoToast: null,
+  autoToastQueueCount: 0,
   dismissUrgentToast: () => {},
   dismissAutoToast: () => {},
   toast: null,
@@ -96,6 +98,7 @@ export function NotificationProvider({ children }: { children: React.ReactNode }
   // 4-layer: urgent = PersistentToast (manual dismiss), high = AutoToast (8s)
   const [urgentToasts, setUrgentToasts] = useState<Notification[]>([])
   const [autoToast, setAutoToast] = useState<Notification | null>(null)
+  const [autoToastQueueCount, setAutoToastQueueCount] = useState(0)
   const autoToastQueueRef = useRef<Notification[]>([])
   const wsRef = useRef<WebSocket | null>(null)
   const orderUpdateListenersRef = useRef<Set<OrderUpdateListener>>(new Set())
@@ -162,7 +165,10 @@ export function NotificationProvider({ children }: { children: React.ReactNode }
     setTimeout(() => {
       if (autoToastQueueRef.current.length > 0) {
         const next = autoToastQueueRef.current.shift()!
+        setAutoToastQueueCount(autoToastQueueRef.current.length)
         setAutoToast(next)
+      } else {
+        setAutoToastQueueCount(0)
       }
     }, 400)
   }, [])
@@ -179,6 +185,7 @@ export function NotificationProvider({ children }: { children: React.ReactNode }
       setAutoToast(current => {
         if (current) {
           autoToastQueueRef.current.push(n)
+          setAutoToastQueueCount(autoToastQueueRef.current.length)
           return current
         }
         return n
@@ -267,11 +274,12 @@ export function NotificationProvider({ children }: { children: React.ReactNode }
   return (
     <NotificationContext.Provider value={{
       notifications, unreadCount,
-      urgentToasts, autoToast, dismissUrgentToast, dismissAutoToast,
+      urgentToasts, autoToast, autoToastQueueCount, dismissUrgentToast, dismissAutoToast,
       toast, dismissToast,
       markRead, markAllRead, refresh,
       subscribeOrderUpdates,
-      subscribeEntityUpdates,      subscribeVRPProgress,    }}>
+      subscribeEntityUpdates, subscribeVRPProgress,
+    }}>
       {children}
     </NotificationContext.Provider>
   )

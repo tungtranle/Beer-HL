@@ -19,9 +19,10 @@ interface AutoToastProps {
   notification: AutoToastNotification | null
   onDismiss: () => void
   duration?: number
+  queueCount?: number
 }
 
-export function AutoToast({ notification, onDismiss, duration = 8000 }: AutoToastProps) {
+export function AutoToast({ notification, onDismiss, duration = 8000, queueCount = 0 }: AutoToastProps) {
   const [mounted, setMounted] = useState(false)
   const [progress, setProgress] = useState(100)
   const [visible, setVisible] = useState(false)
@@ -155,12 +156,17 @@ export function AutoToast({ notification, onDismiss, duration = 8000 }: AutoToas
           </button>
         </div>
 
-        {/* Progress bar */}
-        <div className="h-1 bg-gray-100">
+        {/* Progress bar + queue count */}
+        <div className="relative h-1 bg-gray-100">
           <div
             className="h-full bg-[#F68634] transition-none"
             style={{ width: `${progress}%` }}
           />
+          {queueCount > 0 && (
+            <span className="absolute -top-5 right-3 text-[10px] text-gray-400 whitespace-nowrap">
+              +{queueCount} thông báo tiếp theo
+            </span>
+          )}
         </div>
       </div>
     </div>,

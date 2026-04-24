@@ -37,11 +37,14 @@ function timeAgo(dateStr: string) {
 export function NotificationBell() {
   const {
     notifications, unreadCount, markRead, markAllRead,
-    urgentToasts, autoToast, dismissUrgentToast, dismissAutoToast,
+    urgentToasts, autoToast, autoToastQueueCount, dismissUrgentToast, dismissAutoToast,
   } = useNotifications()
   const [open, setOpen] = useState(false)
   const [filter, setFilter] = useState('')
   const router = useRouter()
+
+  // Có unread urgent chưa xử lý → badge đỏ pulsing
+  const hasUrgentUnread = notifications.some(n => !n.is_read && n.priority === 'urgent')
 
   // Lock body scroll when panel is open
   useEffect(() => {
@@ -79,7 +82,7 @@ export function NotificationBell() {
     <>
       {/* 4-layer toast rendering */}
       <PersistentToast notifications={urgentToasts} onDismiss={dismissUrgentToast} />
-      <AutoToast notification={autoToast} onDismiss={dismissAutoToast} />
+      <AutoToast notification={autoToast} onDismiss={dismissAutoToast} queueCount={autoToastQueueCount} />
 
       {/* Bell button */}
       <button
@@ -91,8 +94,13 @@ export function NotificationBell() {
           <path strokeLinecap="round" strokeLinejoin="round" d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9" />
         </svg>
         {unreadCount > 0 && (
-          <span className="absolute top-0.5 right-0.5 flex h-4 w-4 items-center justify-center rounded-full bg-[#F68634] text-[10px] font-bold text-white ring-2 ring-white">
+          <span className={`absolute top-0.5 right-0.5 flex h-4 w-4 items-center justify-center rounded-full text-[10px] font-bold text-white ring-2 ring-white ${
+            hasUrgentUnread ? 'bg-red-600' : 'bg-[#F68634]'
+          }`}>
             {unreadCount > 9 ? '9+' : unreadCount}
+            {hasUrgentUnread && (
+              <span className="absolute inline-flex h-full w-full rounded-full bg-red-400 opacity-75 animate-ping" />
+            )}
           </span>
         )}
       </button>

@@ -1,5 +1,7 @@
 import type { Metadata } from 'next'
 import './globals.css'
+import ClarityClient from '../components/ClarityClient'
+import CookieConsent from '../components/CookieConsent'
 
 export const metadata: Metadata = {
   title: 'BHL - Quản lý Đơn hàng, Vận chuyển & Kho',
@@ -29,16 +31,9 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
             });
           }
         ` }} />
-        {/* Microsoft Clarity — chỉ load trên production */}
-        {process.env.NEXT_PUBLIC_CLARITY_ID && (
-          <script dangerouslySetInnerHTML={{ __html: `
-            (function(c,l,a,r,i,t,y){
-              c[a]=c[a]||function(){(c[a].q=c[a].q||[]).push(arguments)};
-              t=l.createElement(r);t.async=1;t.src="https://www.clarity.ms/tag/"+i;
-              y=l.getElementsByTagName(r)[0];y.parentNode.insertBefore(t,y);
-            })(window,document,"clarity","script","${process.env.NEXT_PUBLIC_CLARITY_ID}");
-          ` }} />
-        )}
+        {/* Microsoft Clarity client loader + cookie consent (client-side) */}
+        <ClarityClient />
+        <CookieConsent />
       </head>
       <body className="bg-gray-50">{children}</body>
     </html>
