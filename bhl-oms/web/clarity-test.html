@@ -1,0 +1,48 @@
+<!doctype html>
+<html lang="vi">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <title>Clarity test — wgqlli4s7j</title>
+    <style>
+      body { font-family: Inter, system-ui, Arial; padding: 24px }
+      button { padding: 8px 12px; margin-right: 8px }
+      pre { background:#f7f7f7; padding:10px }
+    </style>
+  </head>
+  <body>
+    <h1>Microsoft Clarity test</h1>
+    <p>Project ID: <strong>wgqlli4s7j</strong></p>
+    <p>Nhấn <strong>Load Clarity</strong> để chèn script và kích hoạt request tới clarity.ms.</p>
+    <div>
+      <button id="load">Load Clarity</button>
+      <button id="clear">Clear localStorage flag</button>
+    </div>
+    <div style="margin-top:16px">
+      <p>Kiểm tra trong DevTools → Network → lọc <code>clarity.ms</code></p>
+      <pre id="log">Console logs will appear here.</pre>
+    </div>
+
+    <script>
+      const ID = 'wgqlli4s7j'
+      const logEl = document.getElementById('log')
+      function log(s){ console.log(s); logEl.textContent += '\n'+s }
+
+      document.getElementById('load').addEventListener('click', ()=>{
+        log('Loading clarity script...')
+        try{
+          (function(c,l,a,r,i,t,y){
+            c[a]=c[a]||function(){(c[a].q=c[a].q||[]).push(arguments)};
+            t=l.createElement(r);t.async=1;t.src="https://www.clarity.ms/tag/"+i;
+            y=l.getElementsByTagName(r)[0];y.parentNode.insertBefore(t,y);
+          })(window,document,'clarity','script',ID);
+          log('Script element inserted: https://www.clarity.ms/tag/'+ID)
+        }catch(e){ log('Error: '+e.message) }
+      })
+
+      document.getElementById('clear').addEventListener('click', ()=>{
+        try{ localStorage.removeItem('bhl_consent_analytics'); log('localStorage cleared') }catch(e){ log('clear error') }
+      })
+    </script>
+  </body>
+</html>

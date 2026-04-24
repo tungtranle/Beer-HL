@@ -5,6 +5,9 @@ COPY package.json package-lock.json* ./
 RUN npm ci
 COPY . .
 ENV NEXT_TELEMETRY_DISABLED=1
+# Microsoft Clarity — baked in at build time
+ARG NEXT_PUBLIC_CLARITY_ID=wgqlli4s7j
+ENV NEXT_PUBLIC_CLARITY_ID=$NEXT_PUBLIC_CLARITY_ID
 RUN npm run build
 
 # Runtime stage

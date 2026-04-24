@@ -31,11 +31,13 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
             });
           }
         ` }} />
-        {/* Microsoft Clarity client loader + cookie consent (client-side) */}
+      </head>
+      <body className="bg-gray-50">
+        {children}
+        {/* Microsoft Clarity — chỉ load trên bhl.symper.us sau khi có consent */}
         <ClarityClient />
         <CookieConsent />
-      </head>
-      <body className="bg-gray-50">{children}</body>
+      </body>
     </html>
   )
 }

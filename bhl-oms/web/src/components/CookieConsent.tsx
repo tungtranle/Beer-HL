@@ -15,10 +15,18 @@ export default function CookieConsent() {
   if (accepted) return null
 
   function accept() {
-    try { localStorage.setItem(COOKIE_KEY, '1'); setAccepted(true) } catch {}
+    try {
+      localStorage.setItem(COOKIE_KEY, '1')
+      setAccepted(true)
+      window.dispatchEvent(new CustomEvent('bhl_consent_change', { detail: { accepted: true } }))
+    } catch {}
   }
   function decline() {
-    try { localStorage.setItem(COOKIE_KEY, '0'); setAccepted(true) } catch {}
+    try {
+      localStorage.setItem(COOKIE_KEY, '0')
+      setAccepted(true)
+      window.dispatchEvent(new CustomEvent('bhl_consent_change', { detail: { accepted: false } }))
+    } catch {}
   }
 
   return (
