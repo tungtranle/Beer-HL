@@ -452,7 +452,7 @@ const MapView = forwardRef<MapViewRef, MapViewProps>(function MapView(props, ref
         style: googleMapsStyle as maplibregl.StyleSpecification,
         center: [center[1], center[0]], // MapLibre uses [lng, lat]
         zoom,
-        attributionControl: true,
+        attributionControl: false,
         maxZoom: 19,
         fadeDuration: 200,
       })
