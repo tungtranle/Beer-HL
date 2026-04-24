@@ -30,6 +30,49 @@ func (r *Repository) Create(ctx context.Context, n *domain.Notification) error {
 }
 
 func (r *Repository) GetByUser(ctx context.Context, userID uuid.UUID, unreadOnly bool, limit int) ([]domain.Notification, error) {
+	res, _, err := r.GetByUserPaginated(ctx, userID, unreadOnly, limit, 0)
+	return res, err
+}
+
+// GetByUserPaginated returns a page of notifications + total count for the user.
+func (r *Repository) GetByUserPaginated(ctx context.Context, userID uuid.UUID, unreadOnly bool, limit, offset int) ([]domain.Notification, int64, error) {
+	if limit <= 0 || limit > 500 {
+		limit = 50
+	}
+	if offset < 0 {
+		offset = 0
+	}
+
+	where := "WHERE user_id = $1"
+	if unreadOnly {
+		where += " AND is_read = false"
+	}
+
+	var total int64
+	if err := r.db.QueryRow(ctx, "SELECT COUNT(*) FROM notifications "+where, userID).Scan(&total); err != nil {
+		return nil, 0, err
+	}
+
+	query := `SELECT id, user_id, title, body, category, COALESCE(priority,'normal'), link, entity_type, entity_id, actions, group_key, is_read, created_at
+		FROM notifications ` + where + fmt.Sprintf(" ORDER BY created_at DESC LIMIT %d OFFSET %d", limit, offset)
+	rows, err := r.db.Query(ctx, query, userID)
+	if err != nil {
+		return nil, 0, err
+	}
+	defer rows.Close()
+
+	var results []domain.Notification
+	for rows.Next() {
+		var n domain.Notification
+		if err := rows.Scan(&n.ID, &n.UserID, &n.Title, &n.Body, &n.Category, &n.Priority, &n.Link, &n.EntityType, &n.EntityID, &n.Actions, &n.GroupKey, &n.IsRead, &n.CreatedAt); err != nil {
+			return nil, 0, err
+		}
+		results = append(results, n)
+	}
+	return results, total, nil
+}
+
+func (r *Repository) getByUserUnused(ctx context.Context, userID uuid.UUID, unreadOnly bool, limit int) ([]domain.Notification, error) {
 	query := `SELECT id, user_id, title, body, category, COALESCE(priority,'normal'), link, entity_type, entity_id, actions, group_key, is_read, created_at
 		FROM notifications WHERE user_id = $1`
 	args := []interface{}{userID}

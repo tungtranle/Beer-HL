@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation'
 import { apiFetch, getUser } from '@/lib/api'
 import SearchableSelect from '@/lib/SearchableSelect'
 import { useNotifications } from '@/lib/notifications'
+import { handleError } from '@/lib/handleError'
 
 // ─── OSRM routing helper ─────────────────────────────
 async function fetchOSRMRoute(points: [number, number][]): Promise<{ geometry: [number, number][]; legs: { distance_km: number; duration_min: number }[]; total_km: number; total_min: number } | null> {
@@ -600,9 +601,11 @@ interface Shipment {
 interface Vehicle {
   id: string; plate_number: string; vehicle_type: string
   capacity_kg: number; capacity_m3: number; status: string; warehouse_id?: string
+  default_driver_id?: string | null; default_driver_name?: string
 }
 interface Driver {
   id: string; full_name: string; phone: string; license_number: string; status: string; warehouse_id?: string
+  default_vehicle_id?: string | null
 }
 interface PendingDate {
   delivery_date: string; shipment_count: number; total_weight_kg: number
@@ -691,9 +694,8 @@ export default function PlanningPage() {
   const [compareProgress, setCompareProgress] = useState({
     cost:     { pct: 0, stage: '', detail: '' },
     time:     { pct: 0, stage: '', detail: '' },
-    distance: { pct: 0, stage: '', detail: '' },
   })
-  const vrpJobMapRef = useRef<Record<string, 'cost' | 'time' | 'distance' | 'single'>>({})
+  const vrpJobMapRef = useRef<Record<string, 'cost' | 'time' | 'single'>>({})
 
   // Step 5: driver assignment & approval
   const [driverAssign, setDriverAssign] = useState<Record<string, string>>({})
@@ -725,7 +727,7 @@ export default function PlanningPage() {
   ])
   const [maxTripHours, setMaxTripHours] = useState(8)
   const [costOptimize, setCostOptimize] = useState(false)
-  const [optimizeFor, setOptimizeFor] = useState<'cost' | 'time' | 'distance'>('cost')
+  const [optimizeFor, setOptimizeFor] = useState<'cost' | 'time'>('cost')
   const [costReadiness, setCostReadiness] = useState<{
     ready: boolean; toll_station_count: number; expressway_count: number;
     vehicle_default_count: number; driver_rate_count: number;
@@ -736,18 +738,18 @@ export default function PlanningPage() {
   const [scenarioName, setScenarioName] = useState('')
   const [showScenarios, setShowScenarios] = useState(false)
   const [savedJobId, setSavedJobId] = useState('')
-  const [compareResult, setCompareResult] = useState<{ cost: VRPResult | null; time: VRPResult | null; distance: VRPResult | null } | null>(null)
+  const [compareResult, setCompareResult] = useState<{ cost: VRPResult | null; time: VRPResult | null } | null>(null)
   const [comparing, setComparing] = useState(false)
 
   const { subscribeVRPProgress } = useNotifications()
 
   // ─── Init ──────────────────────────────────────────
   useEffect(() => {
-    apiFetch<any>('/warehouses').then(r => setWarehouses(r.data || [])).catch(console.error)
+    apiFetch<any>('/warehouses').then(r => setWarehouses(r.data || [])).catch(err => handleError(err))
     apiFetch<any>('/planning/cost-readiness').then(r => {
       setCostReadiness(r.data || null)
       if (r.data?.ready) setCostOptimize(true)
-    }).catch(console.error)
+    }).catch(err => handleError(err))
   }, [])
 
   // Auto-detect delivery date from pending shipments
@@ -764,7 +766,7 @@ export default function PlanningPage() {
           setDeliveryDate(dates[0].delivery_date)
         }
       })
-      .catch(console.error)
+      .catch(err => handleError(err))
   }, [warehouseId]) // eslint-disable-line react-hooks/exhaustive-deps
 
   const loadData = useCallback(async () => {
@@ -910,11 +912,32 @@ export default function PlanningPage() {
             setVrpResult(r.data)
             setRunning(false)
 
-            // Init driver assignment (auto-assign by order)
+            // Init driver assignment (auto-assign: prefer default driver, fallback by order)
             if (r.data?.trips) {
               const init: Record<string, string> = {}
-              r.data.trips.forEach((t: VRPTrip, i: number) => {
-                if (drivers[i]) init[t.vehicle_id] = drivers[i].id
+              const usedDrivers = new Set<string>()
+              // First pass: assign default drivers from vehicle mapping
+              r.data.trips.forEach((t: VRPTrip) => {
+                const vehicle = vehicles.find(v => v.id === t.vehicle_id)
+                if (vehicle?.default_driver_id) {
+                  const defaultDriver = drivers.find(d => d.id === vehicle.default_driver_id)
+                  if (defaultDriver && defaultDriver.status === 'active') {
+                    init[t.vehicle_id] = defaultDriver.id
+                    usedDrivers.add(defaultDriver.id)
+                  }
+                }
+              })
+              // Second pass: fill remaining with available drivers by order
+              let driverIdx = 0
+              r.data.trips.forEach((t: VRPTrip) => {
+                if (!init[t.vehicle_id]) {
+                  while (driverIdx < drivers.length && usedDrivers.has(drivers[driverIdx].id)) driverIdx++
+                  if (driverIdx < drivers.length) {
+                    init[t.vehicle_id] = drivers[driverIdx].id
+                    usedDrivers.add(drivers[driverIdx].id)
+                    driverIdx++
+                  }
+                }
               })
               setDriverAssign(init)
             }
@@ -941,7 +964,6 @@ export default function PlanningPage() {
     setCompareProgress({
       cost:     { pct: 0, stage: '', detail: '' },
       time:     { pct: 0, stage: '', detail: '' },
-      distance: { pct: 0, stage: '', detail: '' },
     })
 
     const vehicleIdsToSend = Array.from(selectedVehicleIds)
@@ -965,7 +987,7 @@ export default function PlanningPage() {
       },
     })
 
-    const pollJob = (jid: string, mode: 'cost' | 'time' | 'distance'): Promise<VRPResult | null> => {
+    const pollJob = (jid: string, mode: 'cost' | 'time'): Promise<VRPResult | null> => {
       return new Promise((resolve) => {
         const poll = setInterval(async () => {
           try {
@@ -1002,33 +1024,29 @@ export default function PlanningPage() {
 
     try {
       // Launch all 3 modes in parallel and map job IDs as soon as each response arrives.
-      const startMode = async (mode: 'cost' | 'time' | 'distance') => {
+      const startMode = async (mode: 'cost' | 'time') => {
         const res: any = await apiFetch('/planning/run-vrp', { method: 'POST', body: buildBody(mode) })
         const jid = res?.data?.job_id
         if (jid) vrpJobMapRef.current[jid] = mode
         return { res, jid }
       }
 
-      const [a, b, c] = await Promise.all([
+      const [a, b] = await Promise.all([
         startMode('cost'),
         startMode('time'),
-        startMode('distance'),
       ])
 
       const resA = a.res
       const resB = b.res
-      const resC = c.res
 
       // Seed UI to avoid all columns staying at 0% before first event.
       if (a.jid) setCompareProgress(prev => ({ ...prev, cost: { ...prev.cost, stage: 'matrix', detail: 'Đã tạo job' } }))
       if (b.jid) setCompareProgress(prev => ({ ...prev, time: { ...prev.time, stage: 'matrix', detail: 'Đã tạo job' } }))
-      if (c.jid) setCompareProgress(prev => ({ ...prev, distance: { ...prev.distance, stage: 'matrix', detail: 'Đã tạo job' } }))
 
-      // Poll all 3 jobs in parallel
-      const [resultA, resultB, resultC] = await Promise.all([
+      // Poll all 2 jobs in parallel
+      const [resultA, resultB] = await Promise.all([
         pollJob(resA.data?.job_id, 'cost'),
         pollJob(resB.data?.job_id, 'time'),
-        pollJob(resC.data?.job_id, 'distance'),
       ])
 
       clearInterval(progressRef.current)
@@ -1036,8 +1054,7 @@ export default function PlanningPage() {
       // Cleanup job map
       if (resA.data?.job_id) delete vrpJobMapRef.current[resA.data.job_id]
       if (resB.data?.job_id) delete vrpJobMapRef.current[resB.data.job_id]
-      if (resC.data?.job_id) delete vrpJobMapRef.current[resC.data.job_id]
-      setCompareResult({ cost: resultA, time: resultB, distance: resultC })
+      setCompareResult({ cost: resultA, time: resultB })
     } catch (err: any) {
       clearInterval(progressRef.current)
       setError(err.message)
@@ -1276,8 +1293,20 @@ export default function PlanningPage() {
         setSavedJobId('loaded')
         if (result?.trips) {
           const init: Record<string, string> = {}
-          result.trips.forEach((t: VRPTrip, i: number) => {
-            if (drivers[i]) init[t.vehicle_id] = drivers[i].id
+          const usedDrivers = new Set<string>()
+          result.trips.forEach((t: VRPTrip) => {
+            const vehicle = vehicles.find(v => v.id === t.vehicle_id)
+            if (vehicle?.default_driver_id) {
+              const dd = drivers.find(d => d.id === vehicle.default_driver_id)
+              if (dd && dd.status === 'active') { init[t.vehicle_id] = dd.id; usedDrivers.add(dd.id) }
+            }
+          })
+          let di = 0
+          result.trips.forEach((t: VRPTrip) => {
+            if (!init[t.vehicle_id]) {
+              while (di < drivers.length && usedDrivers.has(drivers[di].id)) di++
+              if (di < drivers.length) { init[t.vehicle_id] = drivers[di].id; usedDrivers.add(drivers[di].id); di++ }
+            }
           })
           setDriverAssign(init)
         }
@@ -2045,7 +2074,7 @@ export default function PlanningPage() {
                     <span className="text-sm">🎯</span>
                     <span className="text-xs font-semibold text-orange-800">Phương thức tối ưu</span>
                   </div>
-                  <div className="grid grid-cols-3 gap-2">
+                  <div className="grid grid-cols-2 gap-2">
                     <button type="button"
                       onClick={() => setOptimizeFor('cost')}
                       className={`p-2 rounded-lg border text-left transition-all ${
@@ -2065,16 +2094,6 @@ export default function PlanningPage() {
                       }`}>
                       <div className="text-xs font-bold text-blue-700">⚡ Giao nhanh</div>
                       <div className="text-[10px] text-gray-500 mt-0.5">Đường nhanh nhất · Có thể qua BOT</div>
-                    </button>
-                    <button type="button"
-                      onClick={() => setOptimizeFor('distance')}
-                      className={`p-2 rounded-lg border text-left transition-all ${
-                        optimizeFor === 'distance'
-                          ? 'border-purple-500 bg-purple-50 ring-2 ring-purple-200'
-                          : 'border-gray-200 bg-white hover:border-purple-300'
-                      }`}>
-                      <div className="text-xs font-bold text-purple-700">📏 Tối ưu quãng đường</div>
-                      <div className="text-[10px] text-gray-500 mt-0.5">Đường ngắn nhất · Có thể qua BOT</div>
                     </button>
                   </div>
                 </div>
@@ -2158,12 +2177,12 @@ export default function PlanningPage() {
               <div className="flex gap-3 items-center justify-center">
                 <button onClick={runVRP}
                   className="px-8 py-3 bg-brand-500 text-white rounded-xl hover:bg-brand-600 transition font-medium text-lg shadow-lg shadow-brand-200">
-                  {optimizeFor === 'cost' ? '💰 Tạo kế hoạch tối ưu chi phí' : optimizeFor === 'time' ? '⚡ Tạo kế hoạch giao nhanh' : '📏 Tạo kế hoạch tối ưu km'}
+                  {optimizeFor === 'cost' ? '💰 Tạo kế hoạch tối ưu chi phí' : '⚡ Tạo kế hoạch giao nhanh'}
                 </button>
                 {costReadiness?.ready && (
                   <button onClick={compareStrategies}
                     className="px-6 py-3 bg-white text-orange-600 border-2 border-orange-300 rounded-xl hover:bg-orange-50 transition font-medium text-sm shadow">
-                    ⚖️ So sánh 3 phương án
+                    ⚖️ So sánh 2 phương án
                   </button>
                 )}
               </div>
@@ -2181,7 +2200,7 @@ export default function PlanningPage() {
               <div className="text-center mb-6">
                 <div className="text-4xl mb-3">⚙️</div>
                 <h2 className="text-xl font-bold text-gray-800">
-                  {optimizeFor === 'cost' ? '💰 Đang tối ưu chi phí vận chuyển...' : optimizeFor === 'time' ? '⚡ Đang tính toán giao nhanh nhất...' : '🧭 Đang tối ưu quãng đường...'}
+                  {optimizeFor === 'cost' ? '💰 Đang tối ưu chi phí vận chuyển...' : '⚡ Đang tính toán giao nhanh nhất...'}
                 </h2>
                 <p className="text-sm text-gray-400">{activeShipments.length} shipments · {selectedVehicles.length} xe</p>
               </div>
@@ -2214,14 +2233,13 @@ export default function PlanningPage() {
           {comparing && (
             <div className="bg-white rounded-xl shadow-sm p-6">
               <div className="text-center mb-5">
-                <h2 className="text-xl font-bold text-gray-800">⚖️ Đang so sánh 3 phương án song song...</h2>
-                <p className="text-sm text-gray-400 mt-1">{activeShipments.length} đơn × 3 lần giải — VRP chạy đồng thời</p>
+                <h2 className="text-xl font-bold text-gray-800">⚖️ Đang so sánh 2 phương án song song...</h2>
+                <p className="text-sm text-gray-400 mt-1">{activeShipments.length} đơn × 2 lần giải — VRP chạy đồng thời</p>
               </div>
-              <div className="grid grid-cols-3 gap-4">
+              <div className="grid grid-cols-2 gap-4">
                 {([
                   { key: 'cost'     as const, icon: '💰', label: 'Tối ưu chi phí', border: 'border-green-200',  activeCls: 'bg-green-50 text-green-800',  bar: 'bg-green-500' },
                   { key: 'time'     as const, icon: '⚡', label: 'Giao nhanh',      border: 'border-blue-200',   activeCls: 'bg-blue-50 text-blue-800',    bar: 'bg-blue-500' },
-                  { key: 'distance' as const, icon: '🧭', label: 'Tối ưu km',       border: 'border-purple-200', activeCls: 'bg-purple-50 text-purple-800', bar: 'bg-purple-500' },
                 ]).map(mode => {
                   const prog = compareProgress[mode.key]
                   const isDone = prog.stage === 'done'
@@ -2259,7 +2277,7 @@ export default function PlanningPage() {
                 })}
               </div>
               <div className="text-center mt-4 text-sm text-gray-500">
-                Hoàn thành: {[compareProgress.cost, compareProgress.time, compareProgress.distance].filter(p => p.stage === 'done').length}/3
+                Hoàn thành: {[compareProgress.cost, compareProgress.time].filter(p => p.stage === 'done').length}/2
               </div>
             </div>
           )}
@@ -2268,7 +2286,7 @@ export default function PlanningPage() {
           {compareResult && !comparing && (
             <div className="bg-white rounded-xl shadow-sm p-6 mb-6">
               <div className="flex items-center justify-between mb-4">
-                <h2 className="text-lg font-bold text-gray-800">⚖️ So sánh 3 phương án tối ưu</h2>
+                <h2 className="text-lg font-bold text-gray-800">⚖️ So sánh 2 phương án tối ưu</h2>
                 <button onClick={() => setCompareResult(null)}
                   className="text-gray-400 hover:text-gray-600 text-sm">✕ Đóng</button>
               </div>
@@ -2276,12 +2294,10 @@ export default function PlanningPage() {
                 const modeDescs: Record<string, string> = {
                   cost: 'Tránh đường có phí BOT, tối ưu xăng + cầu đường',
                   time: 'Ưu tiên đường nhanh nhất, cân bằng thời gian các xe',
-                  distance: 'Ưu tiên quãng đường ngắn nhất',
                 }
                 const modes = [
                   { key: 'cost' as const, label: '💰 Tối ưu chi phí', color: 'green', result: compareResult.cost },
                   { key: 'time' as const, label: '⚡ Giao nhanh', color: 'blue', result: compareResult.time },
-                  { key: 'distance' as const, label: '📏 Tối ưu km', color: 'purple', result: compareResult.distance },
                 ]
                 const validModes = modes.filter(m => m.result?.summary)
                 if (validModes.length === 0) return <p className="text-red-500">Không thể so sánh — tất cả phương án đều lỗi</p>
@@ -3234,9 +3250,22 @@ export default function PlanningPage() {
                   setVrpResult(result)
                   setJobId('manual')
                   // Auto-assign drivers
+                  // Auto-assign drivers (prefer default)
                   const init: Record<string, string> = {}
-                  result.trips.forEach((t, i) => {
-                    if (drivers[i]) init[t.vehicle_id] = drivers[i].id
+                  const usedDrivers = new Set<string>()
+                  result.trips.forEach((t) => {
+                    const vehicle = vehicles.find(v => v.id === t.vehicle_id)
+                    if (vehicle?.default_driver_id) {
+                      const dd = drivers.find(d => d.id === vehicle.default_driver_id)
+                      if (dd && dd.status === 'active') { init[t.vehicle_id] = dd.id; usedDrivers.add(dd.id) }
+                    }
+                  })
+                  let di = 0
+                  result.trips.forEach((t) => {
+                    if (!init[t.vehicle_id]) {
+                      while (di < drivers.length && usedDrivers.has(drivers[di].id)) di++
+                      if (di < drivers.length) { init[t.vehicle_id] = drivers[di].id; usedDrivers.add(drivers[di].id); di++ }
+                    }
                   })
                   setDriverAssign(init)
                 }

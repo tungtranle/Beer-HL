@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react'
 import { useParams, useRouter } from 'next/navigation'
 import { apiFetch } from '@/lib/api'
 import { toast } from '@/lib/useToast'
+import { handleError } from '@/lib/handleError'
 
 interface DriverDoc {
   id: string
@@ -52,7 +53,7 @@ export default function DriverDocumentsPage() {
         setDocs(data)
         if (data.length > 0) setDriverName(data[0].driver_name)
       })
-      .catch(console.error)
+      .catch(err => handleError(err))
       .finally(() => setLoading(false))
 
     if (!driverName) {

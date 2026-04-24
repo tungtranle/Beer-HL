@@ -4,6 +4,7 @@ import { useEffect, useState, useRef } from 'react'
 import { apiFetch } from '@/lib/api'
 import { orderStatusLabels } from '@/lib/status-config'
 import { toast } from '@/lib/useToast'
+import { handleError } from '@/lib/handleError'
 
 interface TimelineEvent {
   id: string
@@ -94,7 +95,7 @@ export function OrderTimeline({ orderId }: { orderId: string }) {
       apiFetch<any>(`/orders/${orderId}/timeline`).then(r => setEvents(r.data || [])),
       apiFetch<any>(`/orders/${orderId}/notes`).then(r => setNotes(r.data || [])),
     ])
-      .catch(console.error)
+      .catch(err => handleError(err))
       .finally(() => setLoading(false))
   }
 

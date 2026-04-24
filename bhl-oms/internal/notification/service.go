@@ -118,6 +118,17 @@ func (s *Service) GetNotifications(ctx context.Context, userID uuid.UUID, unread
 	return s.repo.GetByUser(ctx, userID, unreadOnly, limit)
 }
 
+func (s *Service) GetNotificationsPaginated(ctx context.Context, userID uuid.UUID, unreadOnly bool, page, limit int) ([]domain.Notification, int64, error) {
+	if page < 1 {
+		page = 1
+	}
+	if limit <= 0 || limit > 200 {
+		limit = 50
+	}
+	offset := (page - 1) * limit
+	return s.repo.GetByUserPaginated(ctx, userID, unreadOnly, limit, offset)
+}
+
 func (s *Service) MarkRead(ctx context.Context, id, userID uuid.UUID) error {
 	return s.repo.MarkRead(ctx, id, userID)
 }

@@ -144,6 +144,10 @@ func (s *Service) DeleteDriver(ctx context.Context, id uuid.UUID) error {
 	return s.repo.DeleteDriver(ctx, id)
 }
 
+func (s *Service) SetVehicleDriverMapping(ctx context.Context, vehicleID uuid.UUID, driverID *uuid.UUID) error {
+	return s.repo.SetVehicleDriverMapping(ctx, vehicleID, driverID)
+}
+
 func (s *Service) ListAvailableVehicles(ctx context.Context, warehouseID uuid.UUID, date string) ([]domain.Vehicle, error) {
 	return s.repo.ListAvailableVehicles(ctx, warehouseID, date)
 }
@@ -235,8 +239,8 @@ func (s *Service) RunVRP(ctx context.Context, req RunVRPRequest) (string, error)
 		return "", fmt.Errorf("không có xe khả dụng")
 	}
 
-	// Build VRP solver request
-	jobID := fmt.Sprintf("vrp-%s-%04d", time.Now().Format("20060102"), time.Now().UnixNano()%10000)
+	// Build VRP solver request — use full nanosecond precision to avoid collision with parallel jobs
+	jobID := fmt.Sprintf("vrp-%s-%d", time.Now().Format("20060102"), time.Now().UnixNano())
 
 	// Resolve vehicle cost info (per-vehicle profile or type default)
 	costInfos, err := s.repo.ResolveVehicleCostInfo(ctx, vehicles)
@@ -1308,6 +1312,13 @@ func (s *Service) ApprovePlan(ctx context.Context, req ApprovePlanRequest) ([]do
 		assignMap[a.VehicleID] = a
 	}
 
+	// Pre-fetch default driver mappings for auto-assign
+	var allVehicleIDs []uuid.UUID
+	for _, vt := range vrpTrips {
+		allVehicleIDs = append(allVehicleIDs, vt.VehicleID)
+	}
+	defaultDriverMap, _ := s.repo.GetDefaultDriverIDsForVehicles(ctx, allVehicleIDs)
+
 	deliveryDate := req.DeliveryDate
 	if deliveryDate == "" {
 		deliveryDate = time.Now().Format("2006-01-02")
@@ -1327,6 +1338,13 @@ func (s *Service) ApprovePlan(ctx context.Context, req ApprovePlanRequest) ([]do
 			vehicleID = &assignment.VehicleID
 			if assignment.DriverID != nil && *assignment.DriverID != (uuid.UUID{}) {
 				driverID = assignment.DriverID
+			}
+		}
+
+		// Auto-assign default driver if not explicitly assigned
+		if driverID == nil {
+			if defaultDID, ok := defaultDriverMap[vrpTrip.VehicleID]; ok {
+				driverID = &defaultDID
 			}
 		}
 
@@ -1584,6 +1602,92 @@ func (s *Service) GetMyTrips(ctx context.Context, userID uuid.UUID) ([]domain.Tr
 
 func (s *Service) GetDriverByUserID(ctx context.Context, userID uuid.UUID) (*domain.Driver, error) {
 	return s.repo.GetDriverByUserID(ctx, userID)
+}
+
+// DriverMonthlyStats holds monthly performance data for a driver.
+// Field names match the frontend (driver dashboard MonthlyPerfCard).
+type DriverMonthlyStats struct {
+	Month           string  `json:"month"`
+	TripsCount      int     `json:"trips_count"`
+	DeliveriesCount int     `json:"deliveries_count"`
+	TotalKm         float64 `json:"total_km"`
+	OnTimeRate      float64 `json:"on_time_rate"`     // % đúng giờ
+	EfficiencyScore float64 `json:"efficiency_score"` // điểm tổng (0-100)
+	Rank            int     `json:"rank"`             // xếp hạng trong tháng
+	TotalDrivers    int     `json:"total_drivers"`    // tổng số tài xế xếp hạng
+	StreakDays      int     `json:"streak_days"`      // số ngày liên tiếp đúng giờ
+	ConsentGiven    bool    `json:"consent_given"`
+}
+
+func (s *Service) GetDriverMonthlyStats(ctx context.Context, userID uuid.UUID) (*DriverMonthlyStats, error) {
+	driver, err := s.repo.GetDriverByUserID(ctx, userID)
+	if err != nil {
+		return nil, fmt.Errorf("driver not found for user: %w", err)
+	}
+
+	stats := &DriverMonthlyStats{
+		Month:        time.Now().Format("2006-01"),
+		ConsentGiven: true,
+	}
+
+	// 1) Trips/km/on-time từ trips + trip_stops trong tháng này
+	row := s.repo.db.QueryRow(ctx, `
+		SELECT
+			COUNT(DISTINCT t.id) FILTER (WHERE t.status IN ('completed','reconciled')) AS trips_count,
+			COUNT(ts.id) FILTER (WHERE ts.status='delivered') AS deliveries,
+			COALESCE(SUM(t.total_distance_km) FILTER (WHERE t.status IN ('completed','reconciled')), 0)::float8 AS total_km,
+			COUNT(ts.id) FILTER (WHERE ts.actual_arrival IS NOT NULL AND ts.estimated_arrival IS NOT NULL
+			                       AND ts.actual_arrival <= ts.estimated_arrival + INTERVAL '15 minutes') AS on_time,
+			COUNT(ts.id) FILTER (WHERE ts.actual_arrival IS NOT NULL) AS arrived_total
+		FROM trips t
+		LEFT JOIN trip_stops ts ON ts.trip_id = t.id
+		WHERE t.driver_id = $1
+		  AND t.planned_date >= date_trunc('month', CURRENT_DATE)
+		  AND t.planned_date < date_trunc('month', CURRENT_DATE) + INTERVAL '1 month'
+	`, driver.ID)
+	var onTime, arrived int
+	if err := row.Scan(&stats.TripsCount, &stats.DeliveriesCount, &stats.TotalKm, &onTime, &arrived); err != nil {
+		return nil, fmt.Errorf("query monthly trips: %w", err)
+	}
+	if arrived > 0 {
+		stats.OnTimeRate = float64(onTime) * 100.0 / float64(arrived)
+	}
+
+	// 2) Score + rank từ driver_score_snapshots (snapshot tháng hiện tại)
+	scoreRow := s.repo.db.QueryRow(ctx, `
+		SELECT COALESCE(avg_total_score, 0)::float8, COALESCE(rank_position, 0), COALESCE(rank_total, 0)
+		FROM driver_score_snapshots
+		WHERE driver_id = $1
+		  AND snapshot_month = date_trunc('month', CURRENT_DATE)::date
+	`, driver.ID)
+	if err := scoreRow.Scan(&stats.EfficiencyScore, &stats.Rank, &stats.TotalDrivers); err != nil {
+		// no snapshot yet → fallback to drivers.current_score
+		var cs float64
+		_ = s.repo.db.QueryRow(ctx, `SELECT COALESCE(current_score,0) FROM drivers WHERE id=$1`, driver.ID).Scan(&cs)
+		stats.EfficiencyScore = cs
+	}
+
+	// 3) Streak ngày liên tiếp đúng giờ (đếm từ ngày gần nhất ngược lại)
+	streakRow := s.repo.db.QueryRow(ctx, `
+		WITH daily AS (
+			SELECT t.planned_date,
+			       BOOL_AND(ts.actual_arrival IS NULL OR ts.actual_arrival <= ts.estimated_arrival + INTERVAL '15 minutes') AS all_on_time
+			FROM trips t
+			JOIN trip_stops ts ON ts.trip_id=t.id
+			WHERE t.driver_id = $1 AND t.status IN ('completed','reconciled')
+			GROUP BY t.planned_date
+			ORDER BY t.planned_date DESC
+		),
+		flagged AS (
+			SELECT planned_date, all_on_time,
+			       SUM(CASE WHEN all_on_time THEN 0 ELSE 1 END) OVER (ORDER BY planned_date DESC) AS break_grp
+			FROM daily
+		)
+		SELECT COUNT(*)::int FROM flagged WHERE all_on_time = TRUE AND break_grp = 0
+	`, driver.ID)
+	_ = streakRow.Scan(&stats.StreakDays)
+
+	return stats, nil
 }
 
 func (s *Service) StartTrip(ctx context.Context, userID, tripID uuid.UUID) error {

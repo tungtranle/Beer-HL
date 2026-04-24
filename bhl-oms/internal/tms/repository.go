@@ -144,8 +144,10 @@ func (r *Repository) GetShipmentCustomerMap(ctx context.Context, shipmentIDs []u
 // ===== VEHICLES =====
 func (r *Repository) ListAllVehicles(ctx context.Context) ([]domain.Vehicle, error) {
 	rows, err := r.db.Query(ctx, `
-		SELECT v.id, v.plate_number, v.vehicle_type::text, v.capacity_kg, v.capacity_m3, v.status::text, v.warehouse_id
+		SELECT v.id, v.plate_number, v.vehicle_type::text, v.capacity_kg, v.capacity_m3, v.status::text, v.warehouse_id,
+		       v.default_driver_id, COALESCE(d.full_name, '')
 		FROM vehicles v
+		LEFT JOIN drivers d ON d.id = v.default_driver_id
 		ORDER BY v.warehouse_id, v.capacity_kg
 	`)
 	if err != nil {
@@ -156,7 +158,8 @@ func (r *Repository) ListAllVehicles(ctx context.Context) ([]domain.Vehicle, err
 	var vehicles []domain.Vehicle
 	for rows.Next() {
 		var v domain.Vehicle
-		if err := rows.Scan(&v.ID, &v.PlateNumber, &v.VehicleType, &v.CapacityKg, &v.CapacityM3, &v.Status, &v.WarehouseID); err != nil {
+		if err := rows.Scan(&v.ID, &v.PlateNumber, &v.VehicleType, &v.CapacityKg, &v.CapacityM3, &v.Status, &v.WarehouseID,
+			&v.DefaultDriverID, &v.DefaultDriverName); err != nil {
 			return nil, err
 		}
 		vehicles = append(vehicles, v)
@@ -167,9 +170,13 @@ func (r *Repository) ListAllVehicles(ctx context.Context) ([]domain.Vehicle, err
 func (r *Repository) GetVehicle(ctx context.Context, id uuid.UUID) (*domain.Vehicle, error) {
 	var v domain.Vehicle
 	err := r.db.QueryRow(ctx, `
-		SELECT id, plate_number, vehicle_type::text, capacity_kg, capacity_m3, status::text, warehouse_id
-		FROM vehicles WHERE id = $1
-	`, id).Scan(&v.ID, &v.PlateNumber, &v.VehicleType, &v.CapacityKg, &v.CapacityM3, &v.Status, &v.WarehouseID)
+		SELECT v.id, v.plate_number, v.vehicle_type::text, v.capacity_kg, v.capacity_m3, v.status::text, v.warehouse_id,
+		       v.default_driver_id, COALESCE(d.full_name, '')
+		FROM vehicles v
+		LEFT JOIN drivers d ON d.id = v.default_driver_id
+		WHERE v.id = $1
+	`, id).Scan(&v.ID, &v.PlateNumber, &v.VehicleType, &v.CapacityKg, &v.CapacityM3, &v.Status, &v.WarehouseID,
+		&v.DefaultDriverID, &v.DefaultDriverName)
 	if err != nil {
 		return nil, err
 	}
@@ -187,9 +194,9 @@ func (r *Repository) CreateVehicle(ctx context.Context, v *domain.Vehicle) error
 func (r *Repository) UpdateVehicle(ctx context.Context, v *domain.Vehicle) error {
 	_, err := r.db.Exec(ctx, `
 		UPDATE vehicles SET plate_number=$2, vehicle_type=$3::vehicle_type, capacity_kg=$4, 
-		       capacity_m3=$5, status=$6, warehouse_id=$7
+		       capacity_m3=$5, status=$6, warehouse_id=$7, default_driver_id=$8
 		WHERE id = $1
-	`, v.ID, v.PlateNumber, v.VehicleType, v.CapacityKg, v.CapacityM3, v.Status, v.WarehouseID)
+	`, v.ID, v.PlateNumber, v.VehicleType, v.CapacityKg, v.CapacityM3, v.Status, v.WarehouseID, v.DefaultDriverID)
 	return err
 }
 
@@ -198,10 +205,69 @@ func (r *Repository) DeleteVehicle(ctx context.Context, id uuid.UUID) error {
 	return err
 }
 
+// SetVehicleDriverMapping sets bidirectional 1:1 mapping between vehicle and driver.
+// Pass nil driverID to clear the mapping for a vehicle.
+func (r *Repository) SetVehicleDriverMapping(ctx context.Context, vehicleID uuid.UUID, driverID *uuid.UUID) error {
+	tx, err := r.db.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback(ctx)
+
+	// Clear old mapping: any driver that was mapped to this vehicle
+	_, err = tx.Exec(ctx, `UPDATE drivers SET default_vehicle_id = NULL WHERE default_vehicle_id = $1`, vehicleID)
+	if err != nil {
+		return err
+	}
+	// Clear old mapping: any vehicle that was mapped to this driver (if setting a new driver)
+	if driverID != nil {
+		_, err = tx.Exec(ctx, `UPDATE vehicles SET default_driver_id = NULL WHERE default_driver_id = $1`, *driverID)
+		if err != nil {
+			return err
+		}
+	}
+
+	// Set new mapping
+	_, err = tx.Exec(ctx, `UPDATE vehicles SET default_driver_id = $2 WHERE id = $1`, vehicleID, driverID)
+	if err != nil {
+		return err
+	}
+	if driverID != nil {
+		_, err = tx.Exec(ctx, `UPDATE drivers SET default_vehicle_id = $2 WHERE id = $1`, *driverID, vehicleID)
+		if err != nil {
+			return err
+		}
+	}
+
+	return tx.Commit(ctx)
+}
+
+// GetDefaultDriverIDsForVehicles returns a map of vehicleID → default driverID for the given vehicle IDs.
+func (r *Repository) GetDefaultDriverIDsForVehicles(ctx context.Context, vehicleIDs []uuid.UUID) (map[uuid.UUID]uuid.UUID, error) {
+	rows, err := r.db.Query(ctx, `
+		SELECT id, default_driver_id FROM vehicles WHERE id = ANY($1) AND default_driver_id IS NOT NULL
+	`, vehicleIDs)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	result := make(map[uuid.UUID]uuid.UUID)
+	for rows.Next() {
+		var vid, did uuid.UUID
+		if err := rows.Scan(&vid, &did); err != nil {
+			return nil, err
+		}
+		result[vid] = did
+	}
+	return result, nil
+}
+
 func (r *Repository) ListAvailableVehicles(ctx context.Context, warehouseID uuid.UUID, date string) ([]domain.Vehicle, error) {
 	rows, err := r.db.Query(ctx, `
-		SELECT v.id, v.plate_number, v.vehicle_type::text, v.capacity_kg, v.capacity_m3, v.status::text, v.warehouse_id
+		SELECT v.id, v.plate_number, v.vehicle_type::text, v.capacity_kg, v.capacity_m3, v.status::text, v.warehouse_id,
+		       v.default_driver_id, COALESCE(dd.full_name, '')
 		FROM vehicles v
+		LEFT JOIN drivers dd ON dd.id = v.default_driver_id
 		WHERE v.warehouse_id = $1 AND v.status = 'active'
 		AND NOT EXISTS (
 			SELECT 1 FROM trips t WHERE t.vehicle_id = v.id AND t.planned_date = $2 
@@ -217,7 +283,8 @@ func (r *Repository) ListAvailableVehicles(ctx context.Context, warehouseID uuid
 	var vehicles []domain.Vehicle
 	for rows.Next() {
 		var v domain.Vehicle
-		if err := rows.Scan(&v.ID, &v.PlateNumber, &v.VehicleType, &v.CapacityKg, &v.CapacityM3, &v.Status, &v.WarehouseID); err != nil {
+		if err := rows.Scan(&v.ID, &v.PlateNumber, &v.VehicleType, &v.CapacityKg, &v.CapacityM3, &v.Status, &v.WarehouseID,
+			&v.DefaultDriverID, &v.DefaultDriverName); err != nil {
 			return nil, err
 		}
 		vehicles = append(vehicles, v)
@@ -228,8 +295,10 @@ func (r *Repository) ListAvailableVehicles(ctx context.Context, warehouseID uuid
 // ===== DRIVERS =====
 func (r *Repository) ListAllDrivers(ctx context.Context) ([]domain.Driver, error) {
 	rows, err := r.db.Query(ctx, `
-		SELECT d.id, d.full_name, d.phone, d.license_number, d.status::text, d.warehouse_id
+		SELECT d.id, d.full_name, d.phone, d.license_number, d.status::text, d.warehouse_id,
+		       d.default_vehicle_id, COALESCE(v.plate_number, '')
 		FROM drivers d
+		LEFT JOIN vehicles v ON v.id = d.default_vehicle_id
 		ORDER BY d.warehouse_id, d.full_name
 	`)
 	if err != nil {
@@ -240,7 +309,8 @@ func (r *Repository) ListAllDrivers(ctx context.Context) ([]domain.Driver, error
 	var drivers []domain.Driver
 	for rows.Next() {
 		var d domain.Driver
-		if err := rows.Scan(&d.ID, &d.FullName, &d.Phone, &d.LicenseNumber, &d.Status, &d.WarehouseID); err != nil {
+		if err := rows.Scan(&d.ID, &d.FullName, &d.Phone, &d.LicenseNumber, &d.Status, &d.WarehouseID,
+			&d.DefaultVehicleID, &d.DefaultVehiclePlate); err != nil {
 			return nil, err
 		}
 		drivers = append(drivers, d)
@@ -251,9 +321,13 @@ func (r *Repository) ListAllDrivers(ctx context.Context) ([]domain.Driver, error
 func (r *Repository) GetDriver(ctx context.Context, id uuid.UUID) (*domain.Driver, error) {
 	var d domain.Driver
 	err := r.db.QueryRow(ctx, `
-		SELECT id, full_name, phone, license_number, status::text, warehouse_id
-		FROM drivers WHERE id = $1
-	`, id).Scan(&d.ID, &d.FullName, &d.Phone, &d.LicenseNumber, &d.Status, &d.WarehouseID)
+		SELECT d.id, d.full_name, d.phone, d.license_number, d.status::text, d.warehouse_id,
+		       d.default_vehicle_id, COALESCE(v.plate_number, '')
+		FROM drivers d
+		LEFT JOIN vehicles v ON v.id = d.default_vehicle_id
+		WHERE d.id = $1
+	`, id).Scan(&d.ID, &d.FullName, &d.Phone, &d.LicenseNumber, &d.Status, &d.WarehouseID,
+		&d.DefaultVehicleID, &d.DefaultVehiclePlate)
 	if err != nil {
 		return nil, err
 	}
@@ -277,9 +351,9 @@ func (r *Repository) CreateDriver(ctx context.Context, d *domain.Driver) error {
 
 func (r *Repository) UpdateDriver(ctx context.Context, d *domain.Driver) error {
 	_, err := r.db.Exec(ctx, `
-		UPDATE drivers SET full_name=$2, phone=$3, license_number=$4, status=$5, warehouse_id=$6
+		UPDATE drivers SET full_name=$2, phone=$3, license_number=$4, status=$5, warehouse_id=$6, default_vehicle_id=$7
 		WHERE id = $1
-	`, d.ID, d.FullName, d.Phone, d.LicenseNumber, d.Status, d.WarehouseID)
+	`, d.ID, d.FullName, d.Phone, d.LicenseNumber, d.Status, d.WarehouseID, d.DefaultVehicleID)
 	return err
 }
 
@@ -290,8 +364,10 @@ func (r *Repository) DeleteDriver(ctx context.Context, id uuid.UUID) error {
 
 func (r *Repository) ListAvailableDrivers(ctx context.Context, warehouseID uuid.UUID, date string) ([]domain.Driver, error) {
 	rows, err := r.db.Query(ctx, `
-		SELECT d.id, d.full_name, d.phone, d.license_number, d.status::text, d.warehouse_id
+		SELECT d.id, d.full_name, d.phone, d.license_number, d.status::text, d.warehouse_id,
+		       d.default_vehicle_id, COALESCE(v.plate_number, '')
 		FROM drivers d
+		LEFT JOIN vehicles v ON v.id = d.default_vehicle_id
 		WHERE d.warehouse_id = $1 AND d.status = 'active'
 		AND NOT EXISTS (
 			SELECT 1 FROM trips t WHERE t.driver_id = d.id AND t.planned_date = $2 
@@ -307,7 +383,8 @@ func (r *Repository) ListAvailableDrivers(ctx context.Context, warehouseID uuid.
 	var drivers []domain.Driver
 	for rows.Next() {
 		var d domain.Driver
-		if err := rows.Scan(&d.ID, &d.FullName, &d.Phone, &d.LicenseNumber, &d.Status, &d.WarehouseID); err != nil {
+		if err := rows.Scan(&d.ID, &d.FullName, &d.Phone, &d.LicenseNumber, &d.Status, &d.WarehouseID,
+			&d.DefaultVehicleID, &d.DefaultVehiclePlate); err != nil {
 			return nil, err
 		}
 		drivers = append(drivers, d)
@@ -630,6 +707,8 @@ func (r *Repository) GetDriverByUserID(ctx context.Context, userID uuid.UUID) (*
 }
 
 func (r *Repository) GetTripsByDriverID(ctx context.Context, driverID uuid.UUID) ([]domain.Trip, error) {
+	// Return: all active trips (any date) + completed/cancelled trips from last 14 days
+	// This prevents historical trips from flooding the driver home screen
 	rows, err := r.db.Query(ctx, `
 		SELECT t.id, t.trip_number, t.warehouse_id, t.vehicle_id, t.driver_id,
 		       COALESCE(v.plate_number, '') as vehicle_plate,
@@ -640,6 +719,10 @@ func (r *Repository) GetTripsByDriverID(ctx context.Context, driverID uuid.UUID)
 		LEFT JOIN vehicles v ON v.id = t.vehicle_id
 		LEFT JOIN drivers d ON d.id = t.driver_id
 		WHERE t.driver_id = $1
+		  AND (
+		    t.status NOT IN ('completed', 'cancelled', 'reconciled')
+		    OR t.planned_date >= CURRENT_DATE - INTERVAL '14 days'
+		  )
 		ORDER BY t.planned_date DESC, t.created_at DESC
 	`, driverID)
 	if err != nil {

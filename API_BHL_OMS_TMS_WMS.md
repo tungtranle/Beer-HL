@@ -351,6 +351,62 @@ Invalidate refresh token trong DB.
 
 ---
 
+## 3.x Warehouse Suggestion [NEW]
+
+### POST /v1/warehouses/suggest
+**Gợi ý kho xuất** — Xếp hạng kho theo khoảng cách OSRM + tồn kho ATP
+
+| | |
+|-|---|
+| Roles | Tất cả authenticated |
+| Logic | Score = 60% ATP + 40% khoảng cách (OSRM table API) |
+
+**Request:**
+```json
+{
+  "customer_id": "uuid",
+  "items": [
+    { "product_id": "uuid", "quantity": 100 }
+  ]
+}
+```
+
+**Response 200:**
+```json
+{
+  "data": [
+    {
+      "id": "uuid", "name": "Kho Bắc Ninh", "code": "BN",
+      "latitude": 21.1, "longitude": 106.0,
+      "distance_km": 45.2, "duration_min": 52.0,
+      "atp_score": 1.0, "total_score": 0.92,
+      "reason": "Đủ hàng, cách 45km (~52 phút)"
+    }
+  ]
+}
+```
+
+---
+
+## 3.x Vehicle-Driver Mapping [NEW]
+
+### PUT /v1/vehicles/:id/default-driver
+**Gán tài xế mặc định cho xe** — 1:1 bidirectional
+
+| | |
+|-|---|
+| Roles | `admin`, `dispatcher` |
+
+**Request:**
+```json
+{ "driver_id": "uuid" }
+```
+*Gửi `driver_id: null` để xóa mapping.*
+
+**Response 200:** `{ "message": "ok" }`
+
+---
+
 # 4. TMS ENDPOINTS
 
 ## 4.1 Planning
@@ -1728,16 +1784,31 @@ Auth: ?token=<jwt>
 
 ### GET /v1/test-portal/orders
 ### GET /v1/test-portal/orders/:id
+### GET /v1/test-portal/orders/:id/timeline
+**Order activity timeline** — entity events của đơn hàng để QA soi regression status flow.
+
+### GET /v1/test-portal/orders/:id/notes
+**Order notes** — ghi chú nội bộ/ghim theo đơn hàng để kiểm tra note workflow.
+
 ### GET /v1/test-portal/order-confirmations
 ### GET /v1/test-portal/delivery-confirmations
 ### GET /v1/test-portal/stock
 ### GET /v1/test-portal/credit-balances
 ### GET /v1/test-portal/customers
 ### GET /v1/test-portal/products
+### GET /v1/test-portal/ops-audit
+**Ops & Audit aggregate** — tổng hợp admin smoke counters, integration DLQ, reconciliation, daily close, KPI snapshot.
+
 ### POST /v1/test-portal/reset-data
 ### POST /v1/test-portal/create-test-order
 ### POST /v1/test-portal/simulate-delivery
 ### POST /v1/test-portal/run-scenario
+### POST /v1/test-portal/load-scenario
+**Load full regression scenario** — hiện có SC-01..SC-12; SC-10/SC-11 ưu tiên `from_active_trips`, SC-12 phục vụ tab Ops & Audit.
+
+### GET /v1/test-portal/scenarios
+**List scenario metadata** — trả roles, steps, `gps_scenario`, preview data.
+
 ### GET /v1/test-portal/zalo-inbox
 
 ---

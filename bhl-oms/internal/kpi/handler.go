@@ -24,6 +24,7 @@ func NewHandler(svc *Service, log logger.Logger) *Handler {
 func (h *Handler) RegisterRoutes(r *gin.RouterGroup) {
 	kg := r.Group("/kpi")
 	{
+		kg.GET("/hero", h.GetHero)
 		kg.GET("/report", h.GetReport)
 		kg.GET("/issues", h.GetIssuesReport)
 		kg.GET("/cancellations", h.GetCancellationsReport)
@@ -32,7 +33,24 @@ func (h *Handler) RegisterRoutes(r *gin.RouterGroup) {
 	}
 }
 
-// GET /v1/kpi/report?warehouse_id=&from=&to=&limit=
+// GET /v1/kpi/hero?warehouse_id=
+func (h *Handler) GetHero(c *gin.Context) {
+	var warehouseID *uuid.UUID
+	if w := c.Query("warehouse_id"); w != "" {
+		if id, err := uuid.Parse(w); err == nil {
+			warehouseID = &id
+		}
+	}
+	result, err := h.svc.GetHero(c.Request.Context(), warehouseID)
+	if err != nil {
+		h.log.Error(c.Request.Context(), "get_hero_failed", err)
+		response.InternalError(c)
+		return
+	}
+	response.OK(c, result)
+}
+
+// GET /v1/kpi/report?warehouse_id=&period=today|week|month&from=&to=&limit=
 func (h *Handler) GetReport(c *gin.Context) {
 	var warehouseID *uuid.UUID
 	if w := c.Query("warehouse_id"); w != "" {
@@ -40,6 +58,26 @@ func (h *Handler) GetReport(c *gin.Context) {
 			warehouseID = &id
 		}
 	}
+
+	period := c.Query("period")
+	// If period is provided, return aggregated single-object report
+	if period != "" {
+		result, err := h.svc.GetAggregatedReport(c.Request.Context(), period, warehouseID)
+		if err != nil {
+			h.log.Error(c.Request.Context(), "get_aggregated_report_failed", err)
+			response.InternalError(c)
+			return
+		}
+		if result == nil {
+			// No snapshots found — return empty but valid structure
+			response.OK(c, &AggregatedKPIReport{Period: period})
+			return
+		}
+		response.OK(c, result)
+		return
+	}
+
+	// Legacy: from/to/limit returns array of snapshots
 	from := c.Query("from")
 	to := c.Query("to")
 	limit, _ := strconv.Atoi(c.DefaultQuery("limit", "30"))

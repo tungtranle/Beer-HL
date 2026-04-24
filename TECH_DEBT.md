@@ -13,6 +13,10 @@
 | TD-002 | UI framework | Tailwind CSS tự build | Ant Design 5.x (UXUI.md) | Sau go-live | **High** — rebuild toàn bộ UI |
 | TD-003 | Trip statuses dùng không hết | Code dùng ~8/13 statuses | 13 statuses (STATE_MACHINES SM-02) | Dần theo feature | Medium — cần test lại flow |
 | TD-004 | Logger không structured | `log` stdlib | `zerolog` structured logging | Phase 3 | Low — thay thế đơn giản |
+| TD-020-followup | 17 background `.catch(console.error)` chưa chuyển sang `handleError()` | console.error im lặng | `handleError(err, {silent:true})` hoặc userMessage | Sprint 2 | Low — đều là secondary fetches (timeline, attempts, notes); user không thấy lỗi nhưng vẫn log console |
+| TD-H4-geocode | 44 toll stations mới (mig 039) có lat/lng=0/0 | `is_active=FALSE` — không tham gia VRP cost matching | Ops geocode thủ công + ENABLE | Sprint 2 | Medium — VRP cost chưa tính được 44 trạm này → underestimate ~30% chi phí BOT cho miền Bắc |
+| TD-F7-state-redis | GPS anomaly stationary state in-memory `map[uuid.UUID]` | Mất khi restart → stop-overdue trễ tối đa 10min | Migrate sang Redis khi scale > 1 instance | Sprint 3+ | Low — hiện tại single-instance |
+| TD-F7-zalo-stub | `notify()` chỉ log `anomaly_detected_zalo_pending` | Không gửi Zalo thực | Integrate `internal/integration/zalo` với template P0/P1 | Sprint 2 | Medium — dispatcher phải vào `/dashboard/anomalies` xem thay vì nhận push |
 | TD-005 | DB access thủ công | Raw pgx queries | sqlc generated code | Sau go-live | **High** — rewrite toàn bộ repository |
 | TD-006 | Driver app là web | Next.js web pages | React Native Expo (BRD) | Sau go-live | **High** — build app mới, khác codebase |
 | TD-007 | Integration mock mặc định | `INTEGRATION_MOCK=true`, standalone mock server sẵn sàng (cmd/mock_server) | Real HTTP calls | Khi có sandbox | Low — mock server đã test HTTP path |

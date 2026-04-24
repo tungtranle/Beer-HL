@@ -32,8 +32,8 @@
 | Reconciliation | 12 | Auto-reconcile, discrepancy T+1, action history, KT Trưởng RBAC |
 | Notification | 5+WS | Bell slide panel, toast, entity events, timeline+notes |
 | KPI | 4+cron | Reports, issues, cancellations, daily snapshot 23:50 |
-| GPS | 3+WS+3sim | Batch upload, latest positions, pub/sub, simulate start/stop/status |
-| Test Portal | 18 | 8 tabs, GPS simulator, no auth |
+| GPS | 3+WS+3sim | Batch upload, latest positions, pub/sub, simulate start/stop/status, route thật theo kho/NPP + OSRM |
+| Test Portal | 18 | 8 tabs, 11 scenario backend, 7 GPS profile, no auth |
 
 ## Cron Jobs
 

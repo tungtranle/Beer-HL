@@ -50,6 +50,7 @@ func (h *Handler) RegisterRoutes(r *gin.RouterGroup) {
 	vehicles.POST("", middleware.RequireRole("admin", "dispatcher"), h.CreateVehicle)
 	vehicles.PUT("/:id", middleware.RequireRole("admin", "dispatcher"), h.UpdateVehicle)
 	vehicles.DELETE("/:id", middleware.RequireRole("admin"), h.DeleteVehicle)
+	vehicles.PUT("/:id/default-driver", middleware.RequireRole("admin", "dispatcher"), h.SetVehicleDriverMapping)
 	vehicles.GET("/:id/documents", h.ListVehicleDocuments)
 	vehicles.POST("/:id/documents", middleware.RequireRole("admin", "dispatcher"), h.CreateVehicleDocument)
 	vehicles.PUT("/:id/documents/:docId", middleware.RequireRole("admin", "dispatcher"), h.UpdateVehicleDocument)
@@ -86,6 +87,7 @@ func (h *Handler) RegisterRoutes(r *gin.RouterGroup) {
 	driver := r.Group("/driver")
 	driver.Use(middleware.RequireRole("driver"))
 	driver.GET("/my-trips", h.GetMyTrips)
+	driver.GET("/monthly-stats", h.GetDriverMonthlyStats)
 	driver.POST("/checkin", h.DriverCheckin)
 	driver.GET("/checkin", h.GetMyCheckin)
 	driver.PUT("/trips/:id/start", h.StartTrip)
@@ -385,6 +387,27 @@ func (h *Handler) DeleteDriver(c *gin.Context) {
 	response.OK(c, gin.H{"message": "Đã vô hiệu hóa tài xế"})
 }
 
+// SetVehicleDriverMapping sets or clears the default driver for a vehicle (bidirectional 1:1)
+func (h *Handler) SetVehicleDriverMapping(c *gin.Context) {
+	vehicleID, err := uuid.Parse(c.Param("id"))
+	if err != nil {
+		response.BadRequest(c, "Invalid vehicle ID")
+		return
+	}
+	var req struct {
+		DriverID *uuid.UUID `json:"driver_id"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		response.BadRequest(c, "Dữ liệu không hợp lệ")
+		return
+	}
+	if err := h.svc.SetVehicleDriverMapping(c.Request.Context(), vehicleID, req.DriverID); err != nil {
+		response.Err(c, http.StatusBadRequest, "MAPPING_FAILED", err.Error())
+		return
+	}
+	response.OK(c, gin.H{"message": "Đã cập nhật tài xế mặc định"})
+}
+
 func (h *Handler) RunVRP(c *gin.Context) {
 	var req RunVRPRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -565,6 +588,17 @@ func (h *Handler) GetMyTrips(c *gin.Context) {
 		return
 	}
 	response.OK(c, trips)
+}
+
+// GET /v1/driver/monthly-stats — hiệu suất tháng này của driver
+func (h *Handler) GetDriverMonthlyStats(c *gin.Context) {
+	userID := middleware.GetUserID(c)
+	stats, err := h.svc.GetDriverMonthlyStats(c.Request.Context(), userID)
+	if err != nil {
+		response.Err(c, http.StatusBadRequest, "DRIVER_ERROR", err.Error())
+		return
+	}
+	response.OK(c, stats)
 }
 
 func (h *Handler) StartTrip(c *gin.Context) {

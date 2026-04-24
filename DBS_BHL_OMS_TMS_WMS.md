@@ -225,6 +225,7 @@ CREATE TABLE vehicles (
     supplier_name   VARCHAR(200),                 -- Nhà cung cấp (xe thuê)
     status          vehicle_status NOT NULL DEFAULT 'active',
     documents       JSONB DEFAULT '{}',           -- {registration_expiry, inspection_expiry, insurance_expiry}
+    default_driver_id UUID REFERENCES drivers(id), -- Migration 029: 1:1 mapping
     created_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
     updated_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
 
@@ -247,6 +248,7 @@ CREATE TABLE drivers (
     license_type    VARCHAR(10),                   -- B2, C, etc.
     license_expiry  DATE,
     status          driver_status NOT NULL DEFAULT 'active',
+    default_vehicle_id UUID REFERENCES vehicles(id), -- Migration 029: 1:1 mapping
     created_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
     updated_at      TIMESTAMPTZ NOT NULL DEFAULT now()
 );
@@ -373,6 +375,7 @@ CREATE TABLE sales_orders (
     total_amount    NUMERIC(15,2) NOT NULL DEFAULT 0,
     deposit_amount  NUMERIC(15,2) NOT NULL DEFAULT 0,  -- Tiền cược vỏ
     notes           TEXT,
+    is_urgent       BOOLEAN NOT NULL DEFAULT false, -- Migration 028: Giao gấp flag
     approved_by     UUID REFERENCES users(id),     -- Kế toán duyệt (nếu vượt hạn mức)
     approved_at     TIMESTAMPTZ,
     created_by      UUID NOT NULL REFERENCES users(id),

@@ -3,6 +3,7 @@
 import { useEffect, useState, useCallback } from 'react'
 import { apiFetch } from '@/lib/api'
 import { useRouter } from 'next/navigation'
+import { Pagination } from '@/components/ui/Pagination'
 
 // ── Types ──
 interface Notification {
@@ -152,18 +153,22 @@ export default function NotificationsPage() {
   const [filter, setFilter] = useState<CategoryFilter>('all')
   const [unreadCount, setUnreadCount] = useState(0)
   const [settingsToggles, setSettingsToggles] = useState<Record<string, Record<string, boolean>>>({})
+  const [page, setPage] = useState(1)
+  const [limit, setLimit] = useState(50)
+  const [totalRows, setTotalRows] = useState(0)
 
   const load = useCallback(async () => {
     try {
-      const res = await apiFetch<any>('/notifications?limit=50')
+      const res = await apiFetch<any>(`/notifications?page=${page}&limit=${limit}`)
       setNotifications(res.data || [])
+      setTotalRows(res.meta?.total ?? 0)
     } catch { /* ignore */ }
     try {
       const res = await apiFetch<any>('/notifications/unread-count')
       setUnreadCount(res.data?.unread_count || 0)
     } catch { /* ignore */ }
     setLoading(false)
-  }, [])
+  }, [page, limit])
 
   useEffect(() => { load() }, [load])
 
@@ -396,6 +401,13 @@ export default function NotificationsPage() {
                   </div>
                 </div>
               ))}
+            </div>
+          )}
+          {!loading && totalRows > 0 && (
+            <div className="mt-4 bg-white rounded-xl border border-gray-200">
+              <Pagination page={page} limit={limit} total={totalRows}
+                onPageChange={setPage}
+                onLimitChange={(n) => { setLimit(n); setPage(1) }} />
             </div>
           )}
         </div>

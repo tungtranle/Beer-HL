@@ -99,14 +99,20 @@ export default function DriversListPage() {
     return <div className="flex items-center justify-center h-64 text-gray-400">Đang tải...</div>
   }
 
+  const [statusFilter, setStatusFilter] = useState('')
   const activeCount = drivers.filter(d => d.status === 'active').length
+  const onTripCount = drivers.filter(d => d.status === 'on_trip').length
+
+  const filteredDrivers = drivers
+    .filter(d => !statusFilter || d.status === statusFilter)
+    .filter(d => d.full_name.toLowerCase().includes(search.toLowerCase()) || d.phone.includes(search))
 
   return (
     <div>
-      <div className="flex items-center justify-between mb-6">
+      <div className="flex items-center justify-between mb-4">
         <div>
           <h1 className="text-2xl font-bold text-gray-900">👤 Danh sách tài xế</h1>
-          <p className="text-sm text-gray-500 mt-1">{drivers.length} tài xế ({activeCount} sẵn sàng)</p>
+          <p className="text-sm text-gray-500 mt-1">{drivers.length} tài xế · {activeCount} sẵn sàng · {onTripCount} đang chạy</p>
         </div>
         <div className="flex gap-3">
           <input
@@ -122,11 +128,29 @@ export default function DriversListPage() {
         </div>
       </div>
 
+      {/* Status filter chips */}
+      <div className="flex flex-wrap gap-2 mb-4">
+        <button onClick={() => setStatusFilter('')}
+          className={`px-3 py-1.5 rounded-full text-xs font-medium transition ${!statusFilter ? 'bg-gray-700 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}>
+          Tất cả ({drivers.length})
+        </button>
+        {Object.entries(statusLabels).map(([k, v]) => {
+          const count = drivers.filter(d => d.status === k).length
+          if (count === 0) return null
+          return (
+            <button key={k} onClick={() => setStatusFilter(k === statusFilter ? '' : k)}
+              className={`px-3 py-1.5 rounded-full text-xs font-medium transition ${statusFilter === k ? 'ring-2 ring-offset-1 ring-brand-500' : ''} ${statusColors[k]}`}>
+              {v} ({count})
+            </button>
+          )
+        })}
+      </div>
+
       <div className="bg-white rounded-xl shadow-sm border overflow-hidden">
         <table className="w-full text-sm">
           <thead className="bg-gray-50 border-b">
             <tr>
-              <th className="text-left px-4 py-3 font-medium text-gray-600">Họ tên</th>
+              <th className="text-left px-4 py-3 font-medium text-gray-600">Tài xế</th>
               <th className="text-left px-4 py-3 font-medium text-gray-600">Số điện thoại</th>
               <th className="text-left px-4 py-3 font-medium text-gray-600">Số GPLX</th>
               <th className="text-center px-4 py-3 font-medium text-gray-600">Trạng thái</th>
@@ -134,26 +158,36 @@ export default function DriversListPage() {
             </tr>
           </thead>
           <tbody className="divide-y">
-            {filtered.map(d => (
-              <tr key={d.id} className="hover:bg-gray-50">
-                <td className="px-4 py-3 font-medium text-gray-900">{d.full_name}</td>
-                <td className="px-4 py-3 text-gray-600">{d.phone}</td>
-                <td className="px-4 py-3 font-mono text-xs text-gray-500">{d.license_number || '—'}</td>
-                <td className="px-4 py-3 text-center">
-                  <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${statusColors[d.status] || 'bg-gray-100 text-gray-600'}`}>
-                    {statusLabels[d.status] || d.status}
-                  </span>
-                </td>
-                <td className="px-4 py-3 text-center">
-                  <Link href={`/dashboard/drivers-list/${d.id}/documents`} className="text-brand-500 hover:underline text-xs mr-2">Giấy tờ</Link>
-                  <button onClick={() => openEdit(d)} className="text-brand-500 hover:underline text-xs mr-2">Sửa</button>
-                  <button onClick={() => handleDelete(d.id, d.full_name)} className="text-red-600 hover:underline text-xs">Xóa</button>
-                </td>
-              </tr>
-            ))}
+            {filteredDrivers.map(d => {
+              const initials = d.full_name.split(' ').slice(-2).map(n => n[0]).join('').toUpperCase()
+              return (
+                <tr key={d.id} className="hover:bg-gray-50 transition">
+                  <td className="px-4 py-3">
+                    <div className="flex items-center gap-3">
+                      <div className="w-8 h-8 rounded-full bg-brand-100 text-brand-700 flex items-center justify-center text-xs font-bold flex-shrink-0">
+                        {initials}
+                      </div>
+                      <span className="font-medium text-gray-900">{d.full_name}</span>
+                    </div>
+                  </td>
+                  <td className="px-4 py-3 text-gray-600">{d.phone}</td>
+                  <td className="px-4 py-3 font-mono text-xs text-gray-500">{d.license_number || '—'}</td>
+                  <td className="px-4 py-3 text-center">
+                    <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${statusColors[d.status] || 'bg-gray-100 text-gray-600'}`}>
+                      {statusLabels[d.status] || d.status}
+                    </span>
+                  </td>
+                  <td className="px-4 py-3 text-center">
+                    <Link href={`/dashboard/drivers-list/${d.id}/documents`} className="text-brand-500 hover:underline text-xs mr-2">Giấy tờ</Link>
+                    <button onClick={() => openEdit(d)} className="text-brand-500 hover:underline text-xs mr-2">Sửa</button>
+                    <button onClick={() => handleDelete(d.id, d.full_name)} className="text-red-600 hover:underline text-xs">Xóa</button>
+                  </td>
+                </tr>
+              )
+            })}
           </tbody>
         </table>
-        {filtered.length === 0 && (
+        {filteredDrivers.length === 0 && (
           <div className="text-center py-8 text-gray-400">Không tìm thấy tài xế nào</div>
         )}
       </div>

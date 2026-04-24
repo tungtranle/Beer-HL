@@ -61,6 +61,26 @@ type CustomerWithCredit struct {
 	AvailableLimit float64 `json:"available_limit"`
 }
 
+// ===== WAREHOUSE =====
+type Warehouse struct {
+	ID        uuid.UUID `json:"id"`
+	Name      string    `json:"name"`
+	Code      string    `json:"code"`
+	Latitude  *float64  `json:"latitude,omitempty"`
+	Longitude *float64  `json:"longitude,omitempty"`
+	Address   *string   `json:"address,omitempty"`
+}
+
+// WarehouseSuggestion — one candidate in the suggest response
+type WarehouseSuggestion struct {
+	Warehouse
+	DistanceKm  float64 `json:"distance_km"`
+	DurationMin float64 `json:"duration_min"`
+	ATPScore    float64 `json:"atp_score"`   // 0-1: fraction of items fully available
+	TotalScore  float64 `json:"total_score"` // weighted composite
+	Reason      string  `json:"reason"`      // human-readable explanation
+}
+
 // ===== ATP =====
 type ATPResult struct {
 	ProductID   uuid.UUID `json:"product_id"`
@@ -94,6 +114,7 @@ type SalesOrder struct {
 	ATPStatus       string      `json:"atp_status"`
 	CreditStatus    string      `json:"credit_status"`
 	Notes           *string     `json:"notes,omitempty"`
+	IsUrgent        bool        `json:"is_urgent"`
 	CreatedBy       *uuid.UUID  `json:"created_by,omitempty"`
 	RejectReason    *string     `json:"reject_reason,omitempty"`
 	Items           []OrderItem `json:"items,omitempty"`
@@ -193,22 +214,26 @@ type Shipment struct {
 
 // ===== VEHICLE / DRIVER =====
 type Vehicle struct {
-	ID          uuid.UUID `json:"id"`
-	PlateNumber string    `json:"plate_number"`
-	VehicleType string    `json:"vehicle_type"`
-	CapacityKg  float64   `json:"capacity_kg"`
-	CapacityM3  *float64  `json:"capacity_m3,omitempty"`
-	Status      string    `json:"status"`
-	WarehouseID uuid.UUID `json:"warehouse_id"`
+	ID                uuid.UUID  `json:"id"`
+	PlateNumber       string     `json:"plate_number"`
+	VehicleType       string     `json:"vehicle_type"`
+	CapacityKg        float64    `json:"capacity_kg"`
+	CapacityM3        *float64   `json:"capacity_m3,omitempty"`
+	Status            string     `json:"status"`
+	WarehouseID       uuid.UUID  `json:"warehouse_id"`
+	DefaultDriverID   *uuid.UUID `json:"default_driver_id,omitempty"`
+	DefaultDriverName string     `json:"default_driver_name,omitempty"`
 }
 
 type Driver struct {
-	ID            uuid.UUID `json:"id"`
-	FullName      string    `json:"full_name"`
-	Phone         string    `json:"phone"`
-	LicenseNumber *string   `json:"license_number,omitempty"`
-	Status        string    `json:"status"`
-	WarehouseID   uuid.UUID `json:"warehouse_id"`
+	ID                  uuid.UUID  `json:"id"`
+	FullName            string     `json:"full_name"`
+	Phone               string     `json:"phone"`
+	LicenseNumber       *string    `json:"license_number,omitempty"`
+	Status              string     `json:"status"`
+	WarehouseID         uuid.UUID  `json:"warehouse_id"`
+	DefaultVehicleID    *uuid.UUID `json:"default_vehicle_id,omitempty"`
+	DefaultVehiclePlate string     `json:"default_vehicle_plate,omitempty"`
 }
 
 // ===== TRIP =====
@@ -653,6 +678,84 @@ type ReturnCollection struct {
 	CreatedBy            *uuid.UUID `json:"created_by,omitempty"`
 	CreatedAt            time.Time  `json:"created_at"`
 	UpdatedAt            time.Time  `json:"updated_at"`
+}
+
+// ===== WMS PHASE 9: BIN LOCATION =====
+type BinLocation struct {
+	ID                   uuid.UUID `json:"id"`
+	WarehouseID          uuid.UUID `json:"warehouse_id"`
+	BinCode              string    `json:"bin_code"`
+	Zone                 *string   `json:"zone,omitempty"`
+	RowCode              *string   `json:"row_code,omitempty"`
+	LevelCode            *string   `json:"level_code,omitempty"`
+	BinType              string    `json:"bin_type"` // storage|staging|dock|quarantine
+	CapacityPallets      int       `json:"capacity_pallets"`
+	AllowedSKUCategories []string  `json:"allowed_sku_categories,omitempty"`
+	IsPickable           bool      `json:"is_pickable"`
+	VelocityClass        *string   `json:"velocity_class,omitempty"` // A|B|C
+	QRPayload            string    `json:"qr_payload"`
+	Notes                *string   `json:"notes,omitempty"`
+	CreatedAt            time.Time `json:"created_at"`
+	UpdatedAt            time.Time `json:"updated_at"`
+}
+
+// ===== WMS PHASE 9: PALLET (LPN) =====
+// WMS-05: 1 pallet = 1 lot duy nhất
+type Pallet struct {
+	ID                   uuid.UUID  `json:"id"`
+	LPNCode              string     `json:"lpn_code"`
+	WarehouseID          uuid.UUID  `json:"warehouse_id"`
+	CurrentBinID         *uuid.UUID `json:"current_bin_id,omitempty"`
+	CurrentBinCode       *string    `json:"current_bin_code,omitempty"`
+	LotID                uuid.UUID  `json:"lot_id"`
+	BatchNumber          *string    `json:"batch_number,omitempty"`
+	ExpiryDate           *string    `json:"expiry_date,omitempty"`
+	ProductID            uuid.UUID  `json:"product_id"`
+	ProductName          *string    `json:"product_name,omitempty"`
+	ProductSKU           *string    `json:"product_sku,omitempty"`
+	Qty                  int        `json:"qty"`
+	InitialQty           int        `json:"initial_qty"`
+	Status               string     `json:"status"` // in_stock|reserved|picked|loaded|shipped|empty
+	ReservedForPickingID *uuid.UUID `json:"reserved_for_picking_id,omitempty"`
+	QRPayload            string     `json:"qr_payload"`
+	ReceivedAt           time.Time  `json:"received_at"`
+	CreatedBy            *uuid.UUID `json:"created_by,omitempty"`
+	CreatedAt            time.Time  `json:"created_at"`
+	UpdatedAt            time.Time  `json:"updated_at"`
+}
+
+// ===== WMS PHASE 9: QR SCAN LOG (immutable) =====
+type QRScanLog struct {
+	ID          int64           `json:"id"`
+	ScanType    string          `json:"scan_type"` // pallet|bin|asset|product
+	QRCode      string          `json:"qr_code"`
+	Action      string          `json:"action"` // putaway|pick|load|count|gate_check|lookup
+	ContextType *string         `json:"context_type,omitempty"`
+	ContextID   *uuid.UUID      `json:"context_id,omitempty"`
+	UserID      uuid.UUID       `json:"user_id"`
+	WarehouseID *uuid.UUID      `json:"warehouse_id,omitempty"`
+	DeviceInfo  json.RawMessage `json:"device_info,omitempty"`
+	Result      string          `json:"result"` // ok|error_invalid|error_duplicate|error_mismatch
+	ErrorMsg    *string         `json:"error_msg,omitempty"`
+	ScannedAt   time.Time       `json:"scanned_at"`
+}
+
+// ===== WMS PHASE 9: CYCLE COUNT TASK =====
+type CycleCountTask struct {
+	ID               uuid.UUID       `json:"id"`
+	WarehouseID      uuid.UUID       `json:"warehouse_id"`
+	BinID            uuid.UUID       `json:"bin_id"`
+	BinCode          *string         `json:"bin_code,omitempty"`
+	ScheduledDate    string          `json:"scheduled_date"`
+	AssignedTo       *uuid.UUID      `json:"assigned_to,omitempty"`
+	Status           string          `json:"status"` // pending|in_progress|completed|skipped
+	ExpectedSnapshot json.RawMessage `json:"expected_snapshot,omitempty"`
+	CountedSnapshot  json.RawMessage `json:"counted_snapshot,omitempty"`
+	Variance         json.RawMessage `json:"variance,omitempty"`
+	DiscrepancyID    *uuid.UUID      `json:"discrepancy_id,omitempty"`
+	CompletedAt      *time.Time      `json:"completed_at,omitempty"`
+	CreatedAt        time.Time       `json:"created_at"`
+	UpdatedAt        time.Time       `json:"updated_at"`
 }
 
 // ===== ePOD (Electronic Proof of Delivery) =====

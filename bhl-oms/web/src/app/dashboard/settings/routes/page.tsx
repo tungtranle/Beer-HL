@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react'
 import { apiFetch } from '@/lib/api'
+import { handleError } from '@/lib/handleError'
 import { toast } from '@/lib/useToast'
 
 interface Route {
@@ -30,7 +31,7 @@ export default function RoutesPage() {
       ])
       setRoutes(rRes.data || [])
       setWarehouses(wRes.data || [])
-    } catch (err) { console.error(err) }
+    } catch (err) { handleError(err, { userMessage: 'Không tải được danh sách tuyến/kho' }) }
     finally { setLoading(false) }
   }
 

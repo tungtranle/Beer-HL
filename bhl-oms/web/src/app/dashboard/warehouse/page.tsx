@@ -80,27 +80,100 @@ export default function WarehouseDashboardPage() {
         </div>
       </div>
 
+      {/* "Việc cần làm hôm nay" — personalized task list */}
+      <div className="bg-white rounded-xl shadow-sm border p-5 mb-6">
+        <h2 className="text-base font-bold text-gray-800 mb-3">✅ Việc cần làm hôm nay</h2>
+        <div className="space-y-2">
+          {pendingPick.length > 0 ? (
+            <Link href="/dashboard/warehouse/picking"
+              className="flex items-center gap-3 px-4 py-3 bg-amber-50 border border-amber-200 rounded-lg hover:bg-amber-100 transition group">
+              <span className="text-xl">📋</span>
+              <div className="flex-1">
+                <div className="text-sm font-semibold text-amber-800">
+                  {pendingPick.length} lệnh đóng hàng chờ xử lý
+                </div>
+                <div className="text-xs text-amber-600">Nhấn để xem chi tiết và bắt đầu soạn hàng</div>
+              </div>
+              <span className="text-amber-500 group-hover:translate-x-0.5 transition-transform">→</span>
+            </Link>
+          ) : (
+            <div className="flex items-center gap-3 px-4 py-3 bg-green-50 border border-green-200 rounded-lg">
+              <span className="text-xl">✅</span>
+              <div className="text-sm font-medium text-green-700">Không có lệnh đóng hàng nào chờ xử lý</div>
+            </div>
+          )}
+          {urgentExpiry.length > 0 && (
+            <div className="flex items-center gap-3 px-4 py-3 bg-red-50 border border-red-200 rounded-lg">
+              <span className="text-xl">⏰</span>
+              <div className="flex-1">
+                <div className="text-sm font-semibold text-red-800">
+                  {urgentExpiry.length} lô hàng sắp hết hạn trong 7 ngày
+                </div>
+                <div className="text-xs text-red-600">
+                  {urgentExpiry.slice(0, 2).map(a => a.product_name).join(', ')}{urgentExpiry.length > 2 ? ` +${urgentExpiry.length - 2} khác` : ''}
+                </div>
+              </div>
+            </div>
+          )}
+          <Link href="/dashboard/gate-check"
+            className="flex items-center gap-3 px-4 py-3 bg-gray-50 border border-gray-200 rounded-lg hover:bg-gray-100 transition group">
+            <span className="text-xl">🚧</span>
+            <div className="text-sm font-medium text-gray-700">Kiểm tra cổng xuất kho</div>
+            <span className="ml-auto text-gray-400 group-hover:translate-x-0.5 transition-transform">→</span>
+          </Link>
+        </div>
+      </div>
+
       {/* Quick links — h-14 tap targets */}
-      <div className="grid grid-cols-2 md:grid-cols-5 gap-3 mb-6">
-        <Link href="/dashboard/warehouse/picking-by-vehicle" className="bg-white rounded-lg shadow-sm p-4 hover:shadow-md transition text-center flex flex-col items-center justify-center min-h-[72px] border-2 border-[#F68634]">
-          <div className="text-2xl mb-1">🚛</div>
-          <div className="text-base font-medium text-[#F68634]">Soạn theo xe</div>
+      <div className="mb-3">
+        <div className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Quy trình chính</div>
+        <div className="grid grid-cols-2 md:grid-cols-5 gap-3 mb-4">
+          <Link href="/dashboard/warehouse/picking-by-vehicle" className="bg-white rounded-lg shadow-sm p-4 hover:shadow-md transition text-center flex flex-col items-center justify-center min-h-[72px] border-2 border-[#F68634]">
+            <div className="text-2xl mb-1">🚛</div>
+            <div className="text-base font-medium text-[#F68634]">Soạn theo xe</div>
+          </Link>
+          <Link href="/dashboard/warehouse/picking" className="bg-white rounded-lg shadow-sm p-4 hover:shadow-md transition text-center flex flex-col items-center justify-center min-h-[72px]">
+            <div className="text-2xl mb-1">📋</div>
+            <div className="text-base font-medium">Lệnh đóng hàng</div>
+          </Link>
+          <Link href="/dashboard/gate-check" className="bg-white rounded-lg shadow-sm p-4 hover:shadow-md transition text-center flex flex-col items-center justify-center min-h-[72px]">
+            <div className="text-2xl mb-1">🚧</div>
+            <div className="text-base font-medium">Kiểm tra cổng</div>
+          </Link>
+          <Link href="/dashboard/warehouse/returns" className="bg-white rounded-lg shadow-sm p-4 hover:shadow-md transition text-center flex flex-col items-center justify-center min-h-[72px]">
+            <div className="text-2xl mb-1">📥</div>
+            <div className="text-base font-medium">Nhập vỏ</div>
+          </Link>
+          <Link href="/dashboard/pda-scanner" className="bg-white rounded-lg shadow-sm p-4 hover:shadow-md transition text-center flex flex-col items-center justify-center min-h-[72px]">
+            <div className="text-2xl mb-1">📱</div>
+            <div className="text-base font-medium">Quét barcode</div>
+          </Link>
+        </div>
+        <div className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Tham khảo</div>
+      </div>
+
+      {/* WMS Phase 9 quick links */}
+      <div className="grid grid-cols-2 md:grid-cols-6 gap-3 mb-6">
+        <Link href="/dashboard/warehouse/scan" className="bg-blue-50 rounded-lg shadow-sm p-3 hover:shadow-md text-center min-h-[64px] flex flex-col items-center justify-center">
+          <div className="text-xl">📷</div><div className="text-sm font-medium">Scan QR</div>
         </Link>
-        <Link href="/dashboard/warehouse/picking" className="bg-white rounded-lg shadow-sm p-4 hover:shadow-md transition text-center flex flex-col items-center justify-center min-h-[72px]">
-          <div className="text-2xl mb-1">📋</div>
-          <div className="text-base font-medium">Lệnh đóng hàng</div>
+        <Link href="/dashboard/warehouse/inbound" className="bg-blue-50 rounded-lg shadow-sm p-3 hover:shadow-md text-center min-h-[64px] flex flex-col items-center justify-center">
+          <div className="text-xl">📦</div><div className="text-sm font-medium">Nhập kho</div>
         </Link>
-        <Link href="/dashboard/gate-check" className="bg-white rounded-lg shadow-sm p-4 hover:shadow-md transition text-center flex flex-col items-center justify-center min-h-[72px]">
-          <div className="text-2xl mb-1">🚧</div>
-          <div className="text-base font-medium">Kiểm tra cổng</div>
+        <Link href="/dashboard/warehouse/putaway" className="bg-blue-50 rounded-lg shadow-sm p-3 hover:shadow-md text-center min-h-[64px] flex flex-col items-center justify-center">
+          <div className="text-xl">🏷</div><div className="text-sm font-medium">Putaway</div>
         </Link>
-        <Link href="/dashboard/warehouse/returns" className="bg-white rounded-lg shadow-sm p-4 hover:shadow-md transition text-center flex flex-col items-center justify-center min-h-[72px]">
-          <div className="text-2xl mb-1">📥</div>
-          <div className="text-base font-medium">Nhập vỏ</div>
+        <Link href="/dashboard/warehouse/loading" className="bg-blue-50 rounded-lg shadow-sm p-3 hover:shadow-md text-center min-h-[64px] flex flex-col items-center justify-center">
+          <div className="text-xl">🚚</div><div className="text-sm font-medium">Load lên xe</div>
         </Link>
-        <Link href="/dashboard/pda-scanner" className="bg-white rounded-lg shadow-sm p-4 hover:shadow-md transition text-center flex flex-col items-center justify-center min-h-[72px]">
-          <div className="text-2xl mb-1">📱</div>
-          <div className="text-base font-medium">Quét barcode</div>
+        <Link href="/dashboard/warehouse/cycle-count" className="bg-blue-50 rounded-lg shadow-sm p-3 hover:shadow-md text-center min-h-[64px] flex flex-col items-center justify-center">
+          <div className="text-xl">🔢</div><div className="text-sm font-medium">Kiểm kê</div>
+        </Link>
+        <Link href="/dashboard/warehouse/dashboard" className="bg-blue-50 rounded-lg shadow-sm p-3 hover:shadow-md text-center min-h-[64px] flex flex-col items-center justify-center">
+          <div className="text-xl">📊</div><div className="text-sm font-medium">Cảnh báo</div>
+        </Link>
+        <Link href="/dashboard/warehouse/bin-map" className="bg-blue-50 rounded-lg shadow-sm p-3 hover:shadow-md text-center min-h-[64px] flex flex-col items-center justify-center md:col-span-2">
+          <div className="text-xl">🗺</div><div className="text-sm font-medium">Bản đồ kho</div>
         </Link>
       </div>
 

@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react'
 import { apiFetch } from '@/lib/api'
 import { toast } from '@/lib/useToast'
+import { safeParseVNDSafe } from '@/lib/safeParseVND'
 
 interface Product {
   id: string
@@ -40,10 +41,15 @@ export default function ProductsPage() {
 
   useEffect(() => { load() }, [])
 
-  const filtered = products.filter(p =>
-    p.name.toLowerCase().includes(search.toLowerCase()) ||
-    p.sku.toLowerCase().includes(search.toLowerCase())
-  )
+  const [categoryFilter, setCategoryFilter] = useState<string>('')
+
+  const categories = Array.from(new Set(products.map(p => p.category || 'Không phân loại'))).sort()
+
+  const filtered = products.filter(p => {
+    const matchSearch = p.name.toLowerCase().includes(search.toLowerCase()) || p.sku.toLowerCase().includes(search.toLowerCase())
+    const matchCat = !categoryFilter || (p.category || 'Không phân loại') === categoryFilter
+    return matchSearch && matchCat
+  })
 
   const formatVND = (n: number) => n.toLocaleString('vi-VN') + ' ₫'
 
@@ -92,10 +98,13 @@ export default function ProductsPage() {
 
   return (
     <div>
-      <div className="flex items-center justify-between mb-6">
+      <div className="flex items-center justify-between mb-4">
         <div>
           <h1 className="text-2xl font-bold text-gray-900">📦 Danh mục sản phẩm</h1>
-          <p className="text-sm text-gray-500 mt-1">{products.length} sản phẩm</p>
+          <p className="text-sm text-gray-500 mt-1">
+            {filtered.length} / {products.length} sản phẩm
+            {categoryFilter && <span className="ml-1 text-brand-600">· {categoryFilter}</span>}
+          </p>
         </div>
         <div className="flex gap-3">
           <input
@@ -110,6 +119,22 @@ export default function ProductsPage() {
           </button>
         </div>
       </div>
+
+      {/* Category filter chips */}
+      {categories.length > 1 && (
+        <div className="flex flex-wrap gap-2 mb-4">
+          <button onClick={() => setCategoryFilter('')}
+            className={`px-3 py-1.5 rounded-full text-xs font-medium transition ${!categoryFilter ? 'bg-brand-500 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}>
+            Tất cả ({products.length})
+          </button>
+          {categories.map(cat => (
+            <button key={cat} onClick={() => setCategoryFilter(cat === categoryFilter ? '' : cat)}
+              className={`px-3 py-1.5 rounded-full text-xs font-medium transition ${categoryFilter === cat ? 'bg-brand-500 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}>
+              {cat} ({products.filter(p => (p.category || 'Không phân loại') === cat).length})
+            </button>
+          ))}
+        </div>
+      )}
 
       <div className="bg-white rounded-xl shadow-sm border overflow-hidden">
         <table className="w-full text-sm">
@@ -186,11 +211,11 @@ export default function ProductsPage() {
               </div>
               <div>
                 <label className="block text-xs font-medium text-gray-600 mb-1">Đơn giá (₫)</label>
-                <input type="number" value={form.price || ''} onChange={e => setForm({ ...form, price: parseFloat(e.target.value) || 0 })} className="w-full border rounded-lg px-3 py-2 text-sm" />
+                <input type="number" value={form.price || ''} onChange={e => setForm({ ...form, price: safeParseVNDSafe(e.target.value) })} className="w-full border rounded-lg px-3 py-2 text-sm" />
               </div>
               <div>
                 <label className="block text-xs font-medium text-gray-600 mb-1">Giá cọc vỏ (₫)</label>
-                <input type="number" value={form.deposit_price || ''} onChange={e => setForm({ ...form, deposit_price: parseFloat(e.target.value) || 0 })} className="w-full border rounded-lg px-3 py-2 text-sm" />
+                <input type="number" value={form.deposit_price || ''} onChange={e => setForm({ ...form, deposit_price: safeParseVNDSafe(e.target.value) })} className="w-full border rounded-lg px-3 py-2 text-sm" />
               </div>
             </div>
             <div className="flex justify-end gap-3 mt-6">

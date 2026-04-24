@@ -7,6 +7,8 @@ import { getToken, getUser, clearAuth } from '@/lib/api'
 import { NotificationProvider } from '@/lib/notifications'
 import { NotificationBell } from '@/components/NotificationBell'
 import { ToastContainer } from '@/components/ui/ToastContainer'
+import { CommandPalette } from '@/components/ui/CommandPalette'
+import { DriverBottomNav } from '@/components/driver/DriverBottomNav'
 import {
   LayoutDashboard, FileText, PlusCircle, CalendarDays, Truck, Radio,
   MapPin, Package, Users, Car, User, Warehouse, QrCode,
@@ -81,6 +83,18 @@ const navGroups: NavGroup[] = [
     ],
   },
   {
+    label: 'Quản lý đội xe',
+    items: [
+      { href: '/dashboard/fleet/repairs', label: 'Lệnh sửa chữa', icon: Wrench, roles: ['admin', 'dispatcher', 'workshop'] },
+      { href: '/dashboard/fleet/fuel', label: 'Nhiên liệu', icon: Activity, roles: ['admin', 'dispatcher', 'workshop'] },
+      { href: '/dashboard/fleet/garages', label: 'Garage', icon: Navigation, roles: ['admin', 'dispatcher', 'workshop'] },
+      { href: '/dashboard/fleet/health', label: 'Sức khỏe xe', icon: ShieldCheck, roles: ['admin', 'dispatcher', 'workshop'] },
+      { href: '/dashboard/fleet/scorecard', label: 'Bảng điểm tài xế', icon: BarChart3, roles: ['admin', 'dispatcher', 'management'] },
+      { href: '/dashboard/fleet/leaderboard', label: 'Bảng xếp hạng', icon: Users, roles: ['admin', 'dispatcher', 'management', 'driver'] },
+      { href: '/dashboard/fleet/tco', label: 'Chi phí TCO', icon: DollarSign, roles: ['admin', 'management'] },
+    ],
+  },
+  {
     label: 'Hệ thống',
     items: [
       { href: '/dashboard/settings', label: 'Quản trị hệ thống', icon: Settings, roles: ['admin'] },
@@ -133,6 +147,13 @@ const pathLabels: Record<string, string> = {
   '/dashboard/settings/health': 'System Health',
   '/dashboard/driver': 'Chuyến xe của tôi',
   '/dashboard/eod': 'Nhận kết ca',
+  '/dashboard/fleet/repairs': 'Lệnh sửa chữa',
+  '/dashboard/fleet/fuel': 'Nhiên liệu',
+  '/dashboard/fleet/garages': 'Garage',
+  '/dashboard/fleet/health': 'Sức khỏe xe',
+  '/dashboard/fleet/scorecard': 'Bảng điểm tài xế',
+  '/dashboard/fleet/leaderboard': 'Bảng xếp hạng',
+  '/dashboard/fleet/tco': 'Chi phí TCO',
 }
 
 const roleLabels: Record<string, string> = {
@@ -193,6 +214,19 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
     .toUpperCase() || '?'
 
   const isDriver = user.role === 'driver'
+
+  // ── Mobile-first PWA shell for drivers ──
+  if (isDriver) {
+    return (
+      <NotificationProvider>
+        <div className="min-h-screen bg-slate-50 pb-24">
+          <main className="max-w-md mx-auto px-4 pt-4">{children}</main>
+          <DriverBottomNav />
+          <ToastContainer />
+        </div>
+      </NotificationProvider>
+    )
+  }
 
   // ── Render a single nav item ──
   const renderNavItem = (item: NavItem) => {
@@ -385,6 +419,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
         </main>
 
         <ToastContainer />
+        <CommandPalette />
       </div>
     </NotificationProvider>
   )

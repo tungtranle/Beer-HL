@@ -5,7 +5,473 @@
 
 ---
 
-## [Unreleased] — Phase 6 complete + UX Overhaul v4 + UX v5 full
+## [Unreleased] — Phase 6 + UX Overhaul + Phase 8 Fleet & Driver + **Phase 9 WMS Pallet/QR/Bin/Cycle Count COMPLETE (15/15)** + **Sprint 1 World-Class (F2/F3/F7/H4/TD-020) GO LIVE** + **Sprint UX-1 World-Class Design System** + **Sprint UX-2 Dashboard Pages Redesign (ALL DONE)** + **Sprint UX-3 Pagination & Filter Audit (in progress)**
+
+### 2026-05-02 — Session: Pagination + Filter Audit (orders/trips/customers + driver monthly stats fix)
+
+#### Fixed — Critical UX bugs reported by user
+1. **Driver monthly stats showed "—"** — backend `tms.GetDriverMonthlyStats` returned `total_trips/total_deliveries/total_distance_km/success_rate` but frontend reads `trips_count/total_km/on_time_rate/efficiency_score/rank/total_drivers/streak_days`. Rewrote handler with 3 queries (trips+trip_stops aggregate, driver_score_snapshots, on-time streak CTE) populating all required fields. Fallback to `drivers.current_score` when no monthly snapshot.
+2. **Lists hardcoded `limit=50` with no pagination** (orders showed 50/32,415) — created reusable `web/src/components/ui/Pagination.tsx` (page numbers w/ ellipsis, page-size selector 20|50|100|200, first/prev/next/last). Applied to orders, trips, customers pages with full server-side pagination.
+3. **Missing filters on order list** — added `delivery_date` (date input) + `cutoff_group` (Trước 16h / Sau 16h) filters to orders page.
+
+#### Changed — Backend
+- `internal/oms/repository.go` — new `ListCustomersFiltered(q, limit, offset)` returning `(rows, total, err)`.
+- `internal/oms/service.go` — new `ListCustomersFiltered(q, page, limit)`.
+- `internal/oms/handler.go` — `ListCustomers` now reads page/limit/q query params and returns `OKWithMeta`.
+- `internal/tms/service.go` — `DriverMonthlyStats` struct fields renamed; `GetDriverMonthlyStats` rewritten.
+
+#### Changed — Frontend
+- `web/src/components/ui/Pagination.tsx` (new), exported via `ui/index.ts`.
+- `web/src/app/dashboard/orders/page.tsx` — server pagination, delivery_date + cutoff_group filters, "Xóa lọc" button.
+- `web/src/app/dashboard/trips/page.tsx` — server pagination, planned_date filter, saved-views map to server params.
+- `web/src/app/dashboard/customers/page.tsx` — server pagination + debounced search query (350ms) sent to `?q=`.
+- `web/src/app/dashboard/reconciliation/page.tsx` — 3 tabs (recon/disc/close) all với server pagination độc lập (page/limit per tab); auto-reset page=1 khi đổi filter.
+- `web/src/app/dashboard/notifications/page.tsx` — server pagination + footer Pagination dưới list group; reset page khi đổi limit.
+
+#### Backend pagination upgrades
+- `internal/notification/repository.go` — thêm `GetByUserPaginated(unread, limit, offset)` trả `(rows, total)`.
+- `internal/notification/service.go` — thêm `GetNotificationsPaginated`.
+- `internal/notification/handler.go` — `GET /v1/notifications` đọc `page`+`limit`, trả `OKWithMeta` với `PaginationMeta`.
+
+#### Skipped (intentional)
+- `vehicles` (58 records), `drivers` (50 records) — đủ nhỏ, status/province chip filter đã đủ.
+- `handover-a`, `gate-check` — workflow pages (sign documents cho ready trips), không phải list browse.
+- `audit-logs` — đã có pagination tự build sẵn (response shape `{data, pagination}` riêng từ admin handler).
+- `daily-close` tab — dashboard 30 ngày tóm tắt, không cần pagination phức tạp.
+- `control-tower`, `warehouse/bin-map`, `warehouse/dashboard` — dashboard pages (không phải list browse).
+
+#### Verified live (admin token, demo123)
+| Endpoint | meta.total | Status |
+|---|---|---|
+| `/v1/customers?page=1&limit=5` | 104 | ✅ |
+| `/v1/orders?page=1&limit=5` | 32,415 | ✅ |
+| `/v1/trips?page=1&limit=5` | 4,679 | ✅ |
+| `/v1/notifications?page=1&limit=5` | 10 | ✅ |
+| `/v1/reconciliation?page=1&limit=5` | 13,338 | ✅ |
+| `/v1/driver/monthly-stats` (cuong.nung) | trips=2, deliv=15, km=1291.2, on_time=100%, score=88.3, rank=46/49, streak=59 | ✅ |
+
+### 2026-05-01 — Session: Sprint UX-2 Final (customers province filter, vehicles status filter, pda-scanner result card, driver profile monthly perf)
+
+#### Changed — Final 4 pages enhanced
+1. **`customers/page.tsx`** — Province filter chips above table (Tất cả + per-province chip with count), `provinceFilter` state layered on top of existing search filter.
+2. **`vehicles/page.tsx`** — Status filter chips (Tất cả / Hoạt động / Bảo trì / Hỏng / Ngưng / Tạm giữ) with counts; skeleton loader replacing plain spinner (4 animate-pulse rows + 4 card skeletons); `filteredByStatus` replaces `filtered` in table render.
+3. **`pda-scanner/page.tsx`** — Scan result card redesigned: `border-2 border-green-400 rounded-xl`, large product name + monospace barcode, quantity in large tabular-nums, SKU/lot badges. Scan history: compact `border-gray-100` rows, first row highlighted green-50, quantity in brand-600 tabular-nums.
+4. **`driver/profile/page.tsx`** — Monthly performance section added: 3-stat grid (Điểm KPI / Chuyến / Xếp hạng), score color-coded (green≥80/amber≥60/red<60), progress bar, graceful `useEffect` fetch from `/drivers/:id/scorecard` with `.catch(() => {})`.
+
+#### Verified
+- `npx tsc --noEmit` — only pre-existing `showToast` error in test-portal. All new code clean.
+
+#### Docs Updated
+- `CHANGELOG.md` (this entry)
+
+---
+
+### 2026-04-30 — Session: Sprint UX-1 (Design System + 4 priority screens redesigned)
+
+#### Added — Design System Foundation
+- **`UX_AUDIT_REPORT.md`** (NEW, root): comprehensive audit toàn bộ 60+ pages × 9 roles, scoring B− (75/100), prioritized 3-sprint roadmap, anti-patterns inventory.
+- **`web/src/lib/design-tokens.ts`** (NEW): brand color scale, semantic tones (success/warning/danger/info/neutral/brand), spacing/radius/shadow/motion/typography tokens, focus-ring, surface helpers.
+- **5 new primitives** in `web/src/components/ui/`:
+  - `PageHeader.tsx` — replaces 50+ duplicated `<h1 text-2xl font-bold>` blocks; supports icon tile, subtitle, leading slot, actions slot, sticky mode.
+  - `Card.tsx` + `CardHeader` — variants default/elevated/inset/interactive; standard padding scale.
+  - `Button.tsx` — variants primary/secondary/ghost/subtle/danger/success; sizes sm/md/lg; loading state with spinner; left/right icons.
+  - `KpiCard.tsx` — standard metric tile w/ tone, hint, optional delta vs previous, optional href link, pulse for urgent.
+  - `LoadingState.tsx` — page-level loading replacement for ad-hoc spinner divs.
+- **`web/src/components/ui/index.ts`** (NEW): barrel export for all primitives.
+
+#### Changed — 4 priority screens fully redesigned with new design system
+1. **`web/src/app/login/page.tsx`** — two-pane layout (brand story left + form right), Lucide icons in inputs, show-password toggle, Caps-Lock detector, remember-me persistence (`localStorage bhl_last_user`), inline error w/ icon, collapsible help (forgot password / IT contact).
+2. **`web/src/app/dashboard/page.tsx`** — greeting personalized by hour-of-day, `KpiCard` x5 with role-specific tones (overdue accountant tile pulses red), workflow as 5 numbered colored tile cards with hover lift.
+3. **`web/src/app/dashboard/approvals/page.tsx`** — SLA mini-dashboard (3 KPIs: Quá hạn / Sắp đến hạn / Tổng vượt), priority-sorted queue (overdue → urgent → soon), 4-up credit summary with semantic Mini cards, gradient credit-usage bar (emerald→amber→rose) + overflow indicator pulse, inline expand for items, reject modal with quick-reason chips + bottom-sheet on mobile.
+4. **`web/src/app/dashboard/warehouse/picking/page.tsx`** — 3-card pipeline KPI (Chờ/Đang soạn/Xong), FEFO queue with "ƯU TIÊN" badge for first-in-line, color-coded expiry chips (red≤3d, amber≤7d, sky≤30d), per-line progress bar, inline expand for items with location chip, sticky CTA `h-14`.
+
+#### Verified
+- `npx tsc --noEmit` — all 4 redesigned pages + 5 primitives + tokens: **no new errors** (2 pre-existing errors in test-portal/MapView untouched).
+- HTTP smoke: `/login` 200, `/dashboard` 200, `/dashboard/approvals` 200, `/dashboard/warehouse/picking` 200.
+
+#### Docs Updated
+- `UX_AUDIT_REPORT.md` (created)
+- `CHANGELOG.md` (this entry)
+- `DECISIONS.md` (DEC-WC-05 design system adoption — see below)
+
+---
+
+### 2026-04-30 — Session: Sprint 1 W3-W4 (TD-020 + F7 GPS Anomaly + H4 BOT/Toll expansion + k6 load test)
+
+#### Added — F7 GPS Anomaly Detection (full lifecycle)
+- **Migration 038** (`migrations/038_gps_anomaly_detection.up.sql`):
+  - `gps_anomalies` (id, vehicle_id FK CASCADE, trip_id FK SET NULL, driver_id FK drivers SET NULL, anomaly_type CHECK 4 vạ, severity P0/P1/P2, lat/lng/distance/duration/speed, status open/acknowledged/resolved/false_positive, ack_by/at, resolved_by/at, resolution_note, zalo_sent).
+  - `ml_features.gps_anomaly_thresholds` seed: deviation_km=2.0/P1, stop_overdue_min=20.0/P0, speed_high_kmh=90.0/P2, arrival_radius_m=200.0/P2.
+  - 4 indexes (vehicle+status, trip, status+detected_at, severity+detected_at PARTIAL WHERE open).
+- **Backend module** `internal/anomaly/`:
+  - `repository.go`: `LoadThresholds`, `Insert`, `HasOpenSimilar` (10-min dedup), `List` (JOIN vehicles+drivers, ORDER BY severity P0→P2), `Acknowledge`, `Resolve` (true/false-positive), `MarkZaloSent`, `LoadActiveTripPlannedStops` (JOIN customers for lat/lng).
+  - `service.go`: 5-min threshold cache, per-vehicle stationary state map, 3 detectors (`checkSpeedHigh`, `checkDeviation` haversine min-distance, `checkStopOverdue` 150m drift + 20-min elapsed), Zalo notify stub.
+  - `handler.go`: `GET /v1/anomalies?status=&limit=`, `PATCH /v1/anomalies/:id/ack`, `PATCH /v1/anomalies/:id/resolve`.
+- **Hook into GPS Hub** (`internal/gps/hub.go`): new `PointDetector` interface; `Hub.SetDetector` + per-point goroutine call after `PublishGPS`.
+- **main.go**: anomaly module wired, gps Hub `SetDetector(anomalySvc)`.
+- **Frontend** `web/src/app/dashboard/anomalies/page.tsx`: full UI w/ severity-color cards, status filter tabs, ack button + resolve modal (note + true/false-positive), Google Maps link, useDataRefresh('gps').
+- **Control Tower link**: prominent red "🚨 Cảnh báo GPS" panel below metrics grid linking to `/dashboard/anomalies`.
+- **Smoke tests**: 4 endpoints all PASS (list empty → INSERT → list 1 → ack → resolve).
+
+#### Added — H4 BOT/Toll Cost Expansion (16 → 60 stations)
+- **Migration 039** (`migrations/039_toll_stations_extra.up.sql`): 44 toll stations auto-extracted from VETC 2022–2023 invoices (`01_VETC_BOT_Consolidated_22_23.xlsx`, 26,441 transactions, 44 stations w/ ≥5 txns).
+- Inserted as `is_active=FALSE` until ops geocodes lat/lng; fee_l1–l5 estimated from avg invoice value (L2 baseline, L3=×1.5, L4=×2.0, L5=×2.6).
+- **Tooling**: `scripts/extract_toll_stations.py` + `scripts/build_toll_sql.py` (idempotent, skip-on-duplicate).
+- VRP cost engine already supports `toll_cost` per arc (existing) — no code change needed; new stations auto-included once geocoded.
+
+#### Added — TD-020 Toast Error UX
+- **New** `web/src/lib/handleError.ts`: `handleError(err, {userMessage,silent,traceRef})` + `notifyError(err, msg)`. Always console.error, conditionally toast.error w/ trace_ref extraction.
+- **18 high-impact catch blocks** converted (12 page loaders + 8 driver action handlers): control-tower, approvals, kpi (3), orders, settings (7), warehouse picking/returns, driver list/detail.
+- 17 background `.catch(console.error)` remain — logged as TD-020-followup.
+
+#### Added — Load test infrastructure
+- `tests/k6/ml_anomalies_load_test.js`: official k6 script (4 endpoints, p95<500ms threshold, 30s→20 VUs ramp).
+- `tests/load_probe/main.go`: Go-based local probe (no k6 install needed). Result n=100 c=10:
+  - npp_health_one: p95=42.8ms
+  - npp_health_all: p95=11.6ms
+  - sku_suggestions: p95=10.8ms
+  - anomaly_list: p95=10.8ms
+  - **ALL PASS** Sprint 1 W4 exit criteria (p95<500ms).
+
+#### Docs Updated
+- CHANGELOG.md (this entry)
+- DECISIONS.md (DEC-WC-04)
+- TECH_DEBT.md (TD-020-followup, TD-H4-geocode)
+- TASK_TRACKER.md (Sprint 1 W3-W4 complete)
+
+---
+
+### 2026-04-23 — Session: WMS Phase 9 Sprint 2-5 hoàn tất (9.5–9.15)
+
+#### Added — Backend (Go)
+- `bhl-oms/internal/wms/phase9_workflows.go` (~600 LOC): `ReceivePallet`, `SuggestBins`, `ConfirmPutaway`, `SuggestPickingPallets`, `ScanPick` (FEFO check + override+reason), `StartLoading` / `ScanLoad` / `CompleteLoading` (validate plate qua vehicles, set pallet.status=shipped khi loaded), `GenerateCycleCountTasks` (ABC velocity), `SubmitCycleCount` (variance auto → discrepancy `cycle_count` deadline+1day), `GetDashboardAlerts` (4 cảnh báo: low_safety_stock / near_expiry_high_qty / bins_over_90 / orphan_pallets), `GetLotDistribution`. Helper `adjustStockQuant` (UPDATE-then-fallback to upsert, clamp âm), `snapshotBinContents`, error sentinels (`ErrPalletNotInStock`, `ErrPalletWrongTrip`, `ErrBinFull`, `ErrBinNotPickable`, `ErrPickingNotMatchFEFO`).
+- `bhl-oms/internal/wms/phase9_workflows_handler.go`: `RegisterPhase9WorkflowRoutes` mount 13 endpoints dưới `/v1/warehouse/`:
+  - `POST /inbound/receive` · `POST /inbound/suggest-bin` · `POST /inbound/putaway`
+  - `GET /picking/:id/suggest-pallets` · `POST /picking/scan-pick`
+  - `POST /loading/start` · `POST /loading/scan` · `POST /loading/complete`
+  - `POST /cycle-count/generate` · `GET /cycle-count/tasks` · `POST /cycle-count/submit`
+  - `GET /dashboard/alerts` · `GET /lots/:id/distribution`
+- `handler.go::RegisterRoutes` thêm `h.RegisterPhase9WorkflowRoutes(wh)`.
+
+#### Added — Frontend (Next.js 14, PWA hybrid)
+Trang mới dưới `bhl-oms/web/src/app/dashboard/warehouse/`:
+- `scan/page.tsx` — PWA dual-input scanner (PDA HID KeyEvent + camera BarcodeDetector qr_code/data_matrix/code_128), parser GS1 `(00)`/`(BIN)`/`BHL-LP-`, history 20 scan gần nhất.
+- `inbound/page.tsx` — form nhập kho → tạo pallet + LPN, in nhãn ZPL (Blob/window).
+- `putaway/page.tsx` — tra LPN → 3 bin gợi ý xếp hạng → confirm; override yêu cầu lý do.
+- `loading/page.tsx` — bắt đầu phiên (trip+plate) → loop scan LPN → list expected/loaded → complete (auto Bàn giao A).
+- `cycle-count/page.tsx` — generate task theo velocity class A/B/C, modal scan submit.
+- `dashboard/page.tsx` — 4 widget cảnh báo realtime, polling 10s.
+- `bin-map/page.tsx` — canvas heatmap occupancy (5 mức màu), click bin → contents.
+- `warehouse/page.tsx` — bổ sung 7 link nhanh tới các trang Phase 9.
+
+#### Verified live
+- POST `/v1/warehouse/inbound/receive` returned `{pallet, zpl}` với GS1 payload `(00)BHL-LP-...(01)BHL-LON-330(10)BATCH-T1(17)261001`.
+- `/inbound/suggest-bin` xếp hạng đúng; `/inbound/putaway` chuyển pallet + ghi scan log.
+- `/cycle-count/generate` tạo task; `/cycle-count/tasks` trả expected_snapshot.
+- `/dashboard/alerts` trả 4 mảng (rỗng — chưa có data risky).
+- `/lots/:id/distribution` trả mảng rỗng cho lot chưa load.
+- `go build ./...` exit 0.
+
+#### Gotchas đã ghi nhận (memory repo)
+- `velocity_class` là CHAR(1) → cast array là `::text[]` (không phải `::char[]`).
+- `cycle_count_tasks` không có unique constraint → bỏ `ON CONFLICT`.
+- `ListCycleCountTasks` JOIN cần qualify cột bằng `t.` để tránh ambiguous.
+- `completed_at` / `created_at` là timestamptz → scan vào `*time.Time` / `time.Time`.
+- pgx v5 + enum/date trong SELECT cần cast `::text`.
+
+#### Docs Updated
+- TASK_TRACKER.md ✅ (Phase 9 15/15 ☑, totals 166/175 = 94.9%)
+- CURRENT_STATE.md ✅ (Phase 9 chuyển từ PLANNED sang ACTIVE; liệt kê endpoints + trang FE)
+- CHANGELOG.md ✅
+- /memories/repo/bhl-oms-notes.md ✅ (gotchas + sprint marker)
+
+---
+
+## [Previous] — Phase 9 WMS planned
+
+### 2026-04-23 — Session: WMS Phase 9 Planning (Pallet/QR/Bin/Cycle Count)
+
+#### Decisions
+- **DEC-WMS-01:** Phase 9 WMS Pallet/QR/Bin Architecture — thêm layer LPN-driven (Migration 037: `pallets`, `bin_locations`, `qr_scan_log`, `cycle_count_tasks`). Layer mới bổ sung, KHÔNG refactor `lots`/`stock_moves` cũ.
+- **DEC-WMS-02:** FEFO-only — bỏ yêu cầu FIFO_RECEIVED ban đầu của user (chu kỳ bia ngắn, FEFO đã đủ; 1 pallet = 1 lot đảm bảo FEFO chính xác).
+- **DEC-WMS-03:** Hybrid PDA + Smartphone PWA — 1 codebase `/warehouse/scan` chạy cả PDA (KeyEvent) lẫn phone (camera BarcodeDetector / @zxing).
+- **DEC-WMS-04:** Bravo integration cho Phase 9 = PENDING — phát triển độc lập trước, không có `bravo_sync_status` field cho entity mới.
+
+#### Added — BRD
+- `BRD_BHL_OMS_TMS_WMS.md` section **6.6** mới: Pallet · QR · Bin · Cycle Count gồm 8 User Stories (US-WMS-25..32) + 4 quy tắc (WMS-05..08) + chuẩn QR/nhãn (GS1 SSCC) + máy in (Zebra ZT231/GK420t, TSC TTP-244) + thiết bị scan hybrid + risks/mitigation.
+
+#### Added — Planning
+- `TASK_TRACKER.md`: Phase 9 mới (15 tasks, 5 sprints × 2 tuần): 9A Foundation (4), 9B Inbound+ZPL (3), 9C Picking+Loading scan-to-X (3), 9D Cycle Count + Realtime Dashboard (3), 9E Bin-map + Traceability (2). Tổng tasks 160 → 175 (94.4% → 86.3%).
+- `DECISIONS.md`: thêm 4 quyết định DEC-WMS-01..04.
+
+#### Pending — chờ confirm code Sprint 1
+- Migration 037 schema (4 bảng) + domain structs
+- Bin CRUD + ZPL label generator
+- Pallet lookup + scan log immutable
+
+#### Docs Updated
+- BRD ✅ (6.6 + WMS-05..08)
+- DECISIONS.md ✅ (DEC-WMS-01..04)
+- TASK_TRACKER.md ✅ (Phase 9 + totals)
+- CURRENT_STATE.md ✅ (planned WMS Phase 9 section)
+- CHANGELOG.md ✅
+
+---
+
+### 2026-04-23 — Session: Sprint 1 F2+F3 GO LIVE (NPP Health + Smart SKU Suggestions)
+
+#### Added — Database
+- `bhl-oms/migrations/036b_ml_features_align_csv.up.sql` (NEW): align schema với CSV thực tế (drop check `forecast_method`, rename `travel_time_matrix` → `start_name/end_name/hour_bucket/...`).
+- `bhl-oms/migrations/036b_ml_features_align_csv.down.sql` (NEW): rollback.
+- Deployed migration 036 + 036b lên local Postgres :5434.
+
+#### Added — Data Import (Sprint 0 S0.7 + S0.8)
+- `bhl-oms/scripts/import_enriched.ps1` (NEW): idempotent import script. TRUNCATE CASCADE → \copy 4 CSV vào `ml_features.*`.
+- Imported và verify counts:
+  - `npp_health_scores`: **104 rows**
+  - `sku_forecastability`: **43 rows**
+  - `basket_rules`: **83 rows**
+  - `travel_time_matrix`: **52 rows**
+
+#### Added — Backend (Go: Handler → Service → Repository)
+- `bhl-oms/internal/mlfeatures/repository.go` (NEW): `GetNppHealth`, `ListNppHealthByRiskBand`, `SuggestForItems`. Pgx `::text` cast cho mọi text column (AI_LESSONS rule).
+- `bhl-oms/internal/mlfeatures/service.go` (NEW): threshold logic `MinConfidence=0.60`, `MinLift=1.20`, `AutoBundleConfidence=0.985` (per DATA_DICTIONARY §7). Dedup consequent.
+- `bhl-oms/internal/mlfeatures/handler.go` (NEW): mount `/v1/ml/*`:
+  - `GET /v1/ml/npp/:code/health` — F2 single NPP
+  - `GET /v1/ml/npp/health?risk_band=&limit=` — F2 list (GREEN/YELLOW/RED)
+  - `GET /v1/ml/orders/suggestions?items=&limit=` — F3 (returns `auto_bundle: bool`)
+  - `POST /v1/ml/feedback` — F15 stub (log-only — Sprint 2 wires ML service persist)
+- `cmd/server/main.go`: wire `mlfeatures` module sau KPI initialization.
+
+#### Added — Frontend Integration
+- `web/src/app/dashboard/orders/new/page.tsx`:
+  - Inline `<NppHealthBadge>` ngay dưới customer SearchableSelect.
+  - `<SmartSuggestionsBox>` xuất hiện dưới bảng items khi có ít nhất 1 SKU. Auto-resolve `product_id` từ `consequent` name. Click "+ Thêm" → add row + re-trigger ATP + toast.
+- `web/src/app/dashboard/customers/page.tsx`: thêm cột **"Sức khỏe NPP"**. Bulk fetch GREEN/YELLOW/RED 1 lần → map by `npp_code` → inline badge size="sm".
+
+#### Verified — Smoke tests (`localhost:8080`)
+- `GET /v1/ml/npp/HD-53/health` → 200 OK, Champion GREEN score 100.
+- `GET /v1/ml/npp/health?risk_band=RED&limit=3` → 3 Churned NPP (HD-49, BG-5, BG-8) sorted by score asc.
+- `GET /v1/ml/orders/suggestions?items=...` → returns Bia hơi 30L (Keg) confidence 0.983, lift 1.35.
+- `tsc --noEmit` web: 0 loỗi mới (chỉ 2 pre-existing).
+- `go build`: clean.
+- Frontend `localhost:3000`: 200 OK.
+
+#### Pending — Sprint 1 W3-4
+- TD-020: replace 26 `console.error` → `toast.error()`
+- F7 GPS Anomaly Detection (W3): stream processor + Zalo template
+- H4 BOT/Toll cost-aware VRP
+- k6 load test 3 endpoint mới
+
+#### Docs Updated
+- CHANGELOG.md ✅
+- DECISIONS.md ✅ (DEC-WC-03 `ml_features.*` schema namespace + `/v1/ml/*` API prefix)
+- TASK_TRACKER.md (Sprint 1 progress)
+
+---
+
+### 2026-04-23 — Session: UX Redesign Sprint 1 Phase 1 (Foundation Components)
+
+#### Added — Documentation
+- `docs/specs/UX_REDESIGN_EXECUTION_PLAN.md` (NEW): plan triển khai chi tiết 4 phase cho UX redesign (Foundation → Page integration → Driver mobile → Cross-cutting).
+
+#### Added — Reusable Components (`web/src/components/ui/`)
+- `Skeleton.tsx`: `SkeletonLine`, `SkeletonAvatar`, `SkeletonCard`, `SkeletonTableRow`, `SkeletonGrid`, `WithSkeleton` — loading primitives thay plain text "Đang tải".
+- `EmptyState.tsx`: role-aware empty với fallback per 9 roles, icon + title + CTA.
+- `ExplainabilityModal.tsx`: `ExplainabilityButton` reusable cho **F15 World-Class** — mọi ML recommendation đều có nút "Tại sao?". Modal 4 sections (Model/Data/Logic/Quality) + nút "Báo cáo gợi ý sai" → feedback loop.
+- `NppHealthBadge.tsx`: **F2** inline badge GREEN/YELLOW/RED. Copy RED = "Cần chăm sóc" (không kỳ thị). Tích hợp ExplainabilityButton.
+- `SmartSuggestionsBox.tsx`: **F3** inline order form. Filter confidence ≥ 0.60. Auto-bundle badge khi ≥ 0.985. Tích hợp ExplainabilityButton + onAdd callback.
+- `InboxItem.tsx`: **U4** inbox card với P0/P1/P2 priority + Snooze (15m/1h/EOD) + Resolve + Assign actions.
+- `CommandPalette.tsx`: **U2** global Cmd+K (Ctrl+K) launcher. Vietnamese fuzzy search (strip diacritics). Role-filtered. ~250 LOC, no external dep.
+
+#### Changed
+- `web/src/app/dashboard/layout.tsx`: mount `<CommandPalette />` globally cạnh `<ToastContainer />`.
+- `docs/specs/FRONTEND_GUIDE.md`: thêm §11 "World-Class Shared Components" với usage examples + dependency notes + acceptance checklist.
+
+#### Verified
+- TypeScript compile: 7 components mới + layout.tsx — 0 errors (chỉ pre-existing errors trong test-portal/MapView.tsx không liên quan).
+- Build acceptance: feature flag-ready (chưa wire vào page nào → backward compatible 100%).
+
+#### Pending — Phase 2 (Tuần 2)
+- Mount `<NppHealthBadge>` + `<SmartSuggestionsBox>` vào `/dashboard/orders/new`.
+- Build "Focus Panel" cho Control Tower (rút 14 KPIs → 4 visible + 1 việc cần làm tiếp).
+- Replace 5 KPI cards homepage bằng narrative cards cho BGĐ.
+
+#### Docs Updated
+- CHANGELOG.md ✅
+- docs/specs/FRONTEND_GUIDE.md ✅ (§11 NEW)
+- docs/specs/UX_REDESIGN_EXECUTION_PLAN.md ✅ (NEW)
+- DECISIONS.md ✅ (DEC-WC-02 component-first)
+
+---
+
+### 2026-04-23 — Session: World-Class Strategy Sprint 0 (Foundation Lock)
+
+#### Added — Documentation
+- `docs/specs/DATA_DICTIONARY.md` (NEW): định nghĩa cross-source 3 nguồn data (OMS Core / LENH lịch sử / GPS 2024). Lock naming convention `ml_features.*`. Ghi rõ **GPS fleet ≠ LENH fleet** (zero plate overlap) — phát hiện quan trọng cho strategy.
+- `docs/specs/WORLDCLASS_EXECUTION_PLAN.md` (NEW): kế hoạch 12 tuần × 3 sprints, 12 features F1–F15, exit criteria + risk register + success metrics.
+- `docs/specs/UX_AUDIT_AND_REDESIGN.md` (NEW): audit UX/UI per-role (9 role) + end-to-end flow + 7 critical issues + redesign cho 12 features mới + acceptance criteria world-class checklist.
+- `docs/specs/TEST_PLAN_AND_DATA_REQUIREMENTS.md` (NEW): chiến lược test 12 tầng (unit/integration/E2E/ML accuracy/UAT/mobile usability) + test cases per feature + đề bài data đầu vào (data đã có, data BLOCKER, data nice-to-have) + email template gửi BHL.
+
+#### Added — Database
+- `bhl-oms/migrations/036_ml_features_schema.up.sql` (NEW): schema `ml_features` + 9 bảng:
+  - `npp_health_scores` (RFM segmentation, 300 NPPs)
+  - `sku_forecastability` (Prophet/Croston routing)
+  - `basket_rules` (Apriori output cho F3 SKU Suggestions)
+  - `driver_baseline_2022` (KPI baseline — NĐ13 protected)
+  - `travel_time_matrix` (GPS-calibrated cho F4 VRP)
+  - `demand_forecast` + `forecast_actuals` (F1 + H9 Feedback Loop)
+  - `npp_code_map` (bridge LENH NPP code ↔ OMS customers UUID)
+  - `seed_scenarios` (test data lock — peak day 2022-07-27)
+
+#### Changed — Strategy
+- `ROADMAP.md`: EC-12 Demand Forecasting **reclassified C→A** (DEC-WC-01). Phase plan extended P2/P2.5/P3 với World-Class S2/S3 features.
+- `DECISIONS.md`: thêm DEC-WC-01 ghi nhận adopt World-Class strategy + lý do reclassification.
+
+#### Pending — Sprint 0 còn lại (chờ user/BHL)
+- S0.6: BHL meeting 30' confirm fleet structure (GPS 2024 plates 26xxx-30xxx vs LENH 14C/14H/34M).
+- S0.7: Script Python `scripts/import_enriched.py` import 4 CSV vào `ml_features.*`.
+- S0.8: Verify localhost: chạy migration 036 + import + smoke test query 1 NPP health.
+
+#### Docs Updated
+- ROADMAP.md ✅
+- DECISIONS.md ✅ (DEC-WC-01)
+- CHANGELOG.md ✅
+- docs/specs/DATA_DICTIONARY.md ✅ (NEW)
+- docs/specs/WORLDCLASS_EXECUTION_PLAN.md ✅ (NEW)
+- TASK_TRACKER.md ⏳ (cần update Sprint 1–3 tasks ở session sau khi BHL confirm)
+
+---
+
+### 2026-04-21 — Session: Control Tower local OSRM + remove straight ETA connector
+
+#### Fixed — Control Tower route source và ETA overlay
+- `web/src/app/dashboard/control-tower/page.tsx`:
+  - Route geometry không còn gọi trực tiếp `router.project-osrm.org`; chuyển sang `/osrm/route/...` để dùng OSRM local cùng nguồn với backend/simulator.
+  - Đường ETA màu tím không còn nối thẳng giữa xe và điểm giao; chỉ vẽ khi lấy được routed geometry thật từ OSRM.
+  - Thêm toggle `Mở rộng bản đồ` để thu gọn panel trái và ẩn panel cảnh báo bên phải khi cần không gian map lớn hơn.
+  - Thêm chế độ `Toàn màn hình` cho map và drawer cảnh báo nổi, có thể đóng nhanh bằng nút UI hoặc phím `Esc`.
+  - Đổi tile nền chế độ `Bản đồ` sang OpenStreetMap standard để hạn chế việc nhãn địa danh bị hiển thị kiểu tiếng Anh/quốc tế hóa như lớp CARTO cũ.
+- `web/next.config.js`:
+  - Thêm rewrite `/osrm/:path*` → `http://localhost:5000/:path*`.
+- `setup-osrm.ps1`:
+  - Thêm `-ForceRefresh` để xóa cache extract cũ và rebuild lại Vietnam OSM data mới.
+
+#### Verified — Local runtime checks
+- `GET http://localhost:3001/osrm/route/...` trả HTTP 200 và response `code=Ok`.
+- `GET http://localhost:3001/dashboard/control-tower` trả HTTP 200 sau khi restart frontend.
+- Kiểm tra lỗi tĩnh: không có lỗi ở `control-tower/page.tsx` và `next.config.js`.
+
+**Docs Updated:** CURRENT_STATE.md, CHANGELOG.md
+
+### 2026-04-21 — Session: Test Portal Ops & Audit coverage + SC-12 regression seed
+
+#### Added — Test Portal Ops & Audit
+- `internal/testportal/handler.go`:
+  - Thêm `GET /v1/test-portal/orders/:id/timeline`.
+  - Thêm `GET /v1/test-portal/orders/:id/notes`.
+  - Thêm `GET /v1/test-portal/ops-audit` để tổng hợp admin smoke, integration DLQ, reconciliation, daily close và KPI snapshot.
+- `web/src/app/test-portal/page.tsx`:
+  - Thêm tab `Ops & Audit`.
+  - Kịch bản vừa nạp có thể đẩy `gps_scenario` sang tab GPS Simulator.
+  - Tab mới cho phép chọn order để soi timeline/note và đồng thời xem DLQ, discrepancy, daily close, KPI, active sessions.
+
+#### Added — SC-12 + GPS default thực tế hơn
+- `internal/testportal/scenarios.go`:
+  - Thêm SC-12 seed cho 3 đơn hàng, timeline, notes, 3 DLQ rows, 2 discrepancy, 1 daily close, 1 KPI snapshot.
+  - SC-10 và SC-11 đổi GPS default sang `from_active_trips` để route sinh từ chuyến thực.
+  - Sửa seed SC-12 để cast `shipment_status` đúng enum khi insert shipment.
+
+#### Verified — Local compile + runtime checks
+- `go build ./cmd/server` pass.
+- Start detached backend `:8080` + frontend `:3001` thành công.
+- `POST /v1/test-portal/load-scenario` với `SC-12` trả success.
+- `GET /v1/test-portal/ops-audit` trả dữ liệu aggregate, `GET /v1/test-portal/orders/:id/timeline` trả 4 events, `GET /v1/test-portal/orders/:id/notes` trả 2 notes cho order `OPS-PART-*`.
+- `http://localhost:3001/test-portal` trả HTTP 200 sau khi compile Next.js xong.
+
+**Docs Updated:** CURRENT_STATE.md, CHANGELOG.md, API_BHL_OMS_TMS_WMS.md, docs/TEST_CASES.md, docs/guides/HUONG_DAN_TEST_NGHIEP_VU.md, TST_BHL_OMS_TMS_WMS.md
+
+### 2026-04-21 — Session: Test Portal GPS realism + test matrix expansion
+
+#### Changed — Test Portal GPS simulator
+- `internal/testportal/handler.go`:
+  - `NewHandler()` nhận thêm `OSRM_URL` từ config để route simulator dùng đúng backend routing service.
+  - Nhánh `from_active_trips` sửa query theo schema thật: `customers.latitude/longitude`, `trip_stops.stop_order`, và lấy tọa độ kho từ `warehouses.latitude/longitude` thay vì hard-code.
+  - GPS start chặn trường hợp có xe nhưng không có route hợp lệ để tránh panic chia cho 0.
+- `internal/testportal/gps_routes.go`:
+  - Thêm route generator dựa trên dữ liệu thật của kho + NPP theo tỉnh.
+  - Route preview và GPS simulation ưu tiên OSRM geometry để densify waypoint theo đường đi thật.
+  - `normal_delivery`, `rush_hour`, `long_route` giờ lấy route từ DB; fallback chỉ dùng khi DB/OSRM không khả dụng.
+- `cmd/server/main.go`:
+  - Truyền `cfg.OSRMURL` vào test portal handler.
+
+#### Verified — Local compile + runtime checks
+- `go build ./cmd/server` pass.
+- `/v1/test-portal/scenarios` trả kịch bản như cũ.
+- `/v1/test-portal/gps/scenarios` trả route thật từ DB (normal_delivery: 5 route, rush_hour: 15 route, long_route: 1 route).
+- `/v1/test-portal/gps/start` với `normal_delivery` chạy thành công và `/v1/test-portal/gps/status` báo `running=true`.
+
+**Docs Updated:** CURRENT_STATE.md, docs/TEST_CASES.md, CHANGELOG.md
+
+### 2026-04-21 — Session: Phase 8 Fleet & Driver Management (30 tasks)
+
+#### Added — Phase 8: Fleet Module (`internal/fleet/`)
+- **6 migrations (030-035):** work_orders + repair_items + repair_attachments, garages + garage_ratings, fuel_logs + fuel_anomalies + fuel_consumption_rates, driver_scores + driver_score_snapshots, gamification_badges + badge_awards, tire_sets + leave_requests
+- **Backend `internal/fleet/`:** 4 files (models.go, repository.go, service.go, handler.go), wired in main.go
+- **28 API endpoints:** 15 fleet endpoints (`/v1/fleet/*`) + 8 driver endpoints (`/v1/drivers/*`) + 5 shared analytics
+- **Work Orders:** CRUD + approval workflow, emergency auto-approve (≤5M VNĐ), completion triggers health recalc
+- **Garages:** CRUD + rating after RO complete + benchmark analytics
+- **Fuel Logs:** CRUD + anomaly detection (expected vs actual, >25% deviation flag)
+- **Vehicle Health Score:** Rule-based 0-100 (-10/open RO, -15/overdue maintenance, -5/-10 for age)
+- **Driver Scorecard:** 5 metrics (OTD 30%, Delivery 25%, Safety 25%, Compliance 10%, Customer 10%)
+- **Gamification:** 7 badge types, leaderboard (week/month), bonus report
+- **Tire Sets:** Simplified CRUD per vehicle (OK/Mòn/Cần thay)
+- **Leave Requests:** CRUD + approval
+- **TCO Analytics:** Per-vehicle cost (repair + fuel + tire), fleet summary, cost/km
+- **7 frontend pages:** repairs, fuel, garages, health, scorecard, leaderboard, tco
+- **Sidebar nav:** "Quản lý đội xe" group with 7 items in layout.tsx
+
+**Docs Updated:** CURRENT_STATE.md, CHANGELOG.md, TASK_TRACKER.md
+
+### 2025-07-15 — Session: I.1 Warehouse Suggest + I.2 Urgent Order + I.3 Vehicle-Driver Mapping
+
+#### Added — I.2: Urgent Order ("Giao gấp") Display
+- `migrations/028_order_urgent.up.sql`: `is_urgent BOOLEAN` on `sales_orders` + index
+- Backend: `is_urgent` field across CreateOrder, ListOrders, SearchOrders, GetOrder, ListPendingApprovals, CreateShipment
+- Frontend: `⚡ Gấp` red badge on order lists, approvals page, new order form checkbox
+
+#### Added — I.3: Fixed Vehicle-Driver Mapping
+- `migrations/029_vehicle_driver_mapping.up.sql`: `default_driver_id` on vehicles, `default_vehicle_id` on drivers (1:1 unique)
+- Backend: `PUT /vehicles/:id/default-driver`, `SetVehicleDriverMapping()`, auto-assign in `ApprovePlan()`
+- Frontend: Vehicles page — default driver dropdown; Planning page — auto-assign from mapping
+
+#### Added — I.1: Warehouse Suggestion API
+- Backend: `POST /v1/warehouses/suggest` — OSRM `table/v1` distance matrix + ATP availability scoring (60% inventory / 40% distance)
+- `domain/models.go`: `Warehouse`, `WarehouseSuggestion` structs
+- `oms/repository.go`: `ListActiveWarehouses()`
+- `oms/service.go`: `SuggestWarehouses()`, OSRM client, haversine fallback
+- Frontend: Orders/new — suggestion panel below warehouse dropdown, auto-ranked top 3
+
+**Docs Updated:** CHANGELOG.md, CURRENT_STATE.md, API_BHL_OMS_TMS_WMS.md, DBS_BHL_OMS_TMS_WMS.md
+
+### 2026-04-17 — Session: Test Portal Double-Click Launcher + Backend Down Messaging
+
+#### Added — Double-click launcher cho người non-tech
+- `bhl-oms/START_TEST_PORTAL.bat`:
+  - Chạy bằng double-click để mở launcher Test Portal trong cửa sổ PowerShell riêng.
+- `bhl-oms/start-test-portal.ps1`:
+  - Gọi backend detached launcher + frontend detached launcher.
+  - Tự mở trình duyệt vào `http://localhost:3001/test-portal`.
+- `bhl-oms/start-backend-detached.ps1`:
+  - Khởi động Go backend trên `:8080` theo kiểu detached, ghi log vào `logs/api.out.log` và `logs/api.err.log`.
+  - Kiểm tra trước các dependency bắt buộc (`5434`, `6379`, `8090`) để báo lỗi rõ ràng nếu thiếu dịch vụ nền.
+
+#### Fixed — Test Portal không còn báo sai là thiếu kịch bản khi backend đang tắt
+- `web/src/app/test-portal/page.tsx`:
+  - Khi `GET /api/test-portal/scenarios` lỗi do backend `:8080` chưa chạy, UI hiển thị cảnh báo backend chưa lên.
+  - Hướng dẫn ngay trên màn hình cách khởi động lại bằng `START_TEST_PORTAL.bat`, thay vì hiện empty state dễ hiểu nhầm là mất scenario/data test.
+
+**Docs Updated:** CURRENT_STATE.md, CHANGELOG.md
 
 ### 2026-04-17 — Session: Control Tower Map UX + SC-11 Test Scenario
 

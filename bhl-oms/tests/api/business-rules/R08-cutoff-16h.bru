@@ -1,0 +1,62 @@
+meta {
+  name: R08 - Cutoff 16h Không Nhận Đơn Hôm Nay
+  type: http
+  seq: 2
+}
+
+# R08: Sau 16:00 Asia/Ho_Chi_Minh → không tạo được đơn giao hôm nay
+# Scenario: POST order với delivery_date = hôm nay, gọi lúc 16:01+
+# Chú ý: Test này chỉ fail đúng nếu chạy SAU 16:00 giờ VN
+# Nếu chạy trước 16:00 → expected 201, test cần điều chỉnh
+
+post {
+  url: {{baseUrl}}/orders
+  body: json
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{token}}
+}
+
+body:json {
+  {
+    "customer_id": "{{testCustomerId}}",
+    "warehouse_id": "{{warehouseId}}",
+    "delivery_date": "{{today}}",
+    "is_urgent": false,
+    "items": [
+      {
+        "product_id": "test-product-001",
+        "quantity": 1
+      }
+    ]
+  }
+}
+
+vars:pre-request {
+  today: {{$datetime "YYYY-MM-DD"}}
+}
+
+tests {
+  test("R08: sau 16h phải trả 400 cutoff_exceeded", function() {
+    const hour = new Date().getHours();
+    const vnHour = (hour + 7) % 24; // UTC+7
+    if (vnHour >= 16) {
+      expect(res.status).to.equal(400);
+      const body = res.body;
+      expect(body).to.have.property("error");
+      const errStr = JSON.stringify(body.error).toLowerCase();
+      expect(errStr).to.satisfy(function(s) {
+        return s.includes("cutoff") || s.includes("16h") || s.includes("hết giờ");
+      }, "error phải đề cập cutoff");
+    } else {
+      // Trước 16h → đơn được tạo hoặc fail vì test data không hợp lệ (không phải lỗi cutoff)
+      expect([200, 201, 400, 422]).to.include(res.status);
+      if (res.status === 400) {
+        const errStr = JSON.stringify(res.body).toLowerCase();
+        expect(errStr).to.not.include("cutoff");
+      }
+    }
+  });
+}

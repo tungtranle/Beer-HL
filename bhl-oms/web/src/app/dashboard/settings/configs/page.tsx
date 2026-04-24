@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { apiFetch, getUser } from '@/lib/api'
+import { handleError } from '@/lib/handleError'
 import { toast } from '@/lib/useToast'
 
 interface SystemConfig {
@@ -40,7 +41,7 @@ export default function SystemConfigsPage() {
       setEditValues(vals)
       setDirty(false)
     } catch (err) {
-      console.error(err)
+      handleError(err, { userMessage: 'Không tải được cấu hình hệ thống' })
     } finally {
       setLoading(false)
     }

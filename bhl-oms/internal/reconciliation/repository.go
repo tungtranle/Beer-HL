@@ -192,7 +192,7 @@ func (r *Repository) ResolveDiscrepancy(ctx context.Context, id, userID uuid.UUI
 func (r *Repository) GetTripDeliveryExpected(ctx context.Context, tripID uuid.UUID) (float64, error) {
 	var total float64
 	err := r.db.QueryRow(ctx, `
-		SELECT COALESCE(SUM(so.grand_total), 0)
+		SELECT COALESCE(SUM(so.total_amount), 0)
 		FROM trip_stops ts
 		JOIN shipments sh ON sh.id = ts.shipment_id
 		JOIN sales_orders so ON so.id = sh.order_id
@@ -401,7 +401,7 @@ func (r *Repository) GetWarehouseStatsForClose(ctx context.Context, warehouseID 
 
 	// Revenue & Collection
 	r.db.QueryRow(ctx, `
-		SELECT COALESCE(SUM(so.grand_total), 0)
+		SELECT COALESCE(SUM(so.total_amount), 0)
 		FROM trip_stops ts
 		JOIN trips t ON t.id = ts.trip_id
 		JOIN shipments sh ON sh.id = ts.shipment_id

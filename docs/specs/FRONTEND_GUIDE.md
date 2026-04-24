@@ -328,5 +328,77 @@ const notificationConfig = {
 
 ---
 
+## §11 World-Class Shared Components (Sprint 1 — 23/04/2026)
+
+> Built per `docs/specs/UX_AUDIT_AND_REDESIGN.md` Phase 1.
+> All in `web/src/components/ui/`. Use these instead of rebuilding ad-hoc.
+
+### `<Skeleton*>` — Loading primitives
+File: `Skeleton.tsx`. Exports: `SkeletonLine`, `SkeletonAvatar`, `SkeletonCard`, `SkeletonTableRow`, `SkeletonGrid`, `WithSkeleton`.
+**Rule:** Replace mọi plain `Đang tải…` text bằng skeleton matching layout.
+```tsx
+<WithSkeleton loading={loading} skeleton={<SkeletonGrid count={4} />}>
+  {data.map(...)}
+</WithSkeleton>
+```
+
+### `<EmptyState>` — Role-aware empty
+File: `EmptyState.tsx`. Auto-resolves copy theo `getUser().role`. Override với `messageByRole` + `defaultMessage`.
+```tsx
+<EmptyState icon={Truck} title="Chưa có chuyến" />
+```
+
+### `<ExplainabilityButton>` — F15 layer
+File: `ExplainabilityModal.tsx`. **BẮT BUỘC** mọi recommendation từ ML/AI.
+```tsx
+<ExplainabilityButton
+  featureId="F1"
+  model="Prophet"
+  dataSource="4 tuần gần nhất NPP HD-53"
+  logic={["Trend +5%/tuần", "Tuần 3/tháng peak +8%", "→ 340 vỉ"]}
+  quality={{ label: 'MAPE 30 ngày', value: '12%', isGood: true }}
+/>
+```
+Modal có nút "Báo cáo gợi ý sai" → POST `/api/v1/ml/feedback`.
+
+### `<NppHealthBadge>` — F2 inline badge
+File: `NppHealthBadge.tsx`. Hiển thị cạnh tên NPP. RED copy = "Cần chăm sóc" (KHÔNG kỳ thị).
+```tsx
+<NppHealthBadge health={data} loading={isLoading} />
+```
+
+### `<SmartSuggestionsBox>` — F3 inline
+File: `SmartSuggestionsBox.tsx`. Filter rule confidence < 0.60. Bundle ≥ 0.985 có badge `Bundle`.
+```tsx
+<SmartSuggestionsBox rules={rules} onAdd={(r, qty) => addItem(r.product_id!, qty)} />
+```
+
+### `<InboxItem>` — U4 inbox card
+File: `InboxItem.tsx`. P0/P1/P2 priority + Snooze/Resolve/Assign actions.
+```tsx
+<InboxItem item={item} onResolve={...} onSnooze={(id, mins) => ...} />
+```
+
+### `<CommandPalette>` — U2 Cmd+K
+File: `CommandPalette.tsx`. Mounted globally trong `dashboard/layout.tsx`. Trigger: ⌘K / Ctrl+K.
+- Vietnamese fuzzy search (strip diacritics) — gõ "tao don" hay "tạo đơn" đều match.
+- Role-filtered commands (chỉ hiện cmd user được phép).
+- Add command: extend `COMMANDS` array hoặc pass `extraCommands` prop.
+
+### Dependencies
+- `lucide-react` ✅ (đã có) cho icons
+- `tailwindcss` ✅
+- KHÔNG dùng `@headlessui/react` cho modal (đã build native với div + Esc handler)
+- KHÔNG dùng `cmdk` lib (đã build native ~250 LOC)
+
+### Acceptance khi dùng các component này
+- [ ] `npm run build` pass
+- [ ] aria-label cho mọi icon button
+- [ ] focus-visible:ring-2 ring-brand
+- [ ] Mobile (375px) render OK
+- [ ] Esc đóng modal/palette
+
+---
+
 *Merge hoàn chỉnh từ: UXUI.md + UXUI_SPEC.md + BHL_UX_VIBE_CODING_SPEC v4+v5 + frontend-patterns.instructions.md*
-*Cập nhật: 24/03/2026*
+*Cập nhật: 23/04/2026 (§11 World-Class Shared Components Sprint 1)*

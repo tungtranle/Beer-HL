@@ -6,7 +6,9 @@ import { useSearchParams } from 'next/navigation'
 import { apiFetch, getUser } from '@/lib/api'
 import { orderStatusLabels, orderStatusColors, formatVND } from '@/lib/status-config'
 import { StatusChip } from '@/components/ui/StatusChip'
+import { Pagination } from '@/components/ui/Pagination'
 import { toast } from '@/lib/useToast'
+import { handleError } from '@/lib/handleError'
 import { useDataRefresh } from '@/lib/notifications'
 
 interface Order {
@@ -26,6 +28,7 @@ interface Order {
   trip_id?: string
   vehicle_plate?: string
   driver_name?: string
+  is_urgent?: boolean
 }
 
 interface ControlDeskStats {
@@ -59,10 +62,17 @@ export default function OrdersPage() {
   const [isSearching, setIsSearching] = useState(false)
   const searchParams = useSearchParams()
   const [statusFilter, setStatusFilter] = useState(searchParams.get('status') || '')
+  const [deliveryDate, setDeliveryDate] = useState(searchParams.get('delivery_date') || '')
+  const [cutoffGroup, setCutoffGroup] = useState(searchParams.get('cutoff_group') || '')
+  const [page, setPage] = useState(1)
+  const [limit, setLimit] = useState(20)
+  const [totalRows, setTotalRows] = useState(0)
   const [viewTab, setViewTab] = useState<ViewTab>('all')
   const [sidebarCustomer, setSidebarCustomer] = useState<any>(null)
   const [sidebarOrders, setSidebarOrders] = useState<Order[]>([])
   const [sidebarLoading, setSidebarLoading] = useState(false)
+  const [sidebarHealth, setSidebarHealth] = useState<any>(null)
+  const [sidebarForecast, setSidebarForecast] = useState<any[]>([])
   const [showImportModal, setShowImportModal] = useState(false)
   const [importFile, setImportFile] = useState<File | null>(null)
   const [importing, setImporting] = useState(false)
@@ -140,7 +150,7 @@ export default function OrdersPage() {
       const res: any = await apiFetch('/orders/control-desk/stats')
       setStats(res.data)
     } catch (err) {
-      console.error('Failed to load stats:', err)
+      handleError(err, { userMessage: 'Không tải được thống kê đơn hàng' })
     }
   }
 
@@ -152,11 +162,15 @@ export default function OrdersPage() {
     try {
       const params = new URLSearchParams()
       if (statusFilter) params.set('status', statusFilter)
-      params.set('limit', '50')
+      if (deliveryDate) params.set('delivery_date', deliveryDate)
+      if (cutoffGroup) params.set('cutoff_group', cutoffGroup)
+      params.set('page', String(page))
+      params.set('limit', String(limit))
       const res: any = await apiFetch(`/orders?${params}`)
       setOrders(res.data || [])
+      setTotalRows(res.meta?.total ?? (res.data?.length || 0))
     } catch (err) {
-      console.error(err)
+      handleError(err, { userMessage: 'Không tải được danh sách đơn' })
     } finally {
       setLoading(false)
     }
@@ -170,7 +184,7 @@ export default function OrdersPage() {
       const res: any = await apiFetch(`/orders/search?q=${encodeURIComponent(q)}&limit=50`)
       setOrders(res.data || [])
     } catch (err) {
-      console.error(err)
+      handleError(err, { userMessage: 'Tìm kiếm đơn hàng thất bại' })
     } finally {
       setLoading(false)
     }
@@ -184,7 +198,12 @@ export default function OrdersPage() {
     if (!isSearching) {
       loadOrders()
     }
-  }, [statusFilter])
+  }, [statusFilter, deliveryDate, cutoffGroup, page, limit])
+
+  // Reset to first page when filters change
+  useEffect(() => {
+    setPage(1)
+  }, [statusFilter, deliveryDate, cutoffGroup])
 
   useEffect(() => {
     if (!searchQuery) {
@@ -199,6 +218,8 @@ export default function OrdersPage() {
   const openCustomerSidebar = async (customerId: string) => {
     setSidebarLoading(true)
     setSidebarCustomer(null)
+    setSidebarHealth(null)
+    setSidebarForecast([])
     try {
       const [custRes, ordersRes]: any[] = await Promise.all([
         apiFetch(`/customers/${customerId}`),
@@ -206,7 +227,15 @@ export default function OrdersPage() {
       ])
       setSidebarCustomer(custRes.data)
       setSidebarOrders(ordersRes.data || [])
-    } catch (err) { console.error(err) }
+      // F2: NPP Health Score (graceful fail — available after ML service launch)
+      apiFetch<any>(`/customers/${customerId}/health`)
+        .then((r: any) => setSidebarHealth(r.data))
+        .catch(() => {})
+      // F1: Demand Intelligence forecast (graceful fail — available after Demand ML)
+      apiFetch<any>(`/customers/${customerId}/forecast`)
+        .then((r: any) => setSidebarForecast(r.data || []))
+        .catch(() => {})
+    } catch (err) { handleError(err, { userMessage: 'Không tải được chi tiết NPP' }) }
     finally { setSidebarLoading(false) }
   }
 
@@ -354,6 +383,41 @@ export default function OrdersPage() {
           </div>
         )}
 
+        {/* Advanced Filters: delivery date + cutoff group */}
+        {!isSearching && (
+          <div className="flex gap-2 flex-wrap items-center text-xs">
+            <label className="flex items-center gap-1 text-gray-600">
+              Ngày giao
+              <input
+                type="date"
+                value={deliveryDate}
+                onChange={(e) => setDeliveryDate(e.target.value)}
+                className="border border-gray-200 rounded px-2 py-1 text-xs"
+              />
+            </label>
+            <label className="flex items-center gap-1 text-gray-600">
+              Cut-off
+              <select
+                value={cutoffGroup}
+                onChange={(e) => setCutoffGroup(e.target.value)}
+                className="border border-gray-200 rounded px-2 py-1 text-xs bg-white"
+              >
+                <option value="">Tất cả</option>
+                <option value="before_16h">Trước 16h (giao trong ngày)</option>
+                <option value="after_16h">Sau 16h (giao T+1)</option>
+              </select>
+            </label>
+            {(deliveryDate || cutoffGroup) && (
+              <button
+                onClick={() => { setDeliveryDate(''); setCutoffGroup('') }}
+                className="text-brand-600 hover:underline"
+              >
+                Xóa lọc
+              </button>
+            )}
+          </div>
+        )}
+
         {/* View Tabs: All / Exceptions / Re-delivery */}
         <div className="flex gap-1 border-b border-gray-100">
           {([
@@ -417,9 +481,14 @@ export default function OrdersPage() {
               filteredOrders.map((order) => (
                 <tr key={order.id} className="hover:bg-gray-50">
                   <td className="py-3 px-3">
-                    <Link href={`/dashboard/orders/${order.id}`} className="font-mono text-xs text-blue-600 hover:underline">
-                      {order.order_number}
-                    </Link>
+                    <div className="flex items-center gap-1">
+                      {order.is_urgent && (
+                        <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-bold bg-red-100 text-red-700" title="Giao gấp">⚡ Gấp</span>
+                      )}
+                      <Link href={`/dashboard/orders/${order.id}`} className="font-mono text-xs text-blue-600 hover:underline">
+                        {order.order_number}
+                      </Link>
+                    </div>
                   </td>
                   <td className="py-3 px-3">
                     <button onClick={() => openCustomerSidebar(order.customer_id)}
@@ -481,11 +550,21 @@ export default function OrdersPage() {
           </tbody>
         </table>
 
-        {/* Footer count */}
-        {!loading && filteredOrders.length > 0 && (
+        {/* Footer: pagination */}
+        {!loading && totalRows > 0 && !isSearching && (
+          <Pagination
+            page={page}
+            limit={limit}
+            total={totalRows}
+            onPageChange={setPage}
+            onLimitChange={(n) => { setLimit(n); setPage(1) }}
+            className="border-t bg-gray-50"
+          />
+        )}
+        {/* When searching, just show simple count */}
+        {!loading && filteredOrders.length > 0 && isSearching && (
           <div className="px-4 py-2 bg-gray-50 text-xs text-gray-500 border-t">
-            Hiển thị {filteredOrders.length} đơn hàng
-            {stats && <span className="ml-2">• Tổng: {stats.total}</span>}
+            Hiển thị {filteredOrders.length} kết quả tìm kiếm
           </div>
         )}
       </div>
@@ -505,15 +584,53 @@ export default function OrdersPage() {
               </div>
             ) : sidebarCustomer && (
               <div className="p-4 space-y-4">
-                {/* Customer info */}
+                {/* Customer info + Health Score hero */}
                 <div className="space-y-2">
-                  <div className="text-xl font-bold">{sidebarCustomer.name}</div>
-                  <div className="text-sm text-gray-500">{sidebarCustomer.code}</div>
+                  <div className="flex items-start justify-between gap-2">
+                    <div>
+                      <div className="text-xl font-bold">{sidebarCustomer.name}</div>
+                      <div className="text-sm text-gray-500">{sidebarCustomer.code}</div>
+                    </div>
+                    {/* F2: NPP Health Score badge */}
+                    {sidebarHealth ? (
+                      <div className={`flex flex-col items-center px-3 py-1.5 rounded-xl border ${
+                        sidebarHealth.score >= 70 ? 'bg-emerald-50 border-emerald-200' :
+                        sidebarHealth.score >= 40 ? 'bg-amber-50 border-amber-200' :
+                        'bg-red-50 border-red-200'
+                      }`}>
+                        <span className={`text-xl font-bold leading-none ${
+                          sidebarHealth.score >= 70 ? 'text-emerald-700' :
+                          sidebarHealth.score >= 40 ? 'text-amber-700' : 'text-red-700'
+                        }`}>{sidebarHealth.score}</span>
+                        <span className="text-[9px] font-semibold uppercase tracking-wide mt-0.5 text-gray-500">Health</span>
+                      </div>
+                    ) : (
+                      <div className="flex flex-col items-center px-3 py-1.5 rounded-xl border border-dashed border-gray-200 bg-gray-50">
+                        <span className="text-xl leading-none text-gray-300">—</span>
+                        <span className="text-[9px] font-semibold uppercase tracking-wide mt-0.5 text-gray-400">Score</span>
+                      </div>
+                    )}
+                  </div>
                   {sidebarCustomer.phone && <div className="text-sm">📞 {sidebarCustomer.phone}</div>}
                   {sidebarCustomer.address && <div className="text-sm text-gray-600">📍 {sidebarCustomer.address}</div>}
                 </div>
 
-                {/* Credit info */}
+                {/* F2: Churn risk detail */}
+                {sidebarHealth && sidebarHealth.score < 40 && (
+                  <div className="flex items-center gap-2 text-xs text-red-700 bg-red-50 border border-red-200 rounded-lg px-3 py-2">
+                    <span className="text-base">🚨</span>
+                    <div>
+                      <p className="font-semibold">Nguy cơ rời bỏ cao</p>
+                      <p className="text-red-500">{sidebarHealth.recency_days ? `Im lặng ${sidebarHealth.recency_days} ngày — ` : ''}Điểm giảm {sidebarHealth.score_drop_7d || 0} trong 7 ngày</p>
+                    </div>
+                  </div>
+                )}
+                {sidebarHealth && sidebarHealth.score >= 40 && sidebarHealth.score < 70 && (
+                  <div className="flex items-center gap-2 text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
+                    <span className="text-base">⚠️</span>
+                    <p>NPP cần theo dõi — hoạt động giảm so với trung bình</p>
+                  </div>
+                )}
                 {sidebarCustomer.credit_limit != null && (
                   <div className="bg-gray-50 rounded-lg p-3 space-y-2">
                     <h4 className="text-sm font-medium">💰 Hạn mức tín dụng</h4>
@@ -537,6 +654,42 @@ export default function OrdersPage() {
                     </div>
                   </div>
                 )}
+
+                {/* F1: Demand Intelligence */}
+                <div className="rounded-xl border border-gray-100 overflow-hidden">
+                  <div className="flex items-center justify-between px-3 py-2 bg-gradient-to-r from-blue-50 to-indigo-50 border-b border-gray-100">
+                    <div className="flex items-center gap-1.5 text-xs font-semibold text-blue-700">
+                      <span>🔮</span> Dự báo nhu cầu tuần tới
+                    </div>
+                    {sidebarForecast.length === 0 && (
+                      <span className="text-[10px] text-blue-400 bg-blue-100 px-1.5 py-0.5 rounded-full">Sắp ra mắt</span>
+                    )}
+                  </div>
+                  {sidebarForecast.length > 0 ? (
+                    <div className="divide-y divide-gray-50">
+                      {sidebarForecast.map((item: any) => (
+                        <div key={item.sku_id} className="flex items-center justify-between px-3 py-2">
+                          <span className="text-xs text-gray-700 truncate flex-1 pr-2">{item.sku_name}</span>
+                          <div className="flex items-center gap-1.5 shrink-0">
+                            <span className="text-xs font-bold text-brand-600">~{item.predicted_qty} {item.unit}</span>
+                            {item.delta_pct !== undefined && (
+                              <span className={`text-[10px] font-semibold px-1 rounded ${
+                                item.delta_pct > 0 ? 'text-emerald-700 bg-emerald-50' : 'text-red-600 bg-red-50'
+                              }`}>
+                                {item.delta_pct > 0 ? '↑' : '↓'}{Math.abs(item.delta_pct)}%
+                              </span>
+                            )}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <div className="px-3 py-4 text-center text-xs text-gray-400 space-y-1">
+                      <p>Demand AI đang học từ lịch sử đơn hàng</p>
+                      <p className="text-[10px] text-gray-300">Sẽ hiển thị sau khi module AI Demand khởi động</p>
+                    </div>
+                  )}
+                </div>
 
                 {/* Order history */}
                 <div>

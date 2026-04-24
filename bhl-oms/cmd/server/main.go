@@ -11,12 +11,16 @@ import (
 	"bhl-oms/internal/admin"
 	"bhl-oms/internal/auth"
 
+	"bhl-oms/internal/ai"
+	"bhl-oms/internal/anomaly"
 	"bhl-oms/internal/config"
 	"bhl-oms/internal/events"
+	"bhl-oms/internal/fleet"
 	"bhl-oms/internal/gps"
 	"bhl-oms/internal/integration"
 	"bhl-oms/internal/kpi"
 	"bhl-oms/internal/middleware"
+	"bhl-oms/internal/mlfeatures"
 	"bhl-oms/internal/notification"
 	"bhl-oms/internal/oms"
 	"bhl-oms/internal/reconciliation"
@@ -210,6 +214,37 @@ func main() {
 	go kpiSvc.RunDailySnapshotCron(appCtx)
 	appLog.Info(ctx, "kpi_initialized", logger.F("cron", "23:50"))
 
+	// ML Features module (World-Class Strategy F2 NPP Health, F3 Smart Suggestions, F15 Feedback)
+	mlRepo := mlfeatures.NewRepository(pool, appLog)
+	mlSvc := mlfeatures.NewService(mlRepo, appLog)
+	mlHandler := mlfeatures.NewHandler(mlSvc, appLog)
+	mlHandler.RegisterRoutes(protected)
+	appLog.Info(ctx, "ml_features_initialized", logger.F("endpoints", "/v1/ml/*"))
+
+	// F7 GPS Anomaly Detection (Sprint 1 W3)
+	anomalyRepo := anomaly.NewRepository(pool, appLog)
+	anomalySvc := anomaly.NewService(anomalyRepo, appLog)
+	anomalyHandler := anomaly.NewHandler(anomalySvc, appLog)
+	anomalyHandler.RegisterRoutes(protected)
+	gpsHub.SetDetector(anomalySvc)
+	appLog.Info(ctx, "anomaly_initialized", logger.F("endpoints", "/v1/anomalies/*"))
+
+	// AI Intelligence Layer (Sprint 2) — Gemini free → Groq → Mock rules
+	aiProvider := ai.NewDefaultProvider()
+	aiRepo := ai.NewRepository(pool, appLog)
+	aiSvc := ai.NewService(aiRepo, aiProvider, appLog)
+	aiHandler := ai.NewHandler(aiSvc, appLog)
+	aiHandler.RegisterRoutes(protected)
+	go aiSvc.RunDailyBriefingCron(appCtx)
+	appLog.Info(ctx, "ai_initialized", logger.F("provider", aiProvider.Name()))
+
+	// Fleet & Driver Management (Phase 8)
+	fleetRepo := fleet.NewRepository(pool, appLog)
+	fleetSvc := fleet.NewService(fleetRepo, appLog)
+	fleetHandler := fleet.NewHandler(fleetSvc, appLog)
+	fleetHandler.RegisterRoutes(protected)
+	appLog.Info(ctx, "fleet_module_initialized")
+
 	// Integration adapters (Task 3.1-3.5)
 	bravoAdapter := integration.NewBravoAdapter(cfg.BravoURL, cfg.BravoAPIKey, cfg.IntegrationMock, appLog)
 	dmsAdapter := integration.NewDMSAdapter(cfg.DMSURL, cfg.DMSAPIKey, cfg.IntegrationMock, appLog)
@@ -274,7 +309,7 @@ func main() {
 
 	// Test Portal — QA/testing module (no auth, guarded by ENABLE_TEST_PORTAL env)
 	if cfg.EnableTestPortal {
-		testPortalHandler := testportal.NewHandler(pool, rdb, appLog)
+		testPortalHandler := testportal.NewHandler(pool, rdb, appLog, cfg.OSRMURL)
 		testPortalHandler.RegisterRoutes(v1)
 		appLog.Info(ctx, "test_portal_initialized")
 	} else {

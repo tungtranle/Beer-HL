@@ -72,6 +72,7 @@ func (h *Handler) ListScenarios(c *gin.Context) {
 		scenarioVRPStress(),
 		scenarioRealJune13(),
 		scenarioControlTower(),
+		scenarioOpsAuditRegression(),
 	}
 	response.OK(c, scenarios)
 }
@@ -128,6 +129,8 @@ func (h *Handler) LoadScenario(c *gin.Context) {
 		loadErr, summary = h.loadScenarioRealJune13(ctx)
 	case "SC-11":
 		loadErr, summary = h.loadScenarioControlTower(ctx)
+	case "SC-12":
+		loadErr, summary = h.loadScenarioOpsAuditRegression(ctx)
 	default:
 		response.BadRequest(c, "Scenario không tồn tại: "+req.ScenarioID)
 		return
@@ -1359,7 +1362,7 @@ func scenarioRealJune13() ScenarioMeta {
 			"27 NPP giao đi 10+ tỉnh: QN, HP, HD, BG, TB, NĐ, BN, TN, HN...",
 		Roles:       []string{"dispatcher"},
 		DataSummary: "105 đơn confirmed (~156 shipments ≤7.5T), 27 NPP, kho WH-HL. Tổng ~736 tấn.",
-		GPSScenario: "normal_delivery",
+		GPSScenario: "from_active_trips",
 		Steps: []ScenarioStep{
 			{Role: "dispatcher", Page: "/dashboard/planning", Action: "Vào Lập kế hoạch → Chọn kho WH-HL, ngày hôm nay", Expected: "~156 shipments pending, tổng ~736 tấn"},
 			{Role: "dispatcher", Page: "/dashboard/planning", Action: "Chọn tất cả xe (67 xe: 47×8T, 10×3.5T, 10×15T) → Chạy VRP", Expected: "VRP xếp hết hoặc gần hết, tối ưu quãng đường"},
@@ -1632,7 +1635,7 @@ func scenarioControlTower() ScenarioMeta {
 			"Test bản đồ, route visualization, stop markers, exception alerts, move stops, cancel trip.",
 		Roles:       []string{"dispatcher", "admin"},
 		DataSummary: "8 chuyến xe, 30 điểm giao, 7 xe GPS online, 7 tuyến thực tế từ WH-HL, 3 exceptions (1 P0 + 2 P1).",
-		GPSScenario: "normal_delivery",
+		GPSScenario: "from_active_trips",
 		Steps: []ScenarioStep{
 			{Role: "dispatcher", Page: "/dashboard/control-tower", Action: "Vào Trung tâm điều phối", Expected: "8 chuyến hiện trong trip list, metric cards cập nhật"},
 			{Role: "dispatcher", Page: "/dashboard/control-tower", Action: "Click 1 chuyến in_transit → xem route trên bản đồ", Expected: "Polyline route + stop markers hiện trên map, xe flyTo"},
@@ -1917,6 +1920,258 @@ func (h *Handler) loadScenarioControlTower(ctx context.Context) (error, string) 
 		"• ~30 điểm giao theo 7 cụm tuyến thực tế từ WH-HL đi Hạ Long–Quảng Yên–Uông Bí–Đông Triều–Cẩm Phả\n" +
 		"• 7 xe GPS online cho 7 chuyến active; 1 chuyến completed giữ lại để test lịch sử\n" +
 		"• 3 exceptions (1 P0 failed_stop, 1 P1 late_eta, 1 P1 idle_vehicle)\n" +
-		"• Bật GPS giả lập từ Control Tower hoặc Test Portal → GPS tab\n\n" +
+		"• Bật GPS giả lập từ Control Tower hoặc Test Portal → GPS tab → chọn from_active_trips\n\n" +
 		"Đăng nhập dispatcher01/demo123 → Trung tâm điều phối."
+}
+
+// ── SC-12: Ops & Audit Regression ──
+
+func scenarioOpsAuditRegression() ScenarioMeta {
+	return ScenarioMeta{
+		ID:          "SC-12",
+		Title:       "Ops & Audit Regression — Timeline, DLQ, Recon, KPI",
+		Category:    "E2E",
+		Description: "Bộ dữ liệu regression cho các vùng ít được bao phủ bởi Test Portal cũ: order timeline/notes, giao bổ sung, integration DLQ, sai lệch đối soát và KPI snapshot.",
+		Roles:       []string{"admin", "dispatcher", "accountant", "management"},
+		DataSummary: "3 đơn hàng nhiều trạng thái, 1 chuyến completed, 3 DLQ entries, 2 discrepancies, 1 daily close, 1 KPI snapshot.",
+		PreviewData: []ScenarioDataPoint{
+			{Label: "OMS", Value: "1 đơn confirmed, 1 đơn partially_delivered có re-delivery, 1 đơn cancelled + timeline + notes"},
+			{Label: "Integration", Value: "3 bản ghi DLQ: pending, retrying, failed"},
+			{Label: "Reconciliation", Value: "1 trip completed, 2 discrepancy (open + resolved)"},
+			{Label: "KPI", Value: "1 daily KPI snapshot + 1 daily close summary cho WH-HL"},
+			{Label: "Tab nên mở", Value: "Ops & Audit + Orders + GPS (nếu cần soi trips thực)"},
+		},
+		Steps: []ScenarioStep{
+			{Role: "dispatcher", Page: "/test-portal → Ops & Audit", Action: "Chọn đơn PART-OPS-* để xem timeline và note ghim", Expected: "Thấy order.created, order.status_changed, order.redelivery_created và 2 notes"},
+			{Role: "admin", Page: "/test-portal → Ops & Audit", Action: "Kiểm tra khối Integration DLQ", Expected: "Có đủ bản ghi pending/retrying/failed với retry_count đúng"},
+			{Role: "accountant", Page: "/test-portal → Ops & Audit", Action: "Kiểm tra discrepancies và daily close", Expected: "1 open discrepancy, 1 resolved discrepancy, summary close ngày hiện tại"},
+			{Role: "management", Page: "/test-portal → Ops & Audit", Action: "Kiểm tra KPI snapshot và số đơn issue/cancel/redelivery", Expected: "KPI cards và snapshot khớp với data scenario"},
+		},
+	}
+}
+
+func (h *Handler) loadScenarioOpsAuditRegression(ctx context.Context) (error, string) {
+	tx, err := h.db.Begin(ctx)
+	if err != nil {
+		return err, ""
+	}
+	defer tx.Rollback(ctx)
+
+	if _, err := tx.Exec(ctx, `UPDATE stock_quants SET quantity = 500000, reserved_qty = 0`); err != nil {
+		return fmt.Errorf("boost_stock: %w", err), ""
+	}
+
+	var whHL, dvkhUser, accountantUser string
+	if err := tx.QueryRow(ctx, `SELECT id::text FROM warehouses WHERE code = 'WH-HL'`).Scan(&whHL); err != nil {
+		return fmt.Errorf("wh_hl: %w", err), ""
+	}
+	if err := tx.QueryRow(ctx, `SELECT id::text FROM users WHERE role::text = 'dvkh' LIMIT 1`).Scan(&dvkhUser); err != nil {
+		return fmt.Errorf("dvkh_user: %w", err), ""
+	}
+	if err := tx.QueryRow(ctx, `SELECT id::text FROM users WHERE role::text = 'accountant' LIMIT 1`).Scan(&accountantUser); err != nil {
+		return fmt.Errorf("accountant_user: %w", err), ""
+	}
+
+	type opsOrder struct {
+		customerOffset  int
+		numberPrefix    string
+		status          string
+		sku             string
+		qty             int
+		totalAmount     int
+		weightKg        int
+		reDeliveryCount int
+	}
+
+	orders := []opsOrder{
+		{0, "OPS-CFM", "confirmed", "BHL-LON-330", 60, 11100000, 510, 0},
+		{1, "OPS-PART", "partially_delivered", "BHL-CHAI-450", 40, 10000000, 560, 1},
+		{2, "OPS-CAN", "cancelled", "NGK-CHANH-330", 30, 5400000, 756, 0},
+	}
+
+	orderIDs := make([]string, 0, len(orders))
+	for i, o := range orders {
+		seq := fmt.Sprintf("%03d", i+1)
+		var orderID string
+		orderSQL := fmt.Sprintf(`
+		INSERT INTO sales_orders (id, order_number, customer_id, warehouse_id, status, delivery_date,
+		  total_amount, deposit_amount, total_weight_kg, total_volume_m3, created_by, atp_status, credit_status, re_delivery_count)
+		SELECT gen_random_uuid(),
+		  '%s-' || TO_CHAR(CURRENT_DATE, 'YYYYMMDD') || '-%s',
+		  c.id, '%s', '%s', CURRENT_DATE,
+		  %d, 0, %d, 1.5, '%s', 'passed', 'passed', %d
+		FROM customers c ORDER BY c.code LIMIT 1 OFFSET %d
+		RETURNING id::text`, o.numberPrefix, seq, whHL, o.status, o.totalAmount, o.weightKg, dvkhUser, o.reDeliveryCount, o.customerOffset)
+		if err := tx.QueryRow(ctx, orderSQL).Scan(&orderID); err != nil {
+			return fmt.Errorf("ops_order_%d: %w", i, err), ""
+		}
+		orderIDs = append(orderIDs, orderID)
+
+		itemSQL := fmt.Sprintf(`
+		INSERT INTO order_items (order_id, product_id, quantity, unit_price, amount)
+		SELECT '%s', id, %d, price, price * %d FROM products WHERE sku = '%s'`, orderID, o.qty, o.qty, o.sku)
+		if _, err := tx.Exec(ctx, itemSQL); err != nil {
+			return fmt.Errorf("ops_item_%d: %w", i, err), ""
+		}
+
+		shipSQL := fmt.Sprintf(`
+		INSERT INTO shipments (shipment_number, order_id, customer_id, warehouse_id, status,
+		  delivery_date, total_weight_kg, total_volume_m3)
+		SELECT 'SHP-OPS-' || TO_CHAR(CURRENT_DATE, 'YYYYMMDD') || '-%03d',
+		  '%s', customer_id, warehouse_id,
+		  CASE WHEN status::text = 'cancelled' THEN 'cancelled'::shipment_status ELSE 'pending'::shipment_status END,
+		  CURRENT_DATE, total_weight_kg, total_volume_m3
+		FROM sales_orders WHERE id = '%s'`, i+1, orderID, orderID)
+		if _, err := tx.Exec(ctx, shipSQL); err != nil {
+			return fmt.Errorf("ops_ship_%d: %w", i, err), ""
+		}
+	}
+
+	var tripID string
+	tripSQL := fmt.Sprintf(`
+	INSERT INTO trips (id, trip_number, vehicle_id, driver_id, warehouse_id,
+	  status, planned_date, total_stops, total_distance_km, total_weight_kg, started_at, completed_at)
+	SELECT gen_random_uuid(),
+	  'TR-OPS-' || TO_CHAR(CURRENT_DATE, 'YYYYMMDD') || '-001',
+	  v.id, d.id, '%s', 'completed'::trip_status, CURRENT_DATE, 2, 84, 1070,
+	  NOW() - INTERVAL '5 hours', NOW() - INTERVAL '1 hour'
+	FROM (SELECT id FROM vehicles WHERE status::text = 'active' ORDER BY plate_number LIMIT 1) v,
+	     (SELECT id FROM drivers WHERE status::text = 'active' ORDER BY id LIMIT 1) d
+	RETURNING id::text`, whHL)
+	if err := tx.QueryRow(ctx, tripSQL).Scan(&tripID); err != nil {
+		return fmt.Errorf("ops_trip: %w", err), ""
+	}
+
+	for idx, orderID := range orderIDs[:2] {
+		stopStatus := "delivered"
+		if idx == 1 {
+			stopStatus = "partially_delivered"
+		}
+		stopSQL := fmt.Sprintf(`
+		INSERT INTO trip_stops (trip_id, shipment_id, customer_id, stop_order, status,
+		  estimated_arrival, estimated_departure, actual_arrival, actual_departure)
+		SELECT '%s', s.id, s.customer_id, %d, '%s'::stop_status,
+		  NOW() - INTERVAL '%d hours', NOW() - INTERVAL '%d hours' + INTERVAL '20 minutes',
+		  NOW() - INTERVAL '%d hours', NOW() - INTERVAL '%d hours' + INTERVAL '18 minutes'
+		FROM shipments s WHERE s.order_id = '%s' LIMIT 1`, tripID, idx+1, stopStatus, 4-idx, 4-idx, 4-idx, 4-idx, orderID)
+		if _, err := tx.Exec(ctx, stopSQL); err != nil {
+			return fmt.Errorf("ops_stop_%d: %w", idx, err), ""
+		}
+	}
+
+	for _, stmt := range []string{
+		fmt.Sprintf(`INSERT INTO entity_events (entity_type, entity_id, event_type, actor_type, actor_name, title, detail, created_at)
+		VALUES ('order', '%s', 'order.created', 'user', 'DVKH Test', 'Tạo đơn test regression', '{"source":"SC-12"}', NOW() - INTERVAL '6 hours')`, orderIDs[1]),
+		fmt.Sprintf(`INSERT INTO entity_events (entity_type, entity_id, event_type, actor_type, actor_name, title, detail, created_at)
+		VALUES ('order', '%s', 'order.confirmed_by_customer', 'customer', 'NPP Test', 'Khách hàng xác nhận đơn', '{"channel":"zalo"}', NOW() - INTERVAL '5 hours')`, orderIDs[1]),
+		fmt.Sprintf(`INSERT INTO entity_events (entity_type, entity_id, event_type, actor_type, actor_name, title, detail, created_at)
+		VALUES ('order', '%s', 'order.status_changed', 'system', 'TMS', 'Đơn chuyển giao một phần', '{"from":"in_transit","to":"partially_delivered"}', NOW() - INTERVAL '2 hours')`, orderIDs[1]),
+		fmt.Sprintf(`INSERT INTO entity_events (entity_type, entity_id, event_type, actor_type, actor_name, title, detail, created_at)
+		VALUES ('order', '%s', 'order.redelivery_created', 'user', 'Điều phối', 'Tạo chuyến giao bổ sung', '{"attempt":2}', NOW() - INTERVAL '90 minutes')`, orderIDs[1]),
+	} {
+		if _, err := tx.Exec(ctx, stmt); err != nil {
+			return fmt.Errorf("ops_events: %w", err), ""
+		}
+	}
+
+	for _, stmt := range []string{
+		fmt.Sprintf(`INSERT INTO order_notes (order_id, user_id, user_name, content, note_type, is_pinned, created_at)
+		VALUES ('%s', '%s', 'Kế toán test', 'Đã kiểm tra công nợ, cho phép theo dõi giao bổ sung.', 'internal', true, NOW() - INTERVAL '80 minutes')`, orderIDs[1], accountantUser),
+		fmt.Sprintf(`INSERT INTO order_notes (order_id, user_id, user_name, content, note_type, is_pinned, created_at)
+		VALUES ('%s', '%s', 'Điều phối test', 'Khách còn thiếu 5 két, chờ chuyến bổ sung cuối ngày.', 'driver_note', false, NOW() - INTERVAL '70 minutes')`, orderIDs[1], dvkhUser),
+	} {
+		if _, err := tx.Exec(ctx, stmt); err != nil {
+			return fmt.Errorf("ops_notes: %w", err), ""
+		}
+	}
+
+	for i, stmt := range []string{
+		fmt.Sprintf(`INSERT INTO integration_dlq (adapter, operation, payload, error_message, retry_count, max_retries, status, reference_type, reference_id, next_retry_at)
+		VALUES ('bravo', 'push_document', '{"order":"%s"}', 'HTTP 502 từ mock Bravo', 0, 3, 'pending', 'order', '%s', NOW() + INTERVAL '5 minutes')`, orderIDs[0], orderIDs[0]),
+		fmt.Sprintf(`INSERT INTO integration_dlq (adapter, operation, payload, error_message, retry_count, max_retries, status, reference_type, reference_id, next_retry_at)
+		VALUES ('dms', 'sync_order', '{"order":"%s"}', 'Timeout khi đồng bộ trạng thái', 2, 3, 'retrying', 'order', '%s', NOW() + INTERVAL '2 minutes')`, orderIDs[1], orderIDs[1]),
+		fmt.Sprintf(`INSERT INTO integration_dlq (adapter, operation, payload, error_message, retry_count, max_retries, status, reference_type, reference_id)
+		VALUES ('zalo', 'send_zns', '{"order":"%s"}', 'Template ID không hợp lệ', 3, 3, 'failed', 'order', '%s')`, orderIDs[2], orderIDs[2]),
+	} {
+		if _, err := tx.Exec(ctx, stmt); err != nil {
+			return fmt.Errorf("ops_dlq_%d: %w", i, err), ""
+		}
+	}
+
+	var reconID string
+	if err := tx.QueryRow(ctx, fmt.Sprintf(`
+		INSERT INTO reconciliations (id, trip_id, recon_type, status, expected_value, actual_value, variance, reconciled_by, reconciled_at)
+		VALUES (gen_random_uuid(), '%s', 'goods', 'discrepancy', 100, 92, -8, '%s', NOW() - INTERVAL '50 minutes')
+		RETURNING id::text`, tripID, accountantUser)).Scan(&reconID); err != nil {
+		return fmt.Errorf("ops_recon: %w", err), ""
+	}
+
+	if _, err := tx.Exec(ctx, fmt.Sprintf(`
+		INSERT INTO discrepancies (recon_id, trip_id, disc_type, status, description, expected_value, actual_value, variance, deadline)
+		VALUES ('%s', '%s', 'goods', 'open', 'Thiếu hàng sau giao bổ sung, cần xác minh lại', 100, 92, -8, NOW() + INTERVAL '1 day')`, reconID, tripID)); err != nil {
+		return fmt.Errorf("ops_disc_open: %w", err), ""
+	}
+	if _, err := tx.Exec(ctx, fmt.Sprintf(`
+		INSERT INTO discrepancies (recon_id, trip_id, disc_type, status, description, expected_value, actual_value, variance, resolution, resolved_at, resolved_by)
+		VALUES ('%s', '%s', 'payment', 'resolved', 'Khách chuyển khoản thiếu mã tham chiếu', 10000000, 10000000, 0, 'Đã đối chiếu sao kê và chốt', NOW() - INTERVAL '30 minutes', '%s')`, reconID, tripID, accountantUser)); err != nil {
+		return fmt.Errorf("ops_disc_resolved: %w", err), ""
+	}
+
+	if _, err := tx.Exec(ctx, fmt.Sprintf(`
+		INSERT INTO daily_close_summaries (close_date, warehouse_id, total_trips, completed_trips, total_stops, delivered_stops, failed_stops,
+		  total_revenue, total_collected, total_outstanding, total_returns_good, total_returns_damaged,
+		  total_discrepancies, resolved_discrepancies, summary)
+		VALUES (CURRENT_DATE, '%s', 1, 1, 2, 1, 1, 26500000, 16500000, 10000000, 8, 1, 2, 1,
+		  '{"scenario":"SC-12","note":"Regression ops close"}')
+		ON CONFLICT (close_date, warehouse_id) DO UPDATE SET
+		  total_trips = EXCLUDED.total_trips,
+		  completed_trips = EXCLUDED.completed_trips,
+		  total_stops = EXCLUDED.total_stops,
+		  delivered_stops = EXCLUDED.delivered_stops,
+		  failed_stops = EXCLUDED.failed_stops,
+		  total_revenue = EXCLUDED.total_revenue,
+		  total_collected = EXCLUDED.total_collected,
+		  total_outstanding = EXCLUDED.total_outstanding,
+		  total_returns_good = EXCLUDED.total_returns_good,
+		  total_returns_damaged = EXCLUDED.total_returns_damaged,
+		  total_discrepancies = EXCLUDED.total_discrepancies,
+		  resolved_discrepancies = EXCLUDED.resolved_discrepancies,
+		  summary = EXCLUDED.summary`, whHL)); err != nil {
+		return fmt.Errorf("ops_daily_close: %w", err), ""
+	}
+
+	if _, err := tx.Exec(ctx, fmt.Sprintf(`
+		INSERT INTO daily_kpi_snapshots (snapshot_date, warehouse_id, otd_rate, delivery_success_rate, total_orders,
+		  delivered_orders, failed_orders, avg_vehicle_utilization, total_trips, total_distance_km,
+		  total_revenue, total_collected, outstanding_receivable, recon_match_rate, total_discrepancies, details)
+		VALUES (CURRENT_DATE, '%s', 88.50, 66.67, 3, 1, 1, 72.0, 1, 84,
+		  26500000, 16500000, 10000000, 50.0, 2, '{"scenario":"SC-12","focus":"ops-audit"}')
+		ON CONFLICT (snapshot_date, warehouse_id) DO UPDATE SET
+		  otd_rate = EXCLUDED.otd_rate,
+		  delivery_success_rate = EXCLUDED.delivery_success_rate,
+		  total_orders = EXCLUDED.total_orders,
+		  delivered_orders = EXCLUDED.delivered_orders,
+		  failed_orders = EXCLUDED.failed_orders,
+		  avg_vehicle_utilization = EXCLUDED.avg_vehicle_utilization,
+		  total_trips = EXCLUDED.total_trips,
+		  total_distance_km = EXCLUDED.total_distance_km,
+		  total_revenue = EXCLUDED.total_revenue,
+		  total_collected = EXCLUDED.total_collected,
+		  outstanding_receivable = EXCLUDED.outstanding_receivable,
+		  recon_match_rate = EXCLUDED.recon_match_rate,
+		  total_discrepancies = EXCLUDED.total_discrepancies,
+		  details = EXCLUDED.details`, whHL)); err != nil {
+		return fmt.Errorf("ops_kpi_snapshot: %w", err), ""
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return err, ""
+	}
+
+	return nil, "✅ SC-12 Ops & Audit loaded:\n" +
+		"• 3 đơn hàng nhiều trạng thái, gồm 1 đơn partially_delivered có re-delivery count\n" +
+		"• Timeline + 2 notes cho order OPS-PART-*\n" +
+		"• 3 DLQ entries (pending, retrying, failed)\n" +
+		"• 2 discrepancy + 1 daily close + 1 KPI snapshot cho WH-HL\n\n" +
+		"Mở Test Portal → Ops & Audit để kiểm tra regression coverage."
 }

@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react'
 import { apiFetch } from '@/lib/api'
+import { handleError } from '@/lib/handleError'
 
 interface ServiceHealth {
   name: string; status: string; latency_ms: number
@@ -51,7 +52,7 @@ export default function HealthDashboard() {
       setHealth(hRes.data)
       setSlowQueries(sqRes.data || [])
       setLastUpdated(new Date())
-    } catch (err) { console.error(err) }
+    } catch (err) { handleError(err, { userMessage: 'Không tải được health metrics' }) }
     finally { setLoading(false) }
   }
 

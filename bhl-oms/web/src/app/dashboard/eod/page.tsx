@@ -133,8 +133,39 @@ export default function EODReceiverPage() {
 
   // List view
   if (viewMode === 'list') {
+    const eodSteps = [
+      { key: 'container_return', label: 'Nhận vỏ & hàng trả', icon: '📦', role: 'warehouse_handler' },
+      { key: 'cash_handover', label: 'Nhận tiền mặt', icon: '💰', role: 'accountant' },
+      { key: 'vehicle_return', label: 'Nhận xe về kho', icon: '🚛', role: 'dispatcher/admin' },
+    ]
+    const activeStep = eodSteps.findIndex(s => s.key === cpType)
+
     return (
       <div className="p-6 max-w-4xl mx-auto">
+        {/* EOD 3-step progress */}
+        <div className="bg-white rounded-xl shadow-sm px-4 py-3 mb-6">
+          <div className="flex items-center">
+            {eodSteps.map((step, i) => (
+              <div key={step.key} className="flex items-center flex-1">
+                <div className={`flex flex-col items-center gap-1 ${i === activeStep ? 'opacity-100' : 'opacity-40'}`}>
+                  <div className={`w-10 h-10 rounded-full flex items-center justify-center text-lg font-bold border-2 transition ${
+                    i < activeStep ? 'bg-brand-500 border-brand-500 text-white' :
+                    i === activeStep ? 'border-brand-500 bg-brand-50 text-brand-600' :
+                    'border-gray-200 bg-gray-50 text-gray-400'
+                  }`}>
+                    {i < activeStep ? '✓' : step.icon}
+                  </div>
+                  <div className={`text-xs font-medium ${i === activeStep ? 'text-brand-600' : 'text-gray-400'}`}>{step.label}</div>
+                  <div className="text-[10px] text-gray-400">{step.role}</div>
+                </div>
+                {i < eodSteps.length - 1 && (
+                  <div className={`flex-1 h-0.5 mx-2 mb-7 ${i < activeStep ? 'bg-brand-500' : 'bg-gray-200'}`} />
+                )}
+              </div>
+            ))}
+          </div>
+        </div>
+
         <div className="flex items-center gap-3 mb-6">
           <span className="text-3xl">{cpTypeIcons[cpType]}</span>
           <div>

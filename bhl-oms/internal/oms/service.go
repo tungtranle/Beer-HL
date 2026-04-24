@@ -2,10 +2,15 @@ package oms
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
+	"math"
+	"net/http"
+	"sort"
 	"strconv"
 	"time"
 
+	"bhl-oms/internal/config"
 	"bhl-oms/internal/domain"
 	"bhl-oms/internal/events"
 	"bhl-oms/internal/integration"
@@ -74,6 +79,14 @@ func (s *Service) ListCustomers(ctx context.Context) ([]domain.Customer, error) 
 	return s.repo.ListCustomers(ctx)
 }
 
+func (s *Service) ListCustomersFiltered(ctx context.Context, q string, page, limit int) ([]domain.Customer, int64, error) {
+	if page < 1 {
+		page = 1
+	}
+	offset := (page - 1) * limit
+	return s.repo.ListCustomersFiltered(ctx, q, limit, offset)
+}
+
 func (s *Service) GetCustomer(ctx context.Context, id uuid.UUID) (*domain.Customer, error) {
 	return s.repo.GetCustomer(ctx, id)
 }
@@ -102,12 +115,192 @@ func (s *Service) CheckATPBatch(ctx context.Context, warehouseID uuid.UUID, prod
 	return s.repo.GetATPBatch(ctx, warehouseID, productIDs)
 }
 
+// SuggestWarehouses ranks warehouses by OSRM distance + ATP availability for a customer + product list.
+func (s *Service) SuggestWarehouses(ctx context.Context, customerID uuid.UUID, items []OrderItemInput) ([]domain.WarehouseSuggestion, error) {
+	// 1. Get customer location
+	customer, err := s.repo.GetCustomer(ctx, customerID)
+	if err != nil {
+		return nil, fmt.Errorf("không tìm thấy khách hàng: %w", err)
+	}
+	if customer.Latitude == nil || customer.Longitude == nil {
+		return nil, fmt.Errorf("khách hàng chưa có tọa độ")
+	}
+
+	// 2. Get all active warehouses
+	warehouses, err := s.repo.ListActiveWarehouses(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("lỗi lấy danh sách kho: %w", err)
+	}
+	if len(warehouses) == 0 {
+		return nil, fmt.Errorf("không có kho nào hoạt động")
+	}
+
+	// 3. Get product IDs for ATP check
+	productIDs := make([]uuid.UUID, len(items))
+	quantities := make(map[uuid.UUID]int)
+	for i, item := range items {
+		productIDs[i] = item.ProductID
+		quantities[item.ProductID] = item.Quantity
+	}
+
+	// 4. Get OSRM distances from each warehouse to customer
+	distMap := s.getOSRMDistances(warehouses, *customer.Latitude, *customer.Longitude)
+
+	// 5. Score each warehouse
+	var suggestions []domain.WarehouseSuggestion
+	var maxDist float64
+	for _, d := range distMap {
+		if d.Distance > maxDist {
+			maxDist = d.Distance
+		}
+	}
+	if maxDist == 0 {
+		maxDist = 1
+	}
+
+	for _, wh := range warehouses {
+		if wh.Latitude == nil || wh.Longitude == nil {
+			continue
+		}
+
+		suggestion := domain.WarehouseSuggestion{Warehouse: wh}
+
+		// Distance score (0-1, lower distance = higher score)
+		if d, ok := distMap[wh.ID]; ok {
+			suggestion.DistanceKm = math.Round(d.Distance*10) / 10
+			suggestion.DurationMin = math.Round(d.Duration*10) / 10
+		} else {
+			// Fallback: haversine
+			suggestion.DistanceKm = haversineKm(*wh.Latitude, *wh.Longitude, *customer.Latitude, *customer.Longitude)
+			suggestion.DurationMin = suggestion.DistanceKm / 40 * 60 // assume 40km/h avg
+		}
+		distScore := 1.0 - (suggestion.DistanceKm / maxDist)
+
+		// ATP score (fraction of items fully available)
+		atpResults, _ := s.repo.GetATPBatch(ctx, wh.ID, productIDs)
+		atpMap := make(map[uuid.UUID]int)
+		for _, a := range atpResults {
+			atpMap[a.ProductID] = a.ATP
+		}
+		fulfilled := 0
+		for _, item := range items {
+			if atpMap[item.ProductID] >= item.Quantity {
+				fulfilled++
+			}
+		}
+		if len(items) > 0 {
+			suggestion.ATPScore = float64(fulfilled) / float64(len(items))
+		}
+
+		// Weighted score: 60% ATP, 40% distance
+		suggestion.TotalScore = math.Round((0.6*suggestion.ATPScore+0.4*distScore)*100) / 100
+
+		// Human-readable reason
+		if suggestion.ATPScore == 1.0 {
+			suggestion.Reason = fmt.Sprintf("Đủ hàng, cách %.0fkm (~%.0f phút)", suggestion.DistanceKm, suggestion.DurationMin)
+		} else if suggestion.ATPScore > 0 {
+			suggestion.Reason = fmt.Sprintf("Có %d/%d SP, cách %.0fkm", fulfilled, len(items), suggestion.DistanceKm)
+		} else {
+			suggestion.Reason = fmt.Sprintf("Hết hàng, cách %.0fkm", suggestion.DistanceKm)
+		}
+
+		suggestions = append(suggestions, suggestion)
+	}
+
+	// Sort by total score descending
+	sort.Slice(suggestions, func(i, j int) bool {
+		return suggestions[i].TotalScore > suggestions[j].TotalScore
+	})
+
+	return suggestions, nil
+}
+
+type osrmDist struct {
+	Distance float64 // km
+	Duration float64 // min
+}
+
+// getOSRMDistances calls OSRM table API to get distances from each warehouse to customer.
+func (s *Service) getOSRMDistances(warehouses []domain.Warehouse, custLat, custLng float64) map[uuid.UUID]osrmDist {
+	result := make(map[uuid.UUID]osrmDist)
+
+	// Build coordinates: warehouses first, then customer (last index)
+	var validWHs []domain.Warehouse
+	coords := ""
+	for _, wh := range warehouses {
+		if wh.Latitude == nil || wh.Longitude == nil {
+			continue
+		}
+		if coords != "" {
+			coords += ";"
+		}
+		coords += fmt.Sprintf("%f,%f", *wh.Longitude, *wh.Latitude)
+		validWHs = append(validWHs, wh)
+	}
+	if len(validWHs) == 0 {
+		return result
+	}
+	coords += fmt.Sprintf(";%f,%f", custLng, custLat)
+	custIdx := len(validWHs)
+
+	// Call OSRM table API
+	cfg := config.Load()
+	url := fmt.Sprintf("%s/table/v1/driving/%s?sources=0;1;2;3;4;5;6;7;8;9&destinations=%d&annotations=distance,duration",
+		cfg.OSRMURL, coords, custIdx)
+	// Build sources param dynamically
+	sources := ""
+	for i := range validWHs {
+		if i > 0 {
+			sources += ";"
+		}
+		sources += fmt.Sprintf("%d", i)
+	}
+	url = fmt.Sprintf("%s/table/v1/driving/%s?sources=%s&destinations=%d&annotations=distance,duration",
+		cfg.OSRMURL, coords, sources, custIdx)
+
+	resp, err := http.Get(url) //nolint:gosec
+	if err != nil {
+		s.log.Warn(context.Background(), "osrm_table_failed", logger.Field{Key: "error", Value: err.Error()})
+		return result
+	}
+	defer resp.Body.Close()
+
+	var osrmResp struct {
+		Code      string      `json:"code"`
+		Distances [][]float64 `json:"distances"`
+		Durations [][]float64 `json:"durations"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&osrmResp); err != nil || osrmResp.Code != "Ok" {
+		return result
+	}
+
+	for i, wh := range validWHs {
+		if i < len(osrmResp.Distances) && len(osrmResp.Distances[i]) > 0 {
+			result[wh.ID] = osrmDist{
+				Distance: osrmResp.Distances[i][0] / 1000, // meters → km
+				Duration: osrmResp.Durations[i][0] / 60,   // seconds → minutes
+			}
+		}
+	}
+
+	return result
+}
+
+func haversineKm(lat1, lng1, lat2, lng2 float64) float64 {
+	const R = 6371.0
+	dLat := (lat2 - lat1) * math.Pi / 180
+	dLng := (lng2 - lng1) * math.Pi / 180
+	a := math.Sin(dLat/2)*math.Sin(dLat/2) + math.Cos(lat1*math.Pi/180)*math.Cos(lat2*math.Pi/180)*math.Sin(dLng/2)*math.Sin(dLng/2)
+	return R * 2 * math.Atan2(math.Sqrt(a), math.Sqrt(1-a))
+}
+
 type CreateOrderRequest struct {
 	CustomerID   uuid.UUID        `json:"customer_id"`
 	WarehouseID  uuid.UUID        `json:"warehouse_id"`
 	DeliveryDate string           `json:"delivery_date"`
 	TimeWindow   *string          `json:"time_window"`
 	Notes        *string          `json:"notes"`
+	IsUrgent     bool             `json:"is_urgent"`
 	Items        []OrderItemInput `json:"items"`
 }
 
@@ -223,6 +416,7 @@ func (s *Service) CreateOrder(ctx context.Context, req CreateOrderRequest, userI
 		ATPStatus:     atpStatus,
 		CreditStatus:  creditStatus,
 		Notes:         req.Notes,
+		IsUrgent:      req.IsUrgent,
 		CreatedBy:     &userID,
 	}
 

@@ -6,7 +6,7 @@ import { apiFetch, getUser } from '@/lib/api'
 import { toast } from '@/lib/useToast'
 import { formatVND } from '@/lib/status-config'
 import SearchableSelect from '@/lib/SearchableSelect'
-
+import { handleError } from '@/lib/handleError'
 interface Product {
   id: string; sku: string; name: string; price: number; deposit_price: number;
   weight_kg: number; volume_m3: number; unit: string
@@ -82,14 +82,14 @@ export default function EditOrderPage() {
         })
         setItems(mapped)
       })
-      .catch(console.error)
+      .catch(err => handleError(err))
       .finally(() => setLoading(false))
   }, [params.id])
 
   // Load customer credit info
   useEffect(() => {
     if (!customerId) { setCreditInfo(null); return }
-    apiFetch<any>(`/customers/${customerId}`).then((r) => setCreditInfo(r.data)).catch(console.error)
+    apiFetch<any>(`/customers/${customerId}`).then((r) => setCreditInfo(r.data)).catch(err => handleError(err))
   }, [customerId])
 
   // ATP batch check — debounced
@@ -110,7 +110,7 @@ export default function EditOrderPage() {
           for (const a of r.data || []) map[a.product_id] = a
           setAtpResults(map)
         })
-        .catch(console.error)
+        .catch(err => handleError(err, { userMessage: 'Không kiểm tra được tồn kho, vui lòng thử lại' }))
         .finally(() => setAtpLoading(false))
     }, 300)
   }, [])

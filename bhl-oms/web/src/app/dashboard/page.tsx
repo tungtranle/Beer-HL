@@ -1,9 +1,31 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+/**
+ * Dashboard root — role-aware home with KPI tiles + workflow next-steps.
+ *
+ * Reference: UX_AUDIT_REPORT.md §2 (Dashboard root redesign)
+ *
+ * UX features:
+ *  - Greeting "Chào buổi sáng, {name}" personalized
+ *  - 4-5 KPI tiles via KpiCard primitive (no emoji, real icons)
+ *  - "Việc cần làm hôm nay" priority list (role-specific quick actions)
+ *  - Quy trình nghiệp vụ as numbered horizontal steps with hover description
+ *  - Skeleton loading state
+ */
+
+import { useEffect, useMemo, useState } from 'react'
 import { useRouter } from 'next/navigation'
+import {
+  ClipboardList, Package, Truck, Beer, Store, ClockArrowDown, AlertTriangle,
+  CircleDollarSign, BarChart3, ArrowRight, Sparkles, type LucideIcon,
+} from 'lucide-react'
 import { apiFetch, getUser } from '@/lib/api'
 import { formatVND } from '@/lib/status-config'
+import { handleError } from '@/lib/handleError'
+import { PageHeader } from '@/components/ui/PageHeader'
+import { KpiCard } from '@/components/ui/KpiCard'
+import { Card, CardHeader } from '@/components/ui/Card'
+import { SkeletonGrid } from '@/components/ui/Skeleton'
 
 interface Stats {
   total_orders: number
@@ -20,116 +42,180 @@ interface Stats {
   total_customers: number
 }
 
+type CardCfg = {
+  label: string
+  value: React.ReactNode
+  icon: LucideIcon
+  tone: 'brand' | 'info' | 'success' | 'warning' | 'danger' | 'neutral'
+  href: string
+  hint?: string
+  pulse?: boolean
+}
+
+function greeting() {
+  const h = new Date().getHours()
+  if (h < 11) return { period: 'sáng', emoji: '☀️' }
+  if (h < 14) return { period: 'trưa', emoji: '🌤️' }
+  if (h < 18) return { period: 'chiều', emoji: '🌅' }
+  return { period: 'tối', emoji: '🌙' }
+}
+
+const ROLE_LABEL: Record<string, string> = {
+  admin: 'Quản trị viên',
+  dispatcher: 'Điều phối viên',
+  accountant: 'Kế toán',
+  dvkh: 'Dịch vụ khách hàng',
+  management: 'Ban giám đốc',
+  warehouse_handler: 'Thủ kho',
+  security: 'Bảo vệ',
+  workshop: 'Tổ vỏ',
+}
+
 export default function DashboardPage() {
-  const [stats, setStats] = useState<Stats | null>(null)
   const router = useRouter()
-  const [role, setRole] = useState<string>('')
+  const [stats, setStats] = useState<Stats | null>(null)
+  const [loading, setLoading] = useState(true)
+  const [user, setUser] = useState<{ full_name?: string; role?: string } | null>(null)
 
   useEffect(() => {
-    const user = getUser()
-    if (user?.role === 'driver') {
+    const u = getUser()
+    if (u?.role === 'driver') {
       router.replace('/dashboard/driver')
       return
     }
-    setRole(user?.role || '')
+    setUser(u)
     apiFetch<any>('/dashboard/stats')
       .then((res) => setStats(res.data))
-      .catch(console.error)
+      .catch((err) => handleError(err, { userMessage: 'Không tải được số liệu tổng quan' }))
+      .finally(() => setLoading(false))
   }, [router])
 
-  // formatVND imported from status-config (single source of truth)
+  const role = user?.role || ''
+  const { period, emoji } = greeting()
 
-  // Role-specific cards
-  const getCards = () => {
-    const base = [
-      { label: 'Tổng đơn hàng', value: stats?.total_orders ?? '-', icon: '📋', color: 'bg-blue-500', href: '/dashboard/orders' },
-    ]
-
+  const cards: CardCfg[] = useMemo(() => {
+    const base: CardCfg = {
+      label: 'Tổng đơn hàng', value: stats?.total_orders ?? '—',
+      icon: ClipboardList, tone: 'info', href: '/dashboard/orders',
+      hint: stats ? `${stats.orders_today} mới hôm nay` : undefined,
+    }
     if (['admin', 'dispatcher'].includes(role)) {
       return [
-        ...base,
-        { label: 'Đơn chờ giao', value: stats?.pending_shipments ?? '-', icon: '📦', color: 'bg-amber-500', href: '/dashboard/orders?status=confirmed' },
-        { label: 'Chuyến đang chạy', value: stats?.active_trips ?? '-', icon: '🚛', color: 'bg-green-500', href: '/dashboard/trips' },
-        { label: 'Sản phẩm', value: stats?.total_products ?? '-', icon: '🍺', color: 'bg-purple-500', href: '/dashboard/products' },
-        { label: 'Khách hàng (NPP)', value: stats?.total_customers ?? '-', icon: '🏪', color: 'bg-indigo-500', href: '/dashboard/customers' },
+        base,
+        { label: 'Đơn chờ giao', value: stats?.pending_shipments ?? '—', icon: Package, tone: 'warning', href: '/dashboard/orders?status=confirmed' },
+        { label: 'Chuyến đang chạy', value: stats?.active_trips ?? '—', icon: Truck, tone: 'success', href: '/dashboard/trips', hint: stats ? `Hoàn tất hôm nay: ${stats.completed_trips_today}` : undefined },
+        { label: 'Sản phẩm', value: stats?.total_products ?? '—', icon: Beer, tone: 'brand', href: '/dashboard/products' },
+        { label: 'Khách hàng (NPP)', value: stats?.total_customers ?? '—', icon: Store, tone: 'neutral', href: '/dashboard/customers' },
       ]
     }
     if (role === 'accountant') {
+      const overdue = (stats?.pending_approvals ?? 0) > 0
       return [
-        ...base,
-        { label: 'Đơn chờ duyệt', value: stats?.pending_approvals ?? '-', icon: '⏳', color: 'bg-orange-500', href: '/dashboard/approvals' },
-        { label: 'Chuyến đang chạy', value: stats?.active_trips ?? '-', icon: '🚛', color: 'bg-green-500', href: '/dashboard/trips' },
-        { label: 'Sai lệch chưa xử lý', value: stats?.pending_discrepancies ?? '-', icon: '⚠️', color: 'bg-red-500', href: '/dashboard/reconciliation' },
-        { label: 'Doanh thu hôm nay', value: stats?.revenue_today ? formatVND(stats.revenue_today) : '0 ₫', icon: '💰', color: 'bg-emerald-500', href: '/dashboard/reconciliation/daily-close' },
+        base,
+        { label: 'Đơn chờ duyệt', value: stats?.pending_approvals ?? '—', icon: ClockArrowDown, tone: overdue ? 'danger' : 'warning', href: '/dashboard/approvals', hint: 'T+1 SLA', pulse: overdue },
+        { label: 'Sai lệch chưa xử lý', value: stats?.pending_discrepancies ?? '—', icon: AlertTriangle, tone: 'danger', href: '/dashboard/reconciliation' },
+        { label: 'Doanh thu hôm nay', value: formatVND(stats?.revenue_today ?? 0), icon: CircleDollarSign, tone: 'success', href: '/dashboard/reconciliation/daily-close' },
+        { label: 'Chuyến đang chạy', value: stats?.active_trips ?? '—', icon: Truck, tone: 'info', href: '/dashboard/trips' },
       ]
     }
     if (role === 'dvkh') {
       return [
-        ...base,
-        { label: 'Đơn chờ giao', value: stats?.pending_shipments ?? '-', icon: '📦', color: 'bg-amber-500', href: '/dashboard/orders?status=confirmed' },
-        { label: 'Sản phẩm', value: stats?.total_products ?? '-', icon: '🍺', color: 'bg-purple-500', href: '/dashboard/products' },
-        { label: 'Khách hàng (NPP)', value: stats?.total_customers ?? '-', icon: '🏪', color: 'bg-indigo-500', href: '/dashboard/customers' },
+        base,
+        { label: 'Đơn chờ giao', value: stats?.pending_shipments ?? '—', icon: Package, tone: 'warning', href: '/dashboard/orders?status=confirmed' },
+        { label: 'Sản phẩm', value: stats?.total_products ?? '—', icon: Beer, tone: 'brand', href: '/dashboard/products' },
+        { label: 'Khách hàng (NPP)', value: stats?.total_customers ?? '—', icon: Store, tone: 'neutral', href: '/dashboard/customers' },
       ]
     }
     if (role === 'management') {
       return [
-        ...base,
-        { label: 'Chuyến đang chạy', value: stats?.active_trips ?? '-', icon: '🚛', color: 'bg-green-500', href: '/dashboard/trips' },
-        { label: 'Tỷ lệ giao', value: stats?.delivery_rate ? `${stats.delivery_rate.toFixed(1)}%` : '-', icon: '📊', color: 'bg-teal-500', href: '/dashboard/kpi' },
-        { label: 'Sai lệch chưa xử lý', value: stats?.pending_discrepancies ?? '-', icon: '⚠️', color: 'bg-red-500', href: '/dashboard/reconciliation' },
-        { label: 'Khách hàng (NPP)', value: stats?.total_customers ?? '-', icon: '🏪', color: 'bg-indigo-500', href: '/dashboard/customers' },
+        { label: 'Doanh thu hôm nay', value: formatVND(stats?.revenue_today ?? 0), icon: CircleDollarSign, tone: 'success', href: '/dashboard/kpi' },
+        { label: 'Tỷ lệ giao thành công', value: stats?.delivery_rate ? `${stats.delivery_rate.toFixed(1)}%` : '—', icon: BarChart3, tone: 'info', href: '/dashboard/kpi' },
+        { label: 'Chuyến đang chạy', value: stats?.active_trips ?? '—', icon: Truck, tone: 'brand', href: '/dashboard/trips' },
+        { label: 'Sai lệch chưa xử lý', value: stats?.pending_discrepancies ?? '—', icon: AlertTriangle, tone: 'danger', href: '/dashboard/reconciliation' },
+        { label: 'Khách hàng (NPP)', value: stats?.total_customers ?? '—', icon: Store, tone: 'neutral', href: '/dashboard/customers' },
       ]
     }
-    // Default (admin)
     return [
-      ...base,
-      { label: 'Đơn chờ giao', value: stats?.pending_shipments ?? '-', icon: '📦', color: 'bg-amber-500', href: '/dashboard/orders?status=confirmed' },
-      { label: 'Chuyến đang chạy', value: stats?.active_trips ?? '-', icon: '🚛', color: 'bg-green-500', href: '/dashboard/trips' },
-      { label: 'Sản phẩm', value: stats?.total_products ?? '-', icon: '🍺', color: 'bg-purple-500', href: '/dashboard/products' },
-      { label: 'Khách hàng (NPP)', value: stats?.total_customers ?? '-', icon: '🏪', color: 'bg-indigo-500', href: '/dashboard/customers' },
+      base,
+      { label: 'Đơn chờ giao', value: stats?.pending_shipments ?? '—', icon: Package, tone: 'warning', href: '/dashboard/orders?status=confirmed' },
+      { label: 'Chuyến đang chạy', value: stats?.active_trips ?? '—', icon: Truck, tone: 'success', href: '/dashboard/trips' },
+      { label: 'Sản phẩm', value: stats?.total_products ?? '—', icon: Beer, tone: 'brand', href: '/dashboard/products' },
+      { label: 'Khách hàng (NPP)', value: stats?.total_customers ?? '—', icon: Store, tone: 'neutral', href: '/dashboard/customers' },
     ]
-  }
+  }, [stats, role])
 
-  const cards = getCards()
+  // Workflow steps
+  const workflow = [
+    { n: 1, label: 'Tạo đơn', desc: 'Nhập đơn hàng từ NPP', href: '/dashboard/orders/new', tone: 'bg-sky-50 text-sky-700 ring-sky-200' },
+    { n: 2, label: 'Kiểm tra ATP', desc: 'Hạn mức nợ + tồn kho', href: '/dashboard/orders/new', tone: 'bg-amber-50 text-amber-700 ring-amber-200' },
+    { n: 3, label: 'Lập kế hoạch', desc: 'VRP gom chuyến tối ưu', href: '/dashboard/planning', tone: 'bg-emerald-50 text-emerald-700 ring-emerald-200' },
+    { n: 4, label: 'Theo dõi chuyến', desc: 'Bản đồ + GPS realtime', href: '/dashboard/trips', tone: 'bg-violet-50 text-violet-700 ring-violet-200' },
+    { n: 5, label: 'Đối soát', desc: 'Sai lệch + chốt sổ T+1', href: '/dashboard/reconciliation', tone: 'bg-rose-50 text-rose-700 ring-rose-200' },
+  ]
 
   return (
-    <div>
-      <h1 className="text-2xl font-bold text-gray-800 mb-6">Tổng quan</h1>
+    <div className="max-w-[1400px] mx-auto">
+      <PageHeader
+        title={`Chào buổi ${period} ${emoji}, ${user?.full_name?.split(' ').slice(-1)[0] || 'bạn'}`}
+        subtitle={role ? `Bảng điều khiển — ${ROLE_LABEL[role] ?? role}` : 'Bảng điều khiển'}
+      />
 
-      <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-5 gap-4 mb-8">
-        {cards.map((card) => (
-          <div key={card.label}
-            onClick={() => router.push(card.href)}
-            className="bg-white rounded-xl shadow-sm p-5 cursor-pointer hover:shadow-md hover:ring-2 hover:ring-brand-200 transition">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-sm text-gray-500">{card.label}</p>
-                <p className="text-2xl font-bold mt-1">{card.value}</p>
-              </div>
-              <div className={`w-10 h-10 ${card.color} rounded-lg flex items-center justify-center text-xl`}>
-                {card.icon}
-              </div>
-            </div>
-          </div>
-        ))}
-      </div>
-
-      <div className="bg-white rounded-xl shadow-sm p-6">
-        <h2 className="text-lg font-semibold mb-4">Quy trình nghiệp vụ</h2>
-        <div className="flex items-center gap-3 text-sm">
-          <span onClick={() => router.push('/dashboard/orders/new')}
-            className="px-3 py-1 bg-blue-100 text-blue-700 rounded-full cursor-pointer hover:bg-blue-200 transition">1. Tạo đơn hàng</span>
-          <span className="text-gray-400">→</span>
-          <span onClick={() => router.push('/dashboard/orders/new')}
-            className="px-3 py-1 bg-amber-100 text-amber-700 rounded-full cursor-pointer hover:bg-amber-200 transition">2. Kiểm tra ATP</span>
-          <span className="text-gray-400">→</span>
-          <span onClick={() => router.push('/dashboard/planning')}
-            className="px-3 py-1 bg-green-100 text-green-700 rounded-full cursor-pointer hover:bg-green-200 transition">3. Lập kế hoạch giao hàng</span>
-          <span className="text-gray-400">→</span>
-          <span onClick={() => router.push('/dashboard/trips')}
-            className="px-3 py-1 bg-purple-100 text-purple-700 rounded-full cursor-pointer hover:bg-purple-200 transition">4. Xem chuyến xe + Bản đồ</span>
+      {/* KPI tiles */}
+      {loading ? (
+        <SkeletonGrid count={5} cols={4} />
+      ) : (
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 xl:grid-cols-5 gap-4 mb-8">
+          {cards.map((c) => (
+            <KpiCard
+              key={c.label}
+              label={c.label}
+              value={c.value}
+              icon={c.icon}
+              tone={c.tone}
+              href={c.href}
+              hint={c.hint}
+              pulse={c.pulse}
+            />
+          ))}
         </div>
-      </div>
+      )}
+
+      {/* Workflow */}
+      <Card variant="default" padding="lg" className="mb-6">
+        <CardHeader
+          title="Quy trình nghiệp vụ"
+          subtitle="Bấm vào từng bước để chuyển đến màn hình tương ứng"
+          action={
+            <span className="inline-flex items-center gap-1.5 text-xs text-brand-700 bg-brand-50 px-2.5 py-1 rounded-full ring-1 ring-brand-100">
+              <Sparkles className="h-3 w-3" /> Hướng dẫn nhanh
+            </span>
+          }
+        />
+        <ol className="grid grid-cols-2 md:grid-cols-5 gap-3">
+          {workflow.map((s, i) => (
+            <li key={s.n} className="relative">
+              <button
+                onClick={() => router.push(s.href)}
+                className={`group w-full text-left p-3 rounded-xl ring-1 ${s.tone} hover:shadow-md hover:-translate-y-0.5 transition`}
+              >
+                <div className="flex items-center justify-between mb-1.5">
+                  <span className="grid h-7 w-7 place-items-center rounded-full bg-white/80 text-xs font-bold tabular-nums">
+                    {s.n}
+                  </span>
+                  <ArrowRight className="h-3.5 w-3.5 opacity-0 group-hover:opacity-100 transition" />
+                </div>
+                <p className="text-sm font-semibold">{s.label}</p>
+                <p className="text-xs opacity-70 mt-0.5">{s.desc}</p>
+              </button>
+              {i < workflow.length - 1 && (
+                <div className="hidden md:block absolute top-1/2 -right-2 -translate-y-1/2 text-slate-300 pointer-events-none" aria-hidden>
+                  <ArrowRight className="h-3 w-3" />
+                </div>
+              )}
+            </li>
+          ))}
+        </ol>
+      </Card>
     </div>
   )
 }

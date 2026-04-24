@@ -3,6 +3,7 @@
 import { useEffect, useState, useRef } from 'react'
 import { apiFetch, getUser } from '@/lib/api'
 import { toast } from '@/lib/useToast'
+import { handleError } from '@/lib/handleError'
 
 interface OrderNote {
   id: string
@@ -31,7 +32,7 @@ export function OrderNotes({ orderId }: { orderId: string }) {
   const loadNotes = () => {
     apiFetch<any>(`/orders/${orderId}/notes`)
       .then((r) => setNotes(r.data || []))
-      .catch(console.error)
+      .catch(err => handleError(err))
       .finally(() => setLoading(false))
   }
 

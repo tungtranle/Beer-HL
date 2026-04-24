@@ -1,0 +1,262 @@
+# BHL OMS-TMS-WMS — QA Reference Config
+# Mục đích: Single source of truth cho AI đọc khi thực hiện QA tasks
+# Cập nhật: 24/04/2026
+# KHÔNG phải executable — đây là reference document
+
+project:
+  name: "BHL OMS-TMS-WMS"
+  description: "Phân phối bia Hà Nội — 80 users nội bộ, ~1.700 tỷ/năm"
+  go_live: "15/05/2026"
+  stack:
+    backend: "go + gin"
+    frontend: "nextjs 14"
+    db: "postgres:5434"
+    cache: "redis:6379"
+    vrp: "python or-tools:8090"
+    mobile: "pwa (driver app)"
+  code_paths:
+    backend_handlers: "internal/*/handler.go"
+    frontend_pages: "web/src/app/**/page.tsx"
+    tests: "tests/"
+    lib_fe: "web/src/lib/"
+
+# ─────────────────────────────────────────────
+# UTILITIES — phải tồn tại trước khi test
+# ─────────────────────────────────────────────
+utils:
+  money_parse:
+    name: "safeParseVND"
+    path: "web/src/lib/safeParseVND.ts"
+    status: "MISSING — cần tạo (LH-02)"
+    test_cases:
+      - { input: "12,500",     expected: 12500 }
+      - { input: "1.200.000",  expected: 1200000 }
+      - { input: "abc",        expected: 0 }
+      - { input: "",           expected: 0 }
+      - { input: "-100",       expected: error }  # tiền không âm trong nghiệp vụ BHL
+  money_format:
+    name: "formatVND"
+    path: "web/src/lib/status-config.ts"
+    status: "EXISTS — dùng ngay"
+  error_handler:
+    name: "handleError"
+    path: "web/src/lib/handleError.ts"
+    status: "EXISTS — chưa dùng ở ATP/credit (LH-03)"
+  offline_queue:
+    name: "queueOfflineRequest"
+    path: "web/src/lib/useOfflineSync.ts:83"
+    status: "EXISTS — 0 nơi gọi (LH-04)"
+
+# ─────────────────────────────────────────────
+# LỖ HỔNG — fix theo thứ tự severity
+# ─────────────────────────────────────────────
+known_gaps:
+  - id: "LH-03"
+    severity: "CRITICAL"
+    fix_deadline: "hôm nay"
+    description: ".catch(console.error) ở ATP + credit → silent fail"
+    files:
+      - "web/src/app/dashboard/orders/new/page.tsx:~144"
+      - "web/src/app/dashboard/orders/new/page.tsx:~95"
+    verify: "Tắt backend → form tạo đơn show warning + disable Submit"
+
+  - id: "LH-04"
+    severity: "CRITICAL"
+    fix_deadline: "hôm nay"
+    description: "queueOfflineRequest chưa wire vào driver actions"
+    files:
+      - "web/src/app/dashboard/driver/[id]/page.tsx → handleUpdateStop"
+      - "web/src/app/dashboard/driver/[id]/page.tsx → handleSubmitEPOD"
+      - "web/src/app/dashboard/driver/[id]/page.tsx → handlePayment"
+    verify: "Tắt 4G → bấm arrived → bật 4G → DB: stop.status = arrived"
+
+  - id: "LH-02"
+    severity: "HIGH"
+    fix_deadline: "tuần này"
+    description: "parseFloat cho tiền ở 3 file"
+    files:
+      - "web/src/app/dashboard/orders/new/page.tsx:185-194"
+      - "web/src/app/dashboard/products/page.tsx:213-217"
+      - "web/src/app/dashboard/driver/[id]/page.tsx:1181"
+    verify: "Nhập '12,500' → hiển thị 12.500đ, không phải 12đ"
+
+  - id: "LH-01"
+    severity: "MEDIUM"
+    fix_deadline: "trước go-live"
+    description: "Form validation chỉ dùng disabled button — không có Zod"
+
+# ─────────────────────────────────────────────
+# BUSINESS RULES — test bắt buộc
+# ─────────────────────────────────────────────
+business_rules:
+  - id: "R01"
+    name: "Gate check zero tolerance"
+    test_file: "tests/api/business-rules/R01-gate-check-zero-tolerance.bru"
+    scenario: "Submit bàn giao với số thực ≠ số lệnh xuất"
+    assertion: "status_code = 400 + body chứa error mismatch"
+    status: "MISSING"
+
+  - id: "R08"
+    name: "Cutoff 16h"
+    test_file: "tests/api/business-rules/R08-cutoff-16h.bru"
+    scenario: "POST /orders với delivery_date = hôm nay lúc 16:01"
+    assertion: "status_code = 400, body.error = 'cutoff_exceeded'"
+    note: "Timezone: Asia/Ho_Chi_Minh (confirmed từ code oms/service.go)"
+    status: "MISSING"
+
+  - id: "R15"
+    name: "Credit limit block"
+    test_file: "tests/api/business-rules/R15-credit-limit-block.bru"
+    scenario: "NPP outstanding=490M, limit=500M, đặt đơn 15M"
+    assertion: "body.data.status === 'pending_approval' — KHÔNG chỉ check status_code"
+    status: "MISSING"
+
+  - id: "R18"
+    name: "Bàn giao C immutable"
+    test_file: "tests/api/business-rules/R18-handover-c-immutable.bru"
+    scenario: "Biên bản C đã ký → thử PATCH/PUT"
+    assertion: "status_code in [403, 405]"
+    status: "MISSING"
+
+  - id: "C-08"
+    name: "Duplicate submit prevention"
+    test_file: "tests/api/business-rules/C08-duplicate-submit.bru"
+    scenario: "Submit cùng order 2 lần cùng lúc"
+    assertion: "DB: COUNT(orders) = 1, request 2 nhận 409"
+    status: "MISSING"
+
+# ─────────────────────────────────────────────
+# 9 ROLES & TEST ACCOUNTS
+# ─────────────────────────────────────────────
+roles:
+  - { name: "dispatcher",  account: "dispatcher01", password: "demo123",
+      journey: "Tạo đơn → ATP → VRP → duyệt kế hoạch",
+      endpoints: ["POST /orders", "POST /atp/batch", "POST /vrp/solve"] }
+
+  - { name: "driver",      account: "driver70",     password: "demo123",
+      journey: "Start trip → arrived → delivering → delivered → ePOD",
+      endpoints: ["POST /trips/:id/stops/:stopId/update-status", "POST /trips/:id/epod"],
+      special: "Test offline bắt buộc trên điện thoại thật Android" }
+
+  - { name: "warehouse",   account: "thukho_hl01",  password: "demo123",
+      journey: "Picking by vehicle → gate check → confirm",
+      endpoints: ["POST /gate-check", "POST /handover/a"] }
+
+  - { name: "accountant",  account: "accountant01", password: "demo123",
+      journey: "Pending approvals → duyệt đơn → daily close" }
+
+  - { name: "dvkh",        account: "dvkh01",       password: "demo123",
+      journey: "Search order → tạo redelivery" }
+
+  - { name: "security",    account: "baove_hl01",   password: "demo123",
+      journey: "Gate check IN → Gate check OUT" }
+
+  - { name: "management",  account: "pho_gd_kd",    password: "demo123",
+      journey: "KPI dashboard → drill-down" }
+
+  - { name: "admin",       account: "admin",         password: "demo123",
+      journey: "Tạo user → gán role → revoke permission" }
+
+  - { name: "workshop",    account: "TBD",           password: "demo123",
+      journey: "Maintenance log → garage assign" }
+
+synthetic_accounts:
+  # Accounts riêng cho synthetic monitoring — KHÔNG dùng cho data thật
+  dispatcher: "synthetic_dispatcher"
+  driver:     "synthetic_driver"
+  warehouse:  "synthetic_warehouse"
+  warehouse_id: "TBD — cần tạo warehouse riêng không xuất hiện trong báo cáo"
+
+# ─────────────────────────────────────────────
+# CRITICAL ENDPOINTS
+# ─────────────────────────────────────────────
+critical_endpoints:
+  - { method: "POST", path: "/v1/orders",
+      roles: ["dispatcher","admin","dvkh"], financial_impact: true }
+
+  - { method: "POST", path: "/v1/atp/batch",
+      roles: ["dispatcher","admin"], financial_impact: true,
+      note: "Fail mà FE không handle → LH-03" }
+
+  - { method: "POST", path: "/v1/trips/:id/stops/:stopId/update-status",
+      roles: ["driver"], offline_critical: true }
+
+  - { method: "POST", path: "/v1/gate-check",
+      roles: ["warehouse","security","admin"], business_rule: "R01" }
+
+  - { method: "POST", path: "/v1/handover/c/sign",
+      roles: ["warehouse","admin"], business_rule: "R18",
+      note: "Sau khi sign → immutable" }
+
+# ─────────────────────────────────────────────
+# 3 GATES TRƯỚC GO-LIVE
+# ─────────────────────────────────────────────
+gates:
+  A_critical_fixes:
+    description: "Không có lỗ hổng chết người"
+    checks:
+      - "LH-03 fix: tắt BE → form warning + Submit disabled"
+      - "LH-04 fix: offline sync → DB đúng (test thật)"
+      - "LH-02 fix: safeParseVND tồn tại + được import"
+      - "5 business rule tests: 5/5 pass"
+      - "IDOR: driver A không xem được trip driver B"
+
+  B_e2e_journeys:
+    description: "Luồng sinh tiền/hàng chạy được"
+    auto_checks:
+      - "E2E-1: Dispatcher tạo đơn → order trong DB"
+      - "E2E-2: Gate check → handover status đúng"
+      - "E2E-3: Driver giao hàng → stop + trip status đúng"
+    manual_checks:
+      - "👤 Offline test: stop.status = arrived sau sync (người làm)"
+      - "👤 ePOD photo upload trên Android thật (người làm)"
+
+  C_production_ready:
+    description: "Sẵn sàng sau go-live"
+    checks:
+      - "Microsoft Clarity gắn vào web/src/app/layout.tsx"
+      - "Telegram bot alert: fail 2 lần → nhận tin nhắn"
+      - "ENABLE_TEST_PORTAL=false trong .env.production"
+      - "gosec ./... 0 high/critical"
+      - "npm audit --audit-level=high 0 vuln"
+
+# ─────────────────────────────────────────────
+# SYNTHETIC MONITORING (sau go-live)
+# ─────────────────────────────────────────────
+synthetic:
+  frequency: "mỗi 15 phút"
+  tool: "Playwright headless + Windows Task Scheduler"
+  flows:
+    - "API health: Bruno smoke 30 critical endpoints"
+    - "Dispatcher: login → tạo đơn → verify order created"
+    - "Driver: login → update stop → verify DB"
+    - "Warehouse: login → gate check → verify pass"
+  alert:
+    fail_threshold: 2  # lần liên tiếp
+    channel: "Telegram"
+    bot_token: "SET ENV: TELEGRAM_BOT_TOKEN"
+    chat_id: "SET ENV: TELEGRAM_CHAT_ID"
+
+# ─────────────────────────────────────────────
+# LỊCH 4 TUẦN
+# ─────────────────────────────────────────────
+timeline:
+  week_1:  # 24/04–01/05 — "Vá lỗ hổng trước, không làm gì khác"
+    tasks: ["Fix LH-03", "Fix LH-04", "Fix LH-02 (safeParseVND)", "/qa-gen business-rules"]
+    done_when: ["grep .catch(console.error) = 0", "offline test pass", "5 bru tests pass"]
+    hours_estimate: "10-13h"
+
+  week_2:  # 01/05–07/05 — "API contract + RBAC"
+    tasks: ["/qa-gen api-inventory", "/qa-gen api-contract (30 critical)", "/qa-gen rbac-matrix"]
+    done_when: ["30 bru tests có body assertion", "RBAC matrix người có thể giải thích"]
+    hours_estimate: "12-17h"
+
+  week_3:  # 08/05–14/05 — "E2E + Smoke Test Portal"
+    tasks: ["/qa-gen e2e-journeys (3 luồng)", "Test Portal assertion layer", "Clarity gắn"]
+    done_when: ["3 E2E pass headless", "Smoke button 17/17 pass"]
+    hours_estimate: "15-20h"
+
+  week_4:  # 15/05–21/05 — "Chaos + Synthetic + Go-live"
+    tasks: ["/qa-gen chaos (4 scenarios)", "/qa-gen synthetic", "/qa-check --pre-deploy"]
+    done_when: ["3 gates A+B+C xanh", "Telegram alert hoạt động"]
+    hours_estimate: "12-15h"

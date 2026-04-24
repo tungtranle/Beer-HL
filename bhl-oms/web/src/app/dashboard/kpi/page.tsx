@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { apiFetch } from '@/lib/api'
 import { formatVND } from '@/lib/status-config'
+import { handleError } from '@/lib/handleError'
 
 interface KPIReport {
   period: string
@@ -39,7 +40,35 @@ interface CancellationsReport {
   items: CancellationItem[] | null
 }
 
-type Tab = 'overview' | 'issues' | 'cancellations'
+interface RouteStats {
+  route_name: string
+  trip_count: number
+  total_revenue: number
+  total_distance_km: number
+  revenue_per_km: number
+  avg_capacity_util: number
+  failed_deliveries: number
+  on_time_rate: number
+}
+interface RoutePnlReport {
+  routes: RouteStats[]
+  top_route: string
+  worst_route: string
+}
+
+interface KpiInsight {
+  type: 'positive' | 'warning' | 'info'
+  message: string
+}
+interface KpiHero {
+  today_revenue: number
+  yesterday_revenue: number
+  delta_pct: number
+  trend_7d: number[]
+  insights: KpiInsight[]
+}
+
+type Tab = 'overview' | 'issues' | 'cancellations' | 'route_pnl'
 
 export default function KPIDashboardPage() {
   const router = useRouter()
@@ -49,13 +78,19 @@ export default function KPIDashboardPage() {
   const [cancellations, setCancellations] = useState<CancellationsReport | null>(null)
   const [loading, setLoading] = useState(true)
   const [period, setPeriod] = useState('today')
+  const [routePnl, setRoutePnl] = useState<RoutePnlReport | null>(null)
+  const [hero, setHero] = useState<KpiHero | null>(null)
+
+  const loadHero = () => {
+    apiFetch<any>('/kpi/hero').then(r => setHero(r.data)).catch(() => {})
+  }
 
   const loadOverview = async () => {
     setLoading(true)
     try {
       const res: any = await apiFetch(`/kpi/report?period=${period}`)
       setReport(res.data)
-    } catch (err) { console.error(err) }
+    } catch (err) { handleError(err, { userMessage: 'Không tải được báo cáo KPI' }) }
     finally { setLoading(false) }
   }
 
@@ -64,7 +99,7 @@ export default function KPIDashboardPage() {
     try {
       const res: any = await apiFetch('/kpi/issues')
       setIssues(res.data)
-    } catch (err) { console.error(err) }
+    } catch (err) { handleError(err, { userMessage: 'Không tải được danh sách sự cố' }) }
     finally { setLoading(false) }
   }
 
@@ -73,13 +108,23 @@ export default function KPIDashboardPage() {
     try {
       const res: any = await apiFetch('/kpi/cancellations')
       setCancellations(res.data)
-    } catch (err) { console.error(err) }
+    } catch (err) { handleError(err, { userMessage: 'Không tải được đơn hủy/từ chối' }) }
+    finally { setLoading(false) }
+  }
+
+  const loadRoutePnl = async () => {
+    setLoading(true)
+    try {
+      const res: any = await apiFetch(`/kpi/route-pnl?period=${period}`)
+      setRoutePnl(res.data)
+    } catch { setRoutePnl(null) }
     finally { setLoading(false) }
   }
 
   useEffect(() => {
-    if (tab === 'overview') loadOverview()
+    if (tab === 'overview') { loadOverview(); loadHero() }
     else if (tab === 'issues') loadIssues()
+    else if (tab === 'route_pnl') loadRoutePnl()
     else loadCancellations()
   }, [tab, period]) // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -113,6 +158,7 @@ export default function KPIDashboardPage() {
           { value: 'overview' as Tab, label: 'Tổng quan', icon: '📊' },
           { value: 'issues' as Tab, label: 'Có vấn đề', icon: '⚠️' },
           { value: 'cancellations' as Tab, label: 'Hủy / Nợ', icon: '🚫' },
+          { value: 'route_pnl' as Tab, label: 'Tuyến đường P&L', icon: '🗺️' },
         ]).map(t => (
           <button key={t.value} onClick={() => setTab(t.value)}
             className={`px-4 py-2 rounded-md text-sm font-medium transition ${tab === t.value ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}>
@@ -132,6 +178,48 @@ export default function KPIDashboardPage() {
       {/* === Tab: Overview === */}
       {tab === 'overview' && (
         <>
+          {/* Hero metric — Stripe-style big number */}
+          {hero && (
+            <div className="bg-white rounded-xl shadow-sm p-6 mb-5 flex flex-col md:flex-row md:items-center gap-6">
+              <div className="flex-1">
+                <div className="text-xs text-gray-500 uppercase tracking-wide mb-0.5">Doanh thu hôm nay</div>
+                <div className="flex items-end gap-3">
+                  <span className="text-4xl font-bold text-gray-900">{formatVND(hero.today_revenue)}</span>
+                  <span className={`text-sm font-semibold px-2 py-0.5 rounded-md mb-1 ${hero.delta_pct >= 0 ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}`}>
+                    {hero.delta_pct >= 0 ? '▲' : '▼'} {Math.abs(hero.delta_pct).toFixed(1)}% so với hôm qua
+                  </span>
+                </div>
+                <div className="text-xs text-gray-400 mt-0.5">Hôm qua: {formatVND(hero.yesterday_revenue)}</div>
+              </div>
+              {/* Mini sparkline — pure CSS bar chart */}
+              {hero.trend_7d && hero.trend_7d.length > 0 && (
+                <div className="flex items-end gap-1 h-12 shrink-0">
+                  {(() => {
+                    const max = Math.max(...hero.trend_7d, 1)
+                    return hero.trend_7d.map((v, i) => (
+                      <div key={i}
+                        style={{ height: `${Math.max(8, Math.round((v / max) * 48))}px` }}
+                        className={`w-5 rounded-t transition-all ${i === hero.trend_7d.length - 1 ? 'bg-brand-500' : 'bg-gray-200'}`}
+                        title={formatVND(v)}
+                      />
+                    ))
+                  })()}
+                </div>
+              )}
+              {/* Auto-insights */}
+              {hero.insights && hero.insights.length > 0 && (
+                <div className="flex-1 space-y-1.5 border-l pl-5">
+                  {hero.insights.slice(0, 3).map((ins, i) => (
+                    <div key={i} className={`flex items-start gap-2 text-sm px-3 py-1.5 rounded-lg ${ins.type === 'positive' ? 'bg-green-50 text-green-700' : ins.type === 'warning' ? 'bg-amber-50 text-amber-700' : 'bg-blue-50 text-blue-700'}`}>
+                      <span>{ins.type === 'positive' ? '✅' : ins.type === 'warning' ? '⚠️' : 'ℹ️'}</span>
+                      <span>{ins.message}</span>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+
           <div className="flex gap-2 mb-6">
             {[
               { value: 'today', label: 'Hôm nay' },
@@ -287,6 +375,83 @@ export default function KPIDashboardPage() {
             </div>
           </div>
         )
+      )}
+
+      {/* === Tab: Route P&L (F10) === */}
+      {tab === 'route_pnl' && (
+        <>
+          <div className="flex gap-2 mb-6">
+            {[{ value: 'today', label: 'Hôm nay' }, { value: 'week', label: 'Tuần này' }, { value: 'month', label: 'Tháng này' }].map(p => (
+              <button key={p.value} onClick={() => setPeriod(p.value)}
+                className={`px-3 py-1.5 rounded-lg text-sm transition ${period === p.value ? 'bg-brand-500 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}>
+                {p.label}
+              </button>
+            ))}
+          </div>
+          {loading ? <Spinner /> : !routePnl ? (
+            <div className="bg-white rounded-xl shadow-sm p-8 text-center">
+              <div className="text-4xl mb-3">🗺️</div>
+              <p className="text-gray-500 font-medium">Route P&L sắp ra mắt</p>
+              <p className="text-sm text-gray-400 mt-2 max-w-md mx-auto">Tính năng này sẽ hiển thị: doanh thu/km theo từng tuyến, tuyến đang lỗ, hiệu suất tải trọng, và đề xuất tối ưu lộ trình.</p>
+              <div className="mt-4 grid grid-cols-1 md:grid-cols-3 gap-3 max-w-lg mx-auto text-left">
+                <div className="bg-blue-50 rounded-lg p-3"><div className="text-xs font-semibold text-blue-700">💰 Doanh thu/km</div><div className="text-xs text-blue-600 mt-1">So sánh hiệu quả từng tuyến</div></div>
+                <div className="bg-amber-50 rounded-lg p-3"><div className="text-xs font-semibold text-amber-700">📦 Tải trọng TB</div><div className="text-xs text-amber-600 mt-1">% sử dụng thực tế/chuyến</div></div>
+                <div className="bg-red-50 rounded-lg p-3"><div className="text-xs font-semibold text-red-700">⚠️ Tuyến lỗ</div><div className="text-xs text-red-600 mt-1">Tuyến nào cần xem lại?</div></div>
+              </div>
+            </div>
+          ) : (
+            <div className="space-y-4">
+              {routePnl.top_route && (
+                <div className="flex gap-3">
+                  <div className="flex-1 bg-green-50 border border-green-200 rounded-xl p-4">
+                    <div className="text-xs text-green-600 font-semibold uppercase">🏆 Tuyến hiệu quả nhất</div>
+                    <div className="text-lg font-bold text-green-800 mt-1">{routePnl.top_route}</div>
+                  </div>
+                  <div className="flex-1 bg-red-50 border border-red-200 rounded-xl p-4">
+                    <div className="text-xs text-red-600 font-semibold uppercase">⚠️ Tuyến cần cải thiện</div>
+                    <div className="text-lg font-bold text-red-800 mt-1">{routePnl.worst_route}</div>
+                  </div>
+                </div>
+              )}
+              <div className="bg-white rounded-xl shadow-sm overflow-hidden">
+                <table className="w-full text-sm">
+                  <thead className="bg-gray-50">
+                    <tr>
+                      <th className="px-4 py-3 text-left font-medium text-gray-600">Tuyến</th>
+                      <th className="px-4 py-3 text-right font-medium text-gray-600">Chuyến</th>
+                      <th className="px-4 py-3 text-right font-medium text-gray-600">Doanh thu</th>
+                      <th className="px-4 py-3 text-right font-medium text-gray-600">VNĐ/km</th>
+                      <th className="px-4 py-3 text-right font-medium text-gray-600">Tải %</th>
+                      <th className="px-4 py-3 text-right font-medium text-gray-600">OTD %</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-gray-100">
+                    {(routePnl.routes || []).map((r, idx) => (
+                      <tr key={idx} className="hover:bg-gray-50">
+                        <td className="px-4 py-3 font-medium text-gray-800">{r.route_name}</td>
+                        <td className="px-4 py-3 text-right text-gray-600">{r.trip_count}</td>
+                        <td className="px-4 py-3 text-right font-medium text-green-700">{formatVND(r.total_revenue)}</td>
+                        <td className={`px-4 py-3 text-right font-bold ${r.revenue_per_km < 5000 ? 'text-red-600' : 'text-green-700'}`}>
+                          {formatVND(r.revenue_per_km)}
+                        </td>
+                        <td className="px-4 py-3 text-right">
+                          <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${r.avg_capacity_util >= 80 ? 'bg-green-100 text-green-700' : r.avg_capacity_util >= 60 ? 'bg-amber-100 text-amber-700' : 'bg-red-100 text-red-700'}`}>
+                            {r.avg_capacity_util.toFixed(0)}%
+                          </span>
+                        </td>
+                        <td className="px-4 py-3 text-right">
+                          <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${r.on_time_rate >= 90 ? 'bg-green-100 text-green-700' : r.on_time_rate >= 70 ? 'bg-amber-100 text-amber-700' : 'bg-red-100 text-red-700'}`}>
+                            {r.on_time_rate.toFixed(0)}%
+                          </span>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
+        </>
       )}
 
       {/* === Tab: Cancellations === */}

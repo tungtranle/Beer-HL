@@ -1,0 +1,26 @@
+\pset pager off
+\d sales_orders
+\d order_items
+\d shipments
+\d trips
+\d trip_stops
+\d delivery_attempts
+\d payments
+\d epod
+\d driver_checkins
+\d eod_sessions
+\d eod_checkpoints
+\d reconciliations
+\d receivable_ledger
+\d asset_ledger
+\d return_collections
+\d driver_scores
+\d driver_score_snapshots
+\d driver_documents
+\d vehicle_documents
+\d gate_checks
+\d notifications
+\d customers
+\d drivers
+\d vehicles
+\d products

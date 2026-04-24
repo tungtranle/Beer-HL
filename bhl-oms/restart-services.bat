@@ -25,15 +25,12 @@ for /f "tokens=5" %%a in ('netstat -ano ^| findstr ":3000 " ^| findstr "LISTENIN
 )
 echo      Done.
 
-REM ── 2. Restart VRP solver (picks up volume-mounted main.py) ──
+REM ── 2. Start ALL Docker containers (postgres, redis, vrp) ──
 echo.
-echo [2/6] Restarting VRP solver...
-docker restart bhl-oms-vrp-1 >nul 2>&1
-if %ERRORLEVEL% EQU 0 (
-    echo      OK - VRP solver restarted
-) else (
-    echo      FAIL - VRP container not found
-)
+echo [2/6] Starting Docker containers (postgres, redis, vrp)...
+docker compose up -d postgres redis vrp
+echo      Waiting 8s for DB to be ready...
+timeout /t 8 /nobreak >nul
 
 REM ── 3. Recreate OSRM with updated command (max-table-size) ──
 echo.
@@ -50,7 +47,7 @@ docker run -d --name bhl-oms-osrm-1 ^
 if %ERRORLEVEL% EQU 0 (
     echo      OK - OSRM started with max-table-size=500
 ) else (
-    echo      FAIL - OSRM could not start
+    echo      WARN - OSRM could not start (may not have map data)
 )
 
 REM ── 4. Verify containers ──

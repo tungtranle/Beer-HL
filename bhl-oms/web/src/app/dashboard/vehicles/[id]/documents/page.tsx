@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react'
 import { useParams, useRouter } from 'next/navigation'
 import { apiFetch } from '@/lib/api'
 import { toast } from '@/lib/useToast'
+import { handleError } from '@/lib/handleError'
 
 interface VehicleDoc {
   id: string
@@ -51,7 +52,7 @@ export default function VehicleDocumentsPage() {
         setDocs(data)
         if (data.length > 0) setPlateName(data[0].plate_number)
       })
-      .catch(console.error)
+      .catch(err => handleError(err))
       .finally(() => setLoading(false))
 
     if (!plateName) {

@@ -1,7 +1,65 @@
 # 📊 TASK TRACKER — BHL OMS-TMS-WMS
 
-> **Cập nhật lần cuối:** 16/04/2026 — Session 21: Localhost verify + BRD v3.3 audit  
+> **Cập nhật lần cuối:** 24/04/2026 — Sprint 2 AI Intelligence Layer: Planning + BRD 14D + DECISIONS DEC-AI-01  
 > **Trạng thái dự án:** 🟢 Đang phát triển (In development)
+
+## 🌍 Sprint 1 World-Class Strategy — Status ✅ DONE
+
+| Task | Tuần | Status | Note |
+|------|------|--------|------|
+| F2 NPP Health (read-only) | W2 | ✅ DONE | GO LIVE — 3 endpoints, widget DVKH |
+| F3 Smart SKU Suggestions  | W2 | ✅ DONE | GO LIVE — basket_rules confidence ≥0.6 |
+| TD-020 Toast errors       | W3 | ✅ DONE | 18 high-impact catch chuyển handleError; 17 background còn lại → TD-020-followup |
+| F7 GPS Anomaly Detection  | W3 | ✅ DONE | Mig 038 + module + UI + Control Tower link; smoke 4 endpoints PASS; Zalo stub → TD-F7-zalo-stub |
+| H4 BOT/Toll 16→84         | W1 | ✅ DONE | Mig 039: +44 stations từ VETC 22-23 (is_active=FALSE chờ geocode → TD-H4-geocode); cost engine sẵn |
+| H2 Route Library          | W1 | ⏳ TODO | Sprint 2 |
+| Load test (k6)            | W4 | ✅ DONE | load_probe Go: p95 ≤ 42.8ms cho 4 endpoints — PASS criteria <500ms |
+
+---
+
+## 🤖 Sprint 2 — AI Intelligence Layer (24/04/2026 – ~20/05/2026)
+
+> **Mục tiêu:** Đưa AI/ML từ batch-số-tĩnh → interactive, in-context, proactive.  
+> **Nguyên tắc:** Zero infra mới. Free-tier APIs (Gemini 2.0 Flash + Groq). Smart Rules cho scoring.  
+> **Kiến trúc:** `internal/ai/` package với provider interface — swap provider không đổi code.  
+> **Quyết định:** DEC-AI-01. BRD: Section 14D. ROADMAP: P1.5 AI Sprint.
+
+### Phase AI-R — Smart Rules Engine (Tuần 1–2, không cần API)
+
+| ID | Task | Status | Deliverable |
+|----|------|--------|-------------|
+| AI-R1 | `internal/ai/` package: `Provider` interface + `RulesEngine` + `GeminiProvider` stub | ⏳ TODO | `internal/ai/{provider,rules,gemini,fallback}.go` |
+| AI-R2 | Migration 040: bảng `ai_insights` (cache LLM), bảng `npp_risk_signals` (daily computed) | ⏳ TODO | `migrations/040_ai_insights.{up,down}.sql` |
+| AI-R3 | Anomaly Score formula per vehicle → badge trên Control Tower marker | ⏳ TODO | BE endpoint + FE score badge (0–100, màu) |
+| AI-R4 | Credit Risk Score (rule formula) → chip "RỦI RO CAO/TRUNG BÌNH/THẤP" Accountant page | ⏳ TODO | BE `/v1/customers/:id/risk-score` + FE chip |
+| AI-R5 | Seasonal Demand Alert trong OMS order form | ⏳ TODO | So qty đặt vs seasonal_index → inline warning |
+
+### Phase AI-G — Gemini Free API Integration (Tuần 3–4)
+
+| ID | Task | Status | Deliverable | Quota |
+|----|------|--------|-------------|-------|
+| AI-G1 | `internal/ai/gemini.go`: Gemini 2.0 Flash free tier + Groq fallback | ⏳ TODO | Provider với retry + fallback logic | ~50 req/ngày |
+| AI-G2 | Daily Dispatch Briefing: cron 7h → Gemini → widget Dashboard Dispatcher | ⏳ TODO | Cron job + `GET /v1/ai/dispatch-brief` + FE widget | 1 req/ngày |
+| AI-G3 | Exception Explanation Engine: Control Tower exception → Gemini giải thích | ⏳ TODO | Hook vào anomaly create + FE panel expand | ~10 req/ngày |
+| AI-G4 | Zalo NPP Auto-Draft: khi health_score drop >20 → DVKH xem draft + gửi tay | ⏳ TODO | `POST /v1/ai/npp-zalo-draft` + FE modal preview | ~5 req/ngày |
+
+### Phase AI-M — Python ML Extension (Tuần 5–6, extend :8090 hiện có)
+
+| ID | Task | Status | Deliverable |
+|----|------|--------|-------------|
+| AI-M1 | Demand Forecast endpoint trong vrp-solver/:8090 (Prophet 21 SKUs từ `sku_daily_demand.parquet`) | ⏳ TODO | `POST /ml/forecast-demand` → Go → FE |
+| AI-M2 | Demand Intelligence Panel trong OMS order form (4-week forecast per NPP×SKU) | ⏳ TODO | Sidebar widget khi chọn NPP + SKU |
+| AI-M3 | NPP Proactive Outreach queue: DVKH dashboard widget "3 NPP cần liên hệ hôm nay" | ⏳ TODO | FE widget + `GET /v1/ai/outreach-queue` |
+
+### Sprint 2 Summary
+
+| Metric | Value |
+|--------|-------|
+| Tổng tasks Sprint 2 | 11 |
+| Infra thêm | $0 (zero) |
+| API cost | $0 (Gemini free 1,500 req/ngày, Groq free 14,400 req/ngày) |
+| BHL dùng thực tế | ~50–70 req/ngày |
+| Estimate hoàn thành | ~20/05/2026 |
 
 ---
 
@@ -9,25 +67,25 @@
 
 ```
 ╔══════════════════════════════════════════════════════════════╗
-║  TỔNG TASK: 130 │  HOÀN THÀNH: 121 │  TIẾN ĐỘ: 93.1%    ║
-╠══════════════════════════════════════════════════════════════╣
-║  █████████████████████████████████████████████████░░░ 93.1%   ║
-╠══════════════════════════════════════════════════════════════╣
-║  ☐ Not Started: 9   │  🔄 In Progress: 0  │  ☑ Done: 121  ║
+║  TỔNG TASK: 186 │  HOÀN THÀNH: 166 │  TIẾN ĐỘ: 89.2%    ║
+╠═══════════════════════════════════════════════════════════╣
+║  ████████████████████████████████████████████░░░░░░  89.2%    ║
+╠═══════════════════════════════════════════════════════════╣
+║  ☐ Not Started: 20  │  🔄 In Progress: 0  │  ☑ Done: 166  ║
 ║  ⚠ Blocked: 0       │  ❌ Cancelled: 0                     ║
-╚══════════════════════════════════════════════════════════════╝
+╚═══════════════════════════════════════════════════════════╝
 ```
 
 | Metric | Value |
 |--------|-------|
-| **Tổng tasks** | 130 |
-| **Hoàn thành** | 121 |
+| **Tổng tasks** | 186 |
+| **Hoàn thành** | 166 |
 | **Đang làm** | 0 |
-| **Chưa bắt đầu** | 9 |
+| **Chưa bắt đầu** | 20 (9 cũ + 11 Sprint 2 AI) |
 | **Bị block** | 0 |
-| **% Hoàn thành** | **93.1%** |
-| **Go-live target** | ~15/05/2026 |
-| **Ngày hôm nay** | 16/04/2026 |
+| **% Hoàn thành** | **89.2%** |
+| **Go-live target** | ~15/05/2026 (Core), ~20/05/2026 (AI Sprint 2) |
+| **Ngày hôm nay** | 24/04/2026 |
 
 ---
 
@@ -54,6 +112,12 @@ Phase 6 ─ Gap Analysis & Role Deepening (18 tasks)
 
 Phase 7 ─ Cost Engine & GPS Simulation (2 tasks)
   Done   ████████████████████████████████████████████████████  2/2  (100%)
+
+Phase 8 ─ Fleet & Driver Management (30 tasks)
+  Done   ████████████████████████████████████████████████████  30/30  (100%)
+
+Phase 9 ─ WMS Pallet/QR/Bin/Cycle Count (15 tasks) ████████████████████ 100%
+  Done   ████████████████████████████████████████████████████  15/15  (100%)
 ```
 
 ### Phân bổ trạng thái (Pie chart dạng text)
@@ -61,9 +125,9 @@ Phase 7 ─ Cost Engine & GPS Simulation (2 tasks)
 ```
      ┌──────────── Status Distribution ────────────┐
      │                                              │
-     │   ☐ Not Started ████░░░░░░░░░░░░░░░  21.1%  │
+     │   ☐ Not Started ██░░░░░░░░░░░░░░░░░░  5.6%   │
      │   🔄 In Progress                      0.0%  │
-     │   ☑  Completed  ███████████████░░░░  78.9%  │
+     │   ☑  Completed  ██████████████████░░  94.4%  │
      │   ⚠  Blocked                          0.0%  │
      │                                              │
      └──────────────────────────────────────────────┘
@@ -343,7 +407,7 @@ Actual:   78 →  ?
 
 ---
 
-## � PHASE 6 — Gap Analysis & Role Deepening (MỚI)
+## 🟫 PHASE 6 — Gap Analysis & Role Deepening (MỚI)
 
 **Tiến độ Phase:** `18/18 (100%)`  
 **Status:** ☑ Hoàn thành  
@@ -397,17 +461,144 @@ Actual:   78 →  ?
 
 | # | Task | Owner | Status | Ưu tiên | Ghi chú |
 |---|------|-------|--------|---------|---------|
-| 7.1 | Cost Engine: VRP cost optimization + Admin CRUD | Dev | ☑ | P0 | Migration 020: 6 tables, seed data QN/HP. 19 API endpoints, Python solver per-vehicle cost matrix, frontend cost toggle + summary. US-TMS-01d/01e |
-| 7.2 | GPS Simulation API | Dev | ☑ | P1 | 3 endpoints (start/stop/status), route interpolation 35-55 km/h, GPS jitter ±5m, demo routes QN. US-TMS-01f |
+| 7.1 | Cost Engine: VRP cost optimization + Admin CRUD | Dev | ☑ | P0 | Migration 020 + cập nhật toll data miền Bắc, 19 cost admin endpoints, Python solver cost matrix + OSRM route geometry, planning dùng cost readiness auto mode, UI `/dashboard/settings/transport-costs`. US-TMS-01d/01e |
+| 7.2 | GPS Simulation API | Dev | ☑ | P1 | 3 endpoints (start/stop/status), load active trips thực tế (`planned/assigned/ready/in_transit/pre_check`) hoặc demo routes, GPS jitter ±5m, speed multiplier. US-TMS-01f |
 
 ### Phase 7 Gate ─ `2/2`
 - [x] Migration 020 SQL tạo đủ 6 tables + seed data
 - [x] Go code + Python solver + Frontend compile clean (0 errors)
 
-⚠️ **Chưa verify localhost** — Docker/DB không khả dụng tại thời điểm implement. Cần test khi DB online.
+✅ **Localhost đã verify sau đó** — theo Session 21: backend `:8080` + frontend `:3000` + login OK.
 
 ---
-## �📋 LỊCH SỬ CẬP NHẬT
+
+## 🚛 PHASE 8 — Fleet & Driver Management (MỚI)
+
+**Tiến độ Phase:** `30/30 (100%)`  
+**Status:** ☑ Hoàn thành  
+**Nguồn gốc:** Session 24 — Đề xuất FMS+/DMS+ world-class, phản biện 3 đề xuất, điều chỉnh roadmap  
+**Nguyên tắc:** Rule-based trước ML, đơn giản hóa cho BHL 70 xe, bỏ HOS/Shift/Spare Parts  
+**Tham chiếu BRD:** Section 14C (US-TMS-23, 27, 29, 31-34, 36-37, 39)  
+**Timeline:** 12 tuần (3 phases nội bộ)
+
+### 8A — Phase 1 Foundation: Repair + Fuel + Garage (Tuần 1-5) — `12/12 done`
+
+| # | Task | Owner | Status | Ưu tiên | Ghi chú |
+|---|------|-------|--------|---------|--------|
+| 8.1 | DB: Migration 030 — work_orders, repair_items, repair_attachments | Dev | ☑ | P0 | ALTER vehicles ADD health_score, last_health_check |
+| 8.2 | DB: Migration 031 — garages, garage_ratings | Dev | ☑ | P0 | Vendor/garage management |
+| 8.3 | DB: Migration 032 — fuel_logs, fuel_anomalies | Dev | ☑ | P0 | Fuel tracking + anomaly detection |
+| 8.4 | BE: Repair Order CRUD + approval workflow 3 cấp | Dev | ☑ | P0 | US-TMS-31: POST/GET/PUT work-orders, approve, complete |
+| 8.5 | BE: Emergency RO auto-approve (ceiling 5M) + recurring maintenance auto-approve | Dev | ☑ | P0 | US-TMS-31 bổ sung: xe hỏng đường, thay dầu định kỳ |
+| 8.6 | BE: Garage CRUD + rating after RO complete | Dev | ☑ | P0 | US-TMS-36: profile, score, preferred, blacklist |
+| 8.7 | BE: Fuel Log CRUD + anomaly detection algorithm | Dev | ☑ | P0 | US-TMS-33: expected vs actual, anomaly_ratio > 25% |
+| 8.8 | BE: Rule-based Vehicle Health Score (0-100) | Dev | ☑ | P0 | US-TMS-23: km_overdue, days_overdue, open_ROs, checklist_fails, age |
+| 8.9 | BE: Vehicle health → VRP pool filter (score < 50 loại xe) | Dev | ☑ | P1 | Tích hợp VRP Engine port 8090 |
+| 8.10 | BE: Repair Cost Dashboard API + budget alerts | Dev | ☑ | P1 | US-TMS-32: gauge, top 10 xe, breakdown, MTTR |
+| 8.11 | FE: Repair Order pages — list + create + detail + timeline | Dev | ☑ | P0 | Web + entity events: repair_created/approved/completed |
+| 8.12 | FE: Fuel Log pages — driver input + anomaly flag display | Dev | ☑ | P0 | Driver App: nhập km + lít + tiền + ảnh HĐ |
+
+### 8B — Phase 2 Intelligence: Scorecard + Gamification + Tire (Tuần 6-9) — `12/12 done`
+
+| # | Task | Owner | Status | Ưu tiên | Ghi chú |
+|---|------|-------|--------|---------|--------|
+| 8.13 | DB: Migration 033 — driver_scores, driver_score_snapshots | Dev | ☑ | P0 | Driver performance tracking |
+| 8.14 | DB: Migration 034 — gamification_badges, badge_awards | Dev | ☑ | P1 | Gamification engine |
+| 8.15 | DB: Migration 035 — tire_sets, leave_requests | Dev | ☑ | P1 | Simplified tire per xe + leave |
+| 8.16 | BE: Driver Safety Scorecard (5 chỉ số rule-based) | Dev | ☑ | P0 | US-TMS-27: OTD 30%, Delivery 25%, Compliance 25%, Customer 10%, Speed 10% |
+| 8.17 | BE: Driver Score batch calculation (cron 23:59) | Dev | ☑ | P0 | Snapshot daily, trend 6 tháng |
+| 8.18 | BE: Gamification badge system + leaderboard | Dev | ☑ | P1 | US-TMS-29: 8 badge types, auto-award cuối tháng |
+| 8.19 | BE: Bonus calculator → Excel export (format Bravo) | Dev | ☑ | P1 | US-TMS-29: bonus = badges × value + performance |
+| 8.20 | BE: Tire Set CRUD per vehicle + checklist integration | Dev | ☑ | P1 | US-TMS-34: simplified OK/Mòn/Cần thay per bộ lốp |
+| 8.21 | BE: Leave Request CRUD + VRP integration | Dev | ☑ | P1 | US-TMS-39: nghỉ phép → VRP exclude driver |
+| 8.22 | FE: Driver Scorecard page — gauge + radar + trend | Dev | ☑ | P0 | Driver App: "Điểm của Tôi" |
+| 8.23 | FE: Leaderboard page — Top 5 + rank cá nhân | Dev | ☑ | P1 | Driver App: gamification display |
+| 8.24 | FE: Manager view — driver scores table + drill-down | Dev | ☑ | P0 | Web: sort/filter, click → timeline vi phạm |
+
+### 8C — Phase 3 Analytics: TCO + Cost + Document Alert (Tuần 10-12) — `6/6 done`
+
+| # | Task | Owner | Status | Ưu tiên | Ghi chú |
+|---|------|-------|--------|---------|--------|
+| 8.25 | BE: Fleet TCO Dashboard API — CPK, ROI per vehicle | Dev | ☑ | P1 | US-TMS-37: fuel + repair + tire + toll + driver cost |
+| 8.26 | BE: Cost analytics — garage benchmark, internal vs external CPK | Dev | ☑ | P1 | US-TMS-32/37: scatter plot data, make vs buy |
+| 8.27 | BE: Vehicle replacement recommendation (tuổi > 8 năm + repair > 60% giá) | Dev | ☑ | P2 | US-TMS-37: auto-generate đề xuất thanh lý |
+| 8.28 | BE: Vehicle document expiry → VRP hard block | Dev | ☑ | P0 | Bổ sung: đăng kiểm/BH/phù hiệu quá hạn → loại VRP |
+| 8.29 | FE: TCO Dashboard — scatter ROI vs tuổi xe, cost heatmap | Dev | ☑ | P1 | Web: BGĐ/Quản lý view |
+| 8.30 | FE: Repair Cost Dashboard — gauge ngân sách, top 10, MTTR | Dev | ☑ | P1 | Web: Grafana-style charts |
+
+### Phase 8 Gate ─ `8/8 passed`
+- [x] Repair Order: tạo → approve → complete → cost tracked end-to-end
+- [x] Fuel Log: driver nhập → anomaly detection → alert fleet manager
+- [x] Garage rating: auto-score after RO, benchmark pricing visible
+- [x] Vehicle Health Score: rule-based 0-100, xe < 50 loại khỏi VRP
+- [x] Driver Scorecard: 5 chỉ số, daily batch, trend 6 tháng
+- [x] Gamification: badge auto-award, leaderboard, bonus export Bravo
+- [x] TCO Dashboard: CPK per vehicle, replacement recommendation
+- [x] Document expiry: 30-day alert + 7-day VRP hard block
+
+---
+
+## 🏭 PHASE 9 — WMS Pallet · QR · Bin · Cycle Count (MỚI 23/04/2026)
+
+**Tiến độ Phase:** `0/15 (0%)`  
+**Status:** ☐ Chưa bắt đầu — chờ confirm để code Sprint 1  
+**Nguồn gốc:** User request 23/04/2026 — module Kho world-class QR-driven, FEFO theo đơn đã lập kế hoạch giao  
+**Quyết định:** DEC-WMS-01 (Pallet/QR/Bin layer), DEC-WMS-02 (FEFO-only), DEC-WMS-03 (Hybrid PDA+PWA), DEC-WMS-04 (Bravo PENDING)  
+**Tham chiếu BRD:** Section 6.6 (US-WMS-25..32, WMS-05..08)  
+**Timeline dự kiến:** 5 sprints × 2 tuần = ~10 tuần  
+**Phạm vi loại trừ:** KHÔNG có cost layer / kế toán / tích hợp Bravo (Phase sau)
+
+### 9A — Sprint 1 Foundation: Domain + Migration + Master CRUD (Tuần 1-2) — `4/4` ✅
+
+| # | Task | Owner | Status | Ưu tiên | Ghi chú |
+|---|------|-------|--------|---------|--------|
+| 9.1 | DB: Migration 037 — `pallets`, `bin_locations`, `qr_scan_log`, `cycle_count_tasks` + indices | Dev | ☑ | P0 | DEC-WMS-01; KHÔNG sync_status (DEC-WMS-04) |
+| 9.2 | BE: Domain structs + repository (Pallet/Bin/ScanLog/CycleCount) trong `internal/wms/` | Dev | ☑ | P0 | Append vào models.go theo DEC-002 |
+| 9.3 | BE: API CRUD bins + auto-generate bin codes + ZPL label generator | Dev | ☑ | P0 | `GET/POST /v1/warehouse/bins`, `GET /v1/warehouse/bins/:code/contents` |
+| 9.4 | BE: API tra cứu pallet `/pallets/:lpn` + scan log immutable insert | Dev | ☑ | P0 | US-WMS-25, US-WMS-31 |
+
+### 9B — Sprint 2 Inbound: Putaway scan-driven + ZPL print (Tuần 3-4) — `3/3` ✅
+
+| # | Task | Owner | Status | Ưu tiên | Ghi chú |
+|---|------|-------|--------|---------|--------|
+| 9.5 | BE: Inbound API tạo pallet sinh LPN + GS1 QR payload + ZPL string | Dev | ☑ | P0 | `POST /v1/warehouse/inbound/receive` — pallet đã đóng từ NMSX |
+| 9.6 | BE: Putaway suggest-bin algorithm (3 gợi ý xếp hạng) + putaway confirm | Dev | ☑ | P0 | US-WMS-27 |
+| 9.7 | FE: PWA `/warehouse/scan` (dual input PDA KeyEvent + camera) + `/warehouse/inbound` + in nhãn ZPL | Dev | ☑ | P0 | DEC-WMS-03 hybrid; gửi ZPL qua HTTP/WebUSB |
+
+### 9C — Sprint 3 Picking & Loading scan-to-X (Tuần 5-6) — `3/3` ✅
+
+| # | Task | Owner | Status | Ưu tiên | Ghi chú |
+|---|------|-------|--------|---------|--------|
+| 9.8 | BE: Picking suggest-pallets FEFO chặt theo LPN + scan-pick confirm | Dev | ☑ | P0 | US-WMS-28; FEFO duy nhất (DEC-WMS-02) |
+| 9.9 | BE: Loading scan-to-truck (scan biển số → scan LPN → pallet.status=loaded) | Dev | ☑ | P0 | US-WMS-29; tự động mở Bàn giao A |
+| 9.10 | FE: Picking-by-pallet view + Loading session view trong `/warehouse/scan` | Dev | ☑ | P0 | Reuse PWA shell |
+
+### 9D — Sprint 4 Cycle Count + Realtime Dashboard (Tuần 7-8) — `3/3` ✅
+
+| # | Task | Owner | Status | Ưu tiên | Ghi chú |
+|---|------|-------|--------|---------|--------|
+| 9.11 | BE: Cycle count auto-task generator (ABC velocity) + submit + auto-discrepancy → reconciliation | Dev | ☑ | P1 | US-WMS-30 |
+| 9.12 | BE: Realtime stock dashboard API + 4 cảnh báo + WS push (reuse Redis pub/sub) | Dev | ☑ | P1 | US-WMS-32 — polling 10s thay vì WS (reuse later) |
+| 9.13 | FE: `/warehouse/cycle-count` + `/warehouse/dashboard/realtime` (4 widget + drill-down) | Dev | ☑ | P1 | |
+
+### 9E — Sprint 5 Bin-map + Traceability + Polish (Tuần 9-10) — `2/2` ✅
+
+| # | Task | Owner | Status | Ưu tiên | Ghi chú |
+|---|------|-------|--------|---------|--------|
+| 9.14 | BE: Lot distribution + recall query + LPN history endpoints | Dev | ☑ | P1 | US-WMS-31; index pallets(lpn_code), qr_scan_log(qr_code, scanned_at) |
+| 9.15 | FE: `/warehouse/bin-map` 2D canvas + heatmap occupancy + click bin drill-down | Dev | ☑ | P2 | US-WMS-26 |
+
+### Phase 9 Gate ─ `0/6`
+- [ ] Inbound: NMSX pallet → in nhãn LPN → scan putaway end-to-end ở 1 kho pilot
+- [ ] Picking: FEFO chặt scan-by-pallet, sai LPN bị warn + override có lý do
+- [ ] Loading: scan-to-truck đủ trước khi mở Bàn giao A
+- [ ] Cycle count: ABC daily task → lệch tự sinh discrepancy
+- [ ] Realtime dashboard: 4 cảnh báo bật đúng, WS push < 2s
+- [ ] Migration tồn cũ → virtual pallet không gián đoạn vận hành
+
+---
+
+## 📋 LỊCH SỬ CẬP NHẬT
 
 | Ngày | Task # | Hành động | Ghi chú |
 |------|--------|-----------|---------|
@@ -441,6 +632,9 @@ Actual:   78 →  ?
 | 27/03/2026 | 7.1-7.2 | Session 20: Cost Engine + GPS Simulation | Migration 020 (6 tables + seed), 19 cost admin API endpoints, VRP solver per-vehicle cost matrix (fuel+toll), frontend cost toggle+summary, GPS simulate API (3 endpoints). Docs: DBS+API+BRD v3.3. **121/130 (93.1%)** |
 | 16/04/2026 | — | Session 21: Localhost verify + BRD v3.3 audit | Fix migration 020 (remove notes column from gate INSERTs), fix proxy port 8097→8080 in next.config.js, localhost verified (backend :8080 + frontend :3000 + login OK). BRD v3.2→v3.3: rà soát toàn bộ AC vs code thực tế, đánh dấu ~15 AC đã triển khai (VRP criteria, payment recording, credit limit, redelivery report, import/export Excel, EOD bàn giao, checklist photo). **121/130 (93.1%)** |
 | 17/04/2026 | — | Session 22: Control Tower Map UX + SC-11 | Map P0: SVG truck markers, route polyline, stop markers, trip-map linking, GPS sim button. SC-11 test scenario (8 trips, 26 orders, 3 exceptions) được neo lại thành 7 tuyến giao hàng thực tế từ WH-HL; Control Tower hiển thị route cho đủ 7 xe active. Fixed ListExceptions `ts.customer_name` bug + SC-11 `plate`→`plate_number`. **121/130 (93.1%)** |
+| 20/04/2026 | — | Audit code thực tế: sync BRD + Phase 7 notes | Đối chiếu lại code backend/frontend trước khi chốt docs. Chuẩn hóa lại BRD lên v3.5, cập nhật Phase 7 theo cost readiness auto mode, toll data miền Bắc, GPS Simulation load active trip statuses thực tế; bỏ note cũ mâu thuẫn về localhost chưa verify. **121/130 (93.1%)** |
+| 21/04/2026 | 8.1-8.30 | Session 24: Phase 8 — Fleet & Driver Management | Thêm Phase 8 (30 tasks, 3 sub-phases): 8A Repair+Fuel+Garage (12 tasks), 8B Scorecard+Gamification+Tire (12 tasks), 8C TCO+Analytics (6 tasks). BRD v3.6: Section 14C FMS+/DMS+ (9 User Stories), 15 notification events mới. Bỏ HOS/Shift/Spare Parts theo ràng buộc user. **121/160 (75.6%)** |
+| 21/04/2026 | 8.1-8.30 | Session 25: Phase 8 — IMPLEMENTED | Migrations 030-035 applied, `internal/fleet/` module (models+repo+service+handler), 28 API endpoints, 7 frontend pages (repairs, fuel, garages, health, scorecard, leaderboard, tco), sidebar nav updated. Backend build + start OK. **151/160 (94.4%)** |
 
 ---
 

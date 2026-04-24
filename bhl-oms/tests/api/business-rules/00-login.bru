@@ -1,0 +1,29 @@
+meta {
+  name: 00 - Login (lấy token)
+  type: http
+  seq: 0
+}
+
+post {
+  url: {{baseUrl}}/auth/login
+  body: json
+  auth: none
+}
+
+body:json {
+  {
+    "username": "{{dispatcherUser}}",
+    "password": "{{dispatcherPass}}"
+  }
+}
+
+tests {
+  test("login thành công", function() {
+    expect(res.status).to.equal(200);
+  });
+
+  test("trả về access_token", function() {
+    expect(res.body.data).to.have.property("access_token");
+    bru.setVar("token", res.body.data.access_token);
+  });
+}

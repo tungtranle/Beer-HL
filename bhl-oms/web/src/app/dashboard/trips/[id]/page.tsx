@@ -4,6 +4,7 @@ import { useEffect, useState, useRef, useCallback } from 'react'
 import { useParams, useRouter } from 'next/navigation'
 import { apiFetch } from '@/lib/api'
 import { toast } from '@/lib/useToast'
+import { handleError } from '@/lib/handleError'
 
 interface TripStop {
   id: string; stop_order: number; shipment_id: string
@@ -75,7 +76,7 @@ export default function TripDetailPage() {
   const loadTrip = useCallback(() => {
     apiFetch<any>(`/trips/${params.id}`)
       .then((r) => setTrip(r.data))
-      .catch(console.error)
+      .catch(err => handleError(err))
       .finally(() => setLoading(false))
   }, [params.id])
 

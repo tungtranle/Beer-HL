@@ -47,14 +47,21 @@ func (h *Handler) List(c *gin.Context) {
 	uid, _ := userID.(uuid.UUID)
 
 	unreadOnly := c.Query("unread") == "true"
+	page, _ := strconv.Atoi(c.DefaultQuery("page", "1"))
 	limit, _ := strconv.Atoi(c.DefaultQuery("limit", "50"))
 
-	results, err := h.svc.GetNotifications(c.Request.Context(), uid, unreadOnly, limit)
+	results, total, err := h.svc.GetNotificationsPaginated(c.Request.Context(), uid, unreadOnly, page, limit)
 	if err != nil {
 		response.InternalError(c)
 		return
 	}
-	response.OK(c, results)
+	totalPages := int(total) / limit
+	if int(total)%limit > 0 {
+		totalPages++
+	}
+	response.OKWithMeta(c, results, response.PaginationMeta{
+		Page: page, Limit: limit, Total: total, TotalPages: totalPages,
+	})
 }
 
 // GET /v1/notifications/unread-count

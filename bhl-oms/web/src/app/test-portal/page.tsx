@@ -42,7 +42,38 @@ interface Product {
   weight_kg: number; volume_m3: number
 }
 
-type Tab = 'test-cases' | 'orders' | 'order-confirm' | 'delivery-confirm' | 'stock' | 'credit' | 'create-order' | 'gps-sim' | 'drivers'
+type Tab = 'test-cases' | 'orders' | 'order-confirm' | 'delivery-confirm' | 'stock' | 'credit' | 'ops-audit' | 'create-order' | 'gps-sim' | 'drivers'
+
+interface TimelineEvent {
+  id: string; event_type: string; actor_type: string; actor_name: string
+  title: string; detail: Record<string, unknown>; created_at: string
+}
+
+interface OrderNote {
+  id: string; user_name: string; content: string; note_type: string
+  is_pinned: boolean; created_at: string
+}
+
+interface OpsAuditData {
+  admin: {
+    permission_rules: number; overrides: number; active_sessions: number
+    routes: number; configs: number; credit_limits: number
+    recent_sessions: { id: string; user_name: string; ip_address: string; user_agent: string; last_seen_at: string; created_at: string; revoked_at?: string | null }[]
+  }
+  integration: {
+    pending: number; retrying: number; failed: number; resolved: number
+    recent: { id: string; adapter: string; operation: string; status: string; retry_count: number; max_retries: number; error_message: string; created_at: string }[]
+  }
+  reconciliation: {
+    total_recons: number; open_discrepancies: number; resolved_discrepancies: number; daily_closes: number
+    recent_discrepancies: { id: string; trip_number: string; disc_type: string; status: string; description: string; variance: number; deadline?: string | null; created_at: string }[]
+    recent_daily_closes: { id: string; close_date: string; warehouse_name: string; completed_trips: number; total_trips: number; total_discrepancies: number; resolved_discrepancies: number; total_revenue: number }[]
+  }
+  kpi: {
+    snapshots: number; issue_orders: number; cancellation_orders: number; redelivery_orders: number
+    recent_snapshots: { snapshot_date: string; warehouse_name: string; otd_rate: number; delivery_success_rate: number; total_orders: number; total_revenue: number }[]
+  }
+}
 
 // Scenario types from backend
 interface ScenarioMeta {
@@ -64,6 +95,7 @@ const tabs: { key: Tab; label: string; icon: string }[] = [
   { key: 'delivery-confirm', label: 'Xác nhận giao hàng', icon: '🚛' },
   { key: 'stock', label: 'Tồn kho / ATP', icon: '📦' },
   { key: 'credit', label: 'Dư nợ / Tín dụng', icon: '💰' },
+  { key: 'ops-audit', label: 'Ops & Audit', icon: '🧭' },
   { key: 'create-order', label: 'Tạo đơn test', icon: '➕' },
   { key: 'gps-sim', label: 'Giả lập GPS', icon: '📡' },
   { key: 'drivers', label: 'Tài xế', icon: '🚛' },
@@ -114,6 +146,7 @@ export default function TestPortalPage() {
   const [refreshKey, setRefreshKey] = useState(0)
   const [resetting, setResetting] = useState(false)
   const [toast, setToast] = useState('')
+  const [preferredGPSScenario, setPreferredGPSScenario] = useState('')
 
   const refresh = () => setRefreshKey(k => k + 1)
   const showToast = (msg: string) => { setToast(msg); setTimeout(() => setToast(''), 3000) }
@@ -168,23 +201,25 @@ export default function TestPortalPage() {
       </div>
 
       <div className="max-w-7xl mx-auto px-6 py-4">
-        {tab === 'test-cases' && <TestCasesTab setTab={setTab} showToast={showToast} refresh={refresh} />}
+        {tab === 'test-cases' && <TestCasesTab setTab={setTab} setPreferredGPSScenario={setPreferredGPSScenario} showToast={showToast} refresh={refresh} />}
         {tab === 'orders' && <OrdersTab refreshKey={refreshKey} showToast={showToast} refresh={refresh} />}
         {tab === 'order-confirm' && <OrderConfirmTab refreshKey={refreshKey} showToast={showToast} refresh={refresh} />}
         {tab === 'delivery-confirm' && <DeliveryConfirmTab refreshKey={refreshKey} />}
         {tab === 'stock' && <StockTab refreshKey={refreshKey} />}
         {tab === 'credit' && <CreditTab refreshKey={refreshKey} />}
+        {tab === 'ops-audit' && <OpsAuditTab refreshKey={refreshKey} />}
         {tab === 'create-order' && <CreateOrderTab showToast={showToast} refresh={refresh} />}
-        {tab === 'gps-sim' && <GPSSimTab refreshKey={refreshKey} showToast={showToast} />}
+        {tab === 'gps-sim' && <GPSSimTab refreshKey={refreshKey} showToast={showToast} preferredScenario={preferredGPSScenario} />}
         {tab === 'drivers' && <DriversTab />}
       </div>
     </div>
   )
 }
 
-function TestCasesTab({ setTab, showToast, refresh }: { setTab: (t: Tab) => void; showToast: (m: string) => void; refresh: () => void }) {
+function TestCasesTab({ setTab, setPreferredGPSScenario, showToast, refresh }: { setTab: (t: Tab) => void; setPreferredGPSScenario: (scenarioId: string) => void; showToast: (m: string) => void; refresh: () => void }) {
   const [scenarios, setScenarios] = useState<ScenarioMeta[]>([])
   const [loading, setLoading] = useState(true)
+  const [loadError, setLoadError] = useState('')
   const [loadingId, setLoadingId] = useState<string | null>(null)
   const [activeScenario, setActiveScenario] = useState<ScenarioMeta | null>(null)
   const [expandedId, setExpandedId] = useState<string | null>(null)
@@ -193,8 +228,14 @@ function TestCasesTab({ setTab, showToast, refresh }: { setTab: (t: Tab) => void
 
   useEffect(() => {
     setLoading(true)
+    setLoadError('')
     api<ScenarioMeta[]>('/scenarios')
       .then((data) => {
+        if (data === null) {
+          setScenarios([])
+          setLoadError('Frontend dang chay nhung backend Test Portal tren cong 8080 chua len, nen chua tai duoc kich ban va du lieu test.')
+          return
+        }
         const nextScenarios = (data || []).sort((a, b) => a.id.localeCompare(b.id, undefined, { numeric: true }))
         setScenarios(nextScenarios)
       })
@@ -218,6 +259,7 @@ function TestCasesTab({ setTab, showToast, refresh }: { setTab: (t: Tab) => void
       const sc = scenarios.find(s => s.id === scenarioId)
       setActiveScenario(sc || null)
       setExpandedId(scenarioId)
+      setPreferredGPSScenario(sc?.gps_scenario || '')
       setCompletedSteps({})
       refresh()
       return
@@ -289,7 +331,20 @@ function TestCasesTab({ setTab, showToast, refresh }: { setTab: (t: Tab) => void
         </div>
       </div>
 
-      {!filtered.length && (
+      {loadError && (
+        <div className="rounded-xl border border-red-200 bg-red-50 p-5 text-red-900">
+          <h3 className="font-bold text-base">Backend Test Portal chua chay</h3>
+          <p className="mt-2 text-sm leading-6">{loadError}</p>
+          <p className="mt-2 text-sm leading-6">
+            Cach don gian nhat: vao thu muc <strong>bhl-oms</strong> va bam dup file <strong>START_TEST_PORTAL.bat</strong>.
+          </p>
+          <p className="mt-2 text-sm leading-6">
+            Khi backend len lai, bam <strong>Refresh</strong> de tai danh sach kich ban.
+          </p>
+        </div>
+      )}
+
+      {!loadError && !filtered.length && (
         <EmptyState text="Chưa có kịch bản nào được trả về từ backend. Hãy kiểm tra Test Portal backend hoặc cấu hình ENABLE_TEST_PORTAL." />
       )}
 
@@ -402,7 +457,7 @@ function TestCasesTab({ setTab, showToast, refresh }: { setTab: (t: Tab) => void
                   {sc.gps_scenario && (
                     <div className="bg-emerald-50 border border-emerald-200 rounded-lg p-3 flex items-center justify-between">
                       <span className="text-sm text-emerald-700">📡 Kịch bản GPS: <strong>{sc.gps_scenario}</strong></span>
-                      <button onClick={() => setTab('gps-sim')}
+                      <button onClick={() => { setPreferredGPSScenario(sc.gps_scenario || ''); setTab('gps-sim') }}
                         className="px-3 py-1.5 bg-emerald-600 text-white rounded-lg text-xs font-medium hover:bg-emerald-700 transition">
                         Mở GPS Simulator →
                       </button>
@@ -410,6 +465,10 @@ function TestCasesTab({ setTab, showToast, refresh }: { setTab: (t: Tab) => void
                   )}
 
                   <div className="flex gap-2 pt-2 border-t flex-wrap">
+                    <button onClick={() => setTab('ops-audit')}
+                      className="px-3 py-1.5 bg-slate-700 text-white rounded-lg text-xs font-medium hover:bg-slate-800 transition">
+                      🧭 Ops & Audit
+                    </button>
                     {sc.roles.includes('dvkh') && (
                       <button onClick={() => setTab('create-order')}
                         className="px-3 py-1.5 bg-[#F68634] text-white rounded-lg text-xs font-medium hover:bg-[#e5762a] transition">
@@ -952,6 +1011,257 @@ function CreateOrderTab({ showToast, refresh }: { showToast: (m: string) => void
   )
 }
 
+function OpsAuditTab({ refreshKey }: { refreshKey: number }) {
+  const [ops, setOps] = useState<OpsAuditData | null>(null)
+  const [orders, setOrders] = useState<Order[]>([])
+  const [selectedOrderId, setSelectedOrderId] = useState('')
+  const [timeline, setTimeline] = useState<TimelineEvent[]>([])
+  const [notes, setNotes] = useState<OrderNote[]>([])
+  const [loading, setLoading] = useState(true)
+  const [timelineLoading, setTimelineLoading] = useState(false)
+
+  useEffect(() => {
+    setLoading(true)
+    Promise.all([
+      api<OpsAuditData>('/ops-audit'),
+      api<Order[]>('/orders'),
+    ]).then(([opsData, ordersData]) => {
+      setOps(opsData)
+      const nextOrders = ordersData || []
+      setOrders(nextOrders)
+      setSelectedOrderId(prev => prev || nextOrders[0]?.id || '')
+    }).finally(() => setLoading(false))
+  }, [refreshKey])
+
+  useEffect(() => {
+    if (!selectedOrderId) {
+      setTimeline([])
+      setNotes([])
+      return
+    }
+    setTimelineLoading(true)
+    Promise.all([
+      api<TimelineEvent[]>(`/orders/${selectedOrderId}/timeline`),
+      api<OrderNote[]>(`/orders/${selectedOrderId}/notes`),
+    ]).then(([timelineData, notesData]) => {
+      setTimeline(timelineData || [])
+      setNotes(notesData || [])
+    }).finally(() => setTimelineLoading(false))
+  }, [selectedOrderId])
+
+  if (loading) return <Spinner />
+  if (!ops) return <EmptyState text="Chưa lấy được dữ liệu Ops & Audit." />
+
+  const selectedOrder = orders.find(order => order.id === selectedOrderId)
+  const dlqBadge: Record<string, string> = {
+    pending: 'bg-amber-100 text-amber-700',
+    retrying: 'bg-blue-100 text-blue-700',
+    failed: 'bg-red-100 text-red-700',
+    resolved: 'bg-green-100 text-green-700',
+  }
+  const noteBadge: Record<string, string> = {
+    internal: 'bg-slate-100 text-slate-700',
+    driver_note: 'bg-cyan-100 text-cyan-700',
+    npp_feedback: 'bg-violet-100 text-violet-700',
+    system: 'bg-amber-100 text-amber-700',
+  }
+
+  return (
+    <div className="space-y-6">
+      <div className="bg-slate-900 text-white rounded-xl p-6">
+        <h3 className="text-xl font-bold mb-2">🧭 Ops & Audit Coverage</h3>
+        <p className="text-slate-300 text-sm">
+          Tab này gom các vùng trước đây Test Portal chưa chạm sâu: order timeline/notes, integration DLQ,
+          reconciliation, daily close, KPI snapshot và admin smoke counters.
+        </p>
+      </div>
+
+      <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-6 gap-3">
+        {[
+          { label: 'RBAC rules', value: ops.admin.permission_rules, tone: 'bg-slate-100 text-slate-800' },
+          { label: 'Overrides', value: ops.admin.overrides, tone: 'bg-indigo-100 text-indigo-800' },
+          { label: 'Active sessions', value: ops.admin.active_sessions, tone: 'bg-cyan-100 text-cyan-800' },
+          { label: 'DLQ failed', value: ops.integration.failed, tone: 'bg-red-100 text-red-800' },
+          { label: 'Open disc', value: ops.reconciliation.open_discrepancies, tone: 'bg-orange-100 text-orange-800' },
+          { label: 'Redelivery', value: ops.kpi.redelivery_orders, tone: 'bg-emerald-100 text-emerald-800' },
+        ].map(card => (
+          <div key={card.label} className={`rounded-xl p-4 ${card.tone}`}>
+            <p className="text-xs uppercase tracking-wide opacity-70">{card.label}</p>
+            <p className="text-2xl font-bold mt-2">{card.value}</p>
+          </div>
+        ))}
+      </div>
+
+      <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
+        <div className="bg-white rounded-xl shadow-sm p-5 space-y-4">
+          <div className="flex items-center justify-between gap-3 flex-wrap">
+            <div>
+              <h3 className="text-lg font-semibold">📜 Order Timeline & Notes</h3>
+              <p className="text-sm text-gray-500">Chọn đơn để soi event log và ghi chú ghim.</p>
+            </div>
+            <select value={selectedOrderId} onChange={e => setSelectedOrderId(e.target.value)} className="border rounded-lg px-3 py-2 text-sm min-w-[260px]">
+              <option value="">-- Chọn đơn hàng --</option>
+              {orders.map(order => (
+                <option key={order.id} value={order.id}>{order.order_number} • {order.customer_name}</option>
+              ))}
+            </select>
+          </div>
+
+          {selectedOrder && (
+            <div className="rounded-lg border bg-gray-50 p-3 text-sm">
+              <div className="flex items-center gap-2 flex-wrap">
+                <span className="font-mono text-amber-700 font-semibold">{selectedOrder.order_number}</span>
+                <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${statusBadge(selectedOrder.status)}`}>{statusLabel[selectedOrder.status] || selectedOrder.status}</span>
+                <span className="text-gray-500">{selectedOrder.customer_name}</span>
+              </div>
+            </div>
+          )}
+
+          {timelineLoading ? <Spinner /> : (
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+              <div>
+                <h4 className="text-xs font-bold text-gray-500 uppercase mb-2">Timeline events</h4>
+                <div className="space-y-2 max-h-[420px] overflow-y-auto pr-1">
+                  {timeline.map(event => (
+                    <div key={event.id} className="rounded-lg border p-3 bg-white">
+                      <div className="flex items-center justify-between gap-2">
+                        <span className="text-xs font-mono text-gray-400">{event.event_type}</span>
+                        <span className="text-xs text-gray-400">{fmtDate(event.created_at)}</span>
+                      </div>
+                      <p className="font-medium text-sm text-gray-900 mt-1">{event.title}</p>
+                      <p className="text-xs text-gray-500 mt-1">{event.actor_name || event.actor_type}</p>
+                    </div>
+                  ))}
+                  {timeline.length === 0 && <EmptyState text="Đơn này chưa có entity_events." />}
+                </div>
+              </div>
+
+              <div>
+                <h4 className="text-xs font-bold text-gray-500 uppercase mb-2">Order notes</h4>
+                <div className="space-y-2 max-h-[420px] overflow-y-auto pr-1">
+                  {notes.map(note => (
+                    <div key={note.id} className="rounded-lg border p-3 bg-white">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <span className={`px-2 py-0.5 rounded text-xs font-medium ${noteBadge[note.note_type] || 'bg-gray-100 text-gray-700'}`}>{note.note_type}</span>
+                        {note.is_pinned && <span className="px-2 py-0.5 rounded text-xs font-medium bg-amber-100 text-amber-700">PIN</span>}
+                        <span className="text-xs text-gray-400 ml-auto">{fmtDate(note.created_at)}</span>
+                      </div>
+                      <p className="text-sm text-gray-900 mt-2">{note.content}</p>
+                      <p className="text-xs text-gray-500 mt-1">{note.user_name}</p>
+                    </div>
+                  ))}
+                  {notes.length === 0 && <EmptyState text="Đơn này chưa có note." />}
+                </div>
+              </div>
+            </div>
+          )}
+        </div>
+
+        <div className="space-y-6">
+          <div className="bg-white rounded-xl shadow-sm p-5">
+            <h3 className="text-lg font-semibold mb-3">🔌 Integration DLQ</h3>
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-2 mb-4 text-sm">
+              <div className="rounded-lg bg-amber-50 p-3"><p className="text-xs text-amber-600">Pending</p><p className="text-xl font-bold text-amber-700">{ops.integration.pending}</p></div>
+              <div className="rounded-lg bg-blue-50 p-3"><p className="text-xs text-blue-600">Retrying</p><p className="text-xl font-bold text-blue-700">{ops.integration.retrying}</p></div>
+              <div className="rounded-lg bg-red-50 p-3"><p className="text-xs text-red-600">Failed</p><p className="text-xl font-bold text-red-700">{ops.integration.failed}</p></div>
+              <div className="rounded-lg bg-green-50 p-3"><p className="text-xs text-green-600">Resolved</p><p className="text-xl font-bold text-green-700">{ops.integration.resolved}</p></div>
+            </div>
+            <div className="space-y-2">
+              {ops.integration.recent.map(item => (
+                <div key={item.id} className="rounded-lg border bg-gray-50 p-3">
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <span className={`px-2 py-0.5 rounded text-xs font-medium ${dlqBadge[item.status] || 'bg-gray-100 text-gray-700'}`}>{item.status}</span>
+                    <span className="font-medium text-sm">{item.adapter} · {item.operation}</span>
+                    <span className="text-xs text-gray-400 ml-auto">{fmtDate(item.created_at)}</span>
+                  </div>
+                  <p className="text-xs text-gray-500 mt-1">Retry {item.retry_count}/{item.max_retries}</p>
+                  <p className="text-sm text-gray-700 mt-1">{item.error_message || 'Không có error message'}</p>
+                </div>
+              ))}
+              {ops.integration.recent.length === 0 && <EmptyState text="Chưa có DLQ entries." />}
+            </div>
+          </div>
+
+          <div className="bg-white rounded-xl shadow-sm p-5">
+            <h3 className="text-lg font-semibold mb-3">🧾 Reconciliation & KPI</h3>
+            <div className="grid grid-cols-2 gap-3 mb-4 text-sm">
+              <div className="rounded-lg bg-orange-50 p-3"><p className="text-xs text-orange-600">Open discrepancy</p><p className="text-xl font-bold text-orange-700">{ops.reconciliation.open_discrepancies}</p></div>
+              <div className="rounded-lg bg-emerald-50 p-3"><p className="text-xs text-emerald-600">Resolved discrepancy</p><p className="text-xl font-bold text-emerald-700">{ops.reconciliation.resolved_discrepancies}</p></div>
+              <div className="rounded-lg bg-sky-50 p-3"><p className="text-xs text-sky-600">Daily closes</p><p className="text-xl font-bold text-sky-700">{ops.reconciliation.daily_closes}</p></div>
+              <div className="rounded-lg bg-violet-50 p-3"><p className="text-xs text-violet-600">KPI snapshots</p><p className="text-xl font-bold text-violet-700">{ops.kpi.snapshots}</p></div>
+            </div>
+
+            <div className="space-y-2 mb-4">
+              {ops.reconciliation.recent_discrepancies.map(item => (
+                <div key={item.id} className="rounded-lg border p-3 bg-gray-50">
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <span className="font-medium text-sm">{item.trip_number}</span>
+                    <span className="px-2 py-0.5 rounded text-xs font-medium bg-slate-100 text-slate-700">{item.disc_type}</span>
+                    <span className={`px-2 py-0.5 rounded text-xs font-medium ${item.status === 'resolved' ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}`}>{item.status}</span>
+                    <span className="text-xs text-gray-400 ml-auto">{fmtDate(item.created_at)}</span>
+                  </div>
+                  <p className="text-sm text-gray-700 mt-1">{item.description}</p>
+                  <p className="text-xs text-gray-500 mt-1">Variance: {fmtMoney(item.variance)}</p>
+                </div>
+              ))}
+            </div>
+
+            <div className="overflow-x-auto border rounded-lg">
+              <table className="w-full text-sm">
+                <thead className="bg-gray-50 text-gray-500 text-xs uppercase">
+                  <tr>
+                    <th className="px-3 py-2 text-left">Ngày</th>
+                    <th className="px-3 py-2 text-left">Kho</th>
+                    <th className="px-3 py-2 text-right">OTD</th>
+                    <th className="px-3 py-2 text-right">Success</th>
+                    <th className="px-3 py-2 text-right">Đơn</th>
+                    <th className="px-3 py-2 text-right">Doanh thu</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y">
+                  {ops.kpi.recent_snapshots.map((item, idx) => (
+                    <tr key={`${item.snapshot_date}-${idx}`}>
+                      <td className="px-3 py-2">{item.snapshot_date}</td>
+                      <td className="px-3 py-2">{item.warehouse_name}</td>
+                      <td className="px-3 py-2 text-right">{item.otd_rate.toFixed(1)}%</td>
+                      <td className="px-3 py-2 text-right">{item.delivery_success_rate.toFixed(1)}%</td>
+                      <td className="px-3 py-2 text-right">{item.total_orders}</td>
+                      <td className="px-3 py-2 text-right">{fmtMoney(item.total_revenue)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          <div className="bg-white rounded-xl shadow-sm p-5">
+            <h3 className="text-lg font-semibold mb-3">🛡️ Admin smoke</h3>
+            <div className="grid grid-cols-2 gap-3 text-sm mb-4">
+              <div className="rounded-lg bg-gray-50 p-3">Configs: <strong>{ops.admin.configs}</strong></div>
+              <div className="rounded-lg bg-gray-50 p-3">Credit limits: <strong>{ops.admin.credit_limits}</strong></div>
+              <div className="rounded-lg bg-gray-50 p-3">Routes: <strong>{ops.admin.routes}</strong></div>
+              <div className="rounded-lg bg-gray-50 p-3">Sessions: <strong>{ops.admin.active_sessions}</strong></div>
+            </div>
+            <div className="space-y-2">
+              {ops.admin.recent_sessions.map(item => (
+                <div key={item.id} className="rounded-lg border p-3 bg-gray-50 text-sm">
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <span className="font-medium">{item.user_name}</span>
+                    {item.revoked_at ? <span className="px-2 py-0.5 rounded text-xs bg-red-100 text-red-700">revoked</span> : <span className="px-2 py-0.5 rounded text-xs bg-green-100 text-green-700">active</span>}
+                    <span className="text-xs text-gray-400 ml-auto">{fmtDate(item.last_seen_at)}</span>
+                  </div>
+                  <p className="text-xs text-gray-500 mt-1">{item.ip_address || 'N/A'} · {item.user_agent || 'N/A'}</p>
+                </div>
+              ))}
+              {ops.admin.recent_sessions.length === 0 && <EmptyState text="Chưa có active session nào để soi." />}
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 // ===== Shared Components =====
 // ===== Tab: GPS Simulation =====
 interface GPSScenario {
@@ -968,7 +1278,7 @@ interface GPSSimStatusData {
   vehicle_states?: { vehicle_id: string; plate: string; lat: number; lng: number; speed: number; heading: number; status: string; waypoint_idx: number }[]
 }
 
-function GPSSimTab({ refreshKey, showToast }: { refreshKey: number; showToast: (m: string) => void }) {
+function GPSSimTab({ refreshKey, showToast, preferredScenario }: { refreshKey: number; showToast: (m: string) => void; preferredScenario: string }) {
   const [scenarios, setScenarios] = useState<GPSScenario[]>([])
   const [vehicles, setVehicles] = useState<GPSVehicle[]>([])
   const [selectedScenario, setSelectedScenario] = useState<string>('')
@@ -983,6 +1293,10 @@ function GPSSimTab({ refreshKey, showToast }: { refreshKey: number; showToast: (
     api<GPSVehicle[]>('/gps/vehicles').then(d => d && setVehicles(d))
     api<GPSSimStatusData>('/gps/status').then(d => d && setStatus(d))
   }, [refreshKey])
+
+  useEffect(() => {
+    if (preferredScenario) setSelectedScenario(preferredScenario)
+  }, [preferredScenario])
 
   // Auto-refresh status every 3s while running
   useEffect(() => {

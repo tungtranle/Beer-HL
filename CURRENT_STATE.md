@@ -1,6 +1,6 @@
 # CURRENT_STATE — BHL OMS-TMS-WMS
 
-> **Cập nhật:** 17/04/2026 (session 17/04 — Control Tower map UX + SC-11 test scenario)  
+> **Cập nhật:** 21/04/2026 (session 21/04 — Phase 8 Fleet & Driver Management + Control Tower UX/UI map polish)  
 > **Mục đích:** Mô tả trạng thái THỰC TẾ của hệ thống. AI đọc file này để biết code đang làm gì, **không** phải spec nói gì.  
 > **Quy tắc:** Khi code thay đổi → cập nhật file này. Nếu CURRENT_STATE không khớp code → file này sai.
 
@@ -12,10 +12,10 @@
 |-----------|------|------|--------|
 | Backend API | Go + Gin | :8080 | ✅ Hoạt động (default port 8080) |
 | Frontend | Next.js 14 + Tailwind | :3000 | ✅ Hoạt động (`restart-services.bat` now relaunches frontend in separate CMD window) |
-| Database | PostgreSQL 16 | :5434 | ✅ 22 migration pairs (001-025) |
+| Database | PostgreSQL 16 | :5434 | ✅ 28 migration pairs (001-035) |
 | Cache/PubSub | Redis | :6379 | ✅ GPS + pub/sub |
 | VRP Solver | Python + OR-Tools | :8090 | ✅ Hoạt động |
-| OSRM Routing | Docker (Vietnam data) | :5000 | ⚠️ Cần setup data (./setup-osrm.ps1) |
+| OSRM Routing | Docker (Vietnam data) | :5000 | ⚠️ Cần setup data (`./setup-osrm.ps1`), hỗ trợ refresh lại extract mới bằng `-ForceRefresh` |
 | Mock Server | Go (Bravo/DMS/Zalo) | :9001-9003 | ✅ Optional — `go run cmd/mock_server/main.go` |
 | Prometheus | Docker | :9090 | ✅ Configured (profile: monitoring) |
 | Grafana | Docker | :3030 | ✅ Configured (profile: monitoring) |
@@ -109,6 +109,29 @@
 - **Picking by Vehicle (MỚI UX v5):** GET `/warehouse/picking-by-vehicle?date=YYYY-MM-DD` — soạn hàng gom theo xe, aggregated products with FEFO, per-stop orders, progress %
 - **Bàn giao A/B/C (MỚI BRD v3.2):** POST `/warehouse/handovers` — tạo bàn giao; POST `/warehouse/handovers/:id/sign` — ký bàn giao; GET `/warehouse/handovers/trip/:tripId` — lấy danh sách bàn giao theo chuyến; GET `/warehouse/handovers/:id` — chi tiết bàn giao
 
+### WMS Phase 9 — ✅ ACTIVE (15/15 done — 23/04/2026)
+- **Phạm vi:** Pallet/LPN + Bin location + QR scan workflows + Cycle count + Realtime dashboard + Bin-map
+- **Decisions:** DEC-WMS-01 (LPN layer), DEC-WMS-02 (FEFO-only), DEC-WMS-03 (Hybrid PDA+PWA), DEC-WMS-04 (Bravo PENDING)
+- **Migration 037:** `pallets`, `bin_locations`, `qr_scan_log`, `cycle_count_tasks` — 4 bảng mới (đã APPLIED, KHÔNG sync_status)
+- **Backend files:** `internal/wms/phase9_workflows.go` (~600 LOC) + `phase9_workflows_handler.go` (mount routes)
+- **Endpoints (13 mới):**
+  - `GET /v1/warehouse/pallets/:lpn` · `GET/POST /v1/warehouse/bins` · `GET /v1/warehouse/bins/:code/contents` (Sprint 1)
+  - `POST /v1/warehouse/inbound/{receive,suggest-bin,putaway}` (Sprint 2 — receive sinh GS1 SSCC + ZPL string)
+  - `GET /v1/warehouse/picking/:id/suggest-pallets` (FEFO ASC), `POST /v1/warehouse/picking/scan-pick` (FEFO check + override+reason)
+  - `POST /v1/warehouse/loading/{start,scan,complete}` (validate plate vs vehicles, set status=shipped)
+  - `POST /v1/warehouse/cycle-count/generate` (theo velocity class A/B/C), `GET /v1/warehouse/cycle-count/tasks`, `POST /v1/warehouse/cycle-count/submit` (variance auto → discrepancy)
+  - `GET /v1/warehouse/dashboard/alerts` (4 cảnh báo: low_safety_stock / near_expiry_high_qty / bins_over_90 / orphan_pallets)
+  - `GET /v1/warehouse/lots/:id/distribution` (recall traceability)
+- **Frontend pages (7 mới)** dưới `web/src/app/dashboard/warehouse/`:
+  - `scan/` (PWA dual-input PDA KeyEvent + camera BarcodeDetector qr/data_matrix/code_128, parser GS1)
+  - `inbound/` (form receive → ZPL print)
+  - `putaway/` (LPN lookup → 3 bin gợi ý → confirm/override)
+  - `loading/` (trip+plate → loop scan → complete)
+  - `cycle-count/` (generate ABC + modal scan submit)
+  - `dashboard/` (4 widget polling 10s)
+  - `bin-map/` (canvas heatmap occupancy 5 mức + click drill-down)
+- **Live tested:** receive, suggest-bin, putaway, cycle-count generate/list, dashboard alerts, lot distribution. `go build ./...` exit 0.
+
 ### Integration — ✅ Hoạt động (19 endpoints) — Updated Session 25/03
 - **Bravo:** Push document, webhook, reconcile (mock mode) (3 endpoints)
 - **DMS:** Sync order status (mock mode) (1 endpoint)
@@ -128,13 +151,15 @@
 - **Action history (MỚI Phase 6):** GET `/reconciliation/discrepancies/:id/history` — entity_events timeline per discrepancy
 - **RBAC (MỚI Phase 6):** ResolveDiscrepancy requires admin or is_chief_accountant flag
 
-### Test Portal — ✅ Hoạt động (21 endpoints) — Updated Session 17/04
+### Test Portal — ✅ Hoạt động (24 endpoints) — Updated Session 21/04
 - **Bảo mật:** `ENABLE_TEST_PORTAL=true|false` env flag — default true (dev), set false trên production
 - **Không cần auth** — module riêng cho QA/UAT testing
-- **Data overview:** orders, order detail, order-confirmations, delivery-confirmations, stock, credit-balances, customers, products, drivers (9 endpoints)
+- **Launcher cho người non-tech (MỚI Session 17/04):** double-click `bhl-oms/START_TEST_PORTAL.bat` để bật backend `:8080`, frontend `:3001`, rồi tự mở `http://localhost:3001/test-portal`
+- **Frontend fail-safe (MỚI Session 17/04):** nếu frontend còn sống nhưng backend `:8080` đang tắt, tab Kịch bản test hiển thị cảnh báo backend chưa chạy thay vì empty state gây hiểu nhầm là không có scenario
+- **Data overview:** orders, order detail, order timeline, order notes, order-confirmations, delivery-confirmations, stock, credit-balances, customers, products, drivers, ops-audit aggregate (12 endpoints)
 - **Test actions:** reset-data, create-test-order, simulate-delivery, run-scenario, load-scenario, list-scenarios, zalo-inbox (7 endpoints)
 - **GPS Simulation:** scenarios, vehicles, start, stop, status (5+1 endpoints)
-- **9 kịch bản test (MỚI SC-09 Session 26/03):**
+- **12 kịch bản test (MỚI SC-12 Session 21/04):**
   - SC-01: E2E Happy Path (8 đơn, 3 chuyến)
   - SC-02: Credit Exceed (vượt hạn mức)
   - SC-03: ATP Fail (tồn kho không đủ)
@@ -144,6 +169,9 @@
   - SC-07: Gate Check Fail
   - SC-08: Reconciliation Discrepancy
   - **SC-09: VRP Tối ưu (MỚI) — 300 đơn, 5 nhóm trọng lượng (40kg→6.5T), 50 xe WH-HL (3.5T/5T/8T/15T = 284T), ~245T hàng. Mock fallback fixed**
+  - SC-10: Dữ liệu thực 13/06, GPS mặc định `from_active_trips`
+  - SC-11: Control Tower, GPS mặc định `from_active_trips`
+  - SC-12: Ops & Audit regression — 3 order status, timeline, notes, DLQ, discrepancy, daily close, KPI snapshot
 - **GPS Simulation (MỚI Session 19g):**
   - GET `/v1/test-portal/gps/scenarios` — 7 kịch bản sẵn có
   - GET `/v1/test-portal/gps/vehicles` — Danh sách xe active từ DB
@@ -151,8 +179,10 @@
   - POST `/v1/test-portal/gps/stop` — Dừng giả lập + xóa Redis data
   - GET `/v1/test-portal/gps/status` — Trạng thái realtime (tick, vị trí xe)
   - 7 scenarios: normal_delivery (5 xe), rush_hour (10 xe), gps_lost_signal, idle_vehicle, speed_violation, long_route (QN→HP), from_active_trips (DB)
+  - Route generator lấy kho + NPP thực từ DB, sau đó gọi OSRM route geometry để densify waypoint theo đường đi thật; `from_active_trips` suy từ kho của chuyến + customer trên `trip_stops`, không đọc `trip_stops.latitude/longitude` vì schema hiện tại không có cột này
   - Data flow: Start → goroutine → Redis HSET + PUBLISH → WebSocket hub → Control Tower map
-- **Frontend:** http://localhost:3003/test-portal — 9 tab UI: Kịch bản test, Đơn hàng, Xác nhận đơn Zalo, Xác nhận giao hàng, Tồn kho/ATP, Dư nợ, Tạo đơn test, **Giả lập GPS**, **Tài xế**
+- **Frontend:** `http://localhost:3001/test-portal` khi chạy detached launcher (hoặc `:3000` với flow dev cũ) — 10 tab UI: Kịch bản test, Đơn hàng, Xác nhận đơn Zalo, Xác nhận giao hàng, Tồn kho/ATP, Dư nợ, **Ops & Audit**, Tạo đơn test, **Giả lập GPS**, **Tài xế**
+- **Test Portal coverage (21/04):** 12 scenario backend (SC-01..SC-12) + 7 GPS profile; tab Ops & Audit gom coverage cho timeline/notes, integration DLQ, reconciliation, KPI và admin smoke, đồng thời SC-10/SC-11 mặc định route theo `from_active_trips`
 - **Backend:** `internal/testportal/handler.go` — 18+ handler methods, direct DB queries, no service layer (→ TD-019)
 - **Thêm endpoints (session 16 cont.):** SimulateDelivery, RunScenario, ZaloInbox
 - **SQL scripts:**
@@ -296,7 +326,7 @@
   - 5 UX rules bắt buộc: zero dead ends, instant business feedback, role-aware empty states, trace ID in errors, driver h-12/h-14 tap targets
   - DEC-009: UXUI_SPEC.md per-role specification formalized
   - `.github/instructions/frontend-patterns.instructions.md` — Auto-applied cho .tsx/.ts files, đã cập nhật UX rules + brand color
-- **Test Portal (MỚI Session 16):** http://localhost:3003/test-portal — 8 tab: Kịch bản test, Đơn hàng, Xác nhận đơn Zalo, Xác nhận giao hàng, Tồn kho/ATP, Dư nợ, Tạo đơn test, **Tài xế**. No auth, standalone module cho QA/UAT.
+- **Test Portal (MỚI Session 16):** `http://localhost:3001/test-portal` với launcher mới (hoặc `:3000`/`:3001` trong local dev), 10 tab: Kịch bản test, Đơn hàng, Xác nhận đơn Zalo, Xác nhận giao hàng, Tồn kho/ATP, Dư nợ, **Ops & Audit**, Tạo đơn test, **Giả lập GPS**, **Tài xế**. No auth, standalone module cho QA/UAT.
 - **Notification UI (CẬP NHẬT Session 18):**
   - Notification Bell: chuông ở topbar (bên phải, main content area), click mở slide-in panel full-height bên phải
   - Notification Panel: slide-in từ phải, backdrop overlay, ESC/click-outside để đóng, body scroll lock, styled-scrollbar
@@ -313,6 +343,7 @@
   - **Centralized status config (MỚI Session 22/03):** `web/src/lib/status-config.ts` — SINGLE SOURCE OF TRUTH cho tất cả status labels/colors (order, trip, stop, recon, Zalo). Tất cả pages import từ đây.
   - **OrderStatusStepper (MỚI Session 22/03):** `web/src/components/OrderStatusStepper.tsx` — 5-step progress stepper (Đã tạo đơn → KH xác nhận → Kho xử lý → Đang vận chuyển → Hoàn thành) with special status banners (rejected, partially_delivered, etc.)
   - **Test Portal scenario sourcing (17/04):** Frontend Test Portal không còn fallback scenario/test case hardcode; danh sách scenario và dữ liệu test chỉ đến từ backend `GET/POST /v1/test-portal/scenarios|load-scenario`.
+  - **Test Portal Ops & Audit (21/04):** Tab mới gọi `GET /v1/test-portal/ops-audit`, `GET /v1/test-portal/orders/:id/timeline`, `GET /v1/test-portal/orders/:id/notes` để kiểm tra order history, notes ghim, DLQ, discrepancy, daily close, KPI snapshot và admin smoke counters tại một chỗ.
   - **Test Portal drivers tab (17/04):** Tab `Tài xế` lấy roster tài xế thực từ `GET /v1/test-portal/drivers`, không còn hiển thị username/password demo hardcode trong UI.
   - **Biên bản giao hàng (MỚI Session 22/03):** ePOD view upgraded — formal header, product table (ordered/delivered/variance), photo gallery, signature display
   - **Workshop page:** `/dashboard/workshop` — Bottle classification form (classify tốt/hỏng/mất) + summary view
@@ -323,7 +354,8 @@
   - **Picking page:** Priority badge "Soạn trước" for first pending item
   - **Control tower:** Exception descriptions (Vietnamese), bulk move stops (multi-select + modal), fleet tab toggle (trips/fleet)
   - **Control tower trip progress (MỚI 17/04):** Hiển thị progress bar theo từng chuyến + snapshot ETA countdown/lệch ETA (on-time/late/no-eta) ngay trong danh sách chuyến, lấy dữ liệu từ `/trips/:id` để theo dõi theo điểm giao.
-  - **Control tower map UX (MỚI 17/04):** SVG truck markers (heading rotation + plate badge + glow), route polyline cam đứt nét, stop markers màu theo status, ETA dashed line, trip-map linking (flyTo/fitBounds), GPS simulator button trên map.
+  - **Control tower map UX (MỚI 17/04, cập nhật 21/04):** SVG truck markers (heading rotation + plate badge + glow), route polyline cam đứt nét, stop markers màu theo status, ETA path chỉ vẽ khi lấy được OSRM geometry thật, trip-map linking (flyTo/fitBounds), GPS simulator button trên map, toggle `Mở rộng bản đồ`, chế độ `Toàn màn hình`, drawer cảnh báo nổi, và lớp nền mặc định dùng OpenStreetMap standard để ưu tiên nhãn địa danh bản địa hơn kiểu quốc tế hóa của CARTO.
+  - **Control tower OSRM source (21/04):** frontend không còn gọi trực tiếp `router.project-osrm.org`; route và ETA preview đi qua rewrite `/osrm/*` tới OSRM local `:5000` để đồng nhất với simulator/backend và tránh lệch dữ liệu mạng đường.
   - **Control tower map lifecycle fix (17/04):** Leaflet map chỉ khởi tạo sau khi page thoát trạng thái loading; thêm `invalidateSize()` sau init và `min-height` cho map container để tránh panel giữa trắng do map effect chạy khi `ref` chưa mount.
   - **Control tower GPS WS fix (17/04):** Frontend Control Tower kết nối trực tiếp backend WebSocket `/ws/gps`; local dev tự dùng `localhost:8080`, không đi qua Next.js `/api` rewrite vốn chỉ áp dụng cho HTTP `/v1/*`.
   - **Control tower active route overlay (17/04):** Các chuyến active `in_transit`, `assigned`, `ready` đều hiện tuyến trên map overview; chuyến đang chạy dùng line liền, chuyến chuẩn bị chạy dùng line xám đứt nét; selected trip vẫn được highlight đậm hơn và giữ stop markers.
@@ -331,6 +363,9 @@
   - **Control tower GPS start behavior (17/04):** Nút GPS simulator trên map chỉ khởi động giả lập theo chuyến hiện có trong DB/Test Portal; frontend không còn gửi `use_demo=true` để tự dựng data test.
   - **Control tower road geometry (17/04):** Route overlay ưu tiên geometry từ OSRM để hiển thị theo đường thực tế; fallback mới dùng polyline waypoint nếu OSRM không trả dữ liệu.
   - **Control tower off-route detection (17/04):** Tính khoảng cách xe → route geometry; nếu vượt ngưỡng ~1.2 km thì marker, popup và trip list hiển thị `Lệch tuyến X km`.
+  - **Control tower map UX polish (21/04):** Marker click chuyển sang vehicle focus panel cố định trên map (không dùng modal giữa màn hình), giữ context theo xe/chuyến trong luồng realtime; bổ sung quick actions `Theo dõi xe`, `Mở Google Maps`.
+  - **Control tower map controls (21/04):** Thêm bộ điều khiển kiểu Google Maps (Street View pegman, zoom +/- custom, my-location, Map/Satellite pill), chuẩn hóa visual controls với shadow `0 2px 6px rgba(0,0,0,0.3)`, border-radius 8px, hover nền `#f5f5f5`, font Roboto.
+  - **Control tower base map style (21/04):** Chuyển default tile sang light basemap của CARTO và hỗ trợ vệ tinh Esri qua toggle để cảm giác bản đồ gần Google Maps hơn so với OSM mặc định.
   - **Login screen hardening (17/04):** Trang `/login` không còn hiển thị danh sách tài khoản demo/mật khẩu; chỉ giữ thông điệp liên hệ quản trị hệ thống để nhận tài khoản.
   - **SC-11 realistic route data (17/04):** `WH-HL` được neo về KCN Cái Lân; 26 khách đầu tiên được chia thành 7 cụm NPP thực tế (Hồng Gai/Cao Xanh, Bãi Cháy/Tuần Châu, Quảng Yên, Uông Bí, Mạo Khê, Đông Triều, Cẩm Phả/Cửa Ông). GPS simulator mặc định chạy 7 chuyến active; chuyến `completed` giữ lại để test lịch sử thay vì tính vào xe online.
   - **SC-11 Control Tower (MỚI 17/04):** Test Portal scenario — 8 trips, 26 orders, 3 exceptions (failed_stop + late_eta + idle_vehicle). 12 khách đầu tiên được re-anchor về cụm tuyến thực tế Hạ Long–Quảng Yên–Uông Bí–Cẩm Phả; GPS simulator giữ đủ 8 xe bằng cách để chuyến completed online đứng yên tại điểm cuối.
@@ -363,6 +398,11 @@
 - `order_status` — 13 states
 - `trip_status` — 17 states (thêm handover_a_signed, unloading_returns, settling, vehicle_breakdown)
 - `stop_status` — 7 states
+
+## User catalog rebuild (2026-04-24)
+
+- Scripts added to inspect and rebuild the `users` catalog: [bhl-oms/scripts/rebuild_user_catalog.sql](bhl-oms/scripts/rebuild_user_catalog.sql), [bhl-oms/scripts/run_user_anomaly_report.py](bhl-oms/scripts/run_user_anomaly_report.py), and helper wrappers in `bhl-oms/scripts/`.
+- Progress: anomaly-report generation and mapping helpers prepared; migration INSERT/COMMIT blocks are commented for manual review and staging apply. Follow `bhl-oms/scripts/README.md` for steps.
 - `zalo_confirm_status` — 5 states
 - `payment_status` — 4 states
 - `dlq_status` — 4 states (pending, retrying, resolved, failed) — NEW
@@ -404,6 +444,69 @@ Confirmation (1): OrderConfirmation
 s.log.Info(ctx, "event_name", logger.F("key", "value"))
 s.log.Error(ctx, "event_name", err, logger.F("key", "value"))
 ```
+
+---
+
+## Fleet & Driver Management (FMS+/DMS+) — ✅ Hoạt động (28 endpoints)
+
+> **Scope:** BRD v3.6 Section 14C, TASK_TRACKER Phase 8 (30 tasks)  
+> **Quyết định kiến trúc:** DEC-015  
+> **Module:** `internal/fleet/` (models.go, repository.go, service.go, handler.go)
+
+**Migrations đã apply (6):**
+- 030_work_orders: enums (work_order_status, wo_trigger_type, wo_category, wo_priority), tables (work_orders, repair_items, repair_attachments), ALTER vehicles (health_score, last_health_check, current_km, year_of_manufacture, fuel_type)
+- 031_garages: tables (garages, garage_ratings), FK work_orders.garage_id → garages.id
+- 032_fuel_logs: enums (fuel_channel, fuel_anomaly_status), tables (fuel_logs, fuel_anomalies, fuel_consumption_rates + seed 6 types)
+- 033_driver_scores: tables (driver_scores UNIQUE(driver_id, score_date), driver_score_snapshots), ALTER drivers ADD current_score
+- 034_gamification: tables (gamification_badges, badge_awards UNIQUE(badge_id, driver_id, period_month)), seed 7 badge types
+- 035_tire_leave: enums (leave_status, leave_type, tire_condition), tables (tire_sets, leave_requests), ALTER drivers ADD emergency_contact, annual_leave_days, used_leave_days
+
+**Fleet endpoints (15):**
+- POST/GET/PUT `/v1/fleet/work-orders` — Repair Order CRUD + filter
+- POST `/v1/fleet/work-orders/:id/approve` — Approve (status validation)
+- POST `/v1/fleet/work-orders/:id/complete` — Complete (triggers health recalc)
+- GET/POST/PUT `/v1/fleet/garages` — Garage CRUD
+- POST `/v1/fleet/garages/:id/rate` — Rate after RO complete
+- GET `/v1/fleet/garages/benchmark` — Garage benchmark analytics
+- GET/POST `/v1/fleet/fuel-logs` — Fuel log list + create (anomaly detection)
+- GET `/v1/fleet/fuel-logs/anomalies` — Fuel anomalies list
+- PUT `/v1/fleet/fuel-logs/anomalies/:id/resolve` — Resolve anomaly
+- GET/POST/PUT `/v1/fleet/tyres` — Tire set CRUD per vehicle
+- GET `/v1/fleet/vehicles/:id/health` — Vehicle health data
+- GET `/v1/fleet/health-overview` — Fleet health overview (critical/warning/healthy)
+- GET `/v1/fleet/tco/:vehicle_id` — Vehicle TCO (repair + fuel + tire costs)
+- GET `/v1/fleet/tco/summary` — Fleet TCO summary
+- GET `/v1/fleet/analytics/cost` — Cost analytics (top vehicles, category breakdown)
+
+**Driver endpoints (8):**
+- GET `/v1/drivers/:id/scorecard` — Driver scorecard (5 metrics + rank + badges + history)
+- GET `/v1/drivers/leaderboard` — Leaderboard (week/month toggle)
+- GET `/v1/drivers/:id/badges` — Driver badge awards
+- GET `/v1/drivers/gamification/bonus-report` — Bonus report (badges × value)
+- POST/GET `/v1/drivers/:id/leave-requests` — Leave request CRUD
+- PUT `/v1/drivers/leave-requests/:id/approve` — Approve leave
+- GET `/v1/drivers/:id/fuel-logs` — Driver fuel log history
+
+**Business logic:**
+- Emergency RO auto-approve: ≤ 5M VNĐ
+- Health Score rule-based: -10/open RO, -15/overdue maintenance, -5/-10 for age
+- Fuel anomaly detection: expected = distance × base_rate × factors, flag if >25% deviation
+- Driver Score: OTD 30%, Delivery 25%, Safety 25%, Compliance 10%, Customer 10%
+- Gamification: 7 badge types (top_driver, otd_champion, safe_driver, fuel_saver, streak_30, epod_master, milestone_100)
+
+**Frontend pages (7):**
+- `/dashboard/fleet/repairs` — Work orders list with status/category filters
+- `/dashboard/fleet/fuel` — Fuel logs + anomalies (2 tabs)
+- `/dashboard/fleet/garages` — Garage cards with rating + specialties
+- `/dashboard/fleet/health` — Vehicle health overview (critical/warning/healthy)
+- `/dashboard/fleet/scorecard` — Driver scorecard (score breakdown + badges + history)
+- `/dashboard/fleet/leaderboard` — Driver leaderboard (week/month)
+- `/dashboard/fleet/tco` — TCO cost analytics per vehicle
+
+**Bỏ khỏi scope:** US-TMS-28 (HOS), US-TMS-30 (Shift), US-TMS-35 (Spare Parts), OCR PaddleOCR
+- vehicle_maintenance_schedules + records ✅ (schema+API, chưa cron auto-overdue)
+- Cost Engine + toll/fuel/driver rates ✅
+- Entity Events system (26 event types) ✅
 
 ---
 

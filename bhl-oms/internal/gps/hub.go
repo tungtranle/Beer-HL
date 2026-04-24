@@ -65,6 +65,15 @@ type Hub struct {
 	// Connected dispatcher WebSocket clients
 	mu      sync.RWMutex
 	clients map[*wsClient]bool
+
+	// F7 anomaly detection hook (optional, async per-point).
+	detector PointDetector
+}
+
+// PointDetector is invoked for every received GPS point (best-effort, async).
+// Implemented by internal/anomaly.Service to avoid import cycles.
+type PointDetector interface {
+	DetectPoint(ctx context.Context, vehicleID uuid.UUID, driverID *uuid.UUID, lat, lng, speedKmh float64, at time.Time)
 }
 
 type wsClient struct {
@@ -155,8 +164,19 @@ func (h *Hub) PublishBatch(ctx context.Context, driverID uuid.UUID, points []GPS
 		if err := h.PublishGPS(ctx, points[i]); err != nil {
 			return err
 		}
+		// F7: feed point to anomaly detector (async, non-blocking).
+		if h.detector != nil {
+			p := points[i]
+			driverPtr := &driverID
+			go h.detector.DetectPoint(context.Background(), p.VehicleID, driverPtr, p.Lat, p.Lng, p.Speed, p.Timestamp)
+		}
 	}
 	return nil
+}
+
+// SetDetector wires the anomaly detector. Call once at startup.
+func (h *Hub) SetDetector(d PointDetector) {
+	h.detector = d
 }
 
 // GetLatestPositions returns all latest vehicle positions from Redis.

@@ -9,13 +9,20 @@ const nextConfig = {
         source: '/api/:path*',
         destination: 'http://localhost:8080/v1/:path*',
       },
+      {
+        source: '/osrm/:path*',
+        destination: 'http://localhost:5000/:path*',
+      },
     ]
   },
 }
 
-module.exports = withSentryConfig(nextConfig, {
-  // Disable source map upload in dev (no auth token needed for basic setup)
-  silent: true,
-  disableServerWebpackPlugin: true,
-  disableClientWebpackPlugin: true,
-});
+if (process.env.NODE_ENV !== 'production') {
+  module.exports = nextConfig
+} else {
+  module.exports = withSentryConfig(nextConfig, {
+    silent: true,
+    disableServerWebpackPlugin: true,
+    disableClientWebpackPlugin: true,
+  })
+}

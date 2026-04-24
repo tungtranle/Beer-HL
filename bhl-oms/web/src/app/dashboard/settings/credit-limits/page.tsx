@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { apiFetch, getUser } from '@/lib/api'
+import { handleError } from '@/lib/handleError'
 import { toast } from '@/lib/useToast'
 
 interface CreditLimit {
@@ -46,7 +47,7 @@ export default function CreditLimitsPage() {
       const res: any = await apiFetch('/admin/credit-limits')
       setLimits(res.data || [])
     } catch (err) {
-      console.error(err)
+      handleError(err, { userMessage: 'Không tải được hạn mức công nợ' })
     } finally {
       setLoading(false)
     }

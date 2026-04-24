@@ -2,8 +2,12 @@
 
 | Thông tin | Giá trị |
 |-----------|---------|
-| Phiên bản | **v1.0** |
-| Dựa trên | BRD v2.0, SAD v2.1, DBS v1.0, API v1.0 |
+| Phiên bản | **v2.0** |
+| Dựa trên | BRD v3.2, SAD v2.1, DBS v1.0, API v1.1, **Code thực tế 23/04/2026** |
+| Cập nhật | 23/04/2026 — sync với code thực tế, thêm AI-first strategy |
+
+> ⚠️ **Nguyên tắc v2.0:** Test cases phải đọc từ CODE, không chỉ từ spec. Spec là ý định, code là sự thật.  
+> Xem chi tiết chiến lược: `AI_TEST_STRATEGY.md`
 
 ---
 
@@ -33,7 +37,7 @@
 2. **Automate first:** Unit + Integration auto chạy trong CI
 3. **Business rule coverage:** Mỗi rule R01–R15 có ít nhất 1 test case
 4. **Regression CI:** Mỗi PR phải pass toàn bộ test suite
-5. **Production-like data:** UAT dùng data gần đúng thực tế (800 NPP, 30 SKU)
+5. **Production-like data:** Local/UAT hiện dùng 218 NPP thực đã import + 30 SKU; khi BHL cung cấp full dump thì nâng lên 800 NPP mà không đổi matrix test
 
 ## Test Coverage Target
 
@@ -100,6 +104,10 @@ func TestOMS_CreateOrder_PastCutoff(t *testing.T) { ... }
 | Split order: multi-warehouse | — | Items at different warehouses | 2 shipments |
 | Approve credit-exceeded order | R03 | Manager approves | status → approved |
 | Priority ordering: VIP + fresh | R06 | VIP customer, fresh product | Priority score = highest |
+| Redelivery: allowed from partially_delivered | — | Status=partially_delivered | New shipment created, re_delivery_count++ |
+| Redelivery: blocked from delivered | — | Status=delivered | 400: không cho phép |
+| Zalo flow: pending_customer_confirm | — | Zalo enabled, tạo đơn | status=pending_customer_confirm, not=confirmed |
+| Auto-confirm Zalo sau 2h | — | Token expire, cron chạy | status=confirmed, event=auto_confirmed |
 
 ### TMS Service
 
@@ -114,6 +122,16 @@ func TestOMS_CreateOrder_PastCutoff(t *testing.T) { ... }
 | GPS batch insert | — | 100 GPS points | All saved, latest in Redis |
 | Trip complete: all delivered | — | All stops delivered | status=completed |
 | Trip complete: partial delivery | — | 1 stop failed | status=completed, redelivery created |
+
+### TMS — Stop Flow (Cập nhật: có bước "delivering" intermediate)
+
+| Test Case | Rule | Input | Expected |
+|-----------|------|-------|----------|
+| Stop: arrived → delivering | SM-03 | Driver bấm Đã đến | stop_status=arrived |
+| Stop: delivering → delivered + ePOD | SM-03 | Driver giao + chụp ảnh | stop_status=delivered, epod photo saved |
+| Stop: server enforce ≥ 1 photo ePOD | US-TMS-13 | Submit ePOD không có ảnh | 400: at least 1 photo required |
+| StartTrip: auto order in_transit | — | Driver start trip | Tất cả orders trong trip → in_transit, event ghi |
+| CompleteTrip: accept partially_delivered stop | — | Stop = partially_delivered | Trip completed (không reject) |
 
 ### WMS Service
 
@@ -137,6 +155,28 @@ func TestOMS_CreateOrder_PastCutoff(t *testing.T) { ... }
 | Return count: match | R02 | Driver count = factory count | OK |
 | Return count: discrepancy | R02 | Driver ≠ factory | discrepancy_qty calculated |
 | Asset compensation | R10 | Damaged vỏ | Compensation = qty × deposit_price |
+
+### Cost Engine (MỚI — v2.0)
+
+| Test Case | Rule | Input | Expected |
+|-----------|------|-------|----------|
+| Toll cost > 0 khi route qua trạm | — | Route Hà Nội → Hải Phòng | toll_cost_vnd > 0 |
+| Toll cost = 0 khi avoid_toll=true | — | avoid_toll route | toll_cost_vnd = 0, safeguard active |
+| Haversine proximity: < 500m = detect | — | Gate trong 500m | toll detected |
+| Haversine proximity: > 500m = skip | — | Gate ngoài 500m | toll not detected |
+| Cost breakdown per trip | — | VRP result | fuel_cost + toll_cost = total_cost |
+| Expressway: entry/exit gates ordered | — | Route qua CT HP-HL | gates in correct order |
+
+### Reconciliation (MỚI — v2.0)
+
+| Test Case | Rule | Input | Expected |
+|-----------|------|-------|----------|
+| Auto-reconcile: goods match | BR-REC-01 | Delivered = shipped qty | No discrepancy, status=reconciled |
+| Auto-reconcile: goods shortage | BR-REC-01 | Delivered < shipped | discrepancy_ticket type=goods |
+| Auto-reconcile: payment diff | BR-REC-01 | Collected ≠ invoice | discrepancy_ticket type=payment |
+| Auto-reconcile: asset shortage | BR-REC-01 | Returned vỏ < shipped | discrepancy_ticket type=asset |
+| Daily close: aggregate correct | — | 5 trips, 3 deliveries | totals match sum of trips |
+| Discrepancy T+1 escalation | R08 | Ticket open > 24h | Notification escalated |
 
 ### Auth & RBAC
 
@@ -190,15 +230,22 @@ func TestIntegration(t *testing.T) {
 
 ## 5.1 Web (Playwright)
 
-| Scenario | Steps | Assert |
-|----------|-------|--------|
-| Login → Dashboard | Login as dispatcher → dashboard loads | 5 widgets visible |
-| Create order | Fill form → submit | Order in list with status=new |
-| Run VRP | Select date + warehouse → Run | Job completes, trips shown |
-| Approve trip plan | Review trips → approve | status=approved |
-| View GPS map | Open map → see markers | At least 1 vehicle marker |
-| Reconciliation flow | View trip summary → open discrepancy → close | Ticket status=resolved |
-| KPI report | Open OTD report | Chart renders with data |
+| Scenario | Role | Steps | Assert |
+|----------|------|-------|--------|
+| Login → Dashboard | dispatcher01 | Login → dashboard loads | 5 widgets visible |
+| Create order | dvkh01 | Fill form → submit | Order in list with status=new or pending_customer_confirm |
+| Run VRP | dispatcher01 | Select date + warehouse → Run | Job completes, trips shown, cost breakdown visible |
+| Approve trip plan | dispatcher01 | Review trips → approve | status=approved |
+| View GPS map | dispatcher01 | Open map → see markers | At least 1 vehicle marker |
+| Control Tower | dispatcher01 | Open Control Tower → GPS simulate | 7 vehicles on map, progress bars visible |
+| Reconciliation flow | accountant01 | View trip summary → open discrepancy → close | Ticket status=resolved |
+| KPI report | manager01 | Open OTD report | Chart renders with data, 3 tabs visible |
+| Warehouse picking | thukho_hl01 | Open Picking by Vehicle | Vehicle cards with FEFO badges |
+| Gate check | baove_hl01 | Open Gate Check → scan | Pass/fail result displayed |
+| Redelivery flow | dispatcher01 | Open partially_delivered order → create redelivery | New shipment, order back to confirmed |
+| Cost settings | admin | Open Transport Costs page | 4 tabs: Toll Stations, Expressways, Vehicle Defaults, Driver Rates |
+| Dynamic RBAC | admin | Toggle permission → test API | 403 after disable, 200 after re-enable |
+| Bàn giao flow | thukho_hl01 | Create handover → sign A | handovers list shows new entry |
 
 ## 5.2 Mobile (Manual Test Checklist)
 
@@ -295,8 +342,12 @@ Từ BRD §14 — 12 tiêu chí nghiệm thu. Mỗi tiêu chí cần **Passed** 
 | UAT-10 | Zalo OA xác nhận | NPP nhận tin Zalo chứa link → click confirm | ePOD → Zalo msg sent → click link → confirm page | ☐ |
 | UAT-11 | Dashboard + KPIs | Dashboard hiển thị 5 widget + KPI tính đúng | Login manager → open dashboard → 5 widgets + KPI charts | ☐ |
 | UAT-12 | Offline 2h | Tắt mạng 2h, giao 3 điểm → bật mạng → sync thành công | Airplane mode → deliver → reconnect → data synced | ☐ |
+| UAT-13 | Ops & Audit regression | QA thấy timeline, pinned notes, DLQ, discrepancy, daily close, KPI snapshot trong một tab | Load SC-12 → mở Test Portal Ops & Audit → đối chiếu counters + order OPS-PART-* | ☐ |
+| UAT-14 | Cost Engine VRP | Chạy VRP → trip hiển thị chi phí xăng dầu + phí cầu đường → tổng chi phí tính đúng | Run VRP SC-09 → mở kết quả → kiểm tra cost_breakdown: fuel_cost + toll_cost > 0 | ☐ |
+| UAT-15 | Bàn giao A/B/C | Kho tạo bàn giao → tài xế ký A → thủ kho ký B → manager ký C | WMS handover → POST handovers → sign A/B/C → verify status = signed_c | ☐ |
+| UAT-16 | Dynamic RBAC | Admin tắt quyền tạo đơn của DVKH → DVKH gọi API tạo đơn → 403 → Admin bật lại → 200 | Settings > Permissions → toggle → test API call → verify 403/200 | ☐ |
 
-**Exit Criteria:** 12/12 passed. BHL PM ký xác nhận.
+**Exit Criteria:** 16/16 passed. BHL PM ký xác nhận.
 
 ---
 
@@ -356,12 +407,12 @@ Từ BRD §14 — 12 tiêu chí nghiệm thu. Mỗi tiêu chí cần **Passed** 
 | Users | 30 (real staff) | BHL HR |
 | Warehouses | 2 (real) | BHL |
 | Products | 30 (all SKU) | BHL |
-| Customers | 800 (all NPP) | BHL export |
+| Customers | 218 (master thực đang có trong local/UAT) | BHL export hiện tại |
 | Vehicles | 70 (all) | BHL |
 | Drivers | 70 (all) | BHL |
 | Routes | 500 (all) | BHL |
-| Credit balances | 800 | Bravo export |
-| Asset balances | 800 | Bravo export |
+| Credit balances | 218 baseline local, mở rộng khi có full import | Bravo export |
+| Asset balances | 218 baseline local, mở rộng khi có full import | Bravo export |
 
 ## 10.3 Load Test Data
 
@@ -379,7 +430,7 @@ Từ BRD §14 — 12 tiêu chí nghiệm thu. Mỗi tiêu chí cần **Passed** 
 |------------|---------|---------------|------|
 | **Local** | Dev unit/integration test | Docker Compose | testcontainers ephemeral |
 | **Staging** | CI/CD target, integration, E2E | 1 VM (4 vCPU, 8GB) | Seed data 50 NPP |
-| **UAT** | BHL user testing | Staging (same) | Full 800 NPP data |
+| **UAT** | BHL user testing | Staging (same) | 218 NPP thực hiện có; scale lên 800 khi import đầy đủ |
 | **Production** | Live | 2 VMs (8 vCPU, 16GB) | Migrated real data |
 
 ---
@@ -412,22 +463,28 @@ Từ BRD §14 — 12 tiêu chí nghiệm thu. Mỗi tiêu chí cần **Passed** 
 ## 13.3 UAT Entry
 - All integration tests passing
 - Staging deployed latest build
-- 800 NPP data imported
+- Tối thiểu 218 NPP thực đã import; nếu có full dump thì nâng lên 800 NPP
 - UAT participants trained
 - UAT scenarios documented (this section 8)
 
 ## 13.4 Go-live Exit
-- [ ] 12/12 UAT criteria passed
+- [ ] **16/16 UAT criteria passed** (v2.0: thêm UAT-14 Cost Engine, UAT-15 Bàn giao A/B/C, UAT-16 Dynamic RBAC)
+- [ ] **Smoke test suite: 17/17 scenarios PASS** (xem AI_TEST_STRATEGY.md)
+- [ ] **Playwright E2E: 14/14 role flows PASS**
 - [ ] Load test passed (3,000 orders, P95 < 2s)
 - [ ] 0 critical + 0 high bugs
 - [ ] Security scan clean (gosec + trivy)
+- [ ] go test ./... → 0 failures
 - [ ] Data migration verified by BHL KT
 - [ ] Backup/DR drill passed
 - [ ] Monitoring live (Grafana + alerts)
+- [ ] **ENABLE_TEST_PORTAL=false trên production**
 - [ ] BHL PM signed off
 
 ---
 
-**=== HẾT TÀI LIỆU TST v1.0 ===**
+**=== HẾT TÀI LIỆU TST v2.0 ===**
 
-*Test Strategy & Plan v1.0 — 80+ test cases, UAT checklist, load test, security test, offline test.*
+*Test Strategy & Plan v2.0 — 100+ test cases, UAT checklist 16 items, load test, security test, offline test.*  
+*Cập nhật 23/04/2026: sync với code thực tế (BRD v3.2), thêm Cost Engine/Reconciliation/Redelivery/Control Tower tests.*  
+*Chiến lược AI-First: xem AI_TEST_STRATEGY.md*

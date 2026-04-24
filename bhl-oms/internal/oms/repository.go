@@ -100,6 +100,49 @@ func (r *Repository) DeleteProduct(ctx context.Context, id uuid.UUID) error {
 }
 
 // ===== CUSTOMERS =====
+// ListCustomersFiltered supports pagination and free-text search (by name/code/phone).
+// `q` is matched case-insensitively. Pass empty `q` to skip the search filter.
+func (r *Repository) ListCustomersFiltered(ctx context.Context, q string, limit, offset int) ([]domain.Customer, int64, error) {
+	if limit <= 0 || limit > 500 {
+		limit = 50
+	}
+	if offset < 0 {
+		offset = 0
+	}
+
+	base := `FROM customers WHERE is_active = true`
+	args := []any{}
+	if q != "" {
+		base += ` AND (name ILIKE $1 OR code ILIKE $1 OR COALESCE(phone,'') ILIKE $1)`
+		args = append(args, "%"+q+"%")
+	}
+
+	// Count
+	var total int64
+	if err := r.db.QueryRow(ctx, "SELECT COUNT(*) "+base, args...).Scan(&total); err != nil {
+		return nil, 0, err
+	}
+
+	// Page
+	query := `SELECT id, code, name, address, phone, latitude, longitude, province, district, route_code, is_active ` + base +
+		fmt.Sprintf(" ORDER BY name LIMIT %d OFFSET %d", limit, offset)
+	rows, err := r.db.Query(ctx, query, args...)
+	if err != nil {
+		return nil, 0, err
+	}
+	defer rows.Close()
+
+	var customers []domain.Customer
+	for rows.Next() {
+		var c domain.Customer
+		if err := rows.Scan(&c.ID, &c.Code, &c.Name, &c.Address, &c.Phone, &c.Latitude, &c.Longitude, &c.Province, &c.District, &c.RouteCode, &c.IsActive); err != nil {
+			return nil, 0, err
+		}
+		customers = append(customers, c)
+	}
+	return customers, total, nil
+}
+
 func (r *Repository) ListCustomers(ctx context.Context) ([]domain.Customer, error) {
 	rows, err := r.db.Query(ctx, `
 		SELECT id, code, name, address, phone, latitude, longitude, province, district, route_code, is_active
@@ -231,6 +274,27 @@ func (r *Repository) GetATPBatch(ctx context.Context, warehouseID uuid.UUID, pro
 	return results, nil
 }
 
+// ListActiveWarehouses returns all active root warehouses with coordinates.
+func (r *Repository) ListActiveWarehouses(ctx context.Context) ([]domain.Warehouse, error) {
+	rows, err := r.db.Query(ctx, `
+		SELECT id, name, code, latitude, longitude, address
+		FROM warehouses WHERE path IS NULL AND is_active = true ORDER BY name
+	`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var warehouses []domain.Warehouse
+	for rows.Next() {
+		var w domain.Warehouse
+		if err := rows.Scan(&w.ID, &w.Name, &w.Code, &w.Latitude, &w.Longitude, &w.Address); err != nil {
+			return nil, err
+		}
+		warehouses = append(warehouses, w)
+	}
+	return warehouses, nil
+}
+
 // ReserveStock reserves stock for an order within a transaction
 func (r *Repository) ReserveStock(ctx context.Context, tx pgx.Tx, productID, warehouseID uuid.UUID, qty int) error {
 	result, err := tx.Exec(ctx, `
@@ -263,13 +327,13 @@ func (r *Repository) CreateOrder(ctx context.Context, tx pgx.Tx, order *domain.S
 	return tx.QueryRow(ctx, `
 		INSERT INTO sales_orders (order_number, customer_id, warehouse_id, status, cutoff_group, delivery_date, 
 		    delivery_address, time_window, total_amount, deposit_amount, total_weight_kg, total_volume_m3,
-		    atp_status, credit_status, notes, created_by)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)
+		    atp_status, credit_status, notes, is_urgent, created_by)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17)
 		RETURNING id, created_at
 	`, order.OrderNumber, order.CustomerID, order.WarehouseID, order.Status, order.CutoffGroup,
 		order.DeliveryDate, order.DeliveryAddress, order.TimeWindow, order.TotalAmount, order.DepositAmount,
 		order.TotalWeightKg, order.TotalVolumeM3, order.ATPStatus, order.CreditStatus,
-		order.Notes, order.CreatedBy,
+		order.Notes, order.IsUrgent, order.CreatedBy,
 	).Scan(&order.ID, &order.CreatedAt)
 }
 
@@ -288,7 +352,7 @@ func (r *Repository) ListOrders(ctx context.Context, warehouseID *uuid.UUID, sta
 		       COALESCE(so.cutoff_group, '')::text, so.delivery_date::text, so.total_amount, so.deposit_amount, so.total_weight_kg,
 		       so.atp_status, so.credit_status, so.created_at, oc.reject_reason,
 		       oc2.status::text, lt.trip_id, COALESCE(lt.plate_number, ''), COALESCE(lt.driver_name, ''),
-		       COALESCE(c.phone, '')
+		       COALESCE(c.phone, ''), so.is_urgent
 		FROM sales_orders so
 		JOIN customers c ON c.id = so.customer_id
 		LEFT JOIN order_confirmations oc ON oc.order_id = so.id
@@ -358,7 +422,7 @@ func (r *Repository) ListOrders(ctx context.Context, warehouseID *uuid.UUID, sta
 			&o.CutoffGroup, &o.DeliveryDate, &o.TotalAmount, &o.DepositAmount, &o.TotalWeightKg,
 			&o.ATPStatus, &o.CreditStatus, &o.CreatedAt, &o.RejectReason,
 			&o.ZaloStatus, &o.TripID, &o.VehiclePlate, &o.DriverName,
-			&o.CustomerPhone,
+			&o.CustomerPhone, &o.IsUrgent,
 		); err != nil {
 			return nil, 0, err
 		}
@@ -375,7 +439,7 @@ func (r *Repository) GetOrder(ctx context.Context, orderID uuid.UUID) (*domain.S
 		       COALESCE(so.cutoff_group, '')::text, so.delivery_date::text, so.delivery_address,
 		       so.time_window, so.total_amount, so.deposit_amount,
 		       so.total_weight_kg, so.total_volume_m3, so.atp_status, so.credit_status, so.notes, so.created_at,
-		       oc.reject_reason
+		       oc.reject_reason, so.is_urgent
 		FROM sales_orders so
 		JOIN customers c ON c.id = so.customer_id
 		LEFT JOIN warehouses w ON w.id = so.warehouse_id
@@ -387,7 +451,7 @@ func (r *Repository) GetOrder(ctx context.Context, orderID uuid.UUID) (*domain.S
 		&o.CutoffGroup, &o.DeliveryDate, &o.DeliveryAddress,
 		&o.TimeWindow, &o.TotalAmount, &o.DepositAmount,
 		&o.TotalWeightKg, &o.TotalVolumeM3, &o.ATPStatus, &o.CreditStatus, &o.Notes, &o.CreatedAt,
-		&o.RejectReason,
+		&o.RejectReason, &o.IsUrgent,
 	)
 	if err != nil {
 		return nil, err
@@ -461,11 +525,12 @@ func (r *Repository) CreateShipment(ctx context.Context, tx pgx.Tx, order *domai
 	}
 
 	err := tx.QueryRow(ctx, `
-		INSERT INTO shipments (shipment_number, order_id, customer_id, warehouse_id, status, delivery_date, total_weight_kg, total_volume_m3, items)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9::jsonb)
+		INSERT INTO shipments (shipment_number, order_id, customer_id, warehouse_id, status, delivery_date, total_weight_kg, total_volume_m3, items, is_urgent)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9::jsonb, $10)
 		RETURNING id
 	`, shipment.ShipmentNumber, shipment.OrderID, shipment.CustomerID, shipment.WarehouseID,
 		shipment.Status, shipment.DeliveryDate, shipment.TotalWeightKg, shipment.TotalVolumeM3, itemsJSON,
+		order.IsUrgent,
 	).Scan(&shipment.ID)
 
 	return shipment, err
@@ -564,11 +629,12 @@ func (r *Repository) CreateConsolidatedShipment(ctx context.Context, tx pgx.Tx, 
 	}
 
 	err := tx.QueryRow(ctx, `
-		INSERT INTO shipments (shipment_number, order_id, customer_id, warehouse_id, status, delivery_date, total_weight_kg, total_volume_m3, items)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9::jsonb)
+		INSERT INTO shipments (shipment_number, order_id, customer_id, warehouse_id, status, delivery_date, total_weight_kg, total_volume_m3, items, is_urgent)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9::jsonb, $10)
 		RETURNING id
 	`, shipment.ShipmentNumber, shipment.OrderID, shipment.CustomerID, shipment.WarehouseID,
 		shipment.Status, shipment.DeliveryDate, shipment.TotalWeightKg, shipment.TotalVolumeM3, itemsJSON,
+		firstOrder.IsUrgent,
 	).Scan(&shipment.ID)
 
 	return shipment, err
@@ -638,11 +704,12 @@ func (r *Repository) CreateSplitShipment(ctx context.Context, tx pgx.Tx, shipmen
 	}
 
 	err := tx.QueryRow(ctx, `
-		INSERT INTO shipments (shipment_number, order_id, customer_id, warehouse_id, status, delivery_date, total_weight_kg, total_volume_m3, items)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9::jsonb)
+		INSERT INTO shipments (shipment_number, order_id, customer_id, warehouse_id, status, delivery_date, total_weight_kg, total_volume_m3, items, is_urgent)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9::jsonb, $10)
 		RETURNING id
 	`, shipment.ShipmentNumber, shipment.OrderID, shipment.CustomerID, shipment.WarehouseID,
 		shipment.Status, shipment.DeliveryDate, shipment.TotalWeightKg, shipment.TotalVolumeM3, itemsJSON,
+		order.IsUrgent,
 	).Scan(&shipment.ID)
 
 	return shipment, err
@@ -656,7 +723,7 @@ func (r *Repository) ListPendingApprovals(ctx context.Context) ([]map[string]int
 		       COALESCE(cl.credit_limit, 0) as credit_limit,
 		       COALESCE((SELECT SUM(CASE WHEN rl.ledger_type = 'debit' THEN rl.amount ELSE -rl.amount END)
 		                 FROM receivable_ledger rl WHERE rl.customer_id = so.customer_id), 0) as current_balance,
-		       so.notes
+		       so.notes, so.is_urgent
 		FROM sales_orders so
 		JOIN customers c ON c.id = so.customer_id
 		LEFT JOIN credit_limits cl ON cl.customer_id = so.customer_id
@@ -677,9 +744,10 @@ func (r *Repository) ListPendingApprovals(ctx context.Context) ([]map[string]int
 		var totalAmount, creditLimit, currentBalance float64
 		var createdAt interface{}
 		var notes *string
+		var isUrgent bool
 
 		if err := rows.Scan(&id, &orderNumber, &customerID, &customerCode, &customerName,
-			&status, &totalAmount, &deliveryDate, &createdAt, &creditLimit, &currentBalance, &notes); err != nil {
+			&status, &totalAmount, &deliveryDate, &createdAt, &creditLimit, &currentBalance, &notes, &isUrgent); err != nil {
 			return nil, err
 		}
 
@@ -703,6 +771,7 @@ func (r *Repository) ListPendingApprovals(ctx context.Context) ([]map[string]int
 			"available_limit": creditLimit - currentBalance,
 			"exceed_amount":   exceedAmount,
 			"notes":           notes,
+			"is_urgent":       isUrgent,
 		}
 
 		// Load order items
@@ -914,7 +983,7 @@ func (r *Repository) SearchOrders(ctx context.Context, q string, limit, offset i
 		       COALESCE(so.cutoff_group, '')::text, so.delivery_date::text, so.total_amount, so.deposit_amount, so.total_weight_kg,
 		       so.atp_status, so.credit_status, so.created_at, oc.reject_reason,
 		       oc.status::text, t.id, COALESCE(v.plate_number, ''), COALESCE(d.full_name, ''),
-		       COALESCE(c.phone, '')
+		       COALESCE(c.phone, ''), so.is_urgent
 		FROM sales_orders so
 		JOIN customers c ON c.id = so.customer_id
 		LEFT JOIN order_confirmations oc ON oc.order_id = so.id
@@ -947,7 +1016,7 @@ func (r *Repository) SearchOrders(ctx context.Context, q string, limit, offset i
 			&o.CutoffGroup, &o.DeliveryDate, &o.TotalAmount, &o.DepositAmount, &o.TotalWeightKg,
 			&o.ATPStatus, &o.CreditStatus, &o.CreatedAt, &o.RejectReason,
 			&o.ZaloStatus, &o.TripID, &o.VehiclePlate, &o.DriverName,
-			&o.CustomerPhone,
+			&o.CustomerPhone, &o.IsUrgent,
 		); err != nil {
 			return nil, 0, err
 		}

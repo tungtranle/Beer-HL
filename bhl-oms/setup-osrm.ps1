@@ -13,6 +13,10 @@
 #>
 
 $ErrorActionPreference = "Stop"
+param(
+    [switch]$ForceRefresh
+)
+
 $OSRM_IMAGE = "osrm/osrm-backend:v5.25.0"
 $DATA_DIR = Join-Path $PSScriptRoot "osrm-data"
 $PBF_URL = "https://download.geofabrik.de/asia/vietnam-latest.osm.pbf"
@@ -27,6 +31,13 @@ if (-not (Test-Path $DATA_DIR)) {
     Write-Host "[1/5] Created osrm-data directory" -ForegroundColor Green
 } else {
     Write-Host "[1/5] osrm-data directory exists" -ForegroundColor Yellow
+}
+
+if ($ForceRefresh -and (Test-Path $DATA_DIR)) {
+    Write-Host "[refresh] Force refresh enabled — removing cached OSRM artifacts" -ForegroundColor Yellow
+    Get-ChildItem -Path $DATA_DIR -File | Where-Object {
+        $_.Name -like 'vietnam-latest.osrm*' -or $_.Name -eq $PBF_FILE
+    } | Remove-Item -Force -ErrorAction SilentlyContinue
 }
 
 # Check if already prepared
@@ -77,6 +88,8 @@ Write-Host "[5/5] OSRM data preparation complete!" -ForegroundColor Green
 Write-Host ""
 Write-Host "You can now start the full stack:" -ForegroundColor Cyan
 Write-Host "  docker compose up -d" -ForegroundColor White
+Write-Host "Refresh latest network data again later:" -ForegroundColor Cyan
+Write-Host "  .\setup-osrm.ps1 -ForceRefresh" -ForegroundColor White
 Write-Host ""
 Write-Host "Test OSRM routing:" -ForegroundColor Cyan
 Write-Host "  curl 'http://localhost:5000/route/v1/driving/106.6297,10.8231;106.7009,10.7769'" -ForegroundColor White

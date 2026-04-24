@@ -6,6 +6,245 @@
 
 ---
 
+## DEC-AI-01: AI Intelligence Layer Architecture — Free-tier first, provider-agnostic
+
+**Date:** 2026-04-24  **Status:** Planned (Sprint 2 — implement from 24/04/2026)
+
+**Context:** BHL cần AI/ML experience để đạt world-class về Data-Driven và Customer-Centric. Constraint: hạ tầng VPS hiện tại không đủ RAM để chạy LLM on-premise (Ollama cần ≥16GB), không có ngân sách cho paid API ở giai đoạn pre-revenue.
+
+**Options evaluated:**
+
+1. **Ollama on-premise** (Qwen2.5:7b, 4.7GB RAM): Chất lượng tốt, $0/tháng sau khi setup. **Loại** — VPS hiện tại không đủ RAM, rủi ro ảnh hưởng PostgreSQL/Redis khi RAM contention.
+
+2. **Claude/GPT-4 paid API**: Chất lượng cao nhất. **Loại cho hiện tại** — chi phí $30–200/tháng chưa phù hợp giai đoạn pre-revenue. Giữ làm upgrade path sau go-live.
+
+3. **Gemini 2.0 Flash free tier + Groq fallback + Smart Rules**: Gemini free 1,500 req/ngày; BHL dùng ~50 req/ngày (3.3% quota). Groq free 14,400 req/ngày làm fallback. Smart Rules cho scoring không cần API. **Chọn.**
+
+4. **Smart Rules only (không LLM)**: $0, zero latency. Nhưng output là số/badge, không có generative text — thiếu AI experience cho Dispatch Brief và Exception Explanation.
+
+**Decision: Option 3 — Hybrid: Smart Rules + Gemini free + Groq fallback**
+
+**Kiến trúc:**
+```
+internal/ai/
+├── provider.go     # interface Provider { Generate(ctx, prompt, opts) (string, error) }
+├── rules.go        # RulesEngine — deterministic scoring (AnomalyScore, CreditRisk, Seasonal)
+├── gemini.go       # GeminiProvider — primary free LLM
+├── groq.go         # GroqProvider — fallback
+├── fallback.go     # FallbackChain — try Gemini → Groq → rules-based template
+├── service.go      # AIService — high-level methods used by handlers
+└── prompts/        # Prompt templates per use case (tiếng Việt)
+```
+
+**Config (env):**
+```
+AI_PROVIDER=gemini          # default free
+AI_GEMINI_API_KEY=...       # free, lấy từ Google AI Studio
+AI_GROQ_API_KEY=...         # free, lấy từ console.groq.com
+# Upgrade path — không đổi code:
+# AI_PROVIDER=claude         → dùng Anthropic SDK cùng interface
+```
+
+**Smart Rules không cần API:**
+- `AnomalyScore(vehicle)` = deviation_km×0.4 + stop_min×0.4 + speed_score×0.2 → 0–100
+- `CreditRiskScore(customer)` = payment_delay_days×3 + debt_growth_14d×2 + order_drop_30d×1
+- `SeasonalDemandAlert(npp, sku, qty)` = qty < seasonal_index × historical_avg × 0.7
+
+**Python :8090 extension (không tạo service mới):**
+- Thêm `POST /ml/forecast-demand` vào vrp-solver hiện có
+- Dùng `sku_daily_demand.parquet` đã có tại `D:\Xu ly Data cho BHL\output\enriched\`
+
+**Trade-offs accepted:**
+- Gemini response latency ~500–1500ms → dùng cache (`ai_insights` table, TTL 24h) cho dispatch brief và exception explain (lazy load)
+- Groq free tier có rate limit burst — acceptable vì BHL ~50 req/ngày vs 14,400/ngày
+- Gemini free không có SLA → fallback chain đảm bảo không có blocking failure
+- Khi upgrade lên Claude/paid API: chỉ đổi `AI_PROVIDER` env var, không sửa business logic
+
+**Upgrade trigger (khi nào dùng paid API):**
+- Go-live >3 tháng, có revenue ổn định
+- Gemini quota hit >50% consistently
+- Cần multi-modal (ảnh ePOD phân tích chi tiết hơn)
+
+**Docs Impact:** `BRD_BHL_OMS_TMS_WMS.md` (Section 14D added), `ROADMAP.md` (EC-19 reclassified A, EC-21 added, P1.5 added), `TASK_TRACKER.md` (Sprint 2 AI 11 tasks), `CURRENT_STATE.md` (khi implement xong).
+
+---
+
+## DEC-WC-05: Design System Foundation — Tokens + Primitives module under `web/src/components/ui/`
+
+**Date:** 2026-04-30  **Status:** Implemented (Sprint UX-1)
+
+**Context:** Audit toàn bộ FE (60+ pages, ~25k LOC) cho thấy 8 anti-patterns lặp lại: header `<h1 text-2xl font-bold>` ở 50+ chỗ, card `bg-white rounded-xl shadow-sm p-5` ở 100+ chỗ, button `bg-brand-500 hover:bg-brand-600` ở 200+ chỗ, status chip màu hardcode 80+ chỗ, spinner ad-hoc ở 90% page. Kết quả: visual hierarchy yếu, không có dark-mode-ready, refactor đụng đâu vỡ đó. Xem `UX_AUDIT_REPORT.md`.
+
+**Options:**
+1. Adopt 1 thư viện ngoài (shadcn/ui, Mantine, Chakra). **Loại** — quá nặng, lock-in, không match brand BHL orange.
+2. Tự build 1 design tokens + 5–8 primitives base trên Tailwind hiện có. **Chọn** — tận dụng Tailwind đã có, brand-* palette đã set, không cần dependency mới.
+3. Không làm gì, fix từng page. **Loại** — không scale, mỗi page tiếp tục tự style.
+
+**Decision:** Build internal design system theo từng bước:
+1. `web/src/lib/design-tokens.ts` — TS tokens (semantic colors, spacing, radius, motion, typography) + helper functions.
+2. Primitives ở `web/src/components/ui/`: `PageHeader`, `Card`+`CardHeader`, `Button`, `KpiCard`, `LoadingState` (cộng thêm `EmptyState`, `Skeleton`, `StatusChip` đã có).
+3. Barrel export `web/src/components/ui/index.ts`.
+4. Áp dụng từng page mới + refactor dần page cũ — KHÔNG big-bang refactor (theo CLAUDE.md rule #4).
+
+**Consequences:**
+- ✅ Page mới chỉ cần ~150–250 LOC (vs 290 trung bình hiện tại).
+- ✅ Visual consistency tự động.
+- ✅ Dễ thêm dark mode sau (đổi tokens, không sửa page).
+- ✅ Accessibility: focus-ring + aria pattern centralized.
+- ⚠️ Còn 50+ page chưa migrate — cần Sprint UX-2/UX-3 áp dụng dần.
+
+**Docs Impact:** `UX_AUDIT_REPORT.md` (created), `CHANGELOG.md` (Sprint UX-1 entry), khi tất cả page migrate xong → cập nhật `FRONTEND_GUIDE.md` chuẩn coding với primitives.
+
+---
+
+## DEC-WC-04: GPS Anomaly Detection — In-process detector hooked into GPS Hub
+
+**Date:** 2026-04-30  **Status:** Implemented (Sprint 1 W3)
+
+**Context:** F7 yeu cau real-time detection 4 loai bat thuong (deviation>2km, stop>20min, speed>90km/h, off-route) tu GPS stream cua 50+ xe.
+
+**Options:**
+1. **Stream processor rieng** (Kafka/NATS + worker) — scalable nhung phai stand up infra moi.
+2. **In-process listener tren GPS Hub** — don gian, async qua goroutine, dung lai pool DB co san.
+3. **Polling cron** moi 1 phut — don gian nhung tre 60s, sai SLA P0=20min stop alert.
+
+**Decision:** **Option 2** — `internal/anomaly/Service.DetectPoint` implement interface `gps.PointDetector`. Hub goi `go detector.DetectPoint(...)` sau moi `PublishGPS`, panic-recovered. Per-vehicle stationary state luu in-memory `map[uuid.UUID]stationaryState` w/ Mutex. Threshold cache reload 5min tu `ml_features.gps_anomaly_thresholds`. Dedup 10-min window via `HasOpenSimilar`.
+
+**Rationale:**
+- Throughput hien tai ~50 xe × 1 point/s = 50 RPS → in-process du suc.
+- Khong them dependency (Kafka/Redis stream) → deploy don gian.
+- State in-memory mat khi restart → chap nhan: stop-overdue chi tre toi da `dedupWindow=10min` sau restart.
+
+**Trade-offs accepted:**
+- Single-instance only — khi scale horizontal phai migrate state ra Redis (TD).
+- Zalo notification stub — chi log `anomaly_detected_zalo_pending` (TD: integrate `internal/integration/zalo` Sprint 2).
+
+**Docs Impact:** SAD (anomaly module), API_BHL (anomaly endpoints), CURRENT_STATE (Sprint 1 W3 status).
+
+---
+
+## DEC-WMS-01: Phase 9 — WMS Pallet/QR/Bin Architecture (LPN-driven)
+
+**Date:** 2026-04-23  
+**Context:** User yêu cầu module Kho world-class với QR-driven xuất/nhập/tồn, FIFO theo đơn đã lập kế hoạch giao, KHÔNG bao gồm tính giá thành kế toán. Hiện tại WMS đã có lots/picking/gate-check/handover (24 endpoints) nhưng chưa có lớp Pallet+LPN+Bin → không đủ truy vết & scan-driven.  
+**Decision:** Thêm layer mới (Migration 037) gồm 4 bảng: `pallets` (LPN), `bin_locations`, `qr_scan_log`, `cycle_count_tasks`. Layer mới **bổ sung**, không refactor `lots` / `stock_moves` cũ. Phạm vi **chỉ quản lý số lượng vật lý**, không cost layer.  
+**Rationale:**
+- LPN = spine cho mọi scan workflow (inbound putaway, picking, loading, cycle count).
+- Chuẩn GS1 SSCC/GTIN/LOT/EXP đảm bảo tương thích quốc tế khi BHL xuất khẩu / bán cho NPP lớn.
+- 1 pallet = 1 lot duy nhất (WMS-05) → FEFO chính xác tuyệt đối.
+- Tách layer mới đảm bảo tuân CLAUDE.md rule #4 (KHÔNG refactor code cũ).
+**Impact:**
+- Migration 037 (4 bảng) + ~20 endpoint mới `/v1/warehouse/pallets|bins|inbound|picking/scan|loading|cycle-counts`.
+- BRD section 6.6 (US-WMS-25..32, WMS-05..08).
+- Frontend: `/warehouse/scan` (PWA), `/warehouse/inbound`, `/warehouse/bin-map`, `/warehouse/cycle-count`, `/warehouse/dashboard/realtime`.
+- Roadmap: 5 sprints × 2 tuần (~10 tuần) = Phase 9.
+**Docs Impact:** BRD ✅ (6.6), TASK_TRACKER (Phase 9 mới), CURRENT_STATE (Planned section), CHANGELOG.
+
+---
+
+## DEC-WMS-02: FEFO-only — Drop FIFO_RECEIVED requirement
+
+**Date:** 2026-04-23  
+**Context:** Đề xuất ban đầu có config 3 chiến lược picking (FIFO_RECEIVED / FEFO_EXPIRY / FIFO_WITH_FEFO_GUARD). User confirm: "Có FEFO rồi không cần FIFO nữa".  
+**Decision:** Picking **chỉ dùng FEFO theo `lots.expiry_date`** (đã implement). Bỏ hoàn toàn nhánh FIFO_RECEIVED khỏi Phase 9. Không thêm field `picking_strategy`.  
+**Rationale:**
+- Chu kỳ bia ngắn (HSD ~120 ngày) + luân chuyển nhanh → FIFO ≈ FEFO khi nhập đều.
+- FEFO đã đảm bảo lot cận hạn xuất trước → đủ kiểm soát rủi ro HSD.
+- Bỏ tùy chọn = đơn giản hóa UI + giảm rủi ro thủ kho chọn nhầm strategy.
+- 1 pallet = 1 lot (DEC-WMS-01) đảm bảo FEFO áp ở mức pallet, không bị "trộn lot" làm sai nguyên tắc.
+**Impact:** US-WMS-28 chỉ định FEFO duy nhất. Không có config `picking_strategy` ở warehouse/product.  
+**Docs Impact:** BRD ✅ (US-WMS-28, WMS-05).
+
+---
+
+## DEC-WMS-03: Hybrid PDA + Smartphone PWA (single codebase)
+
+**Date:** 2026-04-23  
+**Context:** Câu hỏi thiết bị scan: PDA hay smartphone. User confirm: "dùng cả 2 phương án".  
+**Decision:** 1 codebase frontend `/warehouse/scan` (PWA) chạy cho **cả PDA Android** (Zebra TC22 / Honeywell EDA52, hardware key emit KeyEvent) **và smartphone Android** (camera scan qua `BarcodeDetector` API hoặc `@zxing/browser`). Không build 2 app riêng.  
+**Rationale:**
+- PDA: thủ kho chính / soạn hàng cường độ cao — cần quét nhanh, chịu rơi.
+- Phone: bảo vệ, phân xưởng, dispatcher, tài xế — tận dụng thiết bị sẵn, tiết kiệm chi phí.
+- PWA hỗ trợ cả 2 input mode → không tăng chi phí maintain.
+- Offline-first IndexedDB queue cho cả 2 trường hợp mất kết nối.
+**Impact:** Frontend page `/warehouse/scan` có dual input handler (KeyEvent listener + camera). Không tách route riêng.  
+**Docs Impact:** BRD ✅ (6.6.2).
+
+---
+
+## DEC-WMS-04: Bravo integration cho Phase 9 = PENDING (independent first)
+
+**Date:** 2026-04-23  
+**Context:** User confirm: "Phát triển độc lập với Bravo trước, câu chuyện API kết nối tính sau".  
+**Decision:** Toàn bộ entity mới của Phase 9 (`pallets`, `bin_locations`, `qr_scan_log`, `cycle_count_tasks`) **KHÔNG có** `bravo_sync_status` field, **KHÔNG** wire vào BravoAdapter. Chỉ có internal events `pallet.created/moved/picked/loaded` qua `entity_events` để truy vết nội bộ.  
+**Rationale:**
+- Tránh blocking khi Bravo chưa có spec field LPN/bin.
+- Phase 9 đã rộng (5 sprints) — không nên gánh thêm scope tích hợp.
+- Khi cần kết nối sau, chỉ cần thêm bảng `pallets_bravo_sync` riêng (không ALTER bảng cũ) — tuân CLAUDE.md rule #4.
+**Impact:** Migration 037 không có sync columns. Backlog ghi rõ "Bravo integration for WMS Phase 9 — TBD".  
+**Docs Impact:** BRD ✅ (WMS-08), TECH_DEBT (thêm TD ghi nhận pending).
+
+---
+
+## DEC-WC-03: ML Features dedicated schema + `/v1/ml/*` API prefix
+
+**Date:** 2026-04-23
+**Context:** F1–F15 cần nhiều table dẫn xuất (ML/analytics) và nhiều endpoint mới. Để tránh pollute schema OLTP `public` và router OMS, cần quy ước tách rõ.
+**Decision:**
+- Schema: tất cả bảng read-only/derived đặt trong `ml_features.*`.
+- API: mọi endpoint serve dữ liệu từ `ml_features.*` mount dưới `/v1/ml/*`.
+- Module Go: `internal/mlfeatures/` riêng, KHÔNG nhúng vào `oms/`, `tms/`, `wms/`. Cho phép sau này tách ra microservice hoặc đặt sau ML service Python (Sprint 2 — FastAPI :8091).
+- Cron refresh: cập nhật `ml_features.*` thông qua import script hoặc pg_cron (Sprint 1 W2). KHÔNG ghi từ HTTP handler.
+**Rationale:**
+- Backward compatible: không đổi schema OMS Core; rollback = drop schema + remove module wiring.
+- Tính rõ ràng: dev thấy `ml_features.npp_health_scores` thì hiểu là derived data, không sửa tay.
+- Tương lai (Sprint 2): khi ML service FastAPI đứng lên, `internal/mlfeatures` thành proxy/cache — vẫn giữ route signature `/v1/ml/*`.
+**Impact:** Migration 036 + 036b dedicate schema. Module `internal/mlfeatures/{repository,service,handler}.go`. 4 endpoints. Frontend wire vào orders/new + customers.
+**Docs Impact:** DATA_DICTIONARY.md ✅ (locked schema), CHANGELOG.md ✅, API_BHL_OMS_TMS_WMS.md (TODO: thêm section ML Features).
+
+---
+
+## DEC-WC-02: Component-first approach cho UX Redesign
+
+**Date:** 2026-04-23
+**Context:** UX_AUDIT_AND_REDESIGN.md xác định 7 critical issues + redesign cho 12 features mới. Có 2 cách triển khai:
+1. **Page-first:** sửa từng trang một (orders/new, control-tower, ...) — high risk vì touch business logic.
+2. **Component-first:** build shared components (NppHealthBadge, SmartSuggestionsBox, ExplainabilityButton, CommandPalette, ...) trước, integrate vào pages sau.
+**Decision:** Chọn Component-first (Phase 1 → 4 trong UX_REDESIGN_EXECUTION_PLAN.md).
+**Rationale:**
+- Backward compatible 100% — components mới = file mới, không break existing pages.
+- Reusable ngay cho 12 features F1–F15 (ExplainabilityButton dùng cho F1, F2, F3, F4, F7, F14...).
+- Test riêng từng component với Vitest dễ hơn test integration.
+- Rollback dễ: comment out 1 dòng mount globally (CommandPalette).
+**Impact:** 7 components mới trong Sprint 1 Phase 1 (Skeleton, EmptyState, ExplainabilityModal, NppHealthBadge, SmartSuggestionsBox, InboxItem, CommandPalette). Phase 2 mới integrate vào pages.
+**Docs Impact:** docs/specs/FRONTEND_GUIDE.md §11 ✅, docs/specs/UX_REDESIGN_EXECUTION_PLAN.md ✅, CHANGELOG.md ✅.
+
+---
+
+## DEC-WC-01: Reclassify EC-12 Demand Forecasting C → A + adopt World-Class Strategy
+
+**Date:** 2026-04-23
+**Context:** Strategy doc `c:\Users\tungt\Downloads\BHL_WorldClass_Strategy.html` đề xuất 12 features data-driven + customer-centric. ROADMAP cũ phân loại EC-12 (Demand Forecasting) vào nhóm C "không phù hợp" với lý do "BHL sản xuất-to-order". Tuy nhiên, dữ liệu enriched 5 năm LENH tại `D:\Xu ly Data cho BHL\output\enriched` (file `sku_forecastability.csv`) chứng minh **21 SKU có ≥100 active days** đủ cho Prophet, **8 SKU Tết** đủ cho Croston intermittent.
+**Decision:**
+1. Move EC-12 từ ROADMAP nhóm C → nhóm A (P2, tháng 4–6).
+2. Adopt 12 features (F1–F15) trong [`docs/specs/WORLDCLASS_EXECUTION_PLAN.md`](docs/specs/WORLDCLASS_EXECUTION_PLAN.md ) chia 3 sprints × 4 tuần.
+3. Schema riêng `ml_features.*` (migration 036), KHÔNG ghi đè bảng Core.
+4. ML service riêng FastAPI :8091, không nhúng vào monolith Go.
+5. Build F1 + H9 Feedback Loop **CÙNG SPRINT** để tránh ML "fire-and-forget".
+**Rationale:**
+- BHL dù sản xuất-to-order vẫn cần forecast để: planning kho NPP, alert DVKH khi đơn < 70% trend, gợi ý SKU cross-sell.
+- Tách schema `ml_features.*` đảm bảo nguyên tắc "không refactor code cũ" (CLAUDE.md rule #4).
+- ML service riêng cho phép: Python ecosystem (Prophet/Croston), scale độc lập, fail-soft (timeout → no suggestion).
+- F15 Explainability bắt buộc — không có "tại sao?" thì user không tin và bỏ tool.
+**Impact:**
+- ROADMAP.md: EC-12 moved C→A, Phase plan extended P2/P2.5/P3.
+- Migration 036_ml_features_schema added (9 bảng).
+- New folder: `docs/specs/WORLDCLASS_EXECUTION_PLAN.md` + `docs/specs/DATA_DICTIONARY.md`.
+- BLOCKER: cần BHL confirm fleet structure (GPS 2024 plates 26xxx-30xxx vs LENH 2022-2023 plates 14C/14H/34M) — zero overlap, ảnh hưởng F4/F6/F7. Tạm xử lý: 2 fleet domains tách biệt (analytics vs live ops).
+**Docs Impact:** ROADMAP.md ✅, CHANGELOG.md ✅, docs/specs/DATA_DICTIONARY.md ✅, docs/specs/WORLDCLASS_EXECUTION_PLAN.md ✅, TASK_TRACKER.md (cần thêm Sprint 1–3 tasks).
+
+---
+
 ## DEC-001: Bổ sung Web Driver UI cho bản demo (không thay thế React Native)
 
 **Date:** 2026-03-15  
@@ -232,4 +471,28 @@ Cả 2 modal ghi log `actor_type = 'dvkh'`, `on_behalf_of = 'npp'` vào entity_e
 
 ---
 
-*Cập nhật: 18/06/2026 — DEC-014 from toll route geometry session*
+## DEC-015: Fleet & Driver Management — Scope Decisions
+
+**Date:** 2026-04-21  
+**Context:** 3 đề xuất FMS+/DMS+ được phân tích so sánh. User có 4 ràng buộc rõ: (1) không GPS hộp đen Phase đầu, (2) bỏ quản lý giờ lái xe, (3) bỏ làm ca, (4) OCR hạ ưu tiên.  
+**Decision:**
+
+| Quyết định | Lý do |
+|------------|-------|
+| **Bỏ US-TMS-28 (HOS)** | TT12/2020 sắp bỏ, user xác nhận |
+| **Bỏ US-TMS-30 (Shift/Roster)** | User xác nhận |
+| **Bỏ US-TMS-35 (Spare Parts Inventory)** | BHL không tự sửa xe, sửa tại garage ngoài |
+| **Rule-based Health Score thay ML Phase đầu** | Chưa có data sửa chữa (0 records), ML cần ≥6 tháng |
+| **Bỏ accelerometer Safety Score** | Smartphone false positive 30-50% trên xe tải, chỉ dùng GPS speed |
+| **Tire tracking per bộ lốp, không per serial** | BHL chưa có nhân sự chuyên trách bảo trì |
+| **OCR (PaddleOCR) hạ xuống Phase 4+** | User xác nhận chưa ưu tiên |
+| **E-Learning dùng YouTube + Forms thay build LMS** | Đủ cho 70 tài xế, không cần build riêng |
+| **Leave Request giữ, bỏ tạm ứng lương/khám sức khỏe** | Chỉ leave ảnh hưởng VRP, phần còn lại là HR scope |
+
+**Rationale:** "Tốt hơn là đo 5 chỉ số chính xác còn hơn 7 chỉ số mà 2 cái bị sai 30-50%." Scale BHL (70 xe) không cần enterprise features.  
+**Impact:** Giảm từ 18 tuần → 12 tuần, 16 bảng → 10 bảng, 9 US giữ lại (bỏ 3).  
+**Docs Impact:** BRD Section 14C, TASK_TRACKER Phase 8, CURRENT_STATE.md
+
+---
+
+*Cập nhật: 21/04/2026 — DEC-015 from fleet management analysis session*

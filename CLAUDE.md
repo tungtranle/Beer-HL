@@ -39,17 +39,25 @@ Pattern: `Handler → Service → Repository` (luôn 3 tầng, không bỏ, khô
 
 ---
 
-## 5 quy tắc KHÔNG BAO GIỜ vi phạm
+## 6 quy tắc KHÔNG BAO GIỜ vi phạm
 
 1. **Tiền:** `decimal.Decimal` / `NUMERIC(15,2)` — KHÔNG float64
 2. **Enum/date pgx:** LUÔN cast `::text` trong SELECT
 3. **Integration errors:** trả 202, KHÔNG block nghiệp vụ
 4. **KHÔNG refactor code cũ** — chỉ áp dụng rules cho code mới
 5. **Verify localhost** SAU MỖI thay đổi — KHÔNG nói "xong" mà chưa test
+6. **TEST TỪNG FEATURE NGAY SAU KHI CODE** — viết xong → compile → chạy → gọi API/load page → confirm OK → rồi mới làm tiếp. KHÔNG batch nhiều features rồi test 1 lần. Chi tiết: xem `.github/instructions/test-after-code.instructions.md`
 
 ---
 
-## Bẫy đã biết → xem AI_LESSONS.md (18 bài học)
+## Ngôn ngữ
+
+- **LUÔN suy luận và trình bày bằng tiếng Việt** — mọi phân tích, giải thích, comment cho user đều bằng tiếng Việt.
+- Code (biến, hàm, comment trong code) vẫn dùng tiếng Anh.
+
+---
+
+## Bẫy đã biết → xem AI_LESSONS.md (32 bài học)
 
 AI_LESSONS.md LUÔN load cùng file này. Chứa mọi lỗi AI đã mắc:
 - 🔴 Crash/Data loss (6): pgx cast, port sai, PowerShell UTF-8, float64 tiền...
@@ -60,6 +68,7 @@ AI_LESSONS.md LUÔN load cùng file này. Chứa mọi lỗi AI đã mắc:
 
 ## Cuối session — checklist
 
+- [ ] **MỌI feature/endpoint/page đã test riêng lẻ?** (xem `.github/instructions/test-after-code.instructions.md`)
 - [ ] Localhost OK? (backend health + frontend load)
 - [ ] CURRENT_STATE_COMPACT.md đã cập nhật?
 - [ ] CHANGELOG.md đã ghi?

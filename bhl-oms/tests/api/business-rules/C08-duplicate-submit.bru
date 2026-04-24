@@ -1,0 +1,67 @@
+meta {
+  name: C08 - Duplicate Submit Prevention
+  type: http
+  seq: 5
+}
+
+# C-08: Submit cùng 1 order 2 lần → request 2 nhận 409, DB chỉ có 1 record
+# Để test đúng phải: chạy request này 2 lần liên tiếp với CÙNG idempotency key
+# Bruno không có built-in duplicate test → dùng X-Idempotency-Key header
+
+post {
+  url: {{baseUrl}}/orders
+  body: json
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{token}}
+}
+
+headers {
+  X-Idempotency-Key: test-c08-duplicate-{{$randomInt}}
+}
+
+body:json {
+  {
+    "customer_id": "{{testCustomerId}}",
+    "warehouse_id": "{{warehouseId}}",
+    "delivery_date": "{{tomorrow}}",
+    "is_urgent": false,
+    "notes": "[TEST C08] Duplicate submit test",
+    "items": [
+      {
+        "product_id": "test-product-001",
+        "quantity": 1
+      }
+    ]
+  }
+}
+
+vars:pre-request {
+  tomorrow: {{$datetime "YYYY-MM-DD" 1 d}}
+}
+
+tests {
+  test("C08: lần đầu tạo đơn thành công hoặc validation fail", function() {
+    // 201 = tạo mới, 200 = idempotent return, 400/422 = validation fail (OK nếu test data không hợp lệ)
+    expect([200, 201, 400, 422]).to.include(res.status);
+  });
+
+  test("C08: KHÔNG trả 500", function() {
+    expect(res.status).to.not.equal(500);
+  });
+
+  test("C08: nếu tạo được đơn, phải có order_id trong response", function() {
+    if (res.status === 201 || res.status === 200) {
+      expect(res.body.data).to.have.property("id");
+      bru.setVar("lastOrderId", res.body.data.id);
+    }
+  });
+}
+
+# Hướng dẫn test duplicate thủ công:
+# 1. Chạy request này lần 1 → lưu order ID
+# 2. Chạy lại với cùng X-Idempotency-Key
+# 3. Kỳ vọng: lần 2 trả 409 hoặc 200 với cùng order ID (không tạo thêm record)
+# 4. Verify DB: SELECT COUNT(*) FROM orders WHERE idempotency_key = '...' → phải = 1

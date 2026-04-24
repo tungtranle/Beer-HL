@@ -43,9 +43,10 @@ applyTo: "**/*.{go,ts,tsx,sql}"
 ## Quy trình cuối session
 
 Trước khi kết thúc, AI phải tự kiểm tra:
-0. **[BẮT BUỘC] Localhost hoạt động?** Fetch backend health check + frontend login page. Nếu fail → fix trước khi báo "đã xong". Nếu port bị chiếm → dùng port khác + cập nhật proxy.
-1. Đã cập nhật CURRENT_STATE.md cho mọi thay đổi chưa?
-2. Đã ghi CHANGELOG.md chưa?
-3. TASK_TRACKER.md đã đánh dấu các task hoàn thành chưa?
-4. Có quyết định kỹ thuật mới cần ghi vào DECISIONS.md không?
-5. Có nợ kỹ thuật mới cần ghi vào TECH_DEBT.md không?
+0. **[BẮT BUỘC] Code đã test chưa?** Mỗi feature/endpoint/page đã viết PHẢI được test riêng lẻ. Xem `test-after-code.instructions.md`.
+1. **[BẮT BUỘC] Localhost hoạt động?** Fetch backend health check + frontend login page. Nếu fail → fix trước khi báo "đã xong". Nếu port bị chiếm → dùng port khác + cập nhật proxy.
+2. Đã cập nhật CURRENT_STATE.md cho mọi thay đổi chưa?
+3. Đã ghi CHANGELOG.md chưa?
+4. TASK_TRACKER.md đã đánh dấu các task hoàn thành chưa?
+5. Có quyết định kỹ thuật mới cần ghi vào DECISIONS.md không?
+6. Có nợ kỹ thuật mới cần ghi vào TECH_DEBT.md không?

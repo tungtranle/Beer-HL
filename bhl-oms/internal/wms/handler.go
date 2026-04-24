@@ -58,6 +58,12 @@ func (h *Handler) RegisterRoutes(r *gin.RouterGroup) {
 		wh.GET("/handovers/trip/:tripId", h.GetHandoversByTrip)
 		wh.GET("/handovers/:id", h.GetHandoverDetail)
 	}
+
+	// WMS Phase 9 (DEC-WMS-01..04) — bins, pallets (LPN), QR scan log.
+	h.RegisterPhase9Routes(wh)
+	// WMS Phase 9 Sprint 2-5 — inbound, putaway, picking-by-pallet, loading,
+	// cycle count, dashboard alerts, traceability.
+	h.RegisterPhase9WorkflowRoutes(wh)
 }
 
 // GET /v1/warehouse/stock

@@ -32,6 +32,12 @@ type Config struct {
 	ZaloOAToken     string
 	ZaloOAID        string
 	IntegrationMock bool
+
+	// AI Intelligence Layer (Sprint 2)
+	// Gemini free: 1,500 req/day — get key at https://aistudio.google.com
+	GeminiAPIKey string
+	// Groq free fallback: 14,400 req/day — get key at https://console.groq.com
+	GroqAPIKey string
 }
 
 func Load() *Config {
@@ -58,6 +64,9 @@ func Load() *Config {
 		ZaloOAToken:     getEnv("ZALO_OA_TOKEN", ""),
 		ZaloOAID:        getEnv("ZALO_OA_ID", ""),
 		IntegrationMock: getEnv("INTEGRATION_MOCK", "true") == "true",
+
+		GeminiAPIKey: getEnv("GEMINI_API_KEY", ""),
+		GroqAPIKey:   getEnv("GROQ_API_KEY", ""),
 	}
 }
 

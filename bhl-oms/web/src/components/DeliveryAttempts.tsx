@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react'
 import { apiFetch } from '@/lib/api'
+import { handleError } from '@/lib/handleError'
 
 interface DeliveryAttempt {
   id: string
@@ -36,7 +37,7 @@ export function DeliveryAttempts({ orderId }: { orderId: string }) {
   useEffect(() => {
     apiFetch<any>(`/orders/${orderId}/delivery-attempts`)
       .then((r) => setAttempts(r.data || []))
-      .catch(console.error)
+      .catch(err => handleError(err))
       .finally(() => setLoading(false))
   }, [orderId])
 

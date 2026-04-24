@@ -8,6 +8,7 @@ import { toast } from '@/lib/useToast'
 import { useGpsTracker } from '@/lib/useGpsTracker'
 import { useOnlineStatus } from '@/lib/useOnlineStatus'
 import { useDataRefresh } from '@/lib/notifications'
+import { queueOfflineRequest } from '@/lib/useOfflineSync'
 
 interface Stop {
   id: string
@@ -266,7 +267,7 @@ export default function DriverTripDetailPage() {
     try {
       await apiFetch(`/driver/trips/${tripId}/start`, { method: 'PUT' })
       await loadTrip()
-    } catch (err) { console.error(err) }
+    } catch (err: any) { toast.error(err?.message || 'Không bắt đầu được chuyến xe') }
     finally { setActionLoading(false) }
   }
 
@@ -283,13 +284,18 @@ export default function DriverTripDetailPage() {
 
   const handleUpdateStop = async (stopId: string, action: string) => {
     setActionLoading(true)
+    const url = `/driver/trips/${tripId}/stops/${stopId}/update`
+    const body = { action }
+    if (!isOnline) {
+      await queueOfflineRequest(url, 'PUT', JSON.stringify(body))
+      toast.warning('Đang offline — đã lưu, sẽ tự đồng bộ khi có mạng')
+      setActionLoading(false)
+      return
+    }
     try {
-      await apiFetch(`/driver/trips/${tripId}/stops/${stopId}/update`, {
-        method: 'PUT',
-        body: { action },
-      })
+      await apiFetch(url, { method: 'PUT', body })
       await loadTrip()
-    } catch (err) { console.error(err) }
+    } catch (err: any) { toast.error(err?.message || 'Không cập nhật được điểm dừng') }
     finally { setActionLoading(false) }
   }
 
@@ -313,7 +319,7 @@ export default function DriverTripDetailPage() {
       })
       setActiveModal(null)
       await loadTrip()
-    } catch (err) { console.error(err) }
+    } catch (err: any) { toast.error(err?.message || 'Không gửi được checklist') }
     finally { setActionLoading(false) }
   }
 
@@ -356,7 +362,7 @@ export default function DriverTripDetailPage() {
       })
       setActiveModal(null)
       await loadTrip()
-    } catch (err) { console.error(err) }
+    } catch (err: any) { toast.error(err?.message || 'Không báo cáo được sự cố') }
     finally { setActionLoading(false) }
   }
 
@@ -411,21 +417,27 @@ export default function DriverTripDetailPage() {
   const handleSubmitEpod = async () => {
     if (!selectedStop) return
     setActionLoading(true)
+    const url = `/driver/trips/${tripId}/stops/${selectedStop.id}/epod`
+    const body = {
+      delivery_status: epodDeliveryStatus,
+      delivered_items: epodItems,
+      receiver_name: epodReceiverName,
+      receiver_phone: epodReceiverPhone,
+      photo_urls: epodPhotos,
+      notes: epodNotes || undefined,
+    }
+    if (!isOnline) {
+      await queueOfflineRequest(url, 'POST', JSON.stringify(body))
+      toast.warning('Đang offline — đã lưu ePOD, sẽ đồng bộ khi có mạng')
+      setActiveModal(null)
+      setActionLoading(false)
+      return
+    }
     try {
-      await apiFetch(`/driver/trips/${tripId}/stops/${selectedStop.id}/epod`, {
-        method: 'POST',
-        body: {
-          delivery_status: epodDeliveryStatus,
-          delivered_items: epodItems,
-          receiver_name: epodReceiverName,
-          receiver_phone: epodReceiverPhone,
-          photo_urls: epodPhotos,
-          notes: epodNotes || undefined,
-        },
-      })
+      await apiFetch(url, { method: 'POST', body })
       setActiveModal(null)
       await loadTrip()
-    } catch (err) { console.error(err) }
+    } catch (err: any) { toast.error(err?.message || 'Không lưu được ePOD') }
     finally { setActionLoading(false) }
   }
 
@@ -441,18 +453,24 @@ export default function DriverTripDetailPage() {
   const handleSubmitPayment = async () => {
     if (!selectedStop) return
     setActionLoading(true)
+    const url = `/driver/trips/${tripId}/stops/${selectedStop.id}/payment`
+    const body = {
+      payment_method: paymentMethod,
+      amount: paymentAmount,
+      reference_number: paymentRef || undefined,
+    }
+    if (!isOnline) {
+      await queueOfflineRequest(url, 'POST', JSON.stringify(body))
+      toast.warning('Đang offline — đã lưu thanh toán, sẽ đồng bộ khi có mạng')
+      setActiveModal(null)
+      setActionLoading(false)
+      return
+    }
     try {
-      await apiFetch(`/driver/trips/${tripId}/stops/${selectedStop.id}/payment`, {
-        method: 'POST',
-        body: {
-          payment_method: paymentMethod,
-          amount: paymentAmount,
-          reference_number: paymentRef || undefined,
-        },
-      })
+      await apiFetch(url, { method: 'POST', body })
       setActiveModal(null)
       await loadTrip()
-    } catch (err) { console.error(err) }
+    } catch (err: any) { toast.error(err?.message || 'Không ghi nhận được thanh toán') }
     finally { setActionLoading(false) }
   }
 
@@ -485,7 +503,7 @@ export default function DriverTripDetailPage() {
       })
       setActiveModal(null)
       await loadTrip()
-    } catch (err) { console.error(err) }
+    } catch (err: any) { toast.error(err?.message || 'Không lưu được vỏ chai/két trả về') }
     finally { setActionLoading(false) }
   }
 
@@ -541,7 +559,7 @@ export default function DriverTripDetailPage() {
       })
       setActiveModal(null)
       await loadTrip()
-    } catch (err) { console.error(err) }
+    } catch (err: any) { toast.error(err?.message || 'Không ghi nhận được từ chối') }
     finally { setActionLoading(false) }
   }
 
@@ -573,6 +591,43 @@ export default function DriverTripDetailPage() {
           {statusLabels[trip.status] || trip.status}
         </span>
       </div>
+
+      {/* ── Wizard Step Indicator ── */}
+      {(() => {
+        const tripStep =
+          ['planned','assigned','pre_check'].includes(trip.status) ? 1 :
+          ['ready','gate_checked','loading'].includes(trip.status) ? 2 :
+          trip.status === 'in_transit' ? 3 :
+          ['returning','settling','reconciled','completed'].includes(trip.status) ? 4 : 1
+
+        const steps = [
+          { n: 1, label: 'Kiểm tra xe', icon: '🔧' },
+          { n: 2, label: 'Xuất kho', icon: '📦' },
+          { n: 3, label: 'Giao hàng', icon: '🚛' },
+          { n: 4, label: 'Kết ca', icon: '✅' },
+        ]
+        return (
+          <div className="bg-white rounded-xl shadow-sm px-4 py-3">
+            <div className="flex items-center">
+              {steps.map(({ n, label, icon }, idx) => (
+                <div key={n} className="flex items-center flex-1 last:flex-none">
+                  <div className="flex flex-col items-center">
+                    <div className={`w-9 h-9 rounded-full flex items-center justify-center text-base border-2 transition ${n < tripStep ? 'bg-brand-500 border-brand-500 text-white' : n === tripStep ? 'border-brand-500 bg-brand-50 text-brand-600' : 'border-gray-200 bg-gray-50 text-gray-400'}`}>
+                      {n < tripStep ? '✓' : icon}
+                    </div>
+                    <div className={`text-[10px] mt-1 font-medium ${n === tripStep ? 'text-brand-600' : n < tripStep ? 'text-brand-400' : 'text-gray-400'}`}>
+                      {label}
+                    </div>
+                  </div>
+                  {idx < 3 && (
+                    <div className={`flex-1 h-0.5 mx-1 mb-4 ${n < tripStep ? 'bg-brand-500' : 'bg-gray-200'}`} />
+                  )}
+                </div>
+              ))}
+            </div>
+          </div>
+        )
+      })()}
 
       {/* Trip Summary */}
       <div className="grid grid-cols-4 gap-2 text-center">

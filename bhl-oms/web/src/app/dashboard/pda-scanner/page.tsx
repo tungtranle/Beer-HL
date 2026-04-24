@@ -176,30 +176,41 @@ export default function PDABarcodeScannerPage() {
 
       {/* Last Scan Result */}
       {lastScan && (
-        <div className="bg-green-50 border border-green-200 rounded-lg p-3">
-          <h3 className="font-bold text-green-800">{lastScan.product_name}</h3>
-          <div className="grid grid-cols-2 gap-1 mt-1 text-sm text-green-700">
-            <div>SKU: {lastScan.product_sku}</div>
-            <div>Barcode: {lastScan.barcode}</div>
-            {lastScan.lot_number && <div>Lô: {lastScan.lot_number}</div>}
-            <div>Tồn kho: {lastScan.quantity}</div>
+        <div className="bg-green-50 border-2 border-green-400 rounded-xl p-4 shadow-sm">
+          <div className="flex items-start gap-3">
+            <span className="text-2xl">✅</span>
+            <div className="flex-1">
+              <div className="font-bold text-green-900 text-lg leading-tight">{lastScan.product_name}</div>
+              <div className="font-mono text-xs text-green-600 mt-0.5">{lastScan.product_sku}</div>
+            </div>
+            <div className="text-right">
+              <div className="text-2xl font-black text-green-700 tabular-nums">{lastScan.quantity.toLocaleString()}</div>
+              <div className="text-xs text-green-500">tồn kho</div>
+            </div>
           </div>
-          <div className="text-xs text-green-500 mt-1">Quét lúc: {lastScan.scanned_at}</div>
+          <div className="mt-2 flex flex-wrap gap-2">
+            <span className="bg-green-100 text-green-700 px-2 py-0.5 rounded text-xs font-mono">{lastScan.barcode}</span>
+            {lastScan.lot_number && <span className="bg-green-100 text-green-700 px-2 py-0.5 rounded text-xs">Lô {lastScan.lot_number}</span>}
+            <span className="bg-green-100 text-green-600 px-2 py-0.5 rounded text-xs ml-auto">{lastScan.scanned_at}</span>
+          </div>
         </div>
       )}
 
       {/* Scan History */}
       {scanHistory.length > 0 && (
         <div>
-          <h2 className="text-lg font-semibold mb-2">Lịch sử quét ({scanHistory.length})</h2>
-          <div className="space-y-2">
+          <div className="flex items-center justify-between mb-2">
+            <h2 className="text-base font-semibold text-gray-700">Lịch sử quét</h2>
+            <span className="text-xs bg-gray-100 text-gray-500 px-2 py-0.5 rounded-full">{scanHistory.length} mã</span>
+          </div>
+          <div className="space-y-1.5">
             {scanHistory.map((scan, idx) => (
-              <div key={idx} className="bg-white rounded-lg shadow-sm p-3 flex justify-between items-center">
+              <div key={idx} className={`rounded-lg p-2.5 flex justify-between items-center border ${idx === 0 ? 'border-green-200 bg-green-50/50' : 'border-gray-100 bg-white'}`}>
                 <div>
-                  <div className="font-medium text-sm">{scan.product_name}</div>
-                  <div className="text-xs text-gray-500">{scan.barcode} · {scan.scanned_at}</div>
+                  <div className="font-medium text-sm text-gray-800">{scan.product_name}</div>
+                  <div className="text-xs text-gray-400 font-mono">{scan.barcode} · {scan.scanned_at}</div>
                 </div>
-                <div className="text-sm font-bold text-blue-600">{scan.quantity}</div>
+                <div className="text-sm font-bold tabular-nums text-brand-600">{scan.quantity.toLocaleString()}</div>
               </div>
             ))}
           </div>

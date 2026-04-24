@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react'
 import { apiFetch, getUser } from '@/lib/api'
 import { toast } from '@/lib/useToast'
+import { handleError } from '@/lib/handleError'
 import { useRouter } from 'next/navigation'
 
 interface UserItem {
@@ -33,7 +34,9 @@ export default function AdminSettingsPage() {
   const [users, setUsers] = useState<UserItem[]>([])
   const [roles, setRoles] = useState<RoleItem[]>([])
   const [loading, setLoading] = useState(true)
-  const [tab, setTab] = useState<'users' | 'roles' | 'sessions'>('users')
+  const [tab, setTab] = useState<'users' | 'roles' | 'sessions' | 'seasonal'>('users')
+  const [seasonalMode, setSeasonalMode] = useState<{ enabled: boolean; label: string; vrp_buffer_pct: number } | null>(null)
+  const [seasonalSaving, setSeasonalSaving] = useState(false)
   const [filterRole, setFilterRole] = useState('')
   const [search, setSearch] = useState('')
 
@@ -58,6 +61,23 @@ export default function AdminSettingsPage() {
   const [sessions, setSessions] = useState<SessionItem[]>([])
   const [sessionsLoading, setSessionsLoading] = useState(false)
 
+  const loadSeasonalMode = async () => {
+    try {
+      const res: any = await apiFetch('/admin/seasonal-mode')
+      setSeasonalMode(res.data || { enabled: false, label: 'Tết Nguyên Đán', vrp_buffer_pct: 20 })
+    } catch { setSeasonalMode({ enabled: false, label: 'Tết Nguyên Đán', vrp_buffer_pct: 20 }) }
+  }
+
+  const handleSaveSeasonalMode = async () => {
+    if (!seasonalMode) return
+    setSeasonalSaving(true)
+    try {
+      await apiFetch('/admin/seasonal-mode', { method: 'PUT', body: seasonalMode })
+      toast.success(seasonalMode.enabled ? 'Đã bật Chế độ mùa vụ' : 'Đã tắt Chế độ mùa vụ')
+    } catch { toast.error('Không lưu được cài đặt mùa vụ') }
+    finally { setSeasonalSaving(false) }
+  }
+
   useEffect(() => {
     if (user?.role !== 'admin') {
       router.replace('/dashboard')
@@ -75,7 +95,7 @@ export default function AdminSettingsPage() {
       ])
       setUsers(usersRes.data || [])
       setRoles(rolesRes.data || [])
-    } catch (err) { console.error(err) }
+    } catch (err) { handleError(err, { userMessage: 'Không tải được danh sách user/role' }) }
     finally { setLoading(false) }
   }
 
@@ -84,7 +104,7 @@ export default function AdminSettingsPage() {
     try {
       const res: any = await apiFetch('/admin/sessions')
       setSessions(res.data || [])
-    } catch (err) { console.error(err) }
+    } catch (err) { handleError(err, { userMessage: 'Không tải được danh sách phiên đăng nhập' }) }
     finally { setSessionsLoading(false) }
   }
 
@@ -222,10 +242,29 @@ export default function AdminSettingsPage() {
           className="px-4 py-2 rounded-lg text-sm font-medium bg-white text-gray-600 hover:bg-gray-100 transition border border-dashed border-gray-300">
           🔐 Ma trận phân quyền →
         </button>
+        <button onClick={() => { setTab('seasonal'); loadSeasonalMode() }}
+          className={`px-4 py-2 rounded-lg text-sm font-medium transition ${tab === 'seasonal' ? 'bg-brand-500 text-white' : 'bg-white text-gray-600 hover:bg-gray-100'}`}>
+          🎋 Chế độ mùa vụ
+        </button>
       </div>
 
       {tab === 'users' && (
         <div>
+          {/* Stats bar */}
+          <div className="flex items-center gap-4 mb-4 p-3 bg-white rounded-xl border shadow-sm">
+            <div className="flex items-center gap-2">
+              <span className="w-2 h-2 rounded-full bg-green-500 inline-block" />
+              <span className="text-sm text-gray-700"><strong className="text-green-700">{users.filter(u => u.is_active).length}</strong> đang hoạt động</span>
+            </div>
+            <div className="w-px h-4 bg-gray-200" />
+            <div className="flex items-center gap-2">
+              <span className="w-2 h-2 rounded-full bg-gray-400 inline-block" />
+              <span className="text-sm text-gray-500">{users.filter(u => !u.is_active).length} bị khoá</span>
+            </div>
+            <div className="flex-1" />
+            <span className="text-xs text-gray-400">{users.length} tài khoản tổng</span>
+          </div>
+
           {/* Role summary */}
           <div className="grid grid-cols-4 md:grid-cols-8 gap-2 mb-4">
             <button onClick={() => setFilterRole('')}
@@ -266,12 +305,22 @@ export default function AdminSettingsPage() {
                 </tr>
               </thead>
               <tbody>
-                {filteredUsers.map(u => (
-                  <tr key={u.id} className="border-t hover:bg-gray-50">
+                {filteredUsers.map(u => {
+                  const nameParts = u.full_name.trim().split(' ')
+                  const initials = nameParts.length >= 2
+                    ? (nameParts[nameParts.length - 2][0] + nameParts[nameParts.length - 1][0]).toUpperCase()
+                    : u.full_name.slice(0, 2).toUpperCase()
+                  return (
+                  <tr key={u.id} className={`border-t hover:bg-gray-50 ${!u.is_active ? 'opacity-60' : ''}`}>
                     <td className="py-3 px-4 font-mono text-sm">{u.username}</td>
                     <td className="py-3 px-4">
-                      <div className="font-medium">{u.full_name}</div>
-                      {u.email && <div className="text-xs text-gray-400">{u.email}</div>}
+                      <div className="flex items-center gap-2">
+                        <div className="w-8 h-8 rounded-full bg-brand-100 text-brand-700 flex items-center justify-center text-xs font-bold flex-shrink-0">{initials}</div>
+                        <div>
+                          <div className="font-medium">{u.full_name}</div>
+                          {u.email && <div className="text-xs text-gray-400">{u.email}</div>}
+                        </div>
+                      </div>
                     </td>
                     <td className="py-3 px-4 text-center">
                       <span className={`px-2 py-1 rounded-full text-xs font-medium ${roleColors[u.role] || 'bg-gray-100'}`}>
@@ -293,7 +342,8 @@ export default function AdminSettingsPage() {
                       </div>
                     </td>
                   </tr>
-                ))}
+                  )
+                })}
               </tbody>
             </table>
             {filteredUsers.length === 0 && (
@@ -390,6 +440,72 @@ export default function AdminSettingsPage() {
               </table>
             </div>
           )}
+        </div>
+      )}
+
+      {/* F5 — Seasonal Mode */}
+      {tab === 'seasonal' && (
+        <div className="max-w-lg">
+          <div className="bg-white rounded-xl shadow-sm border p-6 space-y-5">
+            <div>
+              <h2 className="text-lg font-bold text-gray-800">🎋 Chế độ mùa vụ (Tết / Hè / Cao điểm)</h2>
+              <p className="text-sm text-gray-500 mt-1">Khi bật, hệ thống sẽ tăng buffer tải trọng VRP và hiển thị banner cảnh báo cho tất cả vai trò.</p>
+            </div>
+            {!seasonalMode ? (
+              <div className="flex items-center justify-center h-24">
+                <div className="animate-spin w-6 h-6 border-4 border-brand-500 border-t-transparent rounded-full" />
+              </div>
+            ) : (
+              <>
+                <div className="flex items-center justify-between p-4 bg-gray-50 rounded-xl border">
+                  <div>
+                    <div className="font-semibold text-gray-800">Bật chế độ mùa vụ</div>
+                    <div className="text-xs text-gray-500 mt-0.5">Tự động áp dụng buffer VRP và cảnh báo toàn hệ thống</div>
+                  </div>
+                  <button
+                    onClick={() => setSeasonalMode({ ...seasonalMode, enabled: !seasonalMode.enabled })}
+                    className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${seasonalMode.enabled ? 'bg-brand-500' : 'bg-gray-200'}`}
+                  >
+                    <span className={`inline-block h-4 w-4 transform rounded-full bg-white shadow transition-transform ${seasonalMode.enabled ? 'translate-x-6' : 'translate-x-1'}`} />
+                  </button>
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Nhãn hiển thị</label>
+                  <input
+                    value={seasonalMode.label}
+                    onChange={e => setSeasonalMode({ ...seasonalMode, label: e.target.value })}
+                    className="w-full px-3 py-2 border rounded-lg text-sm"
+                    placeholder="VD: Tết Nguyên Đán 2026"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Buffer tải trọng VRP (%)</label>
+                  <div className="flex items-center gap-3">
+                    <input
+                      type="range" min={0} max={50} step={5}
+                      value={seasonalMode.vrp_buffer_pct}
+                      onChange={e => setSeasonalMode({ ...seasonalMode, vrp_buffer_pct: parseInt(e.target.value) })}
+                      className="flex-1"
+                    />
+                    <span className="text-sm font-bold text-brand-600 w-10 text-right">{seasonalMode.vrp_buffer_pct}%</span>
+                  </div>
+                  <p className="text-xs text-gray-400 mt-1">VRP sẽ giảm tải trọng tối đa xuống {100 - seasonalMode.vrp_buffer_pct}% để đảm bảo tính linh hoạt trong mùa cao điểm.</p>
+                </div>
+                {seasonalMode.enabled && (
+                  <div className="bg-amber-50 border border-amber-200 rounded-lg p-3 text-sm text-amber-800">
+                    <strong>⚠️ Chế độ {seasonalMode.label} đang bật.</strong> Tất cả người dùng sẽ thấy banner cảnh báo. VRP buffer: -{seasonalMode.vrp_buffer_pct}% tải trọng.
+                  </div>
+                )}
+                <button
+                  onClick={handleSaveSeasonalMode}
+                  disabled={seasonalSaving}
+                  className="w-full py-2 bg-brand-500 text-white rounded-lg font-medium hover:bg-brand-600 disabled:opacity-50 transition"
+                >
+                  {seasonalSaving ? 'Đang lưu...' : 'Lưu cài đặt mùa vụ'}
+                </button>
+              </>
+            )}
+          </div>
         </div>
       )}
 

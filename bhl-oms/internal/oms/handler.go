@@ -43,6 +43,9 @@ func (h *Handler) RegisterRoutes(r *gin.RouterGroup) {
 	r.GET("/atp", h.CheckATP)
 	r.POST("/atp/batch", h.CheckATPBatch)
 
+	// Warehouse suggestion
+	r.POST("/warehouses/suggest", h.SuggestWarehouses)
+
 	// Orders
 	orders := r.Group("/orders")
 	orders.POST("", h.CreateOrder)
@@ -141,12 +144,23 @@ func (h *Handler) DeleteProduct(c *gin.Context) {
 }
 
 func (h *Handler) ListCustomers(c *gin.Context) {
-	customers, err := h.svc.ListCustomers(c.Request.Context())
+	page, _ := strconv.Atoi(c.DefaultQuery("page", "1"))
+	limit, _ := strconv.Atoi(c.DefaultQuery("limit", "50"))
+	q := c.Query("q")
+
+	customers, total, err := h.svc.ListCustomersFiltered(c.Request.Context(), q, page, limit)
 	if err != nil {
 		response.InternalError(c)
 		return
 	}
-	response.OK(c, customers)
+
+	totalPages := int(total) / limit
+	if int(total)%limit > 0 {
+		totalPages++
+	}
+	response.OKWithMeta(c, customers, response.PaginationMeta{
+		Page: page, Limit: limit, Total: total, TotalPages: totalPages,
+	})
 }
 
 func (h *Handler) GetCustomer(c *gin.Context) {
@@ -249,6 +263,24 @@ func (h *Handler) CheckATPBatch(c *gin.Context) {
 		return
 	}
 	response.OK(c, results)
+}
+
+// SuggestWarehouses returns ranked warehouse suggestions based on distance + ATP.
+func (h *Handler) SuggestWarehouses(c *gin.Context) {
+	var req struct {
+		CustomerID uuid.UUID        `json:"customer_id" binding:"required"`
+		Items      []OrderItemInput `json:"items" binding:"required"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		response.BadRequest(c, "customer_id và items là bắt buộc")
+		return
+	}
+	suggestions, err := h.svc.SuggestWarehouses(c.Request.Context(), req.CustomerID, req.Items)
+	if err != nil {
+		response.Err(c, http.StatusBadRequest, "SUGGEST_FAILED", err.Error())
+		return
+	}
+	response.OK(c, suggestions)
 }
 
 func (h *Handler) CreateOrder(c *gin.Context) {

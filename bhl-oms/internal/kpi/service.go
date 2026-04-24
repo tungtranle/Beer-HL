@@ -197,7 +197,7 @@ func (r *Repository) ComputeKPI(ctx context.Context, warehouseID uuid.UUID, date
 	`, warehouseID, date).Scan(&s.TotalCollected)
 
 	r.db.QueryRow(ctx, `
-		SELECT COALESCE(SUM(so.grand_total), 0)
+		SELECT COALESCE(SUM(so.total_amount), 0)
 		FROM sales_orders so WHERE so.warehouse_id = $1 AND so.delivery_date = $2 AND so.status IN ('confirmed','shipped','delivered')
 	`, warehouseID, date).Scan(&s.TotalRevenue)
 
@@ -253,6 +253,155 @@ func (s *Service) GetKPIReport(ctx context.Context, warehouseID *uuid.UUID, from
 		limit = 30
 	}
 	return s.repo.GetSnapshots(ctx, warehouseID, from, to, limit)
+}
+
+// AggregatedKPIReport is the aggregated single-object report for a period (matches frontend interface).
+type AggregatedKPIReport struct {
+	Period             string  `json:"period"`
+	OTDRate            float64 `json:"otd_rate"`
+	VehicleUtilization float64 `json:"vehicle_utilization"`
+	AvgCapacityUtil    float64 `json:"avg_capacity_util"`
+	TotalTrips         int     `json:"total_trips"`
+	TotalDeliveries    int     `json:"total_deliveries"`
+	TotalDistanceKm    float64 `json:"total_distance_km"`
+	FailedDeliveries   int     `json:"failed_deliveries"`
+	RedeliveryCount    int     `json:"redelivery_count"`
+	AvgStopsPerTrip    float64 `json:"avg_stops_per_trip"`
+	TotalRevenue       float64 `json:"total_revenue"`
+	CashCollected      float64 `json:"cash_collected"`
+	EmptyRunRate       float64 `json:"empty_run_rate"`
+}
+
+// GetAggregatedReport returns a single period summary for the KPI page (aggregates snapshots).
+func (s *Service) GetAggregatedReport(ctx context.Context, period string, warehouseID *uuid.UUID) (*AggregatedKPIReport, error) {
+	now := time.Now().In(time.FixedZone("ICT", 7*3600))
+	today := now.Format("2006-01-02")
+
+	// Find most recent snapshot date if no data for today
+	var latestDate string
+	_ = s.repo.db.QueryRow(ctx, `SELECT MAX(snapshot_date)::text FROM daily_kpi_snapshots`).Scan(&latestDate)
+	if latestDate == "" {
+		latestDate = today
+	}
+
+	var from, to string
+	switch period {
+	case "today":
+		to = latestDate
+		from = latestDate
+	case "week":
+		// Last 7 days ending at latestDate
+		latest, _ := time.Parse("2006-01-02", latestDate)
+		from = latest.AddDate(0, 0, -6).Format("2006-01-02")
+		to = latestDate
+	case "month":
+		latest, _ := time.Parse("2006-01-02", latestDate)
+		from = latest.AddDate(0, 0, -29).Format("2006-01-02")
+		to = latestDate
+	default:
+		from = today
+		to = today
+	}
+
+	snaps, err := s.repo.GetSnapshots(ctx, warehouseID, from, to, 365)
+	if err != nil {
+		return nil, err
+	}
+	if len(snaps) == 0 {
+		return nil, nil
+	}
+
+	result := &AggregatedKPIReport{Period: period}
+	var otdSum, utilSum, reconSum float64
+	for _, snap := range snaps {
+		result.TotalTrips += snap.TotalTrips
+		result.TotalDeliveries += snap.DeliveredOrders
+		result.TotalDistanceKm += snap.TotalDistanceKm
+		result.FailedDeliveries += snap.FailedOrders
+		result.TotalRevenue += snap.TotalRevenue
+		result.CashCollected += snap.TotalCollected
+		otdSum += snap.OTDRate
+		utilSum += snap.AvgVehicleUtilization
+		reconSum += snap.ReconMatchRate
+	}
+	n := float64(len(snaps))
+	result.OTDRate = otdSum / n
+	result.VehicleUtilization = utilSum / n
+	result.AvgCapacityUtil = utilSum / n
+	if result.TotalTrips > 0 {
+		result.AvgStopsPerTrip = float64(result.TotalDeliveries) / float64(result.TotalTrips)
+	}
+	_ = reconSum // available for future use
+
+	// Redelivery count for the period
+	_ = s.repo.db.QueryRow(ctx, `
+		SELECT COUNT(*) FROM delivery_attempts da
+		JOIN sales_orders so ON so.id = da.order_id
+		WHERE so.delivery_date::text >= $1 AND so.delivery_date::text <= $2
+	`, from, to).Scan(&result.RedeliveryCount)
+
+	return result, nil
+}
+
+// KpiInsight is an auto-generated insight for the hero panel.
+type KpiInsight struct {
+	Type    string `json:"type"` // positive, warning, info
+	Message string `json:"message"`
+}
+
+// HeroData is the top hero panel data for the KPI page.
+type HeroData struct {
+	TodayRevenue     float64      `json:"today_revenue"`
+	YesterdayRevenue float64      `json:"yesterday_revenue"`
+	DeltaPct         float64      `json:"delta_pct"`
+	Trend7d          []float64    `json:"trend_7d"`
+	Insights         []KpiInsight `json:"insights"`
+}
+
+// GetHero returns the hero panel data using the 8 most recent daily snapshots.
+func (s *Service) GetHero(ctx context.Context, warehouseID *uuid.UUID) (*HeroData, error) {
+	snaps, err := s.repo.GetSnapshots(ctx, warehouseID, "", "", 8)
+	if err != nil {
+		return nil, err
+	}
+
+	hero := &HeroData{Trend7d: []float64{}}
+	if len(snaps) == 0 {
+		return hero, nil
+	}
+
+	// snaps is DESC; reverse for chart left→right
+	for i := len(snaps) - 1; i >= 0; i-- {
+		hero.Trend7d = append(hero.Trend7d, snaps[i].TotalRevenue)
+	}
+
+	hero.TodayRevenue = snaps[0].TotalRevenue
+	if len(snaps) >= 2 {
+		hero.YesterdayRevenue = snaps[1].TotalRevenue
+	}
+	if hero.YesterdayRevenue > 0 {
+		hero.DeltaPct = (hero.TodayRevenue - hero.YesterdayRevenue) / hero.YesterdayRevenue * 100
+	}
+
+	// Auto-insights
+	if snaps[0].OTDRate >= 95 {
+		hero.Insights = append(hero.Insights, KpiInsight{Type: "positive", Message: fmt.Sprintf("Tỉ lệ giao đúng hẹn %.1f%% — vượt mục tiêu 95%%", snaps[0].OTDRate)})
+	} else {
+		hero.Insights = append(hero.Insights, KpiInsight{Type: "warning", Message: fmt.Sprintf("Tỉ lệ OTD %.1f%% — chưa đạt mục tiêu 95%%", snaps[0].OTDRate)})
+	}
+	if snaps[0].AvgVehicleUtilization >= 80 {
+		hero.Insights = append(hero.Insights, KpiInsight{Type: "positive", Message: fmt.Sprintf("Hiệu suất xe %.0f%% — tốt", snaps[0].AvgVehicleUtilization)})
+	} else if snaps[0].AvgVehicleUtilization > 0 {
+		hero.Insights = append(hero.Insights, KpiInsight{Type: "info", Message: fmt.Sprintf("Hiệu suất xe %.0f%% — còn chỗ tối ưu tải", snaps[0].AvgVehicleUtilization)})
+	}
+	if snaps[0].FailedOrders > 0 {
+		hero.Insights = append(hero.Insights, KpiInsight{Type: "warning", Message: fmt.Sprintf("%d điểm giao thất bại cần xử lý", snaps[0].FailedOrders)})
+	}
+	if len(hero.Insights) == 0 {
+		hero.Insights = append(hero.Insights, KpiInsight{Type: "info", Message: "Hoạt động bình thường"})
+	}
+
+	return hero, nil
 }
 
 func (s *Service) GenerateSnapshot(ctx context.Context, warehouseID uuid.UUID, date string) (*domain.DailyKPISnapshot, error) {
@@ -320,7 +469,7 @@ func (s *Service) GetIssuesReport(ctx context.Context, from, to string, limit in
 	// Failed deliveries
 	rows, err := s.repo.db.Query(ctx, `
 		SELECT so.id::text, so.order_number, COALESCE(c.name,''), so.status::text,
-			COALESCE(ts.failure_reason,'Không rõ nguyên nhân'), COALESCE(so.grand_total,0), so.delivery_date::text
+			COALESCE(ts.failure_reason,'Không rõ nguyên nhân'), COALESCE(so.total_amount,0), so.delivery_date::text
 		FROM trip_stops ts
 		JOIN shipments sh ON sh.id = ts.shipment_id
 		JOIN sales_orders so ON so.id = sh.order_id
@@ -346,7 +495,7 @@ func (s *Service) GetIssuesReport(ctx context.Context, from, to string, limit in
 	// Discrepancies
 	rows2, err := s.repo.db.Query(ctx, `
 		SELECT so.id::text, so.order_number, COALESCE(c.name,''), so.status::text,
-			COALESCE(d.discrepancy_type::text,'qty_mismatch'), COALESCE(so.grand_total,0), so.delivery_date::text
+			COALESCE(d.discrepancy_type::text,'qty_mismatch'), COALESCE(so.total_amount,0), so.delivery_date::text
 		FROM discrepancies d
 		JOIN trips t ON t.id = d.trip_id
 		JOIN trip_stops ts ON ts.trip_id = t.id
@@ -378,7 +527,7 @@ func (s *Service) GetCancellationsReport(ctx context.Context, from, to string, l
 
 	rows, err := s.repo.db.Query(ctx, `
 		SELECT so.id::text, so.order_number, COALESCE(c.name,''), so.status::text,
-			COALESCE(so.notes,''), COALESCE(so.grand_total,0), COALESCE(so.credit_status::text,''),
+			COALESCE(so.notes,''), COALESCE(so.total_amount,0), COALESCE(so.credit_status::text,''),
 			so.delivery_date::text
 		FROM sales_orders so
 		JOIN customers c ON c.id = so.customer_id
@@ -451,7 +600,7 @@ func (s *Service) GetRedeliveryReport(ctx context.Context, from, to string, limi
 	rows, err := s.repo.db.Query(ctx, `
 		SELECT so.id::text, so.order_number, COALESCE(c.name,''), da.attempt_number,
 			COALESCE(da.previous_status::text,''), COALESCE(da.previous_reason,''),
-			COALESCE(so.grand_total,0), so.delivery_date::text
+			COALESCE(so.total_amount,0), so.delivery_date::text
 		FROM delivery_attempts da
 		JOIN sales_orders so ON so.id = da.order_id
 		JOIN customers c ON c.id = so.customer_id

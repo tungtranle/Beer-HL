@@ -2,6 +2,7 @@
 
 import { useEffect, useState, useCallback } from 'react'
 import { apiFetch } from '@/lib/api'
+import { handleError } from '@/lib/handleError'
 
 // ── Types ─────────────────────────────────────────
 
@@ -114,7 +115,7 @@ export default function TransportCostsPage() {
       setVehicleDefaults(v.data || [])
       setDriverRates(d.data || [])
     } catch (err) {
-      console.error('Load cost data failed:', err)
+      handleError(err, { userMessage: 'Không tải được cấu hình chi phí vận tải' })
     }
     setLoading(false)
   }, [])

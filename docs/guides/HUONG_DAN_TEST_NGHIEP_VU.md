@@ -1,7 +1,7 @@
 # HƯỚNG DẪN TEST NGHIỆP VỤ — BHL OMS
 
 > **Mục đích:** Hướng dẫn từng bước test các luồng nghiệp vụ chính.
-> Tạo đơn trên app chính (localhost:3000/dashboard), quan sát kết quả trên Test Portal (localhost:3000/test-portal).
+> Tạo đơn trên app chính (localhost:3000/dashboard), quan sát kết quả trên Test Portal (localhost:3001/test-portal với launcher, hoặc localhost:3000/test-portal trong flow dev cũ).
 
 ---
 
@@ -21,9 +21,11 @@
 ### Bước 1.1 — Khởi động hệ thống
 
 Đảm bảo các service đang chạy:
-- PostgreSQL: `docker compose up -d` (port 5434)
-- Go Backend: `go run ./cmd/server/` (port 8080)
-- Next.js Frontend: `cd web && npm run dev` (port 3000)
+- PostgreSQL: port 5434 đã LISTEN
+- Redis: port 6379 đã LISTEN
+- VRP Solver: port 8090 đã LISTEN
+- Cách an toàn cho máy này: double-click `bhl-oms/START_TEST_PORTAL.bat` từ File Explorer để bật backend `:8080` và frontend `:3001`
+- Nếu chạy thủ công, chỉ bật Go backend và Next.js frontend; tránh chạy lệnh Docker lifecycle trong terminal VS Code của máy này
 
 ### Bước 1.2 — Reset & seed dữ liệu sạch
 
@@ -53,24 +55,18 @@ docker exec bhl-oms-postgres-1 psql -U bhl -d bhl_dev -f /tmp/seed_test_ready.sq
 | Tab | URL | Mục đích |
 |-----|-----|----------|
 | **Tab 1** | http://localhost:3000/dashboard | App chính — đăng nhập user, tạo đơn |
-| **Tab 2** | http://localhost:3000/test-portal | Test Portal — quan sát kết quả |
+| **Tab 2** | http://localhost:3001/test-portal | Test Portal — quan sát kết quả |
 
 ### Bước 1.4 — Kiểm tra dữ liệu trên Test Portal
 
 Trước khi test, mở Test Portal và kiểm tra:
 
-1. **Tab "Tồn kho / ATP"** → Phải thấy:
-   - Kho Hạ Long: ~35 dòng (30 SP chính + 5 lô gần hạn)
-   - Kho Hải Phòng: ~12 dòng
-   - **Khách hàng (NPP): 218** (15 tỉnh thành, dữ liệu thực từ file danh sách NPP)
-- Cột "Đã đặt" tất cả = 0
-
-2. **Tab "Dư nợ / Tín dụng"** → Phải thấy:
-   - NPP-003: Khả dụng chỉ ~20,000,000đ (gần hết hạn mức)
-   - NPP-009: Khả dụng chỉ ~10,000,000đ
-   - NPP-001: Khả dụng ~150,000,000đ
-
-3. **Tab "Đơn hàng"** → Phải trống (chưa có đơn)
+1. **Tab "Tồn kho / ATP"** → Phải thấy kho Hạ Long ~35 dòng, kho Hải Phòng ~12 dòng, và **Khách hàng (NPP): 218** (15 tỉnh thành, dữ liệu thực từ file danh sách NPP).
+2. **Cột "Đã đặt"** phải bằng 0 ở toàn bộ dòng tồn kho.
+3. **GPS simulator** → Khi test ở tab Giả lập GPS hoặc Control Tower, luôn chọn route sinh từ kho/NPP thực trong DB. Tuyến chuẩn phải đi qua toạ độ thật của WH-HL / WH-HP và cụm NPP theo tỉnh, không dùng waypoint mẫu nếu dữ liệu DB đã có.
+4. **Ops & Audit** → Nếu cần kiểm tra timeline, note ghim, DLQ, discrepancy, daily close hoặc KPI snapshot, dùng tab **Ops & Audit** thay vì đi từng màn hình rời.
+5. **Tab "Dư nợ / Tín dụng"** → Phải thấy NPP-003 khả dụng ~20,000,000đ, NPP-009 khả dụng ~10,000,000đ, NPP-001 khả dụng ~150,000,000đ.
+6. **Tab "Đơn hàng"** → Phải trống (chưa có đơn).
 
 ---
 

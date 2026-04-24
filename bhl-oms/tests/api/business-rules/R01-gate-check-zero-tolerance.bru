@@ -1,0 +1,52 @@
+meta {
+  name: R01 - Gate Check Zero Tolerance
+  type: http
+  seq: 1
+}
+
+# R01: Số thực giao ≠ số lệnh xuất → hệ thống phải từ chối
+# Scenario: Lệnh xuất 100 thùng, thực tế chỉ có 95 → PHẢI báo lỗi
+
+post {
+  url: {{baseUrl}}/gate-check
+  body: json
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{token}}
+}
+
+body:json {
+  {
+    "warehouse_id": "{{warehouseId}}",
+    "trip_id": "test-trip-r01",
+    "items": [
+      {
+        "product_id": "test-product-001",
+        "ordered_qty": 100,
+        "actual_qty": 95
+      }
+    ]
+  }
+}
+
+tests {
+  test("R01: trả về 400 khi số lượng không khớp", function() {
+    expect(res.status).to.equal(400);
+  });
+
+  test("R01: body chứa thông báo lỗi mismatch", function() {
+    const body = res.body;
+    expect(body).to.have.property("error");
+    const errorStr = JSON.stringify(body.error).toLowerCase();
+    expect(errorStr).to.satisfy(function(s) {
+      return s.includes("mismatch") || s.includes("không khớp") || s.includes("sai số lượng");
+    }, "error message phải đề cập đến sai số lượng");
+  });
+
+  test("R01: KHÔNG trả về 200/201 khi số lượng sai", function() {
+    expect(res.status).to.not.equal(200);
+    expect(res.status).to.not.equal(201);
+  });
+}

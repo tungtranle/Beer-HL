@@ -3,6 +3,7 @@
 import { useEffect, useState, useCallback } from 'react'
 import { useRouter } from 'next/navigation'
 import { apiFetch, getUser } from '@/lib/api'
+import { handleError } from '@/lib/handleError'
 
 interface AuditLog {
   id: string
@@ -101,7 +102,7 @@ export default function AuditLogsPage() {
       setLogs(res.data?.data || [])
       setPagination(res.data?.pagination || { page: 1, limit: 50, total: 0, total_pages: 0 })
     } catch (err) {
-      console.error(err)
+      handleError(err, { userMessage: 'Không tải được audit log' })
     } finally {
       setLoading(false)
     }

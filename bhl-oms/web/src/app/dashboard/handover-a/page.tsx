@@ -482,10 +482,30 @@ export default function HandoverAPage() {
 
         {/* Signatories status */}
         <div className="bg-white rounded-xl shadow-sm p-5 mb-4">
-          <h2 className="font-semibold text-gray-700 mb-3">Trạng thái xác nhận (3 bên)</h2>
+          <div className="flex items-center justify-between mb-3">
+            <h2 className="font-semibold text-gray-700">Trạng thái xác nhận (3 bên)</h2>
+            {(() => {
+              const signedCount = (detail.signatories || []).filter(s => s.action === 'confirm').length
+              const total = detail.signatories?.length || 3
+              return (
+                <span className={`text-sm font-semibold ${signedCount === total ? 'text-green-600' : 'text-amber-600'}`}>{signedCount}/{total} đã xác nhận</span>
+              )
+            })()}
+          </div>
+          {/* Signatory progress segments */}
+          {(() => {
+            const total = detail.signatories?.length || 3
+            return (
+              <div className="flex gap-1 mb-4">
+                {(detail.signatories || []).map((sig, i) => (
+                  <div key={i} className={`flex-1 h-2 rounded-full ${sig.action === 'confirm' ? 'bg-green-500' : sig.action === 'reject' ? 'bg-red-500' : 'bg-gray-200'}`} />
+                ))}
+              </div>
+            )
+          })()}
           <div className="space-y-3">
             {(detail.signatories || []).map((sig, idx) => (
-              <div key={idx} className="flex items-center justify-between p-3 rounded-lg border">
+              <div key={idx} className={`flex items-center justify-between p-3 rounded-lg border ${sig.action === 'confirm' ? 'bg-green-50 border-green-200' : sig.action === 'reject' ? 'bg-red-50 border-red-200' : 'bg-gray-50 border-gray-200'}`}>
                 <div className="flex items-center gap-3">
                   <span className="text-lg">
                     {sig.action === 'confirm' ? '✅' : sig.action === 'reject' ? '❌' : '⏳'}
@@ -609,7 +629,13 @@ export default function HandoverAPage() {
                   <div className="flex items-center gap-3">
                     <div className="text-right">
                       <span className={`px-3 py-1 rounded-full text-xs font-medium ${sc.color}`}>{sc.label}</span>
-                      <div className="text-xs text-gray-400 mt-1">{confirmed}/{total} đã xác nhận</div>
+                      <div className="flex items-center gap-1 justify-end mt-1.5">
+                        {(h.signatories || []).map((sig, i) => (
+                          <div key={i} className={`w-5 h-5 rounded-full border text-[9px] flex items-center justify-center font-bold ${sig.action === 'confirm' ? 'bg-green-500 border-green-500 text-white' : sig.action === 'reject' ? 'bg-red-500 border-red-500 text-white' : 'bg-white border-gray-300 text-gray-400'}`}>
+                            {sig.action === 'confirm' ? '✓' : sig.action === 'reject' ? '✕' : (i + 1)}
+                          </div>
+                        ))}
+                      </div>
                     </div>
                     <span className="text-gray-400">→</span>
                   </div>

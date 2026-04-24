@@ -263,6 +263,28 @@ export default function DriverEODPage() {
             <p className="text-sm text-slate-300">{session.trip_number} · {session.vehicle_plate}</p>
           </div>
         </div>
+        {/* 3-step stepper */}
+        <div className="flex items-center mt-3 px-1">
+          {(session.checkpoints || []).map((cp, i) => {
+            const done = cp.status === 'confirmed'
+            const submitted = cp.status === 'submitted'
+            const rejected = cp.status === 'rejected'
+            const active = cp.status === 'pending' || rejected
+            return (
+              <div key={cp.id} className="flex items-center flex-1">
+                <div className="flex flex-col items-center">
+                  <div className={`w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold border-2 ${done ? 'bg-green-500 border-green-400 text-white' : submitted ? 'bg-blue-500 border-blue-400 text-white' : rejected ? 'bg-red-500 border-red-400 text-white' : active ? 'bg-[#F68634] border-[#F68634] text-white animate-pulse' : 'bg-slate-600 border-slate-500 text-slate-300'}`}>
+                    {done ? '✓' : rejected ? '!' : i + 1}
+                  </div>
+                  <div className="text-[9px] text-slate-400 mt-0.5 text-center w-16 leading-tight">{checkpointIcons[cp.checkpoint_type]} {cp.checkpoint_order === 1 ? 'Vỏ/Hàng' : cp.checkpoint_order === 2 ? 'Tiền' : 'Xe'}</div>
+                </div>
+                {i < (session.checkpoints.length - 1) && (
+                  <div className={`flex-1 h-0.5 mx-1 mb-4 ${done ? 'bg-green-400' : 'bg-slate-600'}`} />
+                )}
+              </div>
+            )
+          })}
+        </div>
       </div>
 
       <div className="px-4 py-4 space-y-4">

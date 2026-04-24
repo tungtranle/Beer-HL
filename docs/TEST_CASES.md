@@ -1,8 +1,54 @@
 # TEST CASES — BHL OMS-TMS-WMS
 
 > **Tổng hợp test cases cho UAT / Demo / QA**
-> Sử dụng Test Portal: http://localhost:3000/test-portal
+> Sử dụng Test Portal: http://localhost:3001/test-portal (launcher) hoặc http://localhost:3000/test-portal (flow dev cũ)
 > Hoặc API trực tiếp: http://localhost:8080/v1/test-portal/...
+
+---
+
+## 0. Gap Analysis Test Portal
+
+Test Portal hiện có 12 scenario backend, 7 profile GPS và tab Ops & Audit mới. Tuy vậy vẫn chưa bao phủ toàn bộ app từ đầu đến cuối. Khi test thật, ưu tiên bổ sung hoặc dùng đúng nhóm case sau:
+
+| Mã | Module | Cần thêm gì | Trạng thái hiện tại | Ghi chú dữ liệu |
+|----|--------|-------------|---------------------|-----------------|
+| TP-AUTH-01 | Auth | Login, refresh token, logout, session expiry | Chưa có tab riêng | Dùng tài khoản thật theo role |
+| TP-AUTH-02 | RBAC | Role/permission matrix, session revoke | Chưa có tab riêng | Test admin + dispatcher + accountant |
+| TP-OMS-01 | OMS | Split, consolidate, cancel, redelivery | Mới có tạo/xác nhận đơn | Dùng đơn có 2+ item và đơn vượt credit |
+| TP-OMS-02 | OMS | Timeline & notes trên đơn | Đã có tab Ops & Audit + SC-12 | Kiểm tra `order.created`, `status_changed`, pinned note |
+| TP-TMS-01 | TMS | Lập chuyến, assign xe/tài xế, VRP approve | Có scenario trip/VRP | Dùng đơn thật theo cụm tỉnh |
+| TP-TMS-02 | Driver | Check-in, checklist, ePOD, payment, returns, complete | Có flow rời rạc | Nên test đủ 1 chuyến end-to-end |
+| TP-WMS-01 | WMS | Picking FEFO, gate check, barcode scan | Có case gate check | Cần thêm barcode + picking by vehicle |
+| TP-WMS-02 | WMS | Handover A/B/C, bottle classification, asset compensation | Chưa có scenario riêng | Dùng chuyến có vỏ/asset |
+| TP-INT-01 | Integration | Bravo/DMS/Zalo/NPP portal/DLQ | Đã có tab Ops & Audit cho DLQ | Vẫn cần test thêm retry/resolve ngoài portal |
+| TP-REC-01 | Reconciliation | Trip reconcile, discrepancy, daily close, export | Đã có tab Ops & Audit cho discrepancy + daily close | Export Excel vẫn test ở app chính |
+| TP-KPI-01 | KPI | Issues, cancellations, redeliveries | Đã có tab Ops & Audit cho snapshot + counters | Nên test thêm lọc theo ngày/kho ở dashboard KPI |
+| TP-ADMIN-01 | Admin | Health, sessions, permissions, routes, configs, credit limits | Đã có tab Ops & Audit cho smoke counters | Session revoke/permission edit vẫn test ở trang admin |
+| TP-GPS-01 | GPS | Route thật từ kho + NPP, follow OSRM geometry | Có GPS sim nhưng phải dùng data thực | Cần actual warehouse/customer coords |
+| TP-GPS-02 | GPS | Lost signal / idle / speed violation | Có profile | Dùng cùng route thật, đổi hành vi |
+
+---
+
+## 1. Dữ liệu test thực tế cần dùng
+
+| Loại | Dữ liệu khuyến nghị | Mục đích |
+|------|---------------------|----------|
+| Kho | WH-HL: 20.9639000, 107.0895000 | KCN Cái Lân, Hạ Long |
+| Kho | WH-HP: 20.8449000, 106.6881000 | KCN Đình Vũ, Hải Phòng |
+| NPP khu gần kho | HP-38, HP-4745, HP-4747 | Route Hải Phòng thực tế |
+| NPP khu QN | QY-120, QY-121, UB-90, HB-73 | Route Hạ Long / Quảng Yên / Uông Bí |
+| NPP khu trung gian | HD-53, HD-74, BN-23, BN-27, HY-4752 | Route Hải Dương / Bắc Ninh / Hưng Yên |
+| NPP xa hơn | TB-127, ND-109, LS-103 | Route dài và tải cao điểm |
+
+Quy tắc test GPS: luôn lấy kho + NPP thực từ DB, dựng chuỗi điểm dừng theo cụm tỉnh, sau đó để OSRM sinh geometry đường đi. Không dùng toạ độ mẫu hard-code nếu DB đã có dữ liệu thật.
+
+### Coverage update 21/04
+
+| Kịch bản | Mục đích chính | Tab/Test Portal dùng kèm |
+|----------|----------------|---------------------------|
+| SC-10 | Tuyến giao thực theo dữ liệu ngày 13/06 | Kịch bản test + Giả lập GPS (`from_active_trips`) |
+| SC-11 | Control Tower + GPS active trips | Kịch bản test + Giả lập GPS + Control Tower |
+| SC-12 | Regression cho timeline, notes, DLQ, discrepancy, KPI | Kịch bản test + Ops & Audit |
 
 ---
 

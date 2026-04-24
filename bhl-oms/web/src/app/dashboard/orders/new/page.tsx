@@ -5,7 +5,10 @@ import { useRouter } from 'next/navigation'
 import { apiFetch, getUser } from '@/lib/api'
 import { formatVND } from '@/lib/status-config'
 import { toast } from '@/lib/useToast'
+import { handleError } from '@/lib/handleError'
 import SearchableSelect from '@/lib/SearchableSelect'
+import { NppHealthBadge, type NppHealth } from '@/components/ui/NppHealthBadge'
+import { SmartSuggestionsBox, type BasketRule } from '@/components/ui/SmartSuggestionsBox'
 
 interface Product {
   id: string; sku: string; name: string; price: number; deposit_price: number;
@@ -44,15 +47,33 @@ export default function NewOrderPage() {
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState('')
 
+  // F2 NPP Health Score (World-Class Strategy)
+  const [nppHealth, setNppHealth] = useState<NppHealth | null>(null)
+  const [nppHealthLoading, setNppHealthLoading] = useState(false)
+
+  // F3 Smart Suggestions (basket Apriori)
+  const [smartRules, setSmartRules] = useState<BasketRule[]>([])
+  const [smartLoading, setSmartLoading] = useState(false)
+  const smartTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+
   // Debounce timer for ATP checks
   const atpTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  // Warehouse suggestion
+  interface WHSuggestion {
+    id: string; name: string; code: string; distance_km: number; duration_min: number
+    atp_score: number; total_score: number; reason: string
+  }
+  const [suggestions, setSuggestions] = useState<WHSuggestion[]>([])
+  const [suggestLoading, setSuggestLoading] = useState(false)
+  const suggestTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   useEffect(() => {
     Promise.all([
       apiFetch<any>('/products').then((r) => setProducts(r.data || [])),
       apiFetch<any>('/customers').then((r) => setCustomers(r.data || [])),
       apiFetch<any>('/warehouses').then((r) => setWarehouses(r.data || [])),
-    ]).catch(console.error)
+    ]).catch(err => handleError(err))
 
     const user = getUser()
     if (user?.warehouse_ids?.[0]) {
@@ -67,8 +88,37 @@ export default function NewOrderPage() {
   // Load customer credit info
   useEffect(() => {
     if (!customerId) { setCreditInfo(null); return }
-    apiFetch<any>(`/customers/${customerId}`).then((r) => setCreditInfo(r.data)).catch(console.error)
+    apiFetch<any>(`/customers/${customerId}`).then((r) => setCreditInfo(r.data)).catch(err => handleError(err))
   }, [customerId])
+
+  // F2 — fetch NPP health score by customer.code (NPP code).
+  // ml_features.npp_health_scores keyed by NPP code (e.g. HD-53).
+  // 404 → NPP chưa có trong bảng health (silent — badge chỉ hiện khi có data).
+  useEffect(() => {
+    const c = customers.find((x) => x.id === customerId)
+    if (!c?.code) { setNppHealth(null); return }
+    setNppHealthLoading(true)
+    apiFetch<any>(`/ml/npp/${encodeURIComponent(c.code)}/health`)
+      .then((r) => setNppHealth(r.data || null))
+      .catch(() => setNppHealth(null))
+      .finally(() => setNppHealthLoading(false))
+  }, [customerId, customers])
+
+  // F3 — Smart SKU Suggestions (debounced).
+  // Antecedent in basket_rules = SKU canonical name (Vietnamese), match product.name.
+  useEffect(() => {
+    if (smartTimerRef.current) clearTimeout(smartTimerRef.current)
+    const skuNames = items.map((i) => i.product_name).filter((n): n is string => Boolean(n))
+    if (skuNames.length === 0) { setSmartRules([]); return }
+    smartTimerRef.current = setTimeout(() => {
+      setSmartLoading(true)
+      const q = encodeURIComponent(skuNames.join(','))
+      apiFetch<any>(`/ml/orders/suggestions?items=${q}&limit=5`)
+        .then((r) => setSmartRules(r.data || []))
+        .catch(() => setSmartRules([]))
+        .finally(() => setSmartLoading(false))
+    }, 400)
+  }, [items])
 
   // ATP batch check — debounced, triggers on product/quantity/warehouse changes
   const fetchATP = useCallback((wId: string, orderItems: OrderItem[]) => {
@@ -88,7 +138,7 @@ export default function NewOrderPage() {
           for (const a of r.data || []) map[a.product_id] = a
           setAtpResults(map)
         })
-        .catch(console.error)
+        .catch(err => handleError(err, { userMessage: 'Không kiểm tra được tồn kho, vui lòng thử lại' }))
         .finally(() => setAtpLoading(false))
     }, 300)
   }, [])
@@ -100,6 +150,24 @@ export default function NewOrderPage() {
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [warehouseId])
+
+  // Warehouse suggestion — triggers when customer + items ready
+  useEffect(() => {
+    if (suggestTimerRef.current) clearTimeout(suggestTimerRef.current)
+    const validItems = items.filter((i) => i.product_id && i.quantity > 0)
+    if (!customerId || validItems.length === 0) { setSuggestions([]); return }
+    suggestTimerRef.current = setTimeout(() => {
+      setSuggestLoading(true)
+      apiFetch<any>('/warehouses/suggest', {
+        method: 'POST',
+        body: { customer_id: customerId, items: validItems.map((i) => ({ product_id: i.product_id, quantity: i.quantity })) },
+      })
+        .then((r) => setSuggestions(r.data || []))
+        .catch(() => setSuggestions([]))
+        .finally(() => setSuggestLoading(false))
+    }, 500)
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [customerId, items])
 
   const addItem = () => {
     setItems([...items, { product_id: '', quantity: 1 }])
@@ -175,7 +243,7 @@ export default function NewOrderPage() {
           warehouse_id: warehouseId,
           delivery_date: deliveryDate,
           notes: notes || undefined,
-          is_urgent: isUrgent || undefined,
+          is_urgent: isUrgent,
           items: items.map((i) => ({ product_id: i.product_id, quantity: i.quantity })),
         },
       })
@@ -202,11 +270,34 @@ export default function NewOrderPage() {
   // Find selected customer
   const selectedCustomer = customers.find(c => c.id === customerId)
 
+  // Multi-step progress indicator
+  const step = !customerId ? 1 : items.every(i => !i.product_id) ? 2 : !deliveryDate ? 3 : 4
+
   return (
     <div className="flex gap-6">
       {/* LEFT: Order Form (60%) */}
       <div className="flex-[3] min-w-0">
-      <h1 className="text-2xl font-bold text-gray-800 mb-6">Tạo đơn hàng mới</h1>
+      <h1 className="text-2xl font-bold text-gray-800 mb-4">Tạo đơn hàng mới</h1>
+
+      {/* Step progress bar */}
+      <div className="flex items-center gap-0 mb-6">
+        {[
+          { n: 1, label: 'Khách hàng' },
+          { n: 2, label: 'Sản phẩm' },
+          { n: 3, label: 'Giao hàng' },
+          { n: 4, label: 'Xác nhận' },
+        ].map(({ n, label }, idx) => (
+          <div key={n} className="flex items-center flex-1 last:flex-none">
+            <div className={`flex items-center gap-2 ${n <= step ? 'text-brand-600' : 'text-gray-400'}`}>
+              <div className={`w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold border-2 transition ${n < step ? 'bg-brand-500 border-brand-500 text-white' : n === step ? 'border-brand-500 text-brand-600 bg-white' : 'border-gray-300 text-gray-400 bg-white'}`}>
+                {n < step ? '✓' : n}
+              </div>
+              <span className={`text-xs font-medium hidden sm:block ${n === step ? 'text-brand-600' : ''}`}>{label}</span>
+            </div>
+            {idx < 3 && <div className={`flex-1 h-0.5 mx-2 ${n < step ? 'bg-brand-500' : 'bg-gray-200'}`} />}
+          </div>
+        ))}
+      </div>
 
       <form onSubmit={handleSubmit} className="space-y-6">
         {/* Customer + Warehouse + Date */}
@@ -225,6 +316,12 @@ export default function NewOrderPage() {
                 onChange={setCustomerId}
                 placeholder="🔍 Tìm NPP theo mã hoặc tên..."
               />
+              {/* F2 — NPP Health badge inline */}
+              {customerId && (
+                <div className="mt-2">
+                  <NppHealthBadge health={nppHealth} loading={nppHealthLoading} />
+                </div>
+              )}
             </div>
 
             <div>
@@ -242,6 +339,27 @@ export default function NewOrderPage() {
                   </option>
                 ))}
               </select>
+              {/* Warehouse suggestions */}
+              {suggestions.length > 0 && (
+                <div className="mt-2 border rounded-lg bg-blue-50 p-2">
+                  <p className="text-xs font-medium text-blue-700 mb-1">💡 Gợi ý kho (điểm = 60% tồn kho + 40% khoảng cách):</p>
+                  {suggestions.slice(0, 3).map((s, idx) => (
+                    <button
+                      key={s.id}
+                      type="button"
+                      onClick={() => setWarehouseId(s.id)}
+                      className={`w-full text-left px-2 py-1 rounded text-xs mb-1 ${
+                        warehouseId === s.id ? 'bg-blue-200 border border-blue-400' : 'hover:bg-blue-100'
+                      }`}
+                    >
+                      <span className="font-medium">{idx + 1}. {s.name}</span>
+                      <span className="ml-2 text-gray-600">{s.reason}</span>
+                      <span className="float-right font-bold text-blue-700">{Math.round(s.total_score * 100)}đ</span>
+                    </button>
+                  ))}
+                </div>
+              )}
+              {suggestLoading && <p className="text-xs text-gray-400 mt-1">Đang tính gợi ý kho...</p>}
             </div>
 
             <div>
@@ -457,6 +575,36 @@ export default function NewOrderPage() {
             </table>
           )}
         </div>
+
+        {/* F3 Smart SKU Suggestions — World-Class Strategy */}
+        {(items.some((i) => i.product_name) || smartLoading) && (
+          <SmartSuggestionsBox
+            rules={smartRules.map((r) => ({
+              ...r,
+              product_id: products.find((p) => p.name === r.consequent)?.id,
+            }))}
+            loading={smartLoading}
+            onAdd={(rule) => {
+              const prod = products.find((p) => p.name === rule.consequent)
+              if (!prod) {
+                toast.warning(`Chưa tìm thấy SKU "${rule.consequent}" trong danh mục`)
+                return
+              }
+              const newItem: OrderItem = {
+                product_id: prod.id,
+                product_name: prod.name,
+                price: prod.price,
+                deposit_price: prod.deposit_price,
+                quantity: 1,
+                amount: prod.price,
+              }
+              const next = [...items, newItem]
+              setItems(next)
+              if (warehouseId) fetchATP(warehouseId, next)
+              toast.success(`Đã thêm "${prod.name}" theo gợi ý`)
+            }}
+          />
+        )}
 
         {/* Pre-submit validation summary */}
         {itemsWithProduct.length > 0 && (

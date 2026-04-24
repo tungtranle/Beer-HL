@@ -2,9 +2,12 @@ package gps
 
 import (
 	"context"
+	"encoding/json"
+	"fmt"
 	"math"
 	"math/rand"
 	"net/http"
+	"strings"
 	"sync"
 	"time"
 
@@ -284,6 +287,97 @@ func updateSimVehicle(state *simVehicleState, route simRoute, dt time.Duration, 
 
 // ─── Route Loading ───────────────────────────────────
 
+// fetchOSRMWaypoints calls OSRM to get road-following waypoints between stop coordinates.
+// Returns densified waypoints that follow actual roads. Falls back to straight-line if OSRM unavailable.
+func fetchOSRMWaypoints(stops []simWaypoint) []simWaypoint {
+	if len(stops) < 2 {
+		return stops
+	}
+
+	// Build OSRM coordinates string: lng,lat;lng,lat;...
+	coords := make([]string, len(stops))
+	for i, s := range stops {
+		coords[i] = fmt.Sprintf("%.6f,%.6f", s.Lng, s.Lat)
+	}
+	coordStr := strings.Join(coords, ";")
+
+	// Try local OSRM first, then public
+	urls := []string{
+		fmt.Sprintf("http://localhost:5000/route/v1/driving/%s?overview=full&geometries=geojson&steps=false", coordStr),
+		fmt.Sprintf("https://router.project-osrm.org/route/v1/driving/%s?overview=full&geometries=geojson&steps=false", coordStr),
+	}
+
+	client := &http.Client{Timeout: 10 * time.Second}
+
+	for _, url := range urls {
+		resp, err := client.Get(url)
+		if err != nil {
+			continue
+		}
+		defer resp.Body.Close()
+		if resp.StatusCode != 200 {
+			continue
+		}
+
+		var result struct {
+			Code   string `json:"code"`
+			Routes []struct {
+				Geometry struct {
+					Coordinates [][]float64 `json:"coordinates"`
+				} `json:"geometry"`
+			} `json:"routes"`
+		}
+		if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+			continue
+		}
+		if result.Code != "Ok" || len(result.Routes) == 0 || len(result.Routes[0].Geometry.Coordinates) < 2 {
+			continue
+		}
+
+		// Convert GeoJSON [lng, lat] to simWaypoint
+		osrmCoords := result.Routes[0].Geometry.Coordinates
+		// Sample every Nth point to keep ~100-200 waypoints for smooth simulation
+		step := 1
+		if len(osrmCoords) > 200 {
+			step = len(osrmCoords) / 200
+		}
+		var waypoints []simWaypoint
+		for i := 0; i < len(osrmCoords); i += step {
+			c := osrmCoords[i]
+			waypoints = append(waypoints, simWaypoint{Lat: c[1], Lng: c[0], Name: ""})
+		}
+		// Always include the last point
+		last := osrmCoords[len(osrmCoords)-1]
+		if len(waypoints) == 0 || waypoints[len(waypoints)-1].Lat != last[1] || waypoints[len(waypoints)-1].Lng != last[0] {
+			waypoints = append(waypoints, simWaypoint{Lat: last[1], Lng: last[0], Name: ""})
+		}
+		// Preserve stop names at matching positions
+		waypoints[0].Name = stops[0].Name
+		waypoints[len(waypoints)-1].Name = stops[len(stops)-1].Name
+		return waypoints
+	}
+
+	// Fallback: return original stops as-is
+	return stops
+}
+
+// loadWarehouseCoords loads the main warehouse coordinates from DB.
+// Returns (lat, lng). Falls back to hardcoded if DB fails.
+func (sc *SimController) loadWarehouseCoords(ctx context.Context) (float64, float64) {
+	var lat, lng float64
+	err := sc.db.QueryRow(ctx, `
+		SELECT COALESCE(latitude, 0), COALESCE(longitude, 0)
+		FROM warehouses
+		WHERE is_active = true AND latitude IS NOT NULL AND longitude IS NOT NULL
+		ORDER BY created_at ASC
+		LIMIT 1
+	`).Scan(&lat, &lng)
+	if err != nil || lat == 0 || lng == 0 {
+		return 20.9517, 107.0748 // Kho BHL Hạ Long fallback
+	}
+	return lat, lng
+}
+
 func (sc *SimController) loadRoutes(ctx context.Context, req simStartRequest) ([]simRoute, error) {
 	routes, err := sc.loadActiveTrips(ctx, req.TripIDs)
 	if err != nil {
@@ -337,6 +431,9 @@ func (sc *SimController) loadActiveTrips(ctx context.Context, tripIDs []string) 
 	}
 	defer rows.Close()
 
+	// Load warehouse coordinates from DB
+	whLat, whLng := sc.loadWarehouseCoords(ctx)
+
 	var result []simRoute
 	for rows.Next() {
 		var tripID, vehicleID, driverName, plate, tripStatus string
@@ -356,7 +453,7 @@ func (sc *SimController) loadActiveTrips(ctx context.Context, tripIDs []string) 
 			continue
 		}
 
-		wps := []simWaypoint{{Lat: 20.9639, Lng: 107.0895, Name: "WH-HL"}}
+		wps := []simWaypoint{{Lat: whLat, Lng: whLng, Name: "Kho BHL"}}
 		for stopRows.Next() {
 			var wp simWaypoint
 			if err := stopRows.Scan(&wp.Lat, &wp.Lng, &wp.Name); err != nil {
@@ -367,15 +464,17 @@ func (sc *SimController) loadActiveTrips(ctx context.Context, tripIDs []string) 
 			}
 		}
 		stopRows.Close()
-		wps = append(wps, simWaypoint{Lat: 20.9639, Lng: 107.0895, Name: "Quay về WH-HL"})
+		wps = append(wps, simWaypoint{Lat: whLat, Lng: whLng, Name: "Quay về kho"})
 
 		if len(wps) >= 3 {
+			// Use OSRM to get road-following waypoints
+			roadWps := fetchOSRMWaypoints(wps)
 			result = append(result, simRoute{
 				VehicleID:  vehicleID,
 				Plate:      plate,
 				DriverName: driverName,
 				TripStatus: tripStatus,
-				Waypoints:  wps,
+				Waypoints:  roadWps,
 			})
 		}
 	}
@@ -434,21 +533,24 @@ func (sc *SimController) generateDemoRoutes(ctx context.Context) []simRoute {
 		}
 	}
 
+	whLat, whLng := sc.loadWarehouseCoords(ctx)
+
 	templates := [][]simWaypoint{
-		{{20.9565, 107.072, "Kho BHL"}, {20.9480, 107.085, "NPP Bãi Cháy"}, {20.9340, 107.105, "NPP Hùng Thắng"}, {20.9200, 107.090, "NPP Hà Khánh"}, {20.9565, 107.072, "Quay về kho"}},
-		{{20.9565, 107.072, "Kho BHL"}, {21.0350, 106.780, "NPP Uông Bí"}, {21.0520, 106.548, "NPP Đông Triều"}, {21.0100, 106.650, "NPP Mạo Khê"}, {20.9565, 107.072, "Quay về kho"}},
-		{{20.9565, 107.072, "Kho BHL"}, {21.0080, 107.320, "NPP Cẩm Phả"}, {21.0450, 107.350, "NPP Cửa Ông"}, {21.0200, 107.280, "NPP Quang Hanh"}, {20.9565, 107.072, "Quay về kho"}},
-		{{20.9565, 107.072, "Kho BHL"}, {20.8500, 106.700, "NPP Quảng Yên"}, {20.8280, 106.685, "NPP HP 1"}, {20.8100, 106.720, "NPP HP 2"}, {20.9565, 107.072, "Quay về kho"}},
+		{{whLat, whLng, "Kho BHL"}, {20.9480, 107.085, "NPP Bãi Cháy"}, {20.9340, 107.105, "NPP Hùng Thắng"}, {20.9200, 107.090, "NPP Hà Khánh"}, {whLat, whLng, "Quay về kho"}},
+		{{whLat, whLng, "Kho BHL"}, {21.0350, 106.780, "NPP Uông Bí"}, {21.0520, 106.548, "NPP Đông Triều"}, {21.0100, 106.650, "NPP Mạo Khê"}, {whLat, whLng, "Quay về kho"}},
+		{{whLat, whLng, "Kho BHL"}, {21.0080, 107.320, "NPP Cẩm Phả"}, {21.0450, 107.350, "NPP Cửa Ông"}, {21.0200, 107.280, "NPP Quang Hanh"}, {whLat, whLng, "Quay về kho"}},
+		{{whLat, whLng, "Kho BHL"}, {20.8500, 106.700, "NPP Quảng Yên"}, {20.8280, 106.685, "NPP HP 1"}, {20.8100, 106.720, "NPP HP 2"}, {whLat, whLng, "Quay về kho"}},
 	}
 
 	var routes []simRoute
 	for i, v := range vehicles {
+		roadWps := fetchOSRMWaypoints(templates[i%len(templates)])
 		routes = append(routes, simRoute{
 			VehicleID:  v.ID,
 			Plate:      v.Plate,
 			DriverName: v.DriverName,
 			TripStatus: v.TripStatus,
-			Waypoints:  templates[i%len(templates)],
+			Waypoints:  roadWps,
 		})
 	}
 	return routes

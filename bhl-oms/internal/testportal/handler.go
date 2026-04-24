@@ -21,9 +21,10 @@ import (
 
 // Handler provides test portal endpoints — no auth required, for QA/testing only.
 type Handler struct {
-	db  *pgxpool.Pool
-	rdb *redis.Client
-	log logger.Logger
+	db      *pgxpool.Pool
+	rdb     *redis.Client
+	log     logger.Logger
+	osrmURL string
 
 	// GPS simulation state
 	gpsMu     sync.Mutex
@@ -31,8 +32,8 @@ type Handler struct {
 	gpsStatus *GPSSimStatus
 }
 
-func NewHandler(db *pgxpool.Pool, rdb *redis.Client, log logger.Logger) *Handler {
-	return &Handler{db: db, rdb: rdb, log: log}
+func NewHandler(db *pgxpool.Pool, rdb *redis.Client, log logger.Logger, osrmURL string) *Handler {
+	return &Handler{db: db, rdb: rdb, log: log, osrmURL: osrmURL}
 }
 
 // RegisterRoutes registers test portal routes under /v1/test-portal (no auth).
@@ -49,6 +50,9 @@ func (h *Handler) RegisterRoutes(r *gin.RouterGroup) {
 		tp.GET("/customers", h.ListCustomers)
 		tp.GET("/products", h.ListProducts)
 		tp.GET("/drivers", h.ListDrivers)
+		tp.GET("/orders/:id/timeline", h.GetOrderTimeline)
+		tp.GET("/orders/:id/notes", h.GetOrderNotes)
+		tp.GET("/ops-audit", h.GetOpsAudit)
 
 		// Test actions
 		tp.POST("/reset-data", h.ResetTestData)
@@ -547,6 +551,335 @@ func (h *Handler) ListDrivers(c *gin.Context) {
 		items = []Row{}
 	}
 	response.OK(c, items)
+}
+
+// GET /v1/test-portal/orders/:id/timeline
+func (h *Handler) GetOrderTimeline(c *gin.Context) {
+	ctx := c.Request.Context()
+	orderID, err := uuid.Parse(c.Param("id"))
+	if err != nil {
+		response.BadRequest(c, "invalid order id")
+		return
+	}
+
+	type TimelineEvent struct {
+		ID        uuid.UUID       `json:"id"`
+		EventType string          `json:"event_type"`
+		ActorType string          `json:"actor_type"`
+		ActorName string          `json:"actor_name"`
+		Title     string          `json:"title"`
+		Detail    json.RawMessage `json:"detail"`
+		CreatedAt time.Time       `json:"created_at"`
+	}
+
+	rows, err := h.db.Query(ctx, `
+		SELECT id, event_type, actor_type, COALESCE(actor_name, ''), title,
+		  COALESCE(detail::text, '{}')::jsonb, created_at
+		FROM entity_events
+		WHERE entity_type = 'order' AND entity_id = $1
+		ORDER BY created_at DESC
+	`, orderID)
+	if err != nil {
+		response.InternalError(c)
+		return
+	}
+	defer rows.Close()
+
+	items := make([]TimelineEvent, 0)
+	for rows.Next() {
+		var item TimelineEvent
+		if err := rows.Scan(&item.ID, &item.EventType, &item.ActorType, &item.ActorName, &item.Title, &item.Detail, &item.CreatedAt); err == nil {
+			items = append(items, item)
+		}
+	}
+	response.OK(c, items)
+}
+
+// GET /v1/test-portal/orders/:id/notes
+func (h *Handler) GetOrderNotes(c *gin.Context) {
+	ctx := c.Request.Context()
+	orderID, err := uuid.Parse(c.Param("id"))
+	if err != nil {
+		response.BadRequest(c, "invalid order id")
+		return
+	}
+
+	type OrderNoteRow struct {
+		ID        uuid.UUID `json:"id"`
+		UserName  string    `json:"user_name"`
+		Content   string    `json:"content"`
+		NoteType  string    `json:"note_type"`
+		IsPinned  bool      `json:"is_pinned"`
+		CreatedAt time.Time `json:"created_at"`
+	}
+
+	rows, err := h.db.Query(ctx, `
+		SELECT id, COALESCE(user_name, ''), content,
+		  COALESCE(note_type, 'internal'), COALESCE(is_pinned, false), created_at
+		FROM order_notes
+		WHERE order_id = $1
+		ORDER BY is_pinned DESC, created_at DESC
+	`, orderID)
+	if err != nil {
+		response.InternalError(c)
+		return
+	}
+	defer rows.Close()
+
+	items := make([]OrderNoteRow, 0)
+	for rows.Next() {
+		var item OrderNoteRow
+		if err := rows.Scan(&item.ID, &item.UserName, &item.Content, &item.NoteType, &item.IsPinned, &item.CreatedAt); err == nil {
+			items = append(items, item)
+		}
+	}
+	response.OK(c, items)
+}
+
+// GET /v1/test-portal/ops-audit
+func (h *Handler) GetOpsAudit(c *gin.Context) {
+	ctx := c.Request.Context()
+
+	type SessionRow struct {
+		ID         uuid.UUID  `json:"id"`
+		UserName   string     `json:"user_name"`
+		IPAddress  string     `json:"ip_address"`
+		UserAgent  string     `json:"user_agent"`
+		LastSeenAt time.Time  `json:"last_seen_at"`
+		CreatedAt  time.Time  `json:"created_at"`
+		RevokedAt  *time.Time `json:"revoked_at"`
+	}
+
+	type DLQRow struct {
+		ID           uuid.UUID `json:"id"`
+		Adapter      string    `json:"adapter"`
+		Operation    string    `json:"operation"`
+		Status       string    `json:"status"`
+		RetryCount   int       `json:"retry_count"`
+		MaxRetries   int       `json:"max_retries"`
+		ErrorMessage string    `json:"error_message"`
+		CreatedAt    time.Time `json:"created_at"`
+	}
+
+	type DiscrepancyRow struct {
+		ID          uuid.UUID  `json:"id"`
+		TripNumber  string     `json:"trip_number"`
+		DiscType    string     `json:"disc_type"`
+		Status      string     `json:"status"`
+		Description string     `json:"description"`
+		Variance    float64    `json:"variance"`
+		Deadline    *time.Time `json:"deadline"`
+		CreatedAt   time.Time  `json:"created_at"`
+	}
+
+	type DailyCloseRow struct {
+		ID                  uuid.UUID `json:"id"`
+		CloseDate           string    `json:"close_date"`
+		WarehouseName       string    `json:"warehouse_name"`
+		CompletedTrips      int       `json:"completed_trips"`
+		TotalTrips          int       `json:"total_trips"`
+		TotalDiscrepancies  int       `json:"total_discrepancies"`
+		ResolvedDiscrepancy int       `json:"resolved_discrepancies"`
+		TotalRevenue        float64   `json:"total_revenue"`
+	}
+
+	type SnapshotRow struct {
+		SnapshotDate        string  `json:"snapshot_date"`
+		WarehouseName       string  `json:"warehouse_name"`
+		OTDRate             float64 `json:"otd_rate"`
+		DeliverySuccessRate float64 `json:"delivery_success_rate"`
+		TotalOrders         int     `json:"total_orders"`
+		TotalRevenue        float64 `json:"total_revenue"`
+	}
+
+	result := struct {
+		Admin struct {
+			PermissionRules int          `json:"permission_rules"`
+			Overrides       int          `json:"overrides"`
+			ActiveSessions  int          `json:"active_sessions"`
+			Routes          int          `json:"routes"`
+			Configs         int          `json:"configs"`
+			CreditLimits    int          `json:"credit_limits"`
+			RecentSessions  []SessionRow `json:"recent_sessions"`
+		} `json:"admin"`
+		Integration struct {
+			Pending  int      `json:"pending"`
+			Retrying int      `json:"retrying"`
+			Failed   int      `json:"failed"`
+			Resolved int      `json:"resolved"`
+			Recent   []DLQRow `json:"recent"`
+		} `json:"integration"`
+		Reconciliation struct {
+			TotalRecons           int              `json:"total_recons"`
+			OpenDiscrepancies     int              `json:"open_discrepancies"`
+			ResolvedDiscrepancies int              `json:"resolved_discrepancies"`
+			DailyCloses           int              `json:"daily_closes"`
+			RecentDiscrepancies   []DiscrepancyRow `json:"recent_discrepancies"`
+			RecentDailyCloses     []DailyCloseRow  `json:"recent_daily_closes"`
+		} `json:"reconciliation"`
+		KPI struct {
+			Snapshots          int           `json:"snapshots"`
+			IssueOrders        int           `json:"issue_orders"`
+			CancellationOrders int           `json:"cancellation_orders"`
+			RedeliveryOrders   int           `json:"redelivery_orders"`
+			RecentSnapshots    []SnapshotRow `json:"recent_snapshots"`
+		} `json:"kpi"`
+	}{}
+
+	_ = h.db.QueryRow(ctx, `
+		SELECT
+		  (SELECT COUNT(*) FROM role_permissions),
+		  (SELECT COUNT(*) FROM user_permission_overrides WHERE expires_at IS NULL OR expires_at > NOW()),
+		  (SELECT COUNT(*) FROM active_sessions WHERE revoked_at IS NULL),
+		  (SELECT COUNT(*) FROM delivery_routes),
+		  (SELECT COUNT(*) FROM system_settings),
+		  (SELECT COUNT(*) FROM credit_limits WHERE effective_to IS NULL OR effective_to >= CURRENT_DATE)
+	`).Scan(
+		&result.Admin.PermissionRules,
+		&result.Admin.Overrides,
+		&result.Admin.ActiveSessions,
+		&result.Admin.Routes,
+		&result.Admin.Configs,
+		&result.Admin.CreditLimits,
+	)
+
+	sessionRows, err := h.db.Query(ctx, `
+		SELECT s.id, COALESCE(u.full_name, u.username, ''), COALESCE(s.ip_address::text, ''),
+		  COALESCE(s.user_agent, ''), s.last_seen_at, s.created_at, s.revoked_at
+		FROM active_sessions s
+		JOIN users u ON u.id = s.user_id
+		ORDER BY s.created_at DESC
+		LIMIT 8
+	`)
+	if err == nil {
+		defer sessionRows.Close()
+		for sessionRows.Next() {
+			var item SessionRow
+			if err := sessionRows.Scan(&item.ID, &item.UserName, &item.IPAddress, &item.UserAgent, &item.LastSeenAt, &item.CreatedAt, &item.RevokedAt); err == nil {
+				result.Admin.RecentSessions = append(result.Admin.RecentSessions, item)
+			}
+		}
+	}
+
+	dlqCounts, err := h.db.Query(ctx, `SELECT status::text, COUNT(*) FROM integration_dlq GROUP BY status`)
+	if err == nil {
+		defer dlqCounts.Close()
+		for dlqCounts.Next() {
+			var status string
+			var count int
+			if dlqCounts.Scan(&status, &count) == nil {
+				switch status {
+				case "pending":
+					result.Integration.Pending = count
+				case "retrying":
+					result.Integration.Retrying = count
+				case "failed":
+					result.Integration.Failed = count
+				case "resolved":
+					result.Integration.Resolved = count
+				}
+			}
+		}
+	}
+
+	dlqRows, err := h.db.Query(ctx, `
+		SELECT id, adapter, operation, status::text, retry_count, max_retries,
+		  LEFT(COALESCE(error_message, ''), 160), created_at
+		FROM integration_dlq
+		ORDER BY created_at DESC
+		LIMIT 8
+	`)
+	if err == nil {
+		defer dlqRows.Close()
+		for dlqRows.Next() {
+			var item DLQRow
+			if err := dlqRows.Scan(&item.ID, &item.Adapter, &item.Operation, &item.Status, &item.RetryCount, &item.MaxRetries, &item.ErrorMessage, &item.CreatedAt); err == nil {
+				result.Integration.Recent = append(result.Integration.Recent, item)
+			}
+		}
+	}
+
+	_ = h.db.QueryRow(ctx, `
+		SELECT
+		  (SELECT COUNT(*) FROM reconciliations),
+		  (SELECT COUNT(*) FROM discrepancies WHERE status::text IN ('open','investigating','escalated')),
+		  (SELECT COUNT(*) FROM discrepancies WHERE status::text = 'resolved'),
+		  (SELECT COUNT(*) FROM daily_close_summaries)
+	`).Scan(
+		&result.Reconciliation.TotalRecons,
+		&result.Reconciliation.OpenDiscrepancies,
+		&result.Reconciliation.ResolvedDiscrepancies,
+		&result.Reconciliation.DailyCloses,
+	)
+
+	discRows, err := h.db.Query(ctx, `
+		SELECT d.id, COALESCE(t.trip_number, '-'), d.disc_type::text, d.status::text,
+		  COALESCE(d.description, ''), d.variance, d.deadline, d.created_at
+		FROM discrepancies d
+		LEFT JOIN trips t ON t.id = d.trip_id
+		ORDER BY d.created_at DESC
+		LIMIT 8
+	`)
+	if err == nil {
+		defer discRows.Close()
+		for discRows.Next() {
+			var item DiscrepancyRow
+			if err := discRows.Scan(&item.ID, &item.TripNumber, &item.DiscType, &item.Status, &item.Description, &item.Variance, &item.Deadline, &item.CreatedAt); err == nil {
+				result.Reconciliation.RecentDiscrepancies = append(result.Reconciliation.RecentDiscrepancies, item)
+			}
+		}
+	}
+
+	closeRows, err := h.db.Query(ctx, `
+		SELECT dcs.id, dcs.close_date::text, COALESCE(w.name, ''), dcs.completed_trips,
+		  dcs.total_trips, dcs.total_discrepancies, dcs.resolved_discrepancies, dcs.total_revenue
+		FROM daily_close_summaries dcs
+		JOIN warehouses w ON w.id = dcs.warehouse_id
+		ORDER BY dcs.close_date DESC
+		LIMIT 6
+	`)
+	if err == nil {
+		defer closeRows.Close()
+		for closeRows.Next() {
+			var item DailyCloseRow
+			if err := closeRows.Scan(&item.ID, &item.CloseDate, &item.WarehouseName, &item.CompletedTrips, &item.TotalTrips, &item.TotalDiscrepancies, &item.ResolvedDiscrepancy, &item.TotalRevenue); err == nil {
+				result.Reconciliation.RecentDailyCloses = append(result.Reconciliation.RecentDailyCloses, item)
+			}
+		}
+	}
+
+	_ = h.db.QueryRow(ctx, `
+		SELECT
+		  (SELECT COUNT(*) FROM daily_kpi_snapshots),
+		  (SELECT COUNT(*) FROM sales_orders WHERE status::text IN ('failed','partially_delivered')),
+		  (SELECT COUNT(*) FROM sales_orders WHERE status::text IN ('cancelled','rejected','pending_approval')),
+		  (SELECT COUNT(*) FROM sales_orders WHERE re_delivery_count > 0 OR status::text = 're_delivery')
+	`).Scan(
+		&result.KPI.Snapshots,
+		&result.KPI.IssueOrders,
+		&result.KPI.CancellationOrders,
+		&result.KPI.RedeliveryOrders,
+	)
+
+	snapshotRows, err := h.db.Query(ctx, `
+		SELECT d.snapshot_date::text, COALESCE(w.name, ''), d.otd_rate,
+		  d.delivery_success_rate, d.total_orders, d.total_revenue
+		FROM daily_kpi_snapshots d
+		JOIN warehouses w ON w.id = d.warehouse_id
+		ORDER BY d.snapshot_date DESC
+		LIMIT 6
+	`)
+	if err == nil {
+		defer snapshotRows.Close()
+		for snapshotRows.Next() {
+			var item SnapshotRow
+			if err := snapshotRows.Scan(&item.SnapshotDate, &item.WarehouseName, &item.OTDRate, &item.DeliverySuccessRate, &item.TotalOrders, &item.TotalRevenue); err == nil {
+				result.KPI.RecentSnapshots = append(result.KPI.RecentSnapshots, item)
+			}
+		}
+	}
+
+	response.OK(c, result)
 }
 
 // POST /v1/test-portal/reset-data — clear transactional data, keep NPP + products
@@ -1361,47 +1694,60 @@ type GPSVehicleStatus struct {
 
 // GET /v1/test-portal/gps/scenarios
 func (h *Handler) GPSScenarios(c *gin.Context) {
+	ctx := c.Request.Context()
+	deliveryRoutes := h.realDeliveryRoutes(ctx)
+	rushRoutes := h.realRushHourRoutes(ctx)
+	longRoutes := h.realLongRoute(ctx)
+	threeRoutes := deliveryRoutes
+	if len(threeRoutes) > 3 {
+		threeRoutes = threeRoutes[:3]
+	}
+	twoRoutes := deliveryRoutes
+	if len(twoRoutes) > 2 {
+		twoRoutes = twoRoutes[:2]
+	}
 	scenarios := []GPSScenario{
 		{
 			ID: "normal_delivery", Name: "Giao hàng bình thường", Category: "delivery",
 			Description:  "3-5 xe giao hàng theo tuyến cố định, dừng tại mỗi điểm 15-30s, tốc độ 30-50 km/h",
 			VehicleCount: 5, Duration: "~10 phút",
-			Routes: normalDeliveryRoutes(),
+			Routes: deliveryRoutes,
 		},
 		{
 			ID: "rush_hour", Name: "Giờ cao điểm (nhiều xe)", Category: "performance",
 			Description:  "10 xe chạy đồng thời trên nhiều tuyến, test tải WebSocket + Redis pub/sub",
 			VehicleCount: 10, Duration: "~15 phút",
-			Routes: rushHourRoutes(),
+			Routes: rushRoutes,
 		},
 		{
 			ID: "gps_lost_signal", Name: "Mất tín hiệu GPS", Category: "anomaly",
 			Description:  "2 xe bình thường + 1 xe mất tín hiệu sau 30s (dừng gửi GPS) → kiểm tra cảnh báo",
 			VehicleCount: 3, Duration: "~5 phút",
-			Routes: normalDeliveryRoutes()[:3],
+			Routes: threeRoutes,
 		},
 		{
 			ID: "idle_vehicle", Name: "Xe đứng yên quá lâu", Category: "anomaly",
 			Description:  "1 xe giao hàng bình thường + 1 xe đứng yên 1 chỗ > 5 phút → kiểm tra cảnh báo idle",
 			VehicleCount: 2, Duration: "~8 phút",
-			Routes: normalDeliveryRoutes()[:2],
+			Routes: twoRoutes,
 		},
 		{
 			ID: "speed_violation", Name: "Vượt tốc độ", Category: "anomaly",
 			Description:  "1 xe chạy quá nhanh (>80 km/h) trên tuyến → kiểm tra cảnh báo speed violation",
 			VehicleCount: 2, Duration: "~5 phút",
-			Routes: normalDeliveryRoutes()[:2],
+			Routes: twoRoutes,
 		},
 		{
 			ID: "long_route", Name: "Tuyến dài (Quảng Ninh → Hải Phòng)", Category: "delivery",
 			Description:  "1 xe chạy tuyến dài ~60km, quân HD → QN → HP, test tracking dài hạn",
 			VehicleCount: 1, Duration: "~20 phút",
-			Routes: longRouteRoutes(),
+			Routes: longRoutes,
 		},
 		{
 			ID: "from_active_trips", Name: "Từ trips đang chạy (DB)", Category: "delivery",
 			Description:  "Load trips thực tế từ database (planned/in_progress), giả lập GPS cho xe đang có trip",
 			VehicleCount: 0, Duration: "Tùy dữ liệu",
+			Routes: nil,
 		},
 	}
 	response.OK(c, scenarios)
@@ -1476,10 +1822,10 @@ func (h *Handler) GPSStart(c *gin.Context) {
 
 	// Build routes based on scenario
 	vehicles, routes, scenarioName := h.buildScenarioData(c.Request.Context(), req.ScenarioID, req.VehicleIDs)
-	if len(vehicles) == 0 {
+	if len(vehicles) == 0 || len(routes) == 0 {
 		cancel()
 		h.gpsCancel = nil
-		response.BadRequest(c, "Không tìm thấy xe nào để giả lập")
+		response.BadRequest(c, "Không tìm thấy xe hoặc tuyến đường hợp lệ để giả lập")
 		return
 	}
 
@@ -1559,42 +1905,51 @@ func (h *Handler) buildScenarioData(ctx context.Context, scenarioID string, vehi
 
 	switch scenarioID {
 	case "normal_delivery":
-		routes := normalDeliveryRoutes()
+		routes := h.realDeliveryRoutes(ctx)
 		if len(vehicles) == 0 {
 			vehicles = h.loadDBVehicles(ctx, len(routes))
 		}
 		return vehicles, routes, "Giao hàng bình thường"
 
 	case "rush_hour":
-		routes := rushHourRoutes()
+		routes := h.realRushHourRoutes(ctx)
 		if len(vehicles) == 0 {
 			vehicles = h.loadDBVehicles(ctx, len(routes))
 		}
 		return vehicles, routes, "Giờ cao điểm"
 
 	case "gps_lost_signal":
-		routes := normalDeliveryRoutes()[:3]
+		routes := h.realDeliveryRoutes(ctx)
+		if len(routes) > 3 {
+			routes = routes[:3]
+		}
 		if len(vehicles) == 0 {
 			vehicles = h.loadDBVehicles(ctx, 3)
 		}
 		return vehicles, routes, "Mất tín hiệu GPS"
 
 	case "idle_vehicle":
-		routes := normalDeliveryRoutes()[:2]
+		routes := h.realDeliveryRoutes(ctx)
+		if len(routes) > 2 {
+			routes = routes[:2]
+		}
 		if len(vehicles) == 0 {
 			vehicles = h.loadDBVehicles(ctx, 2)
 		}
 		return vehicles, routes, "Xe đứng yên quá lâu"
 
 	case "speed_violation":
-		routes := normalDeliveryRoutes()[:2]
+		routes := h.realDeliveryRoutes(ctx)
+		if len(routes) > 2 {
+			routes = routes[:2]
+		}
 		if len(vehicles) == 0 {
 			vehicles = h.loadDBVehicles(ctx, 2)
 		}
 		return vehicles, routes, "Vượt tốc độ"
 
 	case "long_route":
-		routes := longRouteRoutes()
+		routes := h.realLongRoute(ctx)
 		if len(vehicles) == 0 {
 			vehicles = h.loadDBVehicles(ctx, 1)
 		}
@@ -1605,7 +1960,7 @@ func (h *Handler) buildScenarioData(ctx context.Context, scenarioID string, vehi
 		return v, r, "Từ trips đang chạy (DB)"
 
 	default:
-		routes := normalDeliveryRoutes()
+		routes := h.realDeliveryRoutes(ctx)
 		if len(vehicles) == 0 {
 			vehicles = h.loadDBVehicles(ctx, len(routes))
 		}
@@ -1636,7 +1991,7 @@ func (h *Handler) loadTripsFromDB(ctx context.Context) ([]simVehicle, []GPSRoute
 	rows, err := h.db.Query(ctx, `
 		SELECT t.id::text, t.vehicle_id::text, v.plate_number
 		FROM trips t JOIN vehicles v ON v.id = t.vehicle_id
-		WHERE t.status::text IN ('planned','in_progress','loading','departed')
+		WHERE t.status::text IN ('planned','assigned','ready','in_transit','pre_check')
 		ORDER BY t.created_at DESC LIMIT 10
 	`)
 	if err != nil {
@@ -1647,6 +2002,8 @@ func (h *Handler) loadTripsFromDB(ctx context.Context) ([]simVehicle, []GPSRoute
 	var vehicles []simVehicle
 	var routes []GPSRoute
 
+	warehouseWaypoints := map[string]GPSWaypoint{}
+
 	for rows.Next() {
 		var tripID, vehicleID, plate string
 		if rows.Scan(&tripID, &vehicleID, &plate) != nil {
@@ -1654,22 +2011,39 @@ func (h *Handler) loadTripsFromDB(ctx context.Context) ([]simVehicle, []GPSRoute
 		}
 		vehicles = append(vehicles, simVehicle{ID: vehicleID, Plate: plate})
 
+		var warehouseCode string
+		var warehouseLat, warehouseLng float64
+		_ = h.db.QueryRow(ctx, `
+			SELECT COALESCE(w.code, ''), COALESCE(w.latitude, 0), COALESCE(w.longitude, 0)
+			FROM trips t
+			JOIN warehouses w ON w.id = t.warehouse_id
+			WHERE t.id = $1
+		`, tripID).Scan(&warehouseCode, &warehouseLat, &warehouseLng)
+		warehousePoint := GPSWaypoint{Lat: warehouseLat, Lng: warehouseLng, Name: "Kho xuất phát"}
+		if warehousePoint.Lat == 0 || warehousePoint.Lng == 0 {
+			warehousePoint = GPSWaypoint{Lat: 20.9639, Lng: 107.0895, Name: "Kho xuất phát"}
+		}
+		if warehouseCode != "" {
+			warehousePoint.Name = "Kho " + warehouseCode
+		}
+		warehouseWaypoints[tripID] = warehousePoint
+
 		// Load stops for this trip
 		stopRows, err := h.db.Query(ctx, `
-			SELECT COALESCE(c.lat, 0), COALESCE(c.lng, 0), COALESCE(c.name, 'Stop')
+			SELECT COALESCE(c.latitude, 0), COALESCE(c.longitude, 0), COALESCE(c.name, 'Stop')
 			FROM trip_stops ts
 			JOIN shipments sh ON sh.id = ts.shipment_id
 			JOIN sales_orders so ON so.id = sh.order_id
 			JOIN customers c ON c.id = so.customer_id
 			WHERE ts.trip_id = $1
-			ORDER BY ts.sequence_order ASC
+			ORDER BY ts.stop_order ASC
 		`, tripID)
 		if err != nil {
 			continue
 		}
 
 		route := GPSRoute{Name: plate + " (trip)", SpeedKmh: 40, StopSec: 20}
-		route.Waypoints = append(route.Waypoints, GPSWaypoint{Lat: 20.9565, Lng: 107.072, Name: "Kho xuất phát"})
+		route.Waypoints = append(route.Waypoints, warehouseWaypoints[tripID])
 		for stopRows.Next() {
 			var wp GPSWaypoint
 			if stopRows.Scan(&wp.Lat, &wp.Lng, &wp.Name) == nil && wp.Lat != 0 && wp.Lng != 0 {
@@ -1677,9 +2051,10 @@ func (h *Handler) loadTripsFromDB(ctx context.Context) ([]simVehicle, []GPSRoute
 			}
 		}
 		stopRows.Close()
-		route.Waypoints = append(route.Waypoints, GPSWaypoint{Lat: 20.9565, Lng: 107.072, Name: "Quay về kho"})
+		route.Waypoints = append(route.Waypoints, GPSWaypoint{Lat: warehouseWaypoints[tripID].Lat, Lng: warehouseWaypoints[tripID].Lng, Name: "Quay về kho"})
 
 		if len(route.Waypoints) >= 3 {
+			route.Waypoints = h.fetchOSRMWaypoints(route.Waypoints)
 			routes = append(routes, route)
 		}
 	}

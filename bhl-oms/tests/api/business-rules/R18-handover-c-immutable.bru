@@ -1,0 +1,43 @@
+meta {
+  name: R18 - Biên Bản C Immutable Sau Khi Ký
+  type: http
+  seq: 4
+}
+
+# R18: Biên bản bàn giao C đã ký → KHÔNG thể sửa/xóa
+# Scenario: Lấy 1 biên bản C đã signed, thử PATCH → phải 403 hoặc 405
+
+patch {
+  url: {{baseUrl}}/handover/c/{{signedHandoverCId}}
+  body: json
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{token}}
+}
+
+body:json {
+  {
+    "notes": "[TEST R18] Attempt to modify signed handover C — should fail"
+  }
+}
+
+vars:pre-request {
+  signedHandoverCId: test-handover-c-signed
+}
+
+tests {
+  test("R18: PATCH biên bản C đã ký phải trả 403 hoặc 405", function() {
+    expect([403, 405, 409]).to.include(res.status);
+  });
+
+  test("R18: KHÔNG trả 200/201 khi cố sửa biên bản đã ký", function() {
+    expect(res.status).to.not.equal(200);
+    expect(res.status).to.not.equal(201);
+  });
+
+  test("R18: body có message lỗi", function() {
+    expect(res.body).to.have.property("error");
+  });
+}

@@ -1,0 +1,729 @@
+                                      Table "public.sales_orders"
+      Column       |           Type           | Collation | Nullable |             Default             
+-------------------+--------------------------+-----------+----------+---------------------------------
+ id                | uuid                     |           | not null | gen_random_uuid()
+ order_number      | character varying(30)    |           | not null | 
+ customer_id       | uuid                     |           | not null | 
+ warehouse_id      | uuid                     |           | not null | 
+ status            | order_status             |           | not null | 'draft'::order_status
+ delivery_date     | date                     |           | not null | 
+ delivery_address  | jsonb                    |           |          | 
+ time_window       | character varying(20)    |           |          | 
+ total_amount      | numeric(15,2)            |           | not null | 0
+ deposit_amount    | numeric(15,2)            |           | not null | 0
+ total_weight_kg   | numeric(10,2)            |           | not null | 0
+ total_volume_m3   | numeric(10,4)            |           | not null | 0
+ atp_status        | character varying(20)    |           |          | 'pending'::character varying
+ credit_status     | character varying(20)    |           |          | 'pending'::character varying
+ notes             | text                     |           |          | 
+ created_by        | uuid                     |           |          | 
+ approved_by       | uuid                     |           |          | 
+ approved_at       | timestamp with time zone |           |          | 
+ created_at        | timestamp with time zone |           | not null | now()
+ updated_at        | timestamp with time zone |           | not null | now()
+ cutoff_group      | character varying(20)    |           |          | 'before_16h'::character varying
+ re_delivery_count | integer                  |           | not null | 0
+ original_order_id | uuid                     |           |          | 
+ is_urgent         | boolean                  |           | not null | false
+Indexes:
+    "sales_orders_pkey" PRIMARY KEY, btree (id)
+    "idx_orders_urgent" btree (is_urgent DESC, delivery_date)
+    "idx_sales_orders_customer" btree (customer_id, created_at DESC)
+    "idx_sales_orders_cutoff" btree (cutoff_group, delivery_date)
+    "idx_sales_orders_date" btree (delivery_date, warehouse_id)
+    "idx_sales_orders_status" btree (status, delivery_date)
+    "unq_sales_orders_number" UNIQUE CONSTRAINT, btree (order_number)
+Foreign-key constraints:
+    "sales_orders_approved_by_fkey" FOREIGN KEY (approved_by) REFERENCES users(id)
+    "sales_orders_created_by_fkey" FOREIGN KEY (created_by) REFERENCES users(id)
+    "sales_orders_customer_id_fkey" FOREIGN KEY (customer_id) REFERENCES customers(id)
+    "sales_orders_original_order_id_fkey" FOREIGN KEY (original_order_id) REFERENCES sales_orders(id)
+    "sales_orders_warehouse_id_fkey" FOREIGN KEY (warehouse_id) REFERENCES warehouses(id)
+Referenced by:
+    TABLE "delivery_attempts" CONSTRAINT "delivery_attempts_order_id_fkey" FOREIGN KEY (order_id) REFERENCES sales_orders(id)
+    TABLE "order_confirmations" CONSTRAINT "order_confirmations_order_id_fkey" FOREIGN KEY (order_id) REFERENCES sales_orders(id)
+    TABLE "order_items" CONSTRAINT "order_items_order_id_fkey" FOREIGN KEY (order_id) REFERENCES sales_orders(id) ON DELETE CASCADE
+    TABLE "order_notes" CONSTRAINT "order_notes_order_id_fkey" FOREIGN KEY (order_id) REFERENCES sales_orders(id)
+    TABLE "payments" CONSTRAINT "payments_order_id_fkey" FOREIGN KEY (order_id) REFERENCES sales_orders(id)
+    TABLE "receivable_ledger" CONSTRAINT "receivable_ledger_order_id_fkey" FOREIGN KEY (order_id) REFERENCES sales_orders(id)
+    TABLE "sales_orders" CONSTRAINT "sales_orders_original_order_id_fkey" FOREIGN KEY (original_order_id) REFERENCES sales_orders(id)
+    TABLE "shipments" CONSTRAINT "shipments_order_id_fkey" FOREIGN KEY (order_id) REFERENCES sales_orders(id)
+    TABLE "zalo_confirmations" CONSTRAINT "zalo_confirmations_order_id_fkey" FOREIGN KEY (order_id) REFERENCES sales_orders(id)
+
+                              Table "public.order_items"
+     Column     |           Type           | Collation | Nullable |      Default      
+----------------+--------------------------+-----------+----------+-------------------
+ id             | uuid                     |           | not null | gen_random_uuid()
+ order_id       | uuid                     |           | not null | 
+ product_id     | uuid                     |           | not null | 
+ quantity       | integer                  |           | not null | 
+ unit_price     | numeric(15,2)            |           | not null | 
+ amount         | numeric(15,2)            |           | not null | 
+ deposit_amount | numeric(15,2)            |           | not null | 0
+ created_at     | timestamp with time zone |           | not null | now()
+Indexes:
+    "order_items_pkey" PRIMARY KEY, btree (id)
+    "idx_order_items_order" btree (order_id)
+Foreign-key constraints:
+    "order_items_order_id_fkey" FOREIGN KEY (order_id) REFERENCES sales_orders(id) ON DELETE CASCADE
+    "order_items_product_id_fkey" FOREIGN KEY (product_id) REFERENCES products(id)
+
+                                    Table "public.shipments"
+     Column      |           Type           | Collation | Nullable |          Default           
+-----------------+--------------------------+-----------+----------+----------------------------
+ id              | uuid                     |           | not null | gen_random_uuid()
+ shipment_number | character varying(30)    |           | not null | 
+ order_id        | uuid                     |           | not null | 
+ customer_id     | uuid                     |           | not null | 
+ warehouse_id    | uuid                     |           | not null | 
+ status          | shipment_status          |           | not null | 'pending'::shipment_status
+ delivery_date   | date                     |           | not null | 
+ total_weight_kg | numeric(10,2)            |           | not null | 0
+ total_volume_m3 | numeric(10,4)            |           | not null | 0
+ items           | jsonb                    |           | not null | '[]'::jsonb
+ created_at      | timestamp with time zone |           | not null | now()
+ updated_at      | timestamp with time zone |           | not null | now()
+ is_urgent       | boolean                  |           | not null | false
+Indexes:
+    "shipments_pkey" PRIMARY KEY, btree (id)
+    "idx_shipments_status_date" btree (status, delivery_date)
+    "idx_shipments_urgent" btree (is_urgent DESC, delivery_date)
+    "unq_shipments_number" UNIQUE CONSTRAINT, btree (shipment_number)
+Foreign-key constraints:
+    "shipments_customer_id_fkey" FOREIGN KEY (customer_id) REFERENCES customers(id)
+    "shipments_order_id_fkey" FOREIGN KEY (order_id) REFERENCES sales_orders(id)
+    "shipments_warehouse_id_fkey" FOREIGN KEY (warehouse_id) REFERENCES warehouses(id)
+Referenced by:
+    TABLE "delivery_attempts" CONSTRAINT "delivery_attempts_shipment_id_fkey" FOREIGN KEY (shipment_id) REFERENCES shipments(id)
+    TABLE "gate_checks" CONSTRAINT "gate_checks_shipment_id_fkey" FOREIGN KEY (shipment_id) REFERENCES shipments(id)
+    TABLE "picking_orders" CONSTRAINT "picking_orders_shipment_id_fkey" FOREIGN KEY (shipment_id) REFERENCES shipments(id)
+    TABLE "trip_stops" CONSTRAINT "trip_stops_shipment_id_fkey" FOREIGN KEY (shipment_id) REFERENCES shipments(id)
+
+                                    Table "public.trips"
+       Column       |           Type           | Collation | Nullable |       Default        
+--------------------+--------------------------+-----------+----------+----------------------
+ id                 | uuid                     |           | not null | gen_random_uuid()
+ trip_number        | character varying(30)    |           | not null | 
+ warehouse_id       | uuid                     |           | not null | 
+ vehicle_id         | uuid                     |           |          | 
+ driver_id          | uuid                     |           |          | 
+ status             | trip_status              |           | not null | 'draft'::trip_status
+ planned_date       | date                     |           | not null | 
+ total_stops        | integer                  |           | not null | 0
+ total_weight_kg    | numeric(10,2)            |           | not null | 0
+ total_distance_km  | numeric(8,2)             |           | not null | 0
+ total_duration_min | integer                  |           | not null | 0
+ started_at         | timestamp with time zone |           |          | 
+ completed_at       | timestamp with time zone |           |          | 
+ created_at         | timestamp with time zone |           | not null | now()
+ updated_at         | timestamp with time zone |           | not null | now()
+Indexes:
+    "trips_pkey" PRIMARY KEY, btree (id)
+    "idx_trips_status_date" btree (status, planned_date)
+    "idx_trips_vehicle" btree (vehicle_id, planned_date)
+    "unq_trips_number" UNIQUE CONSTRAINT, btree (trip_number)
+Foreign-key constraints:
+    "trips_driver_id_fkey" FOREIGN KEY (driver_id) REFERENCES drivers(id)
+    "trips_vehicle_id_fkey" FOREIGN KEY (vehicle_id) REFERENCES vehicles(id)
+    "trips_warehouse_id_fkey" FOREIGN KEY (warehouse_id) REFERENCES warehouses(id)
+Referenced by:
+    TABLE "discrepancies" CONSTRAINT "discrepancies_trip_id_fkey" FOREIGN KEY (trip_id) REFERENCES trips(id)
+    TABLE "eod_checkpoints" CONSTRAINT "eod_checkpoints_trip_id_fkey" FOREIGN KEY (trip_id) REFERENCES trips(id)
+    TABLE "eod_sessions" CONSTRAINT "eod_sessions_trip_id_fkey" FOREIGN KEY (trip_id) REFERENCES trips(id)
+    TABLE "gate_checks" CONSTRAINT "gate_checks_trip_id_fkey" FOREIGN KEY (trip_id) REFERENCES trips(id)
+    TABLE "gps_anomalies" CONSTRAINT "gps_anomalies_trip_id_fkey" FOREIGN KEY (trip_id) REFERENCES trips(id) ON DELETE SET NULL
+    TABLE "handover_records" CONSTRAINT "handover_records_trip_id_fkey" FOREIGN KEY (trip_id) REFERENCES trips(id)
+    TABLE "reconciliations" CONSTRAINT "reconciliations_trip_id_fkey" FOREIGN KEY (trip_id) REFERENCES trips(id)
+    TABLE "trip_checklists" CONSTRAINT "trip_checklists_trip_id_fkey" FOREIGN KEY (trip_id) REFERENCES trips(id) ON DELETE CASCADE
+    TABLE "trip_stops" CONSTRAINT "trip_stops_trip_id_fkey" FOREIGN KEY (trip_id) REFERENCES trips(id) ON DELETE CASCADE
+
+                                    Table "public.trip_stops"
+        Column         |           Type           | Collation | Nullable |        Default         
+-----------------------+--------------------------+-----------+----------+------------------------
+ id                    | uuid                     |           | not null | gen_random_uuid()
+ trip_id               | uuid                     |           | not null | 
+ shipment_id           | uuid                     |           |          | 
+ customer_id           | uuid                     |           | not null | 
+ stop_order            | integer                  |           | not null | 
+ status                | stop_status              |           | not null | 'pending'::stop_status
+ estimated_arrival     | timestamp with time zone |           |          | 
+ estimated_departure   | timestamp with time zone |           |          | 
+ actual_arrival        | timestamp with time zone |           |          | 
+ actual_departure      | timestamp with time zone |           |          | 
+ distance_from_prev_km | numeric(8,2)             |           |          | 0
+ cumulative_load_kg    | numeric(10,2)            |           |          | 0
+ notes                 | text                     |           |          | 
+ created_at            | timestamp with time zone |           | not null | now()
+Indexes:
+    "trip_stops_pkey" PRIMARY KEY, btree (id)
+    "idx_trip_stops_trip" btree (trip_id, stop_order)
+    "unq_trip_stops_order" UNIQUE CONSTRAINT, btree (trip_id, stop_order)
+Foreign-key constraints:
+    "trip_stops_customer_id_fkey" FOREIGN KEY (customer_id) REFERENCES customers(id)
+    "trip_stops_shipment_id_fkey" FOREIGN KEY (shipment_id) REFERENCES shipments(id)
+    "trip_stops_trip_id_fkey" FOREIGN KEY (trip_id) REFERENCES trips(id) ON DELETE CASCADE
+Referenced by:
+    TABLE "delivery_attempts" CONSTRAINT "delivery_attempts_previous_stop_id_fkey" FOREIGN KEY (previous_stop_id) REFERENCES trip_stops(id)
+    TABLE "discrepancies" CONSTRAINT "discrepancies_stop_id_fkey" FOREIGN KEY (stop_id) REFERENCES trip_stops(id)
+    TABLE "epod" CONSTRAINT "epod_trip_stop_id_fkey" FOREIGN KEY (trip_stop_id) REFERENCES trip_stops(id) ON DELETE CASCADE
+    TABLE "handover_records" CONSTRAINT "handover_records_stop_id_fkey" FOREIGN KEY (stop_id) REFERENCES trip_stops(id)
+    TABLE "payments" CONSTRAINT "payments_trip_stop_id_fkey" FOREIGN KEY (trip_stop_id) REFERENCES trip_stops(id) ON DELETE CASCADE
+    TABLE "return_collections" CONSTRAINT "return_collections_trip_stop_id_fkey" FOREIGN KEY (trip_stop_id) REFERENCES trip_stops(id)
+    TABLE "zalo_confirmations" CONSTRAINT "zalo_confirmations_trip_stop_id_fkey" FOREIGN KEY (trip_stop_id) REFERENCES trip_stops(id)
+
+                                 Table "public.delivery_attempts"
+      Column      |           Type           | Collation | Nullable |           Default            
+------------------+--------------------------+-----------+----------+------------------------------
+ id               | uuid                     |           | not null | gen_random_uuid()
+ order_id         | uuid                     |           | not null | 
+ attempt_number   | integer                  |           | not null | 1
+ shipment_id      | uuid                     |           |          | 
+ previous_stop_id | uuid                     |           |          | 
+ previous_status  | character varying(30)    |           |          | 
+ previous_reason  | text                     |           |          | 
+ status           | character varying(20)    |           | not null | 'pending'::character varying
+ created_by       | uuid                     |           |          | 
+ created_at       | timestamp with time zone |           | not null | now()
+ completed_at     | timestamp with time zone |           |          | 
+Indexes:
+    "delivery_attempts_pkey" PRIMARY KEY, btree (id)
+    "idx_delivery_attempts_order" btree (order_id, attempt_number)
+    "idx_delivery_attempts_status" btree (status) WHERE status::text = 'pending'::text
+Foreign-key constraints:
+    "delivery_attempts_created_by_fkey" FOREIGN KEY (created_by) REFERENCES users(id)
+    "delivery_attempts_order_id_fkey" FOREIGN KEY (order_id) REFERENCES sales_orders(id)
+    "delivery_attempts_previous_stop_id_fkey" FOREIGN KEY (previous_stop_id) REFERENCES trip_stops(id)
+    "delivery_attempts_shipment_id_fkey" FOREIGN KEY (shipment_id) REFERENCES shipments(id)
+
+                                     Table "public.payments"
+      Column      |           Type           | Collation | Nullable |           Default           
+------------------+--------------------------+-----------+----------+-----------------------------
+ id               | uuid                     |           | not null | gen_random_uuid()
+ trip_stop_id     | uuid                     |           | not null | 
+ epod_id          | uuid                     |           |          | 
+ customer_id      | uuid                     |           | not null | 
+ driver_id        | uuid                     |           | not null | 
+ order_id         | uuid                     |           |          | 
+ payment_method   | payment_method           |           | not null | 'cash'::payment_method
+ amount           | numeric(15,2)            |           | not null | 
+ status           | payment_status           |           | not null | 'collected'::payment_status
+ reference_number | character varying(100)   |           |          | 
+ notes            | text                     |           |          | 
+ collected_at     | timestamp with time zone |           | not null | now()
+ confirmed_at     | timestamp with time zone |           |          | 
+ confirmed_by     | uuid                     |           |          | 
+ created_at       | timestamp with time zone |           | not null | now()
+ updated_at       | timestamp with time zone |           | not null | now()
+Indexes:
+    "payments_pkey" PRIMARY KEY, btree (id)
+    "idx_payments_customer" btree (customer_id, created_at DESC)
+    "idx_payments_status" btree (status) WHERE status = 'collected'::payment_status
+    "idx_payments_stop" btree (trip_stop_id)
+Foreign-key constraints:
+    "payments_confirmed_by_fkey" FOREIGN KEY (confirmed_by) REFERENCES users(id)
+    "payments_customer_id_fkey" FOREIGN KEY (customer_id) REFERENCES customers(id)
+    "payments_driver_id_fkey" FOREIGN KEY (driver_id) REFERENCES drivers(id)
+    "payments_epod_id_fkey" FOREIGN KEY (epod_id) REFERENCES epod(id)
+    "payments_order_id_fkey" FOREIGN KEY (order_id) REFERENCES sales_orders(id)
+    "payments_trip_stop_id_fkey" FOREIGN KEY (trip_stop_id) REFERENCES trip_stops(id) ON DELETE CASCADE
+
+                                        Table "public.epod"
+     Column      |           Type           | Collation | Nullable |            Default             
+-----------------+--------------------------+-----------+----------+--------------------------------
+ id              | uuid                     |           | not null | gen_random_uuid()
+ trip_stop_id    | uuid                     |           | not null | 
+ driver_id       | uuid                     |           | not null | 
+ customer_id     | uuid                     |           | not null | 
+ delivered_items | jsonb                    |           | not null | '[]'::jsonb
+ receiver_name   | character varying(200)   |           |          | 
+ receiver_phone  | character varying(20)    |           |          | 
+ signature_url   | text                     |           |          | 
+ photo_urls      | text[]                   |           |          | '{}'::text[]
+ total_amount    | numeric(15,2)            |           | not null | 0
+ deposit_amount  | numeric(15,2)            |           | not null | 0
+ delivery_status | character varying(30)    |           | not null | 'delivered'::character varying
+ notes           | text                     |           |          | 
+ created_at      | timestamp with time zone |           | not null | now()
+ updated_at      | timestamp with time zone |           | not null | now()
+ reject_reason   | character varying(50)    |           |          | 
+ reject_detail   | text                     |           |          | 
+ reject_photos   | text[]                   |           |          | '{}'::text[]
+Indexes:
+    "epod_pkey" PRIMARY KEY, btree (id)
+    "idx_epod_driver" btree (driver_id, created_at DESC)
+    "idx_epod_trip_stop" UNIQUE, btree (trip_stop_id)
+Foreign-key constraints:
+    "epod_customer_id_fkey" FOREIGN KEY (customer_id) REFERENCES customers(id)
+    "epod_driver_id_fkey" FOREIGN KEY (driver_id) REFERENCES drivers(id)
+    "epod_trip_stop_id_fkey" FOREIGN KEY (trip_stop_id) REFERENCES trip_stops(id) ON DELETE CASCADE
+Referenced by:
+    TABLE "payments" CONSTRAINT "payments_epod_id_fkey" FOREIGN KEY (epod_id) REFERENCES epod(id)
+
+                                  Table "public.driver_checkins"
+    Column     |           Type           | Collation | Nullable |            Default             
+---------------+--------------------------+-----------+----------+--------------------------------
+ id            | uuid                     |           | not null | gen_random_uuid()
+ driver_id     | uuid                     |           | not null | 
+ checkin_date  | date                     |           | not null | CURRENT_DATE
+ status        | character varying(20)    |           | not null | 'available'::character varying
+ reason        | character varying(100)   |           |          | 
+ note          | text                     |           |          | 
+ checked_in_at | timestamp with time zone |           | not null | now()
+Indexes:
+    "driver_checkins_pkey" PRIMARY KEY, btree (id)
+    "driver_checkins_driver_id_checkin_date_key" UNIQUE CONSTRAINT, btree (driver_id, checkin_date)
+    "idx_driver_checkins_date" btree (checkin_date, driver_id)
+    "idx_driver_checkins_driver" btree (driver_id, checkin_date DESC)
+Foreign-key constraints:
+    "driver_checkins_driver_id_fkey" FOREIGN KEY (driver_id) REFERENCES drivers(id)
+
+                                          Table "public.eod_sessions"
+          Column          |           Type           | Collation | Nullable |             Default              
+--------------------------+--------------------------+-----------+----------+----------------------------------
+ id                       | uuid                     |           | not null | gen_random_uuid()
+ trip_id                  | uuid                     |           | not null | 
+ driver_id                | uuid                     |           | not null | 
+ status                   | character varying(20)    |           | not null | 'in_progress'::character varying
+ total_stops_delivered    | integer                  |           | not null | 0
+ total_stops_failed       | integer                  |           | not null | 0
+ total_cash_collected     | numeric(15,2)            |           | not null | 0
+ total_transfer_collected | numeric(15,2)            |           | not null | 0
+ total_credit_amount      | numeric(15,2)            |           | not null | 0
+ started_at               | timestamp with time zone |           | not null | now()
+ completed_at             | timestamp with time zone |           |          | 
+ created_at               | timestamp with time zone |           | not null | now()
+ updated_at               | timestamp with time zone |           | not null | now()
+Indexes:
+    "eod_sessions_pkey" PRIMARY KEY, btree (id)
+    "idx_eod_sessions_driver" btree (driver_id)
+    "idx_eod_sessions_status" btree (status)
+    "idx_eod_sessions_trip" btree (trip_id)
+    "uq_eod_sessions_trip" UNIQUE CONSTRAINT, btree (trip_id)
+Foreign-key constraints:
+    "eod_sessions_driver_id_fkey" FOREIGN KEY (driver_id) REFERENCES drivers(id)
+    "eod_sessions_trip_id_fkey" FOREIGN KEY (trip_id) REFERENCES trips(id)
+Referenced by:
+    TABLE "eod_checkpoints" CONSTRAINT "eod_checkpoints_session_id_fkey" FOREIGN KEY (session_id) REFERENCES eod_sessions(id)
+
+                                   Table "public.eod_checkpoints"
+       Column       |           Type           | Collation | Nullable |           Default            
+--------------------+--------------------------+-----------+----------+------------------------------
+ id                 | uuid                     |           | not null | gen_random_uuid()
+ session_id         | uuid                     |           | not null | 
+ trip_id            | uuid                     |           | not null | 
+ checkpoint_type    | character varying(30)    |           | not null | 
+ checkpoint_order   | integer                  |           | not null | 
+ status             | character varying(20)    |           | not null | 'pending'::character varying
+ driver_data        | jsonb                    |           |          | 
+ submitted_at       | timestamp with time zone |           |          | 
+ receiver_id        | uuid                     |           |          | 
+ receiver_name      | character varying(200)   |           |          | 
+ receiver_data      | jsonb                    |           |          | 
+ discrepancy_reason | text                     |           |          | 
+ signature_url      | text                     |           |          | 
+ confirmed_at       | timestamp with time zone |           |          | 
+ rejected_at        | timestamp with time zone |           |          | 
+ reject_reason      | text                     |           |          | 
+ created_at         | timestamp with time zone |           | not null | now()
+ updated_at         | timestamp with time zone |           | not null | now()
+Indexes:
+    "eod_checkpoints_pkey" PRIMARY KEY, btree (id)
+    "idx_eod_checkpoints_session" btree (session_id)
+    "idx_eod_checkpoints_status" btree (status)
+    "idx_eod_checkpoints_trip" btree (trip_id)
+    "uq_eod_checkpoint" UNIQUE CONSTRAINT, btree (session_id, checkpoint_type)
+Foreign-key constraints:
+    "eod_checkpoints_receiver_id_fkey" FOREIGN KEY (receiver_id) REFERENCES users(id)
+    "eod_checkpoints_session_id_fkey" FOREIGN KEY (session_id) REFERENCES eod_sessions(id)
+    "eod_checkpoints_trip_id_fkey" FOREIGN KEY (trip_id) REFERENCES trips(id)
+
+                               Table "public.reconciliations"
+     Column     |           Type           | Collation | Nullable |         Default         
+----------------+--------------------------+-----------+----------+-------------------------
+ id             | uuid                     |           | not null | gen_random_uuid()
+ trip_id        | uuid                     |           | not null | 
+ recon_type     | recon_type               |           | not null | 
+ status         | recon_status             |           | not null | 'pending'::recon_status
+ expected_value | numeric(15,2)            |           | not null | 0
+ actual_value   | numeric(15,2)            |           | not null | 0
+ variance       | numeric(15,2)            |           | not null | 0
+ details        | jsonb                    |           | not null | '{}'::jsonb
+ reconciled_by  | uuid                     |           |          | 
+ reconciled_at  | timestamp with time zone |           |          | 
+ created_at     | timestamp with time zone |           | not null | now()
+ updated_at     | timestamp with time zone |           | not null | now()
+Indexes:
+    "reconciliations_pkey" PRIMARY KEY, btree (id)
+    "idx_recon_status" btree (status) WHERE status <> 'closed'::recon_status
+    "idx_recon_trip" btree (trip_id)
+    "reconciliations_trip_id_recon_type_key" UNIQUE CONSTRAINT, btree (trip_id, recon_type)
+Foreign-key constraints:
+    "reconciliations_reconciled_by_fkey" FOREIGN KEY (reconciled_by) REFERENCES users(id)
+    "reconciliations_trip_id_fkey" FOREIGN KEY (trip_id) REFERENCES trips(id)
+Referenced by:
+    TABLE "discrepancies" CONSTRAINT "discrepancies_recon_id_fkey" FOREIGN KEY (recon_id) REFERENCES reconciliations(id)
+
+                         Table "public.receivable_ledger"
+   Column    |           Type           | Collation | Nullable |      Default      
+-------------+--------------------------+-----------+----------+-------------------
+ id          | uuid                     |           | not null | gen_random_uuid()
+ customer_id | uuid                     |           | not null | 
+ order_id    | uuid                     |           |          | 
+ ledger_type | ledger_type              |           | not null | 
+ amount      | numeric(15,2)            |           | not null | 
+ description | text                     |           |          | 
+ created_by  | uuid                     |           |          | 
+ created_at  | timestamp with time zone |           | not null | now()
+Indexes:
+    "receivable_ledger_pkey" PRIMARY KEY, btree (id)
+    "idx_receivable_ledger_customer" btree (customer_id, created_at DESC)
+Check constraints:
+    "chk_receivable_ledger_amount" CHECK (amount > 0::numeric)
+Foreign-key constraints:
+    "receivable_ledger_created_by_fkey" FOREIGN KEY (created_by) REFERENCES users(id)
+    "receivable_ledger_customer_id_fkey" FOREIGN KEY (customer_id) REFERENCES customers(id)
+    "receivable_ledger_order_id_fkey" FOREIGN KEY (order_id) REFERENCES sales_orders(id)
+
+                                  Table "public.asset_ledger"
+      Column       |           Type           | Collation | Nullable |         Default         
+-------------------+--------------------------+-----------+----------+-------------------------
+ id                | uuid                     |           | not null | gen_random_uuid()
+ customer_id       | uuid                     |           | not null | 
+ asset_type        | asset_type               |           | not null | 
+ direction         | asset_direction          |           | not null | 
+ quantity          | integer                  |           | not null | 
+ condition         | asset_condition          |           | not null | 'good'::asset_condition
+ reference_type    | character varying(30)    |           | not null | 
+ reference_id      | uuid                     |           | not null | 
+ notes             | text                     |           |          | 
+ bravo_sync_status | sync_status              |           | not null | 'pending'::sync_status
+ created_by        | uuid                     |           |          | 
+ created_at        | timestamp with time zone |           | not null | now()
+Indexes:
+    "asset_ledger_pkey" PRIMARY KEY, btree (id)
+    "idx_asset_ledger_customer" btree (customer_id, asset_type, created_at DESC)
+    "idx_asset_ledger_sync" btree (bravo_sync_status) WHERE bravo_sync_status = 'pending'::sync_status
+Check constraints:
+    "chk_asset_ledger_qty" CHECK (quantity > 0)
+Foreign-key constraints:
+    "asset_ledger_created_by_fkey" FOREIGN KEY (created_by) REFERENCES users(id)
+    "asset_ledger_customer_id_fkey" FOREIGN KEY (customer_id) REFERENCES customers(id)
+
+                                                               Table "public.return_collections"
+         Column         |           Type           | Collation | Nullable |                                      Default                                       
+------------------------+--------------------------+-----------+----------+------------------------------------------------------------------------------------
+ id                     | uuid                     |           | not null | gen_random_uuid()
+ trip_stop_id           | uuid                     |           | not null | 
+ customer_id            | uuid                     |           | not null | 
+ asset_type             | asset_type               |           | not null | 
+ quantity               | integer                  |           | not null | 
+ condition              | asset_condition          |           | not null | 
+ photo_url              | text                     |           |          | 
+ workshop_confirmed_qty | integer                  |           |          | 
+ workshop_confirmed_by  | uuid                     |           |          | 
+ workshop_confirmed_at  | timestamp with time zone |           |          | 
+ discrepancy_qty        | integer                  |           |          | generated always as (                                                             +
+                        |                          |           |          | CASE                                                                              +
+                        |                          |           |          |     WHEN workshop_confirmed_qty IS NOT NULL THEN quantity - workshop_confirmed_qty+
+                        |                          |           |          |     ELSE NULL::integer                                                            +
+                        |                          |           |          | END) stored
+ created_by             | uuid                     |           |          | 
+ created_at             | timestamp with time zone |           | not null | now()
+ updated_at             | timestamp with time zone |           | not null | now()
+Indexes:
+    "return_collections_pkey" PRIMARY KEY, btree (id)
+    "idx_return_collections_customer" btree (customer_id, created_at DESC)
+    "idx_return_collections_stop" btree (trip_stop_id)
+Check constraints:
+    "chk_return_collections_qty" CHECK (quantity >= 0)
+Foreign-key constraints:
+    "return_collections_created_by_fkey" FOREIGN KEY (created_by) REFERENCES users(id)
+    "return_collections_customer_id_fkey" FOREIGN KEY (customer_id) REFERENCES customers(id)
+    "return_collections_trip_stop_id_fkey" FOREIGN KEY (trip_stop_id) REFERENCES trip_stops(id)
+    "return_collections_workshop_confirmed_by_fkey" FOREIGN KEY (workshop_confirmed_by) REFERENCES users(id)
+
+                                      Table "public.driver_scores"
+        Column         |           Type           | Collation | Nullable |           Default            
+-----------------------+--------------------------+-----------+----------+------------------------------
+ id                    | uuid                     |           | not null | gen_random_uuid()
+ driver_id             | uuid                     |           | not null | 
+ score_date            | date                     |           | not null | 
+ total_score           | numeric(5,1)             |           | not null | 0
+ otd_score             | numeric(5,1)             |           | not null | 0
+ delivery_score        | numeric(5,1)             |           | not null | 0
+ safety_score          | numeric(5,1)             |           | not null | 0
+ compliance_score      | numeric(5,1)             |           | not null | 0
+ customer_score        | numeric(5,1)             |           | not null | 0
+ trips_count           | integer                  |           | not null | 0
+ stops_count           | integer                  |           | not null | 0
+ on_time_count         | integer                  |           | not null | 0
+ delivered_count       | integer                  |           | not null | 0
+ failed_count          | integer                  |           | not null | 0
+ speed_violations      | integer                  |           | not null | 0
+ checklist_completions | integer                  |           | not null | 0
+ epod_completions      | integer                  |           | not null | 0
+ model_version         | character varying(20)    |           |          | 'rule_v1'::character varying
+ created_at            | timestamp with time zone |           | not null | now()
+Indexes:
+    "driver_scores_pkey" PRIMARY KEY, btree (id)
+    "driver_scores_driver_id_score_date_key" UNIQUE CONSTRAINT, btree (driver_id, score_date)
+    "idx_driver_scores_driver" btree (driver_id, score_date DESC)
+Foreign-key constraints:
+    "driver_scores_driver_id_fkey" FOREIGN KEY (driver_id) REFERENCES drivers(id)
+
+                         Table "public.driver_score_snapshots"
+     Column      |           Type           | Collation | Nullable |      Default      
+-----------------+--------------------------+-----------+----------+-------------------
+ id              | uuid                     |           | not null | gen_random_uuid()
+ driver_id       | uuid                     |           | not null | 
+ snapshot_month  | date                     |           | not null | 
+ avg_total_score | numeric(5,1)             |           | not null | 0
+ avg_otd         | numeric(5,1)             |           | not null | 0
+ avg_delivery    | numeric(5,1)             |           | not null | 0
+ avg_safety      | numeric(5,1)             |           | not null | 0
+ avg_compliance  | numeric(5,1)             |           | not null | 0
+ avg_customer    | numeric(5,1)             |           | not null | 0
+ total_trips     | integer                  |           | not null | 0
+ total_stops     | integer                  |           | not null | 0
+ rank_position   | integer                  |           |          | 
+ rank_total      | integer                  |           |          | 
+ created_at      | timestamp with time zone |           | not null | now()
+Indexes:
+    "driver_score_snapshots_pkey" PRIMARY KEY, btree (id)
+    "driver_score_snapshots_driver_id_snapshot_month_key" UNIQUE CONSTRAINT, btree (driver_id, snapshot_month)
+Foreign-key constraints:
+    "driver_score_snapshots_driver_id_fkey" FOREIGN KEY (driver_id) REFERENCES drivers(id)
+
+                           Table "public.driver_documents"
+    Column     |           Type           | Collation | Nullable |      Default      
+---------------+--------------------------+-----------+----------+-------------------
+ id            | uuid                     |           | not null | gen_random_uuid()
+ driver_id     | uuid                     |           | not null | 
+ doc_type      | character varying(30)    |           | not null | 
+ doc_number    | character varying(100)   |           |          | 
+ issued_date   | date                     |           |          | 
+ expiry_date   | date                     |           | not null | 
+ license_class | character varying(10)    |           |          | 
+ notes         | text                     |           |          | 
+ created_by    | uuid                     |           |          | 
+ created_at    | timestamp with time zone |           | not null | now()
+ updated_at    | timestamp with time zone |           | not null | now()
+Indexes:
+    "driver_documents_pkey" PRIMARY KEY, btree (id)
+    "idx_driver_docs_driver" btree (driver_id)
+    "idx_driver_docs_expiry" btree (expiry_date) WHERE expiry_date IS NOT NULL
+    "idx_driver_docs_unique_type" UNIQUE, btree (driver_id, doc_type)
+Foreign-key constraints:
+    "driver_documents_created_by_fkey" FOREIGN KEY (created_by) REFERENCES users(id)
+    "driver_documents_driver_id_fkey" FOREIGN KEY (driver_id) REFERENCES drivers(id)
+
+                         Table "public.vehicle_documents"
+   Column    |           Type           | Collation | Nullable |      Default      
+-------------+--------------------------+-----------+----------+-------------------
+ id          | uuid                     |           | not null | gen_random_uuid()
+ vehicle_id  | uuid                     |           | not null | 
+ doc_type    | character varying(30)    |           | not null | 
+ doc_number  | character varying(100)   |           |          | 
+ issued_date | date                     |           |          | 
+ expiry_date | date                     |           | not null | 
+ notes       | text                     |           |          | 
+ created_by  | uuid                     |           |          | 
+ created_at  | timestamp with time zone |           | not null | now()
+ updated_at  | timestamp with time zone |           | not null | now()
+Indexes:
+    "vehicle_documents_pkey" PRIMARY KEY, btree (id)
+    "idx_vehicle_docs_expiry" btree (expiry_date) WHERE expiry_date IS NOT NULL
+    "idx_vehicle_docs_unique_type" UNIQUE, btree (vehicle_id, doc_type)
+    "idx_vehicle_docs_vehicle" btree (vehicle_id)
+Foreign-key constraints:
+    "vehicle_documents_created_by_fkey" FOREIGN KEY (created_by) REFERENCES users(id)
+    "vehicle_documents_vehicle_id_fkey" FOREIGN KEY (vehicle_id) REFERENCES vehicles(id)
+
+                                Table "public.gate_checks"
+       Column        |           Type           | Collation | Nullable |      Default      
+---------------------+--------------------------+-----------+----------+-------------------
+ id                  | uuid                     |           | not null | gen_random_uuid()
+ trip_id             | uuid                     |           | not null | 
+ shipment_id         | uuid                     |           | not null | 
+ expected_items      | jsonb                    |           | not null | 
+ scanned_items       | jsonb                    |           | not null | 
+ result              | gate_check_result        |           | not null | 
+ discrepancy_details | jsonb                    |           |          | 
+ checked_by          | uuid                     |           | not null | 
+ exit_time           | timestamp with time zone |           |          | 
+ created_at          | timestamp with time zone |           | not null | now()
+Indexes:
+    "gate_checks_pkey" PRIMARY KEY, btree (id)
+    "idx_gate_checks_trip" btree (trip_id)
+    "unq_gate_checks_trip_shipment" UNIQUE CONSTRAINT, btree (trip_id, shipment_id)
+Foreign-key constraints:
+    "gate_checks_checked_by_fkey" FOREIGN KEY (checked_by) REFERENCES users(id)
+    "gate_checks_shipment_id_fkey" FOREIGN KEY (shipment_id) REFERENCES shipments(id)
+    "gate_checks_trip_id_fkey" FOREIGN KEY (trip_id) REFERENCES trips(id)
+
+                                Table "public.notifications"
+   Column    |           Type           | Collation | Nullable |           Default           
+-------------+--------------------------+-----------+----------+-----------------------------
+ id          | uuid                     |           | not null | gen_random_uuid()
+ user_id     | uuid                     |           | not null | 
+ title       | character varying(200)   |           | not null | 
+ body        | text                     |           | not null | ''::text
+ category    | character varying(30)    |           | not null | 'info'::character varying
+ link        | character varying(500)   |           |          | 
+ is_read     | boolean                  |           | not null | false
+ created_at  | timestamp with time zone |           | not null | now()
+ priority    | character varying(10)    |           |          | 'normal'::character varying
+ entity_type | character varying(50)    |           |          | 
+ entity_id   | uuid                     |           |          | 
+ actions     | jsonb                    |           |          | 
+ group_key   | text                     |           |          | 
+Indexes:
+    "notifications_pkey" PRIMARY KEY, btree (id)
+    "idx_notif_user" btree (user_id, created_at DESC)
+    "idx_notif_user_unread" btree (user_id, created_at DESC) WHERE is_read = false
+    "idx_notifications_entity" btree (entity_type, entity_id) WHERE entity_type IS NOT NULL
+    "idx_notifications_group" btree (group_key, created_at DESC) WHERE group_key IS NOT NULL
+    "idx_notifications_priority" btree (priority, created_at DESC) WHERE is_read = false
+Foreign-key constraints:
+    "notifications_user_id_fkey" FOREIGN KEY (user_id) REFERENCES users(id)
+
+                             Table "public.customers"
+   Column   |           Type           | Collation | Nullable |      Default      
+------------+--------------------------+-----------+----------+-------------------
+ id         | uuid                     |           | not null | gen_random_uuid()
+ code       | character varying(30)    |           | not null | 
+ name       | character varying(200)   |           | not null | 
+ address    | text                     |           | not null | 
+ phone      | character varying(20)    |           |          | 
+ latitude   | numeric(10,7)            |           |          | 
+ longitude  | numeric(10,7)            |           |          | 
+ province   | character varying(50)    |           |          | 
+ district   | character varying(50)    |           |          | 
+ route_code | character varying(20)    |           |          | 
+ is_active  | boolean                  |           | not null | true
+ created_at | timestamp with time zone |           | not null | now()
+ updated_at | timestamp with time zone |           | not null | now()
+Indexes:
+    "customers_pkey" PRIMARY KEY, btree (id)
+    "unq_customers_code" UNIQUE CONSTRAINT, btree (code)
+Referenced by:
+    TABLE "asset_ledger" CONSTRAINT "asset_ledger_customer_id_fkey" FOREIGN KEY (customer_id) REFERENCES customers(id)
+    TABLE "credit_limits" CONSTRAINT "credit_limits_customer_id_fkey" FOREIGN KEY (customer_id) REFERENCES customers(id)
+    TABLE "epod" CONSTRAINT "epod_customer_id_fkey" FOREIGN KEY (customer_id) REFERENCES customers(id)
+    TABLE "order_confirmations" CONSTRAINT "order_confirmations_customer_id_fkey" FOREIGN KEY (customer_id) REFERENCES customers(id)
+    TABLE "payments" CONSTRAINT "payments_customer_id_fkey" FOREIGN KEY (customer_id) REFERENCES customers(id)
+    TABLE "receivable_ledger" CONSTRAINT "receivable_ledger_customer_id_fkey" FOREIGN KEY (customer_id) REFERENCES customers(id)
+    TABLE "return_collections" CONSTRAINT "return_collections_customer_id_fkey" FOREIGN KEY (customer_id) REFERENCES customers(id)
+    TABLE "sales_orders" CONSTRAINT "sales_orders_customer_id_fkey" FOREIGN KEY (customer_id) REFERENCES customers(id)
+    TABLE "shipments" CONSTRAINT "shipments_customer_id_fkey" FOREIGN KEY (customer_id) REFERENCES customers(id)
+    TABLE "trip_stops" CONSTRAINT "trip_stops_customer_id_fkey" FOREIGN KEY (customer_id) REFERENCES customers(id)
+    TABLE "zalo_confirmations" CONSTRAINT "zalo_confirmations_customer_id_fkey" FOREIGN KEY (customer_id) REFERENCES customers(id)
+
+                                       Table "public.drivers"
+       Column       |           Type           | Collation | Nullable |           Default           
+--------------------+--------------------------+-----------+----------+-----------------------------
+ id                 | uuid                     |           | not null | gen_random_uuid()
+ user_id            | uuid                     |           |          | 
+ full_name          | character varying(100)   |           | not null | 
+ phone              | character varying(20)    |           | not null | 
+ license_number     | character varying(30)    |           |          | 
+ status             | character varying(20)    |           | not null | 'active'::character varying
+ warehouse_id       | uuid                     |           | not null | 
+ created_at         | timestamp with time zone |           | not null | now()
+ default_vehicle_id | uuid                     |           |          | 
+ current_score      | numeric(5,1)             |           |          | 0
+ emergency_contact  | text                     |           |          | 
+ annual_leave_days  | integer                  |           | not null | 12
+ used_leave_days    | integer                  |           | not null | 0
+Indexes:
+    "drivers_pkey" PRIMARY KEY, btree (id)
+    "idx_drivers_default_vehicle" UNIQUE, btree (default_vehicle_id) WHERE default_vehicle_id IS NOT NULL
+Foreign-key constraints:
+    "drivers_default_vehicle_id_fkey" FOREIGN KEY (default_vehicle_id) REFERENCES vehicles(id)
+    "drivers_user_id_fkey" FOREIGN KEY (user_id) REFERENCES users(id)
+    "drivers_warehouse_id_fkey" FOREIGN KEY (warehouse_id) REFERENCES warehouses(id)
+Referenced by:
+    TABLE "badge_awards" CONSTRAINT "badge_awards_driver_id_fkey" FOREIGN KEY (driver_id) REFERENCES drivers(id)
+    TABLE "driver_checkins" CONSTRAINT "driver_checkins_driver_id_fkey" FOREIGN KEY (driver_id) REFERENCES drivers(id)
+    TABLE "driver_documents" CONSTRAINT "driver_documents_driver_id_fkey" FOREIGN KEY (driver_id) REFERENCES drivers(id)
+    TABLE "driver_score_snapshots" CONSTRAINT "driver_score_snapshots_driver_id_fkey" FOREIGN KEY (driver_id) REFERENCES drivers(id)
+    TABLE "driver_scores" CONSTRAINT "driver_scores_driver_id_fkey" FOREIGN KEY (driver_id) REFERENCES drivers(id)
+    TABLE "eod_sessions" CONSTRAINT "eod_sessions_driver_id_fkey" FOREIGN KEY (driver_id) REFERENCES drivers(id)
+    TABLE "epod" CONSTRAINT "epod_driver_id_fkey" FOREIGN KEY (driver_id) REFERENCES drivers(id)
+    TABLE "fuel_anomalies" CONSTRAINT "fuel_anomalies_driver_id_fkey" FOREIGN KEY (driver_id) REFERENCES drivers(id)
+    TABLE "fuel_logs" CONSTRAINT "fuel_logs_driver_id_fkey" FOREIGN KEY (driver_id) REFERENCES drivers(id)
+    TABLE "gps_anomalies" CONSTRAINT "gps_anomalies_driver_id_fkey" FOREIGN KEY (driver_id) REFERENCES drivers(id) ON DELETE SET NULL
+    TABLE "leave_requests" CONSTRAINT "leave_requests_driver_id_fkey" FOREIGN KEY (driver_id) REFERENCES drivers(id)
+    TABLE "payments" CONSTRAINT "payments_driver_id_fkey" FOREIGN KEY (driver_id) REFERENCES drivers(id)
+    TABLE "trip_checklists" CONSTRAINT "trip_checklists_driver_id_fkey" FOREIGN KEY (driver_id) REFERENCES drivers(id)
+    TABLE "trips" CONSTRAINT "trips_driver_id_fkey" FOREIGN KEY (driver_id) REFERENCES drivers(id)
+    TABLE "vehicles" CONSTRAINT "vehicles_default_driver_id_fkey" FOREIGN KEY (default_driver_id) REFERENCES drivers(id)
+    TABLE "work_orders" CONSTRAINT "work_orders_driver_id_fkey" FOREIGN KEY (driver_id) REFERENCES drivers(id)
+
+                                       Table "public.vehicles"
+       Column        |           Type           | Collation | Nullable |           Default           
+---------------------+--------------------------+-----------+----------+-----------------------------
+ id                  | uuid                     |           | not null | gen_random_uuid()
+ plate_number        | character varying(20)    |           | not null | 
+ vehicle_type        | vehicle_type             |           | not null | 
+ capacity_kg         | numeric(8,2)             |           | not null | 
+ capacity_m3         | numeric(8,2)             |           |          | 
+ status              | character varying(20)    |           | not null | 'active'::character varying
+ warehouse_id        | uuid                     |           | not null | 
+ created_at          | timestamp with time zone |           | not null | now()
+ is_external         | boolean                  |           | not null | false
+ supplier_name       | character varying(200)   |           |          | 
+ default_driver_id   | uuid                     |           |          | 
+ health_score        | integer                  |           | not null | 100
+ last_health_check   | timestamp with time zone |           |          | 
+ current_km          | integer                  |           |          | 0
+ year_of_manufacture | integer                  |           |          | 
+ fuel_type           | character varying(20)    |           |          | 'diesel'::character varying
+Indexes:
+    "vehicles_pkey" PRIMARY KEY, btree (id)
+    "idx_vehicles_default_driver" UNIQUE, btree (default_driver_id) WHERE default_driver_id IS NOT NULL
+    "unq_vehicles_plate" UNIQUE CONSTRAINT, btree (plate_number)
+Foreign-key constraints:
+    "vehicles_default_driver_id_fkey" FOREIGN KEY (default_driver_id) REFERENCES drivers(id)
+    "vehicles_warehouse_id_fkey" FOREIGN KEY (warehouse_id) REFERENCES warehouses(id)
+Referenced by:
+    TABLE "drivers" CONSTRAINT "drivers_default_vehicle_id_fkey" FOREIGN KEY (default_vehicle_id) REFERENCES vehicles(id)
+    TABLE "fuel_anomalies" CONSTRAINT "fuel_anomalies_vehicle_id_fkey" FOREIGN KEY (vehicle_id) REFERENCES vehicles(id)
+    TABLE "fuel_logs" CONSTRAINT "fuel_logs_vehicle_id_fkey" FOREIGN KEY (vehicle_id) REFERENCES vehicles(id)
+    TABLE "gps_anomalies" CONSTRAINT "gps_anomalies_vehicle_id_fkey" FOREIGN KEY (vehicle_id) REFERENCES vehicles(id) ON DELETE CASCADE
+    TABLE "tire_sets" CONSTRAINT "tire_sets_vehicle_id_fkey" FOREIGN KEY (vehicle_id) REFERENCES vehicles(id)
+    TABLE "trip_checklists" CONSTRAINT "trip_checklists_vehicle_id_fkey" FOREIGN KEY (vehicle_id) REFERENCES vehicles(id)
+    TABLE "trips" CONSTRAINT "trips_vehicle_id_fkey" FOREIGN KEY (vehicle_id) REFERENCES vehicles(id)
+    TABLE "vehicle_cost_profiles" CONSTRAINT "vehicle_cost_profiles_vehicle_id_fkey" FOREIGN KEY (vehicle_id) REFERENCES vehicles(id) ON DELETE CASCADE
+    TABLE "vehicle_documents" CONSTRAINT "vehicle_documents_vehicle_id_fkey" FOREIGN KEY (vehicle_id) REFERENCES vehicles(id)
+    TABLE "vehicle_maintenance_records" CONSTRAINT "vehicle_maintenance_records_vehicle_id_fkey" FOREIGN KEY (vehicle_id) REFERENCES vehicles(id)
+    TABLE "vehicle_maintenance_schedules" CONSTRAINT "vehicle_maintenance_schedules_vehicle_id_fkey" FOREIGN KEY (vehicle_id) REFERENCES vehicles(id)
+    TABLE "work_orders" CONSTRAINT "work_orders_vehicle_id_fkey" FOREIGN KEY (vehicle_id) REFERENCES vehicles(id)
+
+                                       Table "public.products"
+        Column        |           Type           | Collation | Nullable |           Default           
+----------------------+--------------------------+-----------+----------+-----------------------------
+ id                   | uuid                     |           | not null | gen_random_uuid()
+ sku                  | character varying(50)    |           | not null | 
+ name                 | character varying(200)   |           | not null | 
+ unit                 | character varying(20)    |           | not null | 'th??ng'::character varying
+ weight_kg            | numeric(8,2)             |           | not null | 0
+ volume_m3            | numeric(8,4)             |           | not null | 0
+ price                | numeric(15,2)            |           | not null | 0
+ deposit_price        | numeric(15,2)            |           | not null | 0
+ category             | character varying(100)   |           |          | 
+ is_active            | boolean                  |           | not null | true
+ created_at           | timestamp with time zone |           | not null | now()
+ updated_at           | timestamp with time zone |           | not null | now()
+ shelf_life_days      | integer                  |           |          | 
+ expiry_threshold_pct | numeric(5,2)             |           | not null | 33
+ barcode_prefix       | character varying(20)    |           |          | 
+Indexes:
+    "products_pkey" PRIMARY KEY, btree (id)
+    "unq_products_sku" UNIQUE CONSTRAINT, btree (sku)
+Referenced by:
+    TABLE "lots" CONSTRAINT "lots_product_id_fkey" FOREIGN KEY (product_id) REFERENCES products(id)
+    TABLE "order_items" CONSTRAINT "order_items_product_id_fkey" FOREIGN KEY (product_id) REFERENCES products(id)
+    TABLE "pallets" CONSTRAINT "pallets_product_id_fkey" FOREIGN KEY (product_id) REFERENCES products(id)
+    TABLE "stock_quants" CONSTRAINT "stock_quants_product_id_fkey" FOREIGN KEY (product_id) REFERENCES products(id)
+

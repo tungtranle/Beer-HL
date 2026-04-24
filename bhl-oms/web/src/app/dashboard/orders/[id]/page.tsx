@@ -8,6 +8,7 @@ import { OrderTimeline } from '@/components/OrderTimeline'
 import { DeliveryAttempts } from '@/components/DeliveryAttempts'
 import { OrderStatusStepper } from '@/components/OrderStatusStepper'
 import { orderStatusLabels, orderStatusColors, formatVND } from '@/lib/status-config'
+import { handleError } from '@/lib/handleError'
 import { StatusChip } from '@/components/ui/StatusChip'
 import { toast } from '@/lib/useToast'
 import { WaitingForBanner } from '@/components/WaitingForBanner'
@@ -49,7 +50,7 @@ export default function OrderDetailPage() {
   const load = () => {
     apiFetch<any>(`/orders/${params.id}`)
       .then((r) => setOrder(r.data))
-      .catch(console.error)
+      .catch(err => handleError(err))
       .finally(() => setLoading(false))
   }
 

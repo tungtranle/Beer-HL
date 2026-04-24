@@ -619,14 +619,21 @@ def solve_vrp(data, progress_callback=None):
             logger.info("Optimize mode: DISTANCE (normal meters)")
 
     # ── Time dimension — constrains max time per vehicle ──
+    # Distance mode: relax time constraint by 50% so solver can focus on minimizing km
+    # instead of being dominated by time limits.
+    time_limit_seconds = max_trip_seconds
+    if optimize_for == 'distance':
+        time_limit_seconds = int(max_trip_seconds * 1.5)
+        logger.info(f"DISTANCE mode: relaxed time limit {max_trip_minutes}min → {time_limit_seconds // 60}min")
+
     routing.AddDimension(
         time_service_cb_index,
-        0,                   # no slack
-        max_trip_seconds,    # max per vehicle (e.g., 8h = 28800s)
-        True,                # start cumul to zero
+        0,                    # no slack
+        time_limit_seconds,   # max per vehicle
+        True,                 # start cumul to zero
         'Time'
     )
-    logger.info(f"Time dimension: max {max_trip_minutes} min/vehicle")
+    logger.info(f"Time dimension: max {time_limit_seconds // 60} min/vehicle")
 
     if optimize_for == 'time':
         # Minimize makespan: reduce the LONGEST vehicle's total time
@@ -636,7 +643,7 @@ def solve_vrp(data, progress_callback=None):
                 time_dimension.CumulVar(routing.End(v))
             )
         logger.info("TIME mode: makespan minimizer active")
-    
+
     # Capacity constraint
     def demand_callback(from_index):
         from_node = manager.IndexToNode(from_index)
@@ -664,7 +671,11 @@ def solve_vrp(data, progress_callback=None):
     search_params = pywrapcp.DefaultRoutingSearchParameters()
     search_params.first_solution_strategy = routing_enums_pb2.FirstSolutionStrategy.PATH_CHEAPEST_ARC
     search_params.local_search_metaheuristic = routing_enums_pb2.LocalSearchMetaheuristic.GUIDED_LOCAL_SEARCH
-    search_params.time_limit.seconds = 30
+    if optimize_for == 'distance':
+        # Distance mode: allow more search time to find better solutions
+        search_params.time_limit.seconds = 45
+    else:
+        search_params.time_limit.seconds = 30
     
     # Solve
     emit("solving", 45, f"{num_nodes-1} điểm, {num_vehicles} xe, chế độ {optimize_for}")

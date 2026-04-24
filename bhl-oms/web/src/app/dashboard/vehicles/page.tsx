@@ -13,6 +13,15 @@ interface Vehicle {
   capacity_m3: number | null
   status: string
   warehouse_id: string
+  default_driver_id?: string | null
+  default_driver_name?: string
+}
+
+interface Driver {
+  id: string
+  full_name: string
+  status: string
+  warehouse_id: string
 }
 
 const vehicleTypeLabels: Record<string, string> = {
@@ -46,17 +55,23 @@ const emptyVehicle = {
 
 export default function VehiclesPage() {
   const [vehicles, setVehicles] = useState<Vehicle[]>([])
+  const [drivers, setDrivers] = useState<Driver[]>([])
   const [loading, setLoading] = useState(true)
   const [search, setSearch] = useState('')
   const [modal, setModal] = useState<'create' | 'edit' | null>(null)
   const [form, setForm] = useState(emptyVehicle)
   const [editId, setEditId] = useState<string | null>(null)
   const [saving, setSaving] = useState(false)
+  const [statusFilter, setStatusFilter] = useState('')
 
   const load = () => {
     setLoading(true)
-    apiFetch<any>('/vehicles').then(res => {
-      setVehicles(res.data || [])
+    Promise.all([
+      apiFetch<any>('/vehicles'),
+      apiFetch<any>('/drivers'),
+    ]).then(([vRes, dRes]) => {
+      setVehicles(vRes.data || [])
+      setDrivers((dRes.data || []).filter((d: Driver) => d.status === 'active'))
     }).finally(() => setLoading(false))
   }
 
@@ -106,11 +121,39 @@ export default function VehiclesPage() {
     }
   }
 
+  const handleSetDefaultDriver = async (vehicleId: string, driverId: string | null) => {
+    try {
+      await apiFetch(`/vehicles/${vehicleId}/default-driver`, {
+        method: 'PUT',
+        body: { driver_id: driverId || null },
+      })
+      toast.success('Đã cập nhật tài xế mặc định')
+      load()
+    } catch (e: any) {
+      toast.error(e.message)
+    }
+  }
+
   if (loading) {
-    return <div className="flex items-center justify-center h-64 text-gray-400">Đang tải...</div>
+    return (
+      <div>
+        <div className="h-8 bg-gray-200 rounded w-64 animate-pulse mb-6" />
+        <div className="grid grid-cols-4 gap-4 mb-6">
+          {[...Array(4)].map((_, i) => <div key={i} className="bg-gray-100 rounded-xl h-20 animate-pulse" />)}
+        </div>
+        <div className="bg-white rounded-xl border overflow-hidden">
+          {[...Array(5)].map((_, i) => <div key={i} className="flex gap-4 px-4 py-3 border-b">
+            <div className="h-4 bg-gray-100 rounded w-24 animate-pulse" />
+            <div className="h-4 bg-gray-100 rounded w-32 animate-pulse" />
+            <div className="h-4 bg-gray-100 rounded w-20 animate-pulse" />
+          </div>)}
+        </div>
+      </div>
+    )
   }
 
   const activeCount = vehicles.filter(v => v.status === 'active').length
+  const filteredByStatus = filtered.filter(v => !statusFilter || v.status === statusFilter)
 
   return (
     <div>
@@ -131,6 +174,24 @@ export default function VehiclesPage() {
             + Thêm xe
           </button>
         </div>
+      </div>
+
+      {/* Status filter chips */}
+      <div className="flex gap-2 flex-wrap mb-4">
+        <button onClick={() => setStatusFilter('')}
+          className={`px-3 py-1.5 rounded-full text-xs font-medium transition ${!statusFilter ? 'bg-brand-500 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}>
+          Tất cả ({vehicles.length})
+        </button>
+        {Object.entries(statusLabels).map(([s, lbl]) => {
+          const cnt = vehicles.filter(v => v.status === s).length
+          if (cnt === 0) return null
+          return (
+            <button key={s} onClick={() => setStatusFilter(statusFilter === s ? '' : s)}
+              className={`px-3 py-1.5 rounded-full text-xs font-medium transition ${statusFilter === s ? 'bg-brand-500 text-white' : `${statusColors[s] || 'bg-gray-100 text-gray-600'} hover:opacity-80`}`}>
+              {lbl} ({cnt})
+            </button>
+          )
+        })}
       </div>
 
       {/* Summary cards */}
@@ -154,17 +215,30 @@ export default function VehiclesPage() {
               <th className="text-left px-4 py-3 font-medium text-gray-600">Loại xe</th>
               <th className="text-right px-4 py-3 font-medium text-gray-600">Tải trọng (kg)</th>
               <th className="text-right px-4 py-3 font-medium text-gray-600">Thể tích (m³)</th>
+              <th className="text-left px-4 py-3 font-medium text-gray-600">Tài xế mặc định</th>
               <th className="text-center px-4 py-3 font-medium text-gray-600">Trạng thái</th>
               <th className="text-center px-4 py-3 font-medium text-gray-600">Thao tác</th>
             </tr>
           </thead>
           <tbody className="divide-y">
-            {filtered.map(v => (
+            {filteredByStatus.map(v => (
               <tr key={v.id} className="hover:bg-gray-50">
                 <td className="px-4 py-3 font-bold text-gray-900">{v.plate_number}</td>
                 <td className="px-4 py-3 text-gray-600">{vehicleTypeLabels[v.vehicle_type] || v.vehicle_type}</td>
                 <td className="px-4 py-3 text-right font-medium text-gray-900">{v.capacity_kg.toLocaleString('vi-VN')}</td>
                 <td className="px-4 py-3 text-right text-gray-600">{v.capacity_m3 ? v.capacity_m3.toFixed(1) : '—'}</td>
+                <td className="px-4 py-3">
+                  <select
+                    value={v.default_driver_id || ''}
+                    onChange={e => handleSetDefaultDriver(v.id, e.target.value || null)}
+                    className="text-xs border rounded px-2 py-1 w-full max-w-[160px] bg-white"
+                  >
+                    <option value="">— Chưa gán —</option>
+                    {drivers.map(d => (
+                      <option key={d.id} value={d.id}>{d.full_name}</option>
+                    ))}
+                  </select>
+                </td>
                 <td className="px-4 py-3 text-center">
                   <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${statusColors[v.status] || 'bg-gray-100 text-gray-600'}`}>
                     {statusLabels[v.status] || v.status}

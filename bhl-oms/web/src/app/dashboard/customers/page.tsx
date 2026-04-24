@@ -3,6 +3,8 @@
 import { useEffect, useState } from 'react'
 import { apiFetch } from '@/lib/api'
 import { toast } from '@/lib/useToast'
+import { NppHealthBadge, type NppHealth } from '@/components/ui/NppHealthBadge'
+import { Pagination } from '@/components/ui/Pagination'
 
 interface Customer {
   id: string
@@ -29,25 +31,61 @@ export default function CustomersPage() {
   const [customers, setCustomers] = useState<Customer[]>([])
   const [loading, setLoading] = useState(true)
   const [search, setSearch] = useState('')
+  const [debouncedSearch, setDebouncedSearch] = useState('')
+  const [page, setPage] = useState(1)
+  const [limit, setLimit] = useState(50)
+  const [totalRows, setTotalRows] = useState(0)
   const [modal, setModal] = useState<'create' | 'edit' | null>(null)
   const [form, setForm] = useState(emptyCustomer)
   const [editId, setEditId] = useState<string | null>(null)
   const [saving, setSaving] = useState(false)
 
+  // F2 — NPP health scores by code (batched, fetch-once-per-load).
+  const [healthMap, setHealthMap] = useState<Record<string, NppHealth>>({})
+  const [healthLoading, setHealthLoading] = useState(false)
+
   const load = () => {
     setLoading(true)
-    apiFetch<any>('/customers').then(res => {
+    const params = new URLSearchParams()
+    if (debouncedSearch) params.set('q', debouncedSearch)
+    params.set('page', String(page))
+    params.set('limit', String(limit))
+    apiFetch<any>(`/customers?${params}`).then(res => {
       setCustomers(res.data || [])
+      setTotalRows(res.meta?.total ?? (res.data?.length || 0))
     }).finally(() => setLoading(false))
   }
 
-  useEffect(() => { load() }, [])
+  useEffect(() => { load() }, [debouncedSearch, page, limit])
 
-  const filtered = customers.filter(c =>
-    c.name.toLowerCase().includes(search.toLowerCase()) ||
-    c.code.toLowerCase().includes(search.toLowerCase()) ||
-    c.address.toLowerCase().includes(search.toLowerCase())
-  )
+  // Debounce search input → server query
+  useEffect(() => {
+    const t = setTimeout(() => { setDebouncedSearch(search); setPage(1) }, 350)
+    return () => clearTimeout(t)
+  }, [search])
+
+  // F2 — fetch NPP health once customers loaded.
+  // Uses bulk endpoint: GET /v1/ml/npp/health?risk_band=... × 3 calls (GREEN/YELLOW/RED).
+  // Map by npp_code so table can lookup by customer.code.
+  useEffect(() => {
+    if (customers.length === 0) return
+    setHealthLoading(true)
+    Promise.all([
+      apiFetch<any>('/ml/npp/health?risk_band=GREEN&limit=500').then((r) => r.data || []).catch(() => []),
+      apiFetch<any>('/ml/npp/health?risk_band=YELLOW&limit=500').then((r) => r.data || []).catch(() => []),
+      apiFetch<any>('/ml/npp/health?risk_band=RED&limit=500').then((r) => r.data || []).catch(() => []),
+    ]).then(([g, y, r]) => {
+      const m: Record<string, NppHealth> = {}
+      for (const h of [...g, ...y, ...r]) m[h.npp_code] = h
+      setHealthMap(m)
+    }).finally(() => setHealthLoading(false))
+  }, [customers.length])
+
+  const [provinceFilter, setProvinceFilter] = useState('')
+  const provinces = Array.from(new Set(customers.map(c => c.province || '').filter(Boolean))).sort()
+
+  // Province filter chỉ lọc trên trang hiện tại (server không hỗ trợ filter tỉnh — tạm thời).
+  const filtered = customers.filter(c => !provinceFilter || c.province === provinceFilter)
 
   const openCreate = () => {
     setForm(emptyCustomer)
@@ -97,7 +135,7 @@ export default function CustomersPage() {
       <div className="flex items-center justify-between mb-6">
         <div>
           <h1 className="text-2xl font-bold text-gray-900">🏪 Danh mục khách hàng</h1>
-          <p className="text-sm text-gray-500 mt-1">{customers.length} khách hàng (NPP)</p>
+          <p className="text-sm text-gray-500 mt-1">{totalRows.toLocaleString('vi-VN')} khách hàng (NPP)</p>
         </div>
         <div className="flex gap-3">
           <input
@@ -113,12 +151,92 @@ export default function CustomersPage() {
         </div>
       </div>
 
+      {/* Province filter chips */}
+      {provinces.length > 0 && (
+        <div className="flex gap-2 flex-wrap mb-4">
+          <button onClick={() => setProvinceFilter('')}
+            className={`px-3 py-1 rounded-full text-xs font-medium transition ${!provinceFilter ? 'bg-brand-500 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}>
+            Tất cả ({customers.length})
+          </button>
+          {provinces.map(p => {
+            const cnt = customers.filter(c => c.province === p).length
+            return (
+              <button key={p} onClick={() => setProvinceFilter(provinceFilter === p ? '' : p)}
+                className={`px-3 py-1 rounded-full text-xs font-medium transition ${provinceFilter === p ? 'bg-brand-500 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}>
+                {p} ({cnt})
+              </button>
+            )
+          })}
+        </div>
+      )}
+
+      {/* F2 — NPP Risk Band Summary */}
+      {Object.keys(healthMap).length > 0 && (() => {
+        const redCount = Object.values(healthMap).filter(h => h.risk_band === 'RED').length
+        const yellowCount = Object.values(healthMap).filter(h => h.risk_band === 'YELLOW').length
+        const greenCount = Object.values(healthMap).filter(h => h.risk_band === 'GREEN').length
+        return (
+          <div className="grid grid-cols-3 gap-4 mb-6">
+            <div className="bg-red-50 border border-red-200 rounded-xl p-4 flex items-center gap-3">
+              <div className="text-3xl font-bold text-red-600">{redCount}</div>
+              <div>
+                <div className="text-sm font-semibold text-red-700">Nguy cơ cao</div>
+                <div className="text-xs text-red-500">Cần liên hệ ngay</div>
+              </div>
+            </div>
+            <div className="bg-amber-50 border border-amber-200 rounded-xl p-4 flex items-center gap-3">
+              <div className="text-3xl font-bold text-amber-600">{yellowCount}</div>
+              <div>
+                <div className="text-sm font-semibold text-amber-700">Cần theo dõi</div>
+                <div className="text-xs text-amber-500">Có dấu hiệu giảm</div>
+              </div>
+            </div>
+            <div className="bg-green-50 border border-green-200 rounded-xl p-4 flex items-center gap-3">
+              <div className="text-3xl font-bold text-green-600">{greenCount}</div>
+              <div>
+                <div className="text-sm font-semibold text-green-700">Khỏe mạnh</div>
+                <div className="text-xs text-green-500">Ổn định</div>
+              </div>
+            </div>
+          </div>
+        )
+      })()}
+
+      {/* F2 — At-risk NPP Quick Actions */}
+      {Object.values(healthMap).filter(h => h.risk_band === 'RED').length > 0 && (
+        <div className="mb-6 bg-red-50 border border-red-200 rounded-xl p-4">
+          <div className="flex items-center gap-2 mb-3">
+            <span className="text-red-600 font-bold text-sm">⚠️ NPP cần chú ý ngay ({Object.values(healthMap).filter(h => h.risk_band === 'RED').length} NPP)</span>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            {Object.entries(healthMap)
+              .filter(([, h]) => h.risk_band === 'RED')
+              .slice(0, 8)
+              .map(([code, h]) => {
+                const c = customers.find(x => x.code === code)
+                return (
+                  <div key={code} className="bg-white border border-red-200 rounded-lg px-3 py-2 text-xs">
+                    <div className="font-semibold text-gray-800">{c?.name || code}</div>
+                    <div className="text-red-600">Score: {h.health_score_0_100?.toFixed(0) ?? '—'}</div>
+                  </div>
+                )
+              })}
+            {Object.values(healthMap).filter(h => h.risk_band === 'RED').length > 8 && (
+              <div className="bg-white border border-red-200 rounded-lg px-3 py-2 text-xs text-gray-400 flex items-center">
+                +{Object.values(healthMap).filter(h => h.risk_band === 'RED').length - 8} khác
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
       <div className="bg-white rounded-xl shadow-sm border overflow-hidden">
         <table className="w-full text-sm">
           <thead className="bg-gray-50 border-b">
             <tr>
               <th className="text-left px-4 py-3 font-medium text-gray-600">Mã KH</th>
               <th className="text-left px-4 py-3 font-medium text-gray-600">Tên khách hàng</th>
+              <th className="text-left px-4 py-3 font-medium text-gray-600">Sức khỏe NPP</th>
               <th className="text-left px-4 py-3 font-medium text-gray-600">Địa chỉ</th>
               <th className="text-left px-4 py-3 font-medium text-gray-600">SĐT</th>
               <th className="text-left px-4 py-3 font-medium text-gray-600">Tỉnh/TP</th>
@@ -132,6 +250,9 @@ export default function CustomersPage() {
               <tr key={c.id} className="hover:bg-gray-50">
                 <td className="px-4 py-3 font-mono text-xs text-gray-500">{c.code}</td>
                 <td className="px-4 py-3 font-medium text-gray-900">{c.name}</td>
+                <td className="px-4 py-3">
+                  <NppHealthBadge health={healthMap[c.code] || null} loading={healthLoading && !healthMap[c.code]} size="sm" showWhy={false} />
+                </td>
                 <td className="px-4 py-3 text-gray-600 max-w-xs truncate">{c.address}</td>
                 <td className="px-4 py-3 text-gray-600">{c.phone || '—'}</td>
                 <td className="px-4 py-3 text-gray-600">{c.province || '—'}</td>
@@ -155,6 +276,16 @@ export default function CustomersPage() {
         </table>
         {filtered.length === 0 && (
           <div className="text-center py-8 text-gray-400">Không tìm thấy khách hàng nào</div>
+        )}
+        {totalRows > 0 && (
+          <Pagination
+            page={page}
+            limit={limit}
+            total={totalRows}
+            onPageChange={setPage}
+            onLimitChange={(n) => { setLimit(n); setPage(1) }}
+            className="border-t bg-gray-50"
+          />
         )}
       </div>
 

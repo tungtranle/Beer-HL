@@ -4,6 +4,8 @@ import { useEffect, useState } from 'react'
 import { apiFetch, getUser, getToken } from '@/lib/api'
 import { formatVND } from '@/lib/status-config'
 import { toast } from '@/lib/useToast'
+import { Pagination } from '@/components/ui/Pagination'
+import { handleError } from '@/lib/handleError'
 
 // â”€â”€ Interfaces â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
@@ -145,11 +147,26 @@ export default function ReconciliationPage() {
   const [historyLoading, setHistoryLoading] = useState(false)
   const [, setTick] = useState(0)
 
+  // Pagination state per tab
+  const [reconPage, setReconPage] = useState(1)
+  const [reconLimit, setReconLimit] = useState(20)
+  const [reconTotal, setReconTotal] = useState(0)
+  const [discPage, setDiscPage] = useState(1)
+  const [discLimit, setDiscLimit] = useState(20)
+  const [discTotal, setDiscTotal] = useState(0)
+  const [closePage, setClosePage] = useState(1)
+  const [closeLimit, setCloseLimit] = useState(20)
+  const [closeTotal, setCloseTotal] = useState(0)
+
   // T+1 countdown auto-refresh every 60s
   useEffect(() => {
     const iv = setInterval(() => setTick(t => t + 1), 60000)
     return () => clearInterval(iv)
   }, [])
+
+  // Reset page when filter changes
+  useEffect(() => { setReconPage(1) }, [reconFilter])
+  useEffect(() => { setDiscPage(1) }, [discFilter, discTypeFilter])
 
   // Load data based on active tab
   useEffect(() => {
@@ -157,26 +174,31 @@ export default function ReconciliationPage() {
     if (activeTab === 'recon') {
       const params = new URLSearchParams()
       if (reconFilter) params.set('status', reconFilter)
-      params.set('limit', '50')
+      params.set('page', String(reconPage))
+      params.set('limit', String(reconLimit))
       apiFetch<any>(`/reconciliation?${params}`)
-        .then((r) => setRecons(r.data || []))
-        .catch(console.error)
+        .then((r) => { setRecons(r.data || []); setReconTotal(r.meta?.total ?? 0) })
+        .catch(err => handleError(err))
         .finally(() => setLoading(false))
     } else if (activeTab === 'disc') {
       const params = new URLSearchParams()
       if (discFilter) params.set('status', discFilter)
-      params.set('limit', '50')
+      params.set('page', String(discPage))
+      params.set('limit', String(discLimit))
       apiFetch<any>(`/reconciliation/discrepancies?${params}`)
-        .then((r) => setDiscs(r.data || []))
-        .catch(console.error)
+        .then((r) => { setDiscs(r.data || []); setDiscTotal(r.meta?.total ?? 0) })
+        .catch(err => handleError(err))
         .finally(() => setLoading(false))
     } else {
-      apiFetch<any>('/reconciliation/daily-close?limit=30')
-        .then((r) => setCloses(r.data || []))
-        .catch(console.error)
+      const params = new URLSearchParams()
+      params.set('page', String(closePage))
+      params.set('limit', String(closeLimit))
+      apiFetch<any>(`/reconciliation/daily-close?${params}`)
+        .then((r) => { setCloses(r.data || []); setCloseTotal(r.meta?.total ?? (r.data?.length || 0)) })
+        .catch(err => handleError(err))
         .finally(() => setLoading(false))
     }
-  }, [activeTab, reconFilter, discFilter])
+  }, [activeTab, reconFilter, discFilter, reconPage, reconLimit, discPage, discLimit, closePage, closeLimit])
 
   // formatVND imported from status-config (single source of truth)
 
@@ -245,6 +267,31 @@ export default function ReconciliationPage() {
 
   return (
     <div>
+      {/* Aging + risk summary bar */}
+      {discs.length > 0 && (
+        <div className="grid grid-cols-3 gap-4 mb-6">
+          <div className="bg-red-50 border border-red-200 rounded-xl p-4">
+            <div className="text-xs font-semibold text-red-600 uppercase mb-1">Sai lệch cần xử lý</div>
+            <div className="text-3xl font-bold text-red-700">{openCount}</div>
+            <div className="text-xs text-red-500 mt-1">
+              {urgentCount > 0 ? `⚠️ ${urgentCount} sắp quá hạn T+1` : 'Không có gấp'}
+            </div>
+          </div>
+          <div className="bg-amber-50 border border-amber-200 rounded-xl p-4">
+            <div className="text-xs font-semibold text-amber-600 uppercase mb-1">Sai lệch thanh toán</div>
+            <div className="text-3xl font-bold text-amber-700">{discs.filter(d => d.disc_type === 'payment').length}</div>
+            <div className="text-xs text-amber-500 mt-1">
+              {formatVND(discs.filter(d => d.disc_type === 'payment' && ['open', 'investigating'].includes(d.status)).reduce((s, d) => s + Math.abs(d.variance), 0))} chưa xử lý
+            </div>
+          </div>
+          <div className="bg-blue-50 border border-blue-200 rounded-xl p-4">
+            <div className="text-xs font-semibold text-blue-600 uppercase mb-1">Sai lệch hàng hóa</div>
+            <div className="text-3xl font-bold text-blue-700">{discs.filter(d => d.disc_type === 'goods').length}</div>
+            <div className="text-xs text-blue-500 mt-1">vỏ/két: {discs.filter(d => d.disc_type === 'asset').length} mục</div>
+          </div>
+        </div>
+      )}
+
       <div className="flex items-center justify-between mb-6">
         <div className="flex items-center gap-3">
           <h1 className="text-2xl font-bold text-gray-800">Đối soát & Chốt sổ</h1>
@@ -324,11 +371,11 @@ export default function ReconciliationPage() {
             ))}
           </div>
 
-          <div className="bg-white rounded-xl shadow-sm overflow-hidden">
-            <table className="w-full text-sm">
-              <thead className="bg-gray-50 text-gray-600">
+          <div className="bg-white rounded-xl shadow-sm overflow-hidden overflow-x-auto">
+            <table className="w-full text-sm min-w-[700px]">
+              <thead className="bg-gray-50 text-gray-600 sticky top-0">
                 <tr>
-                  <th className="text-left py-3 px-4">Chuyến xe</th>
+                  <th className="text-left py-3 px-4 sticky left-0 bg-gray-50 z-10 shadow-[1px_0_0_#e5e7eb]">Chuyến xe</th>
                   <th className="text-left py-3 px-4">Loại</th>
                   <th className="text-right py-3 px-4">Kỳ vọng</th>
                   <th className="text-right py-3 px-4">Thực tế</th>
@@ -352,7 +399,7 @@ export default function ReconciliationPage() {
                 ) : (
                   recons.map((r) => (
                     <tr key={r.id} className="hover:bg-gray-50">
-                      <td className="py-3 px-4 font-mono text-xs">{r.trip_number}</td>
+                      <td className="py-3 px-4 font-mono text-xs sticky left-0 bg-white hover:bg-gray-50 shadow-[1px_0_0_#e5e7eb]">{r.trip_number}</td>
                       <td className="py-3 px-4">{typeLabels[r.recon_type] || r.recon_type}</td>
                       <td className="py-3 px-4 text-right">{r.recon_type === 'payment' ? formatVND(r.expected_value) : r.expected_value.toLocaleString()}</td>
                       <td className="py-3 px-4 text-right">{r.recon_type === 'payment' ? formatVND(r.actual_value) : r.actual_value.toLocaleString()}</td>
@@ -372,6 +419,12 @@ export default function ReconciliationPage() {
                 )}
               </tbody>
             </table>
+            {reconTotal > 0 && (
+              <Pagination page={reconPage} limit={reconLimit} total={reconTotal}
+                onPageChange={setReconPage}
+                onLimitChange={(n) => { setReconLimit(n); setReconPage(1) }}
+                className="border-t bg-gray-50" />
+            )}
           </div>
         </div>
       )}
@@ -510,6 +563,12 @@ export default function ReconciliationPage() {
                 )}
               </tbody>
             </table>
+            {discTotal > 0 && (
+              <Pagination page={discPage} limit={discLimit} total={discTotal}
+                onPageChange={setDiscPage}
+                onLimitChange={(n) => { setDiscLimit(n); setDiscPage(1) }}
+                className="border-t bg-gray-50" />
+            )}
           </div>
         </div>
       )}
@@ -579,6 +638,12 @@ export default function ReconciliationPage() {
                 )}
               </tbody>
             </table>
+            {closeTotal > 0 && (
+              <Pagination page={closePage} limit={closeLimit} total={closeTotal}
+                onPageChange={setClosePage}
+                onLimitChange={(n) => { setCloseLimit(n); setClosePage(1) }}
+                className="border-t bg-gray-50" />
+            )}
           </div>
         </div>
       )}
