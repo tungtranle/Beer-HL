@@ -7,6 +7,23 @@
 
 ## [Unreleased] — Phase 6 + UX Overhaul + Phase 8 Fleet & Driver + **Phase 9 WMS Pallet/QR/Bin/Cycle Count COMPLETE (15/15)** + **Sprint 1 World-Class (F2/F3/F7/H4/TD-020) GO LIVE** + **Sprint UX-1 World-Class Design System** + **Sprint UX-2 Dashboard Pages Redesign (ALL DONE)** + **Sprint UX-3 Pagination & Filter Audit (in progress)**
 
+### 2026-04-25 — Session: Frontend auth/session hardening for dashboard 401 burst
+
+#### Fixed
+1. **Dashboard protected API calls (`/orders`, `/notifications`, control-desk stats) dễ rơi 401 hàng loạt với session cũ/gần hết hạn** — frontend auth helper nay đọc được cả key legacy `access_token` / `refresh_token` / `user`, tự migrate sang `bhl_token` / `bhl_refresh_token` / `bhl_user`, và tái sử dụng token chuẩn cho mọi request.
+2. **Notification WebSocket có thể connect bằng access token stale** — `NotificationProvider` nay preflight refresh token trước khi mở `/ws/notifications`, giảm lỗi WS fail ngay khi vào dashboard và đồng bộ hơn với REST refresh flow.
+
+#### Verified
+1. VS Code diagnostics: `bhl-oms/web/src/lib/api.ts`, `bhl-oms/web/src/lib/notifications.tsx` — không có lỗi.
+2. `npm run build` trong `bhl-oms/web` — pass, Next.js build exit code 0.
+3. `http://localhost:8080/health` — trả `{"success":true,"data":{"service":"bhl-oms-tms-wms","status":"ok"}}`.
+4. `http://localhost:3000/login` — load thành công, render tiêu đề đăng nhập BIA HẠ LONG.
+
+#### Docs Updated
+1. `CURRENT_STATE.md`
+2. `CHANGELOG.md`
+3. `AI_LESSONS.md`
+
 ### 2026-04-25 — Session: Auto-deploy bootstrap on push
 
 #### Added

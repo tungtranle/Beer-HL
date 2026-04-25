@@ -1,5 +1,17 @@
 const API_BASE = '/api';
 
+const AUTH_KEYS = {
+  token: 'bhl_token',
+  refreshToken: 'bhl_refresh_token',
+  user: 'bhl_user',
+} as const;
+
+const LEGACY_AUTH_KEYS = {
+  token: ['access_token'],
+  refreshToken: ['refresh_token'],
+  user: ['user'],
+} as const;
+
 interface ApiOptions {
   method?: string;
   body?: unknown;
@@ -9,8 +21,36 @@ interface ApiOptions {
 let isRefreshing = false;
 let refreshPromise: Promise<boolean> | null = null;
 
+function readStorage(key: string, legacyKeys: readonly string[] = []): string | null {
+  const current = localStorage.getItem(key);
+  if (current) return current;
+
+  for (const legacyKey of legacyKeys) {
+    const legacyValue = localStorage.getItem(legacyKey);
+    if (legacyValue) {
+      localStorage.setItem(key, legacyValue);
+      localStorage.removeItem(legacyKey);
+      return legacyValue;
+    }
+  }
+
+  return null;
+}
+
+function getStoredToken(): string | null {
+  return readStorage(AUTH_KEYS.token, LEGACY_AUTH_KEYS.token);
+}
+
+function getStoredRefreshToken(): string | null {
+  return readStorage(AUTH_KEYS.refreshToken, LEGACY_AUTH_KEYS.refreshToken);
+}
+
+function getStoredUser(): string | null {
+  return readStorage(AUTH_KEYS.user, LEGACY_AUTH_KEYS.user);
+}
+
 async function tryRefreshToken(): Promise<boolean> {
-  const refreshToken = localStorage.getItem('bhl_refresh_token');
+  const refreshToken = getStoredRefreshToken();
   if (!refreshToken) return false;
 
   try {
@@ -21,12 +61,47 @@ async function tryRefreshToken(): Promise<boolean> {
     });
     const json = await res.json();
     if (res.ok && json.success) {
-      localStorage.setItem('bhl_token', json.data.access_token);
-      localStorage.setItem('bhl_refresh_token', json.data.refresh_token);
+      localStorage.setItem(AUTH_KEYS.token, json.data.access_token);
+      localStorage.setItem(AUTH_KEYS.refreshToken, json.data.refresh_token);
       return true;
     }
   } catch { /* ignore */ }
   return false;
+}
+
+export async function ensureValidAccessToken(): Promise<string | null> {
+  if (typeof window === 'undefined') return null;
+
+  const token = getStoredToken();
+  if (!token) return null;
+
+  const refreshToken = getStoredRefreshToken();
+  if (!refreshToken) return token;
+
+  try {
+    const [, payloadBase64] = token.split('.');
+    if (!payloadBase64) return token;
+
+    const normalized = payloadBase64.replace(/-/g, '+').replace(/_/g, '/');
+    const payload = JSON.parse(atob(normalized));
+    const exp = typeof payload.exp === 'number' ? payload.exp : 0;
+    const now = Math.floor(Date.now() / 1000);
+    if (exp > now + 30) {
+      return token;
+    }
+  } catch {
+    return token;
+  }
+
+  if (!isRefreshing) {
+    isRefreshing = true;
+    refreshPromise = tryRefreshToken().finally(() => {
+      isRefreshing = false;
+    });
+  }
+
+  const refreshed = await refreshPromise;
+  return refreshed ? getStoredToken() : token;
 }
 
 export async function apiFetch<T>(path: string, options: ApiOptions = {}): Promise<T> {
@@ -41,7 +116,7 @@ export async function apiFetch<T>(path: string, options: ApiOptions = {}): Promi
     if (token) {
       headers['Authorization'] = `Bearer ${token}`;
     } else if (typeof window !== 'undefined') {
-      const stored = localStorage.getItem('bhl_token');
+      const stored = getStoredToken();
       if (stored) {
         headers['Authorization'] = `Bearer ${stored}`;
       }
@@ -94,25 +169,31 @@ export async function apiFetch<T>(path: string, options: ApiOptions = {}): Promi
 
 export function getToken(): string | null {
   if (typeof window === 'undefined') return null;
-  return localStorage.getItem('bhl_token');
+  return getStoredToken();
 }
 
 export function getUser(): { id: string; username: string; full_name: string; role: string; warehouse_ids: string[] } | null {
   if (typeof window === 'undefined') return null;
-  const data = localStorage.getItem('bhl_user');
+  const data = getStoredUser();
   return data ? JSON.parse(data) : null;
 }
 
 export function setAuth(token: string, user: unknown, refreshToken?: string) {
-  localStorage.setItem('bhl_token', token);
-  localStorage.setItem('bhl_user', JSON.stringify(user));
+  localStorage.setItem(AUTH_KEYS.token, token);
+  localStorage.setItem(AUTH_KEYS.user, JSON.stringify(user));
   if (refreshToken) {
-    localStorage.setItem('bhl_refresh_token', refreshToken);
+    localStorage.setItem(AUTH_KEYS.refreshToken, refreshToken);
   }
+  for (const legacyKey of LEGACY_AUTH_KEYS.token) localStorage.removeItem(legacyKey);
+  for (const legacyKey of LEGACY_AUTH_KEYS.refreshToken) localStorage.removeItem(legacyKey);
+  for (const legacyKey of LEGACY_AUTH_KEYS.user) localStorage.removeItem(legacyKey);
 }
 
 export function clearAuth() {
-  localStorage.removeItem('bhl_token');
-  localStorage.removeItem('bhl_user');
-  localStorage.removeItem('bhl_refresh_token');
+  localStorage.removeItem(AUTH_KEYS.token);
+  localStorage.removeItem(AUTH_KEYS.user);
+  localStorage.removeItem(AUTH_KEYS.refreshToken);
+  for (const legacyKey of LEGACY_AUTH_KEYS.token) localStorage.removeItem(legacyKey);
+  for (const legacyKey of LEGACY_AUTH_KEYS.refreshToken) localStorage.removeItem(legacyKey);
+  for (const legacyKey of LEGACY_AUTH_KEYS.user) localStorage.removeItem(legacyKey);
 }

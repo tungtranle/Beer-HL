@@ -46,6 +46,7 @@
 ### Auth — ✅ Hoàn chỉnh
 - POST `/v1/auth/login`, `/v1/auth/refresh`
 - RS256 JWT, 9 roles: admin, dispatcher, driver, warehouse_handler, management, accountant, dvkh, security, workshop
+- Frontend auth storage đọc và tự migrate cả key legacy `access_token` / `refresh_token` / `user` sang key chuẩn `bhl_*`, giảm lỗi 401 sau khi bundle/frontend key naming thay đổi nhưng user còn session cũ trong localStorage
 - Test credentials: tất cả password `demo123`
 
 ### Admin — ✅ Hoạt động (30 endpoints) — Updated Session 25/03
@@ -218,6 +219,7 @@
 ### Notification — ✅ Hoạt động (6 endpoints + WS + events) — Updated Session 25/03b
 - **Link audit (Session 25/03b):** Tất cả 25 notification links đã chuyển sang relative path (không `/dashboard/` prefix). Frontend `NotificationBell.handleClick` tự thêm prefix. Thêm category icons: `eod_checkpoint`, `eod_confirmed`, `eod_rejected`, `document_expiry`.
 - List (`GET /v1/notifications`), unread count, mark read (`POST /v1/notifications/:id/read`), mark all read (`POST /v1/notifications/read-all`), **grouped** (`GET /v1/notifications/grouped`)
+- Notification WebSocket phía frontend preflight refresh access token gần hết hạn trước khi connect `/ws/notifications`, giúp tránh burst 401 REST + WS fail ngay khi vào dashboard với session sắp hết hạn
 - WebSocket: `/ws/notifications?token=` for real-time push
 - **4-Layer Delivery System (MỚI Session 24/03):**
   - Layer 1: In-app notification (DB + WebSocket push)

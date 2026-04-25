@@ -1,7 +1,7 @@
 'use client'
 
 import { createContext, useContext, useEffect, useState, useCallback, useRef } from 'react'
-import { getToken, apiFetch } from '@/lib/api'
+import { getToken, apiFetch, ensureValidAccessToken } from '@/lib/api'
 
 interface NotificationAction {
   label: string
@@ -196,21 +196,18 @@ export function NotificationProvider({ children }: { children: React.ReactNode }
 
   // WebSocket connection
   useEffect(() => {
-    const token = getToken()
-    if (!token) return
-
-    refresh()
-
-    const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
-    const wsUrl = `${protocol}//${window.location.host}/ws/notifications?token=${token}`
-    
     let ws: WebSocket
     let reconnectTimer: NodeJS.Timeout
     let retries = 0
     const MAX_RETRIES = 5
 
-    const connect = () => {
+    const connect = async () => {
       if (retries >= MAX_RETRIES) return
+      const token = await ensureValidAccessToken()
+      if (!token && !getToken()) return
+
+      const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
+      const wsUrl = `${protocol}//${window.location.host}/ws/notifications?token=${token || getToken()}`
       ws = new WebSocket(wsUrl)
       wsRef.current = ws
 
@@ -237,8 +234,10 @@ export function NotificationProvider({ children }: { children: React.ReactNode }
               orderUpdateListenersRef.current.forEach(listener => {
                 try { listener(ou) } catch { /* ignore */ }
               })
+
+              refresh()
             }
-          } else if (msg.type === 'order_update' && msg.order_id) {
+              void connect()
             const update: OrderUpdate = { order_id: msg.order_id, new_status: msg.new_status || '' }
             orderUpdateListenersRef.current.forEach(listener => {
               try { listener(update) } catch { /* ignore */ }
