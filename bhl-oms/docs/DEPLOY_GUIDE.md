@@ -8,6 +8,14 @@
 ## 0. Auto-deploy hiện tại
 
 - Repo production hiện dùng GitHub Actions workflow `.github/workflows/deploy.yml` chạy trên self-hosted runner `mac-mini-prod` với labels `self-hosted`, `macOS`, `production`.
+- Từ repo root trên Mac mini có thể chạy **một lệnh** để bật/cập nhật auto-deploy theo repo hiện tại:
+
+```bash
+cd /Users/tungtranle/Projects/Beer-HL
+bash enable-auto-deploy.sh https://github.com/tungtranle/Beer-HL
+```
+
+- Script này sẽ gọi `setup-runner.sh`, kiểm tra nhanh file `.env` và `keys`, rồi nhắc cách test workflow. Sau khi làm xong, chỉ cần push `master` là server tự deploy.
 - Nếu đổi tài khoản GitHub hoặc đổi repo, **runner cũ không tự chuyển theo**. Cần chạy lại:
 
 ```bash
@@ -16,6 +24,7 @@ bash setup-runner.sh https://github.com/tungtranle/Beer-HL
 ```
 
 - Script trên sẽ tự lấy registration token qua `gh` nếu máy đã `gh auth login`, và tự re-register runner nếu file `.runner` còn trỏ tới repo cũ.
+- Workflow hiện hỗ trợ cả nút `Run workflow` trong GitHub Actions để test manual nếu vừa setup runner xong mà chưa muốn tạo commit mới.
 
 ## 0.1 Ổn định Mac mini để bhl.symper.us không bị chết khi ngủ máy
 

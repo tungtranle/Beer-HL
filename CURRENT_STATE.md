@@ -25,6 +25,7 @@
 
 - Production server hiện chạy trên Mac mini qua Docker Compose file `bhl-oms/docker-compose.prod.yml`.
 - GitHub Actions self-hosted runner trên Mac mini tự deploy khi push lên `master`, dùng labels `self-hosted`, `macOS`, `production`.
+- Có thêm bootstrap one-shot `enable-auto-deploy.sh`: chạy 1 lần trên Mac mini để cài/cập nhật runner theo repo hiện tại, kiểm tra nhanh `.env`/`keys`, rồi từ đó chỉ cần push `master` hoặc bấm `Run workflow` là deploy.
 - `setup-runner.sh` hiện có thể tự lấy registration token qua `gh`, đồng thời tự re-register runner nếu máy đang còn trỏ tới repo/account GitHub cũ.
 - Có 2 cách đồng bộ data:
   - sync master data/users qua `seed_master.sql` + `db-sync.sh`,

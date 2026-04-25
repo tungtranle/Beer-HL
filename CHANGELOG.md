@@ -7,6 +7,26 @@
 
 ## [Unreleased] — Phase 6 + UX Overhaul + Phase 8 Fleet & Driver + **Phase 9 WMS Pallet/QR/Bin/Cycle Count COMPLETE (15/15)** + **Sprint 1 World-Class (F2/F3/F7/H4/TD-020) GO LIVE** + **Sprint UX-1 World-Class Design System** + **Sprint UX-2 Dashboard Pages Redesign (ALL DONE)** + **Sprint UX-3 Pagination & Filter Audit (in progress)**
 
+### 2026-04-25 — Session: Auto-deploy bootstrap on push
+
+#### Added
+1. **`enable-auto-deploy.sh`** — wrapper một lệnh để bật cơ chế auto-deploy trên Mac mini. Script gọi `setup-runner.sh`, kiểm tra nhanh `.env`/`keys`, và in ra checklist test workflow sau khi cài runner.
+
+#### Changed
+1. **`.github/workflows/deploy.yml`** hỗ trợ thêm `workflow_dispatch` để test manual khi cần, giới hạn trigger theo các path liên quan đến deploy/app, và dùng biến `PROJECT_DIR` để giảm hard-code đường dẫn `bhl-oms`.
+2. Workflow thêm bước `safe.directory` để tránh lỗi Git safety trên self-hosted runner khi checkout workspace production.
+
+#### Verified
+1. Diagnostics: `.github/workflows/deploy.yml` không có parse error trong VS Code.
+2. Diagnostics: `enable-auto-deploy.sh` không có error trong VS Code.
+3. Thử chạy `bash -n` trên máy local để syntax-check shell script nhưng môi trường terminal hiện tại không có `bash` usable trong PATH, nên chưa verify được bằng executable check tại workstation này.
+
+#### Docs Updated
+1. `CURRENT_STATE.md`
+2. `CHANGELOG.md`
+3. `INF_BHL_OMS_TMS_WMS.md`
+4. `bhl-oms/docs/DEPLOY_GUIDE.md`
+
 ### 2026-04-25 — Session: Runner retarget + production stability hardening
 
 #### Changed

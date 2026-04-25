@@ -3,6 +3,12 @@ name: Auto Deploy to Production
 on:
   push:
     branches: [ "master" ]
+    paths:
+      - ".github/workflows/deploy.yml"
+      - "setup-runner.sh"
+      - "enable-auto-deploy.sh"
+      - "bhl-oms/**"
+  workflow_dispatch:
 
 concurrency:
   group: production-deploy
@@ -16,13 +22,17 @@ jobs:
 
     env:
       PATH: /opt/homebrew/bin:/opt/homebrew/sbin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin
+      PROJECT_DIR: bhl-oms
 
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
 
+      - name: Trust checked out workspace
+        run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
+
       - name: Copy secret keys (not in git)
-        run: cp -r /Users/tungtranle/Projects/Beer-HL/bhl-oms/keys bhl-oms/keys
+        run: cp -r /Users/tungtranle/Projects/Beer-HL/$PROJECT_DIR/keys $PROJECT_DIR/keys
 
       - name: Debug Docker access
         run: |
@@ -40,16 +50,16 @@ jobs:
         run: |
           mkdir -p "$DOCKER_CONFIG"
           echo '{}' > "$DOCKER_CONFIG/config.json"
-          docker compose -f bhl-oms/docker-compose.prod.yml build web api vrp
+          docker compose -f $PROJECT_DIR/docker-compose.prod.yml build web api vrp
           echo "Build xong"
 
       - name: Restart services
-        run: docker compose -f bhl-oms/docker-compose.prod.yml up -d
+        run: docker compose -f $PROJECT_DIR/docker-compose.prod.yml up -d
 
       - name: Sync DB (migrations + master data)
         run: |
           sleep 8
-          bash bhl-oms/scripts/db-sync.sh
+          bash $PROJECT_DIR/scripts/db-sync.sh
 
       - name: Cleanup old images
         run: docker image prune -f
@@ -60,7 +70,7 @@ jobs:
           for i in 1 2 3 4 5; do
             if curl -sf http://localhost:8080/health > /dev/null 2>&1; then
               echo "API healthy - Deploy thanh cong!"
-              docker compose -f bhl-oms/docker-compose.prod.yml ps
+              docker compose -f $PROJECT_DIR/docker-compose.prod.yml ps
               if curl -skf https://bhl.symper.us/login > /dev/null 2>&1; then
                 echo "Public login page healthy"
                 exit 0
@@ -71,5 +81,5 @@ jobs:
             sleep 5
           done
           echo "API khong phan hoi sau 40s"
-          docker compose -f bhl-oms/docker-compose.prod.yml logs api --tail 30
+          docker compose -f $PROJECT_DIR/docker-compose.prod.yml logs api --tail 30
           exit 1
