@@ -26,12 +26,16 @@ jobs:
           docker info 2>&1 | head -5 || echo "docker info failed"
           docker compose version || echo "docker compose failed"
 
+      - name: Unlock Keychain for Docker
+        run: security unlock-keychain -p "" ~/Library/Keychains/login.keychain-db || true
+
       - name: Build Docker images
+        env:
+          DOCKER_CONFIG: /tmp/bhl-docker-cfg
         run: |
-          set -o pipefail
-          LOGFILE="/tmp/bhl-build-$(date +%s).log"
-          docker compose -f bhl-oms/docker-compose.prod.yml build web api vrp 2>&1 | tee "$LOGFILE"
-          echo "BUILD_LOG=$LOGFILE" >> "$GITHUB_ENV"
+          mkdir -p "$DOCKER_CONFIG"
+          echo '{}' > "$DOCKER_CONFIG/config.json"
+          docker compose -f bhl-oms/docker-compose.prod.yml build web api vrp
           echo "Build xong"
 
       - name: Restart services
