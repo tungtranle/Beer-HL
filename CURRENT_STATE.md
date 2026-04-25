@@ -1,6 +1,6 @@
 # CURRENT_STATE — BHL OMS-TMS-WMS
 
-> **Cập nhật:** 21/04/2026 (session 21/04 — Phase 8 Fleet & Driver Management + Control Tower UX/UI map polish)  
+> **Cập nhật:** 25/04/2026 (session 25/04 — production auto deploy + DB sync master data)  
 > **Mục đích:** Mô tả trạng thái THỰC TẾ của hệ thống. AI đọc file này để biết code đang làm gì, **không** phải spec nói gì.  
 > **Quy tắc:** Khi code thay đổi → cập nhật file này. Nếu CURRENT_STATE không khớp code → file này sai.
 
@@ -20,6 +20,17 @@
 | Prometheus | Docker | :9090 | ✅ Configured (profile: monitoring) |
 | Grafana | Docker | :3030 | ✅ Configured (profile: monitoring) |
 | Sentry | Cloud (sentry.io) | — | ✅ DSN configured (frontend + backend) |
+
+## Vận hành Production
+
+- Production server hiện chạy trên Mac mini qua Docker Compose file `bhl-oms/docker-compose.prod.yml`.
+- GitHub Actions self-hosted runner trên Mac mini tự deploy khi push lên `master`.
+- Sau mỗi deploy, workflow chạy script `bhl-oms/scripts/db-sync.sh` để:
+  - tạo bảng `schema_migrations` nếu chưa có,
+  - áp dụng các file `bhl-oms/migrations/[0-9]*.up.sql` chưa từng chạy,
+  - áp dụng `bhl-oms/migrations/seed_master.sql` để đồng bộ danh sách users master.
+- `seed_master.sql` là nguồn sự thật cho users/master data cần giữ đồng bộ giữa máy code và server.
+- Đồng bộ users dùng `ON CONFLICT (username) DO UPDATE`, có chủ ý **không** ghi đè `password_hash`, nên người dùng đã đổi mật khẩu trên server sẽ không bị reset khi deploy.
 
 ---
 

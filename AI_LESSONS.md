@@ -43,6 +43,7 @@
 | L-30 | Nếu cần soi lệch tuyến, KHÔNG dùng polyline nối waypoint thẳng để làm chuẩn. Phải dùng road geometry từ OSRM hoặc route engine tương đương, nếu không sẽ vừa nhìn giả vừa báo lệch tuyến sai | Control Tower route overview |
 | L-31 | Counter `xe online` phải bám theo số chuyến active đang được giả lập; `completed` chỉ để test history, không nên auto tính vào fleet online mặc định | SC-11 thực tế cần 7 route active từ WH-HL, không phải ép đủ 8 xe online |
 | L-32 | **PHẢI test TỪNG feature ngay sau khi code.** Viết xong → compile → chạy server → gọi API/load page → confirm OK → rồi mới làm tiếp. KHÔNG batch nhiều features rồi test 1 lần. KHÔNG nói "xong" khi chưa test. Xem `.github/instructions/test-after-code.instructions.md` | Phase 8: viết 30 tasks, nhiều file có lỗi nhưng không phát hiện vì không test từng phần |
+| L-33 | GitHub Actions self-hosted trên macOS chạy qua LaunchAgent có thể không truy cập được Docker credential helper trong Keychain. Nếu build Docker fail rất nhanh ở bước pull metadata, phải kiểm tra `credsStore`/Keychain trước khi debug code build | Runner production trên Mac mini |
 
 ## 🟢 Đánh giá / Scope (khi plan)
 

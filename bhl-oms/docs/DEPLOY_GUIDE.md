@@ -8,7 +8,7 @@
 
 ## 1. Tại sao không login được?
 
-Database trên server production **chưa có data tài khoản**. Cần chạy migration + seed data.
+Database trên server production có thể thiếu migration mới hoặc thiếu danh sách users master mới nhất. Từ giờ ưu tiên chạy **một script duy nhất** thay vì chạy từng file SQL thủ công.
 
 ### Cách fix — SSH vào server rồi chạy:
 
@@ -19,27 +19,16 @@ ssh user@bhl.symper.us
 # 2. Vào thư mục deploy
 cd /opt/bhl-oms
 
-# 3. Chạy migration (tạo bảng)
-docker compose -f docker-compose.prod.yml exec -T postgres psql -U bhl -d bhl_prod -f /migrations/001_init.up.sql
-docker compose -f docker-compose.prod.yml exec -T postgres psql -U bhl -d bhl_prod -f /migrations/002_checklist.up.sql
-docker compose -f docker-compose.prod.yml exec -T postgres psql -U bhl -d bhl_prod -f /migrations/003_cutoff_consolidation.up.sql
-docker compose -f docker-compose.prod.yml exec -T postgres psql -U bhl -d bhl_prod -f /migrations/004_wms.up.sql
-docker compose -f docker-compose.prod.yml exec -T postgres psql -U bhl -d bhl_prod -f /migrations/005_epod_payment.up.sql
-docker compose -f docker-compose.prod.yml exec -T postgres psql -U bhl -d bhl_prod -f /migrations/006_zalo_confirm.up.sql
-docker compose -f docker-compose.prod.yml exec -T postgres psql -U bhl -d bhl_prod -f /migrations/007_recon_dlq_kpi.up.sql
-docker compose -f docker-compose.prod.yml exec -T postgres psql -U bhl -d bhl_prod -f /migrations/008_audit_log.up.sql
-docker compose -f docker-compose.prod.yml exec -T postgres psql -U bhl -d bhl_prod -f /migrations/009_driver_checkin.up.sql
-docker compose -f docker-compose.prod.yml exec -T postgres psql -U bhl -d bhl_prod -f /migrations/009_urgent_priority.up.sql
-docker compose -f docker-compose.prod.yml exec -T postgres psql -U bhl -d bhl_prod -f /migrations/010_order_confirmation.up.sql
-docker compose -f docker-compose.prod.yml exec -T postgres psql -U bhl -d bhl_prod -f /migrations/010_order_number_seq.up.sql
-docker compose -f docker-compose.prod.yml exec -T postgres psql -U bhl -d bhl_prod -f /migrations/010_workshop_phase6.up.sql
-
-# 4. Seed data (tài khoản + sản phẩm + NPP + kho + xe)
-docker compose -f docker-compose.prod.yml exec -T postgres psql -U bhl -d bhl_prod -f /migrations/seed.sql
-
-# 5. (Tùy chọn) Seed data đầy đủ 800 NPP + 70 xe
-docker compose -f docker-compose.prod.yml exec -T postgres psql -U bhl -d bhl_prod -f /migrations/seed_production.sql
+# 3. Chạy script đồng bộ
+bash bhl-oms/scripts/db-sync.sh
 ```
+
+Script này sẽ:
+- tạo bảng `schema_migrations` nếu chưa có,
+- tự chạy migration `.up.sql` còn thiếu,
+- tự đồng bộ `seed_master.sql` để users trên server khớp với danh sách chuẩn trong repo,
+- không xóa orders/trips/payments đang có trên production,
+- không ghi đè mật khẩu nếu user đã đổi mật khẩu trên server.
 
 ### Tài khoản đăng nhập (sau khi seed):
 
@@ -85,6 +74,9 @@ cd /opt/bhl-oms && git pull
 # Build lại
 docker compose -f docker-compose.prod.yml build --no-cache api web
 docker compose -f docker-compose.prod.yml up -d
+
+# Đồng bộ schema + users master
+bash bhl-oms/scripts/db-sync.sh
 
 # Kiểm tra
 docker compose -f docker-compose.prod.yml logs -f api --tail=50

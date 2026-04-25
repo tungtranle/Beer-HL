@@ -7,6 +7,28 @@
 
 ## [Unreleased] — Phase 6 + UX Overhaul + Phase 8 Fleet & Driver + **Phase 9 WMS Pallet/QR/Bin/Cycle Count COMPLETE (15/15)** + **Sprint 1 World-Class (F2/F3/F7/H4/TD-020) GO LIVE** + **Sprint UX-1 World-Class Design System** + **Sprint UX-2 Dashboard Pages Redesign (ALL DONE)** + **Sprint UX-3 Pagination & Filter Audit (in progress)**
 
+### 2026-04-25 — Session: Production DB sync for master data/users
+
+#### Added
+1. **`bhl-oms/scripts/db-sync.sh`** — script đồng bộ production DB sau deploy. Script tự tạo `schema_migrations`, chạy các migration `.up.sql` chưa áp dụng, rồi chạy `seed_master.sql`.
+2. **`bhl-oms/migrations/seed_master.sql`** — canonical master seed cho danh sách users hiện tại trên production.
+
+#### Changed
+1. **GitHub Actions deploy workflow** gọi `db-sync.sh` sau khi restart services để server luôn có schema mới và danh sách users mới nhất.
+2. Đồng bộ users được thiết kế idempotent: cập nhật `role/full_name/is_active/permissions`, nhưng giữ nguyên `password_hash` đang có trên server.
+
+#### Verified
+1. Chạy trực tiếp `bash bhl-oms/scripts/db-sync.sh` trên server: pass.
+2. Chạy lần 2: `0` migration mới, `41` migration đã có, seed users tiếp tục pass.
+3. Kết quả users active sau sync: accountant `3`, admin `2`, dispatcher `3`, driver `70`, dvkh `2`, management `1`, security `2`, warehouse_handler `2`, workshop `1`.
+
+#### Docs Updated
+1. `CURRENT_STATE.md`
+2. `CHANGELOG.md`
+3. `MIG_BHL_OMS_TMS_WMS.md`
+4. `bhl-oms/docs/DEPLOY_GUIDE.md`
+5. `bhl-oms/scripts/README.md`
+
 ### 2026-05-02 — Session: Pagination + Filter Audit (orders/trips/customers + driver monthly stats fix)
 
 #### Fixed — Critical UX bugs reported by user

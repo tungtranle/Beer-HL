@@ -55,6 +55,23 @@
 1. **Dry run on Staging:** Import → validate → fix data issues → repeat
 2. **Production run:** Clean import vào production DB → verify → sign-off
 
+## 1.3 Continuous Sync During Product Development
+
+Trong giai đoạn sản phẩm còn thay đổi liên tục, production không chỉ cần migration một lần. Hệ thống hiện dùng thêm cơ chế **continuous master-data sync**:
+
+- File nguồn chuẩn: `bhl-oms/migrations/seed_master.sql`
+- Script chạy sau deploy: `bhl-oms/scripts/db-sync.sh`
+- Phạm vi sync tự động:
+  - schema migrations mới,
+  - master users cần có mặt trên server.
+- Phạm vi **không** sync tự động:
+  - orders,
+  - trips,
+  - payments,
+  - dữ liệu vận hành phát sinh trên production.
+
+Nguyên tắc: dùng seed idempotent (`ON CONFLICT DO UPDATE`) để đồng bộ cấu hình người dùng và master data, nhưng tránh xóa hoặc reset dữ liệu vận hành thực tế.
+
 ---
 
 # 2. DATA SOURCES

@@ -5,6 +5,15 @@ Files:
 - `run_user_anomaly_report.sh` — small wrapper to run the Python script.
 - `rebuild_user_catalog.sql` — SQL helper to create `users_canonical`, preview chosen rows, and (commented) INSERT+swap steps. Includes `role_mapping` helper.
 - `execute_migration.sh` — safe backup + instructions wrapper.
+- `db-sync.sh` — production-safe sync script: create `schema_migrations`, apply missing `.up.sql` migrations, then sync `seed_master.sql`.
+
+Recommended for current production workflow:
+
+```bash
+bash bhl-oms/scripts/db-sync.sh
+```
+
+Use this after each deploy when you need server schema + users/master data to match the repository without touching operational data.
 
 Quick start (on a machine with network access to the Postgres instance):
 
