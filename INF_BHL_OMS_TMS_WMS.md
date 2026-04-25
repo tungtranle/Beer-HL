@@ -969,6 +969,38 @@ docker compose -f docker-compose.prod.yml exec api ./bhl-api migrate up
 curl -s https://bhl-ops.vn/api/health | jq .
 ```
 
+## 11.1a One-time Full Data Sync For UAT / Server Testing
+
+Khi cần đưa **toàn bộ data local hiện tại** lên server để test nhanh, dùng workflow tách biệt với deploy code thường ngày:
+
+1. Trên máy dev Windows, double-click `bhl-oms/SYNC_FULL_DATA_TO_SERVER_ONCE.bat`.
+2. Script sẽ tự làm 4 việc: deploy code mới nhất, export full dump từ local Postgres `bhl_dev`, upload dump lên Mac Mini, backup DB server hiện tại rồi restore dump vào `bhl_prod`.
+3. Sau restore, script restart `api/web/redis`, flush cache và check `https://bhl.symper.us/health`.
+4. Các lần deploy sau **không dùng lại full sync**, chỉ double-click `bhl-oms/DEPLOY_CODE_ONLY.bat` để push code + SSH deploy.
+
+Nguyên tắc an toàn:
+- File dump và `.deploy-config.json` phải được giữ local, không commit lên GitHub.
+- Full data sync là thao tác **một lần cho test/UAT**, không phải workflow production hằng ngày.
+- Trước khi restore, server tự tạo backup `backups/server-before-full-sync-<timestamp>.dump` để có thể khôi phục nếu cần.
+
+## 11.1b USB Transfer Workflow For Non-tech Use
+
+Nếu hai máy ở gần nhau và không muốn dùng SSH giữa 2 máy, dùng cách đơn giản hơn:
+
+1. Trên máy Windows dev, double-click `bhl-oms/EXPORT_DATA_TO_USB.bat`.
+2. Script sẽ tạo một thư mục `backups/usb-sync-<timestamp>/` chứa:
+  - `full-sync.dump`
+  - `IMPORT_ON_MAC.command`
+  - `import-full-data-from-usb.sh`
+3. Copy **cả thư mục** `usb-sync-...` sang USB.
+4. Cắm USB vào Mac Mini, copy thư mục đó vào **bên trong thư mục dự án BHL** trên Mac.
+5. Double-click `IMPORT_ON_MAC.command` trên Mac để restore data vào server.
+
+Nguyên tắc:
+- Workflow này không phụ thuộc kết nối SSH giữa hai máy.
+- Vẫn backup DB server trước khi restore.
+- Sau lần test này, quay lại dùng `DEPLOY_CODE_ONLY.bat` cho deploy code hằng ngày.
+
 ## 11.2 View Logs
 
 ```bash
