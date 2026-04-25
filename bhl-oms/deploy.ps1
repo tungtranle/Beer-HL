@@ -36,17 +36,22 @@ function Invoke-NativeCommandSafe {
         [string[]]$Arguments
     )
 
-    if (-not $script:SupportsNativeErrorPreference) {
-        return & $Command @Arguments 2>&1
+    $previousErrorActionPreference = $ErrorActionPreference
+    $previous = $global:PSNativeCommandUseErrorActionPreference
+    $ErrorActionPreference = 'Continue'
+
+    if ($script:SupportsNativeErrorPreference) {
+        $global:PSNativeCommandUseErrorActionPreference = $false
     }
 
-    $previous = $global:PSNativeCommandUseErrorActionPreference
-    $global:PSNativeCommandUseErrorActionPreference = $false
     try {
         return & $Command @Arguments 2>&1
     }
     finally {
-        $global:PSNativeCommandUseErrorActionPreference = $previous
+        $ErrorActionPreference = $previousErrorActionPreference
+        if ($script:SupportsNativeErrorPreference) {
+            $global:PSNativeCommandUseErrorActionPreference = $previous
+        }
     }
 }
 
