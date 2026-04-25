@@ -431,9 +431,11 @@
 
 - Added code-only deploy helper: `bhl-oms/deploy.ps1` + `bhl-oms/DEPLOY_CODE_ONLY.bat`.
 - Added one-time full data sync helper: `bhl-oms/sync-full-data-once.ps1` + `bhl-oms/SYNC_FULL_DATA_TO_SERVER_ONCE.bat`.
-- Added server-side restore helper: `bhl-oms/restore-full-data-once.sh`.
+- Added history dump import helper: `bhl-oms/import-data-to-server.ps1` + `bhl-oms/IMPORT_HISTORY_DUMP_TO_SERVER.bat`.
+- Added first-run/menu wrappers for non-tech use: `bhl-oms/SETUP_SERVER_CONNECTION.bat` + `bhl-oms/SERVER_TOOLS.bat`.
+- Added server-side restore helper: `bhl-oms/restore-full-data-once.sh` (now supports both custom dump archives and plain `.sql`).
 - Added USB transfer workflow for non-tech use: `bhl-oms/export-full-data-to-usb.ps1` + `bhl-oms/EXPORT_DATA_TO_USB.bat` on Windows, then `bhl-oms/IMPORT_ON_MAC.command` + `bhl-oms/import-full-data-from-usb.sh` on Mac.
-- Workflow intent: first sync current local full DB lên Mac Mini để test, các lần sau chỉ deploy code qua Git + SSH, không restore full data nữa.
+- Workflow intent: all routine deploy/data actions can now start from Windows only: setup SSH once, deploy code daily, sync current local DB when needed, or upload a historical dump/SQL file directly to server.
 - `zalo_confirm_status` — 5 states
 - `payment_status` — 4 states
 - `dlq_status` — 4 states (pending, retrying, resolved, failed) — NEW

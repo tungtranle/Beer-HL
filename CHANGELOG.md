@@ -135,6 +135,31 @@
 - `INF_BHL_OMS_TMS_WMS.md`
 - `CHANGELOG.md`
 
+### 2026-04-25 — Session: Windows-first remote deploy + historical data restore workflow
+
+#### Added — Non-tech Windows entry points
+- `bhl-oms/SETUP_SERVER_CONNECTION.bat`: wrapper thiet lap SSH lan dau tu may Windows.
+- `bhl-oms/IMPORT_HISTORY_DUMP_TO_SERVER.bat`: wrapper double-click de chon file `.dump`/`.backup`/`.tar`/`.sql` va restore len server.
+- `bhl-oms/SERVER_TOOLS.bat`: menu tong hop 4 thao tac chinh cho user non-tech.
+
+#### Added — Historical data restore from Windows
+- `bhl-oms/import-data-to-server.ps1`: workflow chon file data tren Windows, optional deploy code truoc, upload qua SSH, roi goi restore tren Mac Mini.
+
+#### Changed — Server restore script generalized
+- `bhl-oms/restore-full-data-once.sh`: ho tro them che do `plain` cho file `.sql`, ben canh che do `custom` cho `pg_restore` archives.
+- `bhl-oms/sync-full-data-once.ps1`: truyen ro import mode `custom` de dong nhat voi server restore script moi.
+
+#### Verified
+- VS Code diagnostics: `import-data-to-server.ps1`, `sync-full-data-once.ps1`, `restore-full-data-once.sh`, `SERVER_TOOLS.bat`, `IMPORT_HISTORY_DUMP_TO_SERVER.bat`, `SETUP_SERVER_CONNECTION.bat` — khong co syntax errors.
+- PowerShell parser: `import-data-to-server.ps1`, `sync-full-data-once.ps1`, `deploy.ps1` — pass.
+- Shell parser: khong co `bash.exe` trong moi truong VS Code Windows hien tai, nen chi verify bang diagnostics cho file `.sh`.
+
+#### Docs Updated
+- `CURRENT_STATE.md`
+- `INF_BHL_OMS_TMS_WMS.md`
+- `bhl-oms/docs/DEPLOY_GUIDE.md`
+- `CHANGELOG.md`
+
 ### 2026-05-02 — Session: Pagination + Filter Audit (orders/trips/customers + driver monthly stats fix)
 
 #### Fixed — Critical UX bugs reported by user

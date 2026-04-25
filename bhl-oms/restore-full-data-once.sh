@@ -1,18 +1,16 @@
 #!/bin/bash
 # ============================================================
-# BHL OMS - Full data restore mot lan tren Mac Mini
-# Chay sau khi code da duoc deploy. Script nay se:
-# 1. backup DB hien tai tren server
-# 2. restore full dump tu local dev
-# 3. restart service de test
-# Usage: bash restore-full-data-once.sh backups/full-sync.dump
+# BHL OMS - Restore server data tren Mac Mini
+# Ho tro ca custom dump (.dump/.backup/.tar) va plain SQL (.sql)
+# Usage:
+#   bash restore-full-data-once.sh backups/full-sync.dump
+#   bash restore-full-data-once.sh backups/history.sql plain
 # ============================================================
 set -euo pipefail
 
 BOLD="\033[1m"
 GREEN="\033[32m"
 RED="\033[31m"
-YELLOW="\033[33m"
 BLUE="\033[34m"
 NC="\033[0m"
 
@@ -20,14 +18,28 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 cd "$SCRIPT_DIR"
 
 if [ $# -lt 1 ]; then
-    echo -e "${RED}[x] Thieu duong dan file dump${NC}"
-    echo "Usage: bash restore-full-data-once.sh backups/full-sync.dump"
+    echo -e "${RED}[x] Thieu duong dan file dump/sql${NC}"
+    echo "Usage: bash restore-full-data-once.sh backups/full-sync.dump [custom|plain]"
     exit 1
 fi
 
-DUMP_FILE="$1"
-if [ ! -f "$DUMP_FILE" ]; then
-    echo -e "${RED}[x] Khong tim thay dump file: $DUMP_FILE${NC}"
+DATA_FILE="$1"
+IMPORT_MODE="${2:-auto}"
+
+if [ ! -f "$DATA_FILE" ]; then
+    echo -e "${RED}[x] Khong tim thay file data: $DATA_FILE${NC}"
+    exit 1
+fi
+
+if [ "$IMPORT_MODE" = "auto" ]; then
+    case "$DATA_FILE" in
+        *.sql) IMPORT_MODE="plain" ;;
+        *) IMPORT_MODE="custom" ;;
+    esac
+fi
+
+if [ "$IMPORT_MODE" != "custom" ] && [ "$IMPORT_MODE" != "plain" ]; then
+    echo -e "${RED}[x] Import mode khong hop le: $IMPORT_MODE${NC}"
     exit 1
 fi
 
@@ -51,11 +63,12 @@ mkdir -p backups
 
 echo ""
 echo -e "${BOLD}╔══════════════════════════════════════════════╗${NC}"
-echo -e "${BOLD}║   BHL OMS - Full Data Restore               ║${NC}"
+echo -e "${BOLD}║   BHL OMS - Restore Server Data            ║${NC}"
 echo -e "${BOLD}╚══════════════════════════════════════════════╝${NC}"
 echo ""
 echo -e "  Compose: ${BLUE}$COMPOSE_FILE${NC}"
-echo -e "  Dump:    ${BLUE}$DUMP_FILE${NC}"
+echo -e "  File:    ${BLUE}$DATA_FILE${NC}"
+echo -e "  Mode:    ${BLUE}$IMPORT_MODE${NC}"
 
 echo ""
 echo -e "${BOLD}[1/6] Dam bao Postgres dang chay...${NC}"
@@ -78,8 +91,8 @@ fi
 
 echo ""
 echo -e "${BOLD}[2/6] Backup DB hien tai tren server...${NC}"
-SERVER_TMP_BACKUP="/tmp/server-before-full-sync-${TIMESTAMP}.dump"
-SERVER_BACKUP_FILE="backups/server-before-full-sync-${TIMESTAMP}.dump"
+SERVER_TMP_BACKUP="/tmp/server-before-data-restore-${TIMESTAMP}.dump"
+SERVER_BACKUP_FILE="backups/server-before-data-restore-${TIMESTAMP}.dump"
 docker compose -f "$COMPOSE_FILE" --env-file "$ENV_FILE" exec -T postgres \
     sh -lc "pg_dump -U bhl -d bhl_prod -Fc -f '$SERVER_TMP_BACKUP'"
 docker cp "${POSTGRES_CONTAINER}:${SERVER_TMP_BACKUP}" "$SERVER_BACKUP_FILE"
@@ -93,17 +106,25 @@ docker compose -f "$COMPOSE_FILE" --env-file "$ENV_FILE" stop api web >/dev/null
 echo -e "  ${GREEN}OK${NC}"
 
 echo ""
-echo -e "${BOLD}[4/6] Restore full dump tu local dev...${NC}"
-SERVER_TMP_IMPORT="/tmp/full-sync-import-${TIMESTAMP}.dump"
-docker cp "$DUMP_FILE" "${POSTGRES_CONTAINER}:${SERVER_TMP_IMPORT}"
+echo -e "${BOLD}[4/6] Restore data vao bhl_prod...${NC}"
+SERVER_FILE_NAME=$(basename "$DATA_FILE")
+SERVER_TMP_IMPORT="/tmp/${TIMESTAMP}-${SERVER_FILE_NAME}"
+docker cp "$DATA_FILE" "${POSTGRES_CONTAINER}:${SERVER_TMP_IMPORT}"
 docker compose -f "$COMPOSE_FILE" --env-file "$ENV_FILE" exec -T postgres \
     psql -U bhl -d postgres -c "SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname = 'bhl_prod' AND pid <> pg_backend_pid();" >/dev/null
 docker compose -f "$COMPOSE_FILE" --env-file "$ENV_FILE" exec -T postgres \
     dropdb -U bhl --if-exists bhl_prod
 docker compose -f "$COMPOSE_FILE" --env-file "$ENV_FILE" exec -T postgres \
     createdb -U bhl bhl_prod
-docker compose -f "$COMPOSE_FILE" --env-file "$ENV_FILE" exec -T postgres \
-    pg_restore -U bhl -d bhl_prod --no-owner --no-privileges "$SERVER_TMP_IMPORT"
+
+if [ "$IMPORT_MODE" = "plain" ]; then
+    docker compose -f "$COMPOSE_FILE" --env-file "$ENV_FILE" exec -T postgres \
+        psql -U bhl -d bhl_prod -f "$SERVER_TMP_IMPORT"
+else
+    docker compose -f "$COMPOSE_FILE" --env-file "$ENV_FILE" exec -T postgres \
+        pg_restore -U bhl -d bhl_prod --no-owner --no-privileges "$SERVER_TMP_IMPORT"
+fi
+
 docker compose -f "$COMPOSE_FILE" --env-file "$ENV_FILE" exec -T postgres \
     sh -lc "rm -f '$SERVER_TMP_IMPORT'"
 echo -e "  ${GREEN}OK${NC}"
@@ -135,6 +156,6 @@ if [ "$API_OK" != true ]; then
     exit 1
 fi
 
-echo -e "${GREEN}OK${NC} Full data da duoc sync len server."
+echo -e "${GREEN}OK${NC} Data da duoc restore len server."
 echo -e "Backup server truoc khi restore: ${BLUE}$SERVER_BACKUP_FILE${NC}"
 echo -e "Test tai: ${BLUE}https://bhl.symper.us${NC}"

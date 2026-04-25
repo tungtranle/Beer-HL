@@ -979,6 +979,7 @@ curl -s https://bhl-ops.vn/api/health | jq .
 
 Khi cần đưa **toàn bộ data local hiện tại** lên server để test nhanh, dùng workflow tách biệt với deploy code thường ngày:
 
+0. Lan dau, double-click `bhl-oms/SETUP_SERVER_CONNECTION.bat` de luu SSH config vao may Windows.
 1. Trên máy dev Windows, double-click `bhl-oms/SYNC_FULL_DATA_TO_SERVER_ONCE.bat`.
 2. Script sẽ tự làm 4 việc: deploy code mới nhất, export full dump từ local Postgres `bhl_dev`, upload dump lên Mac Mini, backup DB server hiện tại rồi restore dump vào `bhl_prod`.
 3. Sau restore, script restart `api/web/redis`, flush cache và check `https://bhl.symper.us/health`.
@@ -989,7 +990,20 @@ Nguyên tắc an toàn:
 - Full data sync là thao tác **một lần cho test/UAT**, không phải workflow production hằng ngày.
 - Trước khi restore, server tự tạo backup `backups/server-before-full-sync-<timestamp>.dump` để có thể khôi phục nếu cần.
 
-## 11.1b USB Transfer Workflow For Non-tech Use
+## 11.1b Historical Dump / SQL Restore From Windows
+
+Khi da co san file data lich su tren may Windows va muon nap thang len server, khong can copy sang Mac thu cong:
+
+1. Double-click `bhl-oms/IMPORT_HISTORY_DUMP_TO_SERVER.bat` hoac mo `bhl-oms/SERVER_TOOLS.bat` roi chon muc `4`.
+2. Chon file `.dump`, `.backup`, `.bak`, `.tar` hoac `.sql`.
+3. Script se tu deploy code moi nhat len server (co the bo qua bang tham so PowerShell neu can), upload file data, backup `bhl_prod`, restore, restart `api/web/redis` va health-check.
+
+Nguyen tac:
+- Day la workflow Windows-first, khong can mo Terminal tren Mac mini.
+- Mọi restore deu thay the toan bo DB `bhl_prod`, vi vay chi dung khi thuc su muon server giong voi bo data da chon.
+- Server luon tao backup truoc restore trong `backups/server-before-data-restore-<timestamp>.dump`.
+
+## 11.1c USB Transfer Workflow For Non-tech Use
 
 Nếu hai máy ở gần nhau và không muốn dùng SSH giữa 2 máy, dùng cách đơn giản hơn:
 

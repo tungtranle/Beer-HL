@@ -14,11 +14,41 @@ param(
 
 $ErrorActionPreference = "Stop"
 
+if ($null -eq (Get-Variable -Name PSNativeCommandUseErrorActionPreference -ErrorAction SilentlyContinue)) {
+    $script:SupportsNativeErrorPreference = $false
+}
+else {
+    $script:SupportsNativeErrorPreference = $true
+}
+
 # Helpers
 function Write-Step  { param($n, $s) Write-Host "`n[$n] $s" -ForegroundColor Cyan }
 function Write-Ok    { param($s) Write-Host "  OK $s" -ForegroundColor Green }
 function Write-Warn  { param($s) Write-Host "  ! $s" -ForegroundColor Yellow }
 function Write-Fail  { param($s) Write-Host "  X $s" -ForegroundColor Red }
+
+function Invoke-NativeCommandSafe {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$Command,
+
+        [Parameter(Mandatory = $true)]
+        [string[]]$Arguments
+    )
+
+    if (-not $script:SupportsNativeErrorPreference) {
+        return & $Command @Arguments 2>&1
+    }
+
+    $previous = $global:PSNativeCommandUseErrorActionPreference
+    $global:PSNativeCommandUseErrorActionPreference = $false
+    try {
+        return & $Command @Arguments 2>&1
+    }
+    finally {
+        $global:PSNativeCommandUseErrorActionPreference = $previous
+    }
+}
 
 # Config file
 $ConfigFile = "$PSScriptRoot\.deploy-config.json"
@@ -71,7 +101,7 @@ function Run-Setup {
         "$user_@$host_",
         'echo OK'
     )
-    $sshTest = & ssh @sshTestArgs 2>&1
+    $sshTest = Invoke-NativeCommandSafe -Command 'ssh' -Arguments $sshTestArgs
     
     if ($sshTest -match "OK") {
         Write-Ok "Ket noi SSH thanh cong!"
@@ -122,7 +152,7 @@ if (-not $OnlyDeploy) {
     Set-Location $ScriptRoot
 
     # Kiem tra co thay doi khong
-    $status = git status --short 2>&1
+    $status = Invoke-NativeCommandSafe -Command 'git' -Arguments @('status', '--short')
     if ([string]::IsNullOrWhiteSpace($status)) {
         Write-Warn "Khong co thay doi moi, bo qua commit"
     }
@@ -133,13 +163,13 @@ if (-not $OnlyDeploy) {
             $Message = "deploy: update $date"
         }
 
-        git add -A 2>&1 | Out-Null
-        git commit -m $Message 2>&1
+        Invoke-NativeCommandSafe -Command 'git' -Arguments @('add', '-A') | Out-Null
+        Invoke-NativeCommandSafe -Command 'git' -Arguments @('commit', '-m', $Message) | Out-Null
         Write-Ok "Committed: $Message"
     }
 
     # Push
-    $pushResult = git push 2>&1
+    $pushResult = Invoke-NativeCommandSafe -Command 'git' -Arguments @('push')
     if ($LASTEXITCODE -ne 0 -and $pushResult -notmatch "up-to-date|Everything up-to-date|master -> master") {
         Write-Fail "Push that bai: $pushResult"
         exit 1
@@ -163,7 +193,7 @@ $scpArgs = @(
     "$PSScriptRoot\update-server.sh",
     "${sshTarget}:${serverPath}/update-server.sh"
 )
-& scp @scpArgs 2>&1 | Out-Null
+Invoke-NativeCommandSafe -Command 'scp' -Arguments $scpArgs | Out-Null
 
 Write-Ok "Script da duoc upload"
 
@@ -185,7 +215,7 @@ $sshUpdateArgs = @(
     $remoteCommand
 )
 
-& ssh @sshUpdateArgs
+$null = Invoke-NativeCommandSafe -Command 'ssh' -Arguments $sshUpdateArgs
 
 if ($LASTEXITCODE -eq 0) {
     Write-Host ""

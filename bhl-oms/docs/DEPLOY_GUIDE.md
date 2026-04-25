@@ -4,10 +4,22 @@
 > **Server:** bhl.symper.us  
 > **Cập nhật:** 25/04/2026
 
+## 0. Cach dung de nhat tren may Windows
+
+Tu gio, uu tien dung cac file co san trong `bhl-oms/` thay vi SSH vao Mac mini:
+
+1. `SETUP_SERVER_CONNECTION.bat`: chay 1 lan dau de luu thong tin ket noi server.
+2. `DEPLOY_CODE_ONLY.bat`: dung hang ngay khi chi can deploy code.
+3. `SYNC_FULL_DATA_TO_SERVER_ONCE.bat`: dung khi muon dua **toan bo data dang co tren may code** len server.
+4. `IMPORT_HISTORY_DUMP_TO_SERVER.bat`: dung khi da co san file `.dump` hoac `.sql` lich su tren may Windows va muon nap file do len server.
+5. `SERVER_TOOLS.bat`: menu tong hop 4 thao tac tren de anh chi can chon so.
+
+Neu anh khong muon nho file nao thi chi can mo `SERVER_TOOLS.bat`.
+
 
 ## 0. Auto-deploy hiện tại
 
-- Repo production hiện dùng GitHub Actions workflow `.github/workflows/deploy.yml` chạy trên self-hosted runner `mac-mini-prod` với labels `self-hosted`, `macOS`, `production`.
+- Repo production hien co self-hosted runner tren Mac mini; trong repo workspace hien tai file workflow dang nam o `.github/workflows/ci.yml`.
 - Từ repo root trên Mac mini có thể chạy **một lệnh** để bật/cập nhật auto-deploy theo repo hiện tại:
 
 ```bash
@@ -91,7 +103,21 @@ Khi đó workflow deploy mới kéo được file mới và `db-sync.sh` mới a
 
 ## 1.2 Nếu tôi muốn mang TOÀN BỘ data từ máy code sang server thì sao?
 
-Khi cần server có data giống hệt máy code, không dùng GitHub để sync DB trực tiếp. Thay vào đó:
+Khi cần server có data giống hệt máy code, cach de nhat la tren Windows double-click `SYNC_FULL_DATA_TO_SERVER_ONCE.bat`.
+
+Script nay se tu dong:
+- deploy code moi nhat len server,
+- export full dump tu local Postgres/Docker,
+- upload dump len Mac mini,
+- backup DB server hien tai,
+- restore vao `bhl_prod`,
+- restart app va health-check.
+
+Neu anh muon dung workflow USB thay vi SSH, lam theo cach ben duoi.
+
+### Cach USB / package
+
+Khong dung GitHub de sync DB truc tiep. Thay vao do:
 
 ### Trên máy code
 
@@ -112,6 +138,27 @@ Script sẽ tạo folder `usb-sync-YYYYMMDDTHHMMSS/` chứa:
 2. Chạy `IMPORT_ON_MAC.command` hoặc `bash import-full-data-from-usb.sh`
 
 Lưu ý: cách này sẽ **restore toàn bộ DB `bhl_prod`**, phù hợp khi muốn môi trường server giống hệt máy code. Script import có backup DB hiện tại trước khi restore.
+
+## 1.3 Neu toi da co file dump lich su hoac file SQL thi sao?
+
+Dung `IMPORT_HISTORY_DUMP_TO_SERVER.bat`.
+
+Quy trinh:
+1. Double-click file `IMPORT_HISTORY_DUMP_TO_SERVER.bat`.
+2. Chon file can nap.
+3. Script tu upload file len server va restore.
+
+File duoc ho tro:
+- `.dump`
+- `.backup`
+- `.bak`
+- `.tar`
+- `.sql`
+
+Luu y:
+- Script nay cung **ghi de toan bo DB `bhl_prod`**.
+- Truoc khi restore, server tu backup DB hien tai de co duong lui.
+- Neu file rat lon, thoi gian upload se dai hon, nhung anh khong can thao tac tren Mac.
 
 ### Tài khoản đăng nhập (sau khi seed):
 
@@ -143,27 +190,13 @@ Lưu ý: cách này sẽ **restore toàn bộ DB `bhl_prod`**, phù hợp khi mu
 ```
 
 **Chi tiết bước 3-4:**
-```bash
-# Trên máy local — đẩy code lên server
-scp -r ./bhl-oms/ user@bhl.symper.us:/opt/bhl-oms/
+Chi tiet thuc te tu gio la:
 
-# HOẶC dùng git (nếu đã setup):
-# Trên máy local
-git add . && git commit -m "fix: mô tả bug" && git push
+1. Tren may local, sua code va test localhost.
+2. Double-click `DEPLOY_CODE_ONLY.bat` hoac mo `SERVER_TOOLS.bat` chon muc `2`.
+3. Script tu commit/push neu co thay doi, upload `update-server.sh`, SSH vao Mac mini, `git pull`, build lai `api/web`, chay migration moi va health-check.
 
-# Trên server
-cd /opt/bhl-oms && git pull
-
-# Build lại
-docker compose -f docker-compose.prod.yml build --no-cache api web
-docker compose -f docker-compose.prod.yml up -d
-
-# Đồng bộ schema + users master
-bash bhl-oms/scripts/db-sync.sh
-
-# Kiểm tra
-docker compose -f docker-compose.prod.yml logs -f api --tail=50
-```
+Neu muon dieu chinh commit message hoac bo qua buoc commit/push, co the mo PowerShell va chay truc tiep `deploy.ps1`.
 
 ### Cách B: Hot-fix nhanh trên server (trường hợp khẩn cấp)
 

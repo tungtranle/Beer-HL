@@ -115,7 +115,7 @@ Write-Step "4/5" "Restore full data tren server..."
 $remoteCommand = @(
     "cd '$serverPath'"
     "chmod +x restore-full-data-once.sh"
-    "bash restore-full-data-once.sh '$serverDumpFile'"
+    "bash restore-full-data-once.sh '$serverDumpFile' 'custom'"
 ) -join "; "
 $sshRestoreArgs = @(
     '-p', $sshPort,
