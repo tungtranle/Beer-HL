@@ -30,9 +30,28 @@ if [ -f ".env.prod" ]; then
 elif [ -f ".env" ]; then
     ENV_FILE=".env"
 else
-    echo -e "${RED}[✗] Không tìm thấy .env.prod hoặc .env${NC}"
-    exit 1
+    cat > .env.prod <<'EOF'
+DB_PASSWORD=
+GRAFANA_PASSWORD=
+SENTRY_DSN=
+BRAVO_URL=
+BRAVO_API_KEY=
+DMS_URL=
+DMS_API_KEY=
+ZALO_BASE_URL=
+ZALO_OA_TOKEN=
+ZALO_OA_ID=
+INTEGRATION_MOCK=false
+ENABLE_TEST_PORTAL=false
+EOF
+    ENV_FILE=".env.prod"
+    echo -e "${YELLOW}[!] Không tìm thấy .env.prod hoặc .env — đã tự tạo .env.prod tối thiểu${NC}"
 fi
+
+BUILD_COMMIT_SHA=$(git rev-parse HEAD)
+BUILD_TIME=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+BUILD_BRANCH=$(git branch --show-current)
+export BUILD_COMMIT_SHA BUILD_TIME BUILD_BRANCH
 
 echo ""
 echo -e "${BOLD}╔══════════════════════════════════════════════╗${NC}"

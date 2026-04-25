@@ -191,12 +191,13 @@ Write-Step "2/3" "Cap nhat script tren server..."
 $sshTarget = "$($cfg.User)@$($cfg.Host)"
 $sshPort   = $cfg.Port
 $serverPath = $cfg.Path
+$remoteScriptPath = "/tmp/bhl-oms-update-server.sh"
 
 $scpArgs = @(
     '-P', $sshPort,
     '-o', 'StrictHostKeyChecking=no',
     "$PSScriptRoot\update-server.sh",
-    "${sshTarget}:${serverPath}/update-server.sh"
+    "${sshTarget}:${remoteScriptPath}"
 )
 Invoke-NativeCommandSafe -Command 'scp' -Arguments $scpArgs | Out-Null
 
@@ -208,8 +209,8 @@ Write-Host ""
 
 $remoteCommand = @(
     "cd '$serverPath'"
-    "chmod +x update-server.sh"
-    "bash update-server.sh"
+    "chmod +x '$remoteScriptPath'"
+    "bash '$remoteScriptPath'"
 ) -join "; "
 
 $sshUpdateArgs = @(
