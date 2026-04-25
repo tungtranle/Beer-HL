@@ -41,20 +41,32 @@ jobs:
           docker info 2>&1 | head -5 || echo "docker info failed"
           docker compose version || echo "docker compose failed"
 
-      - name: Unlock Keychain for Docker
-        run: security unlock-keychain -p "" ~/Library/Keychains/login.keychain-db || true
+      - name: Bypass Docker keychain (stub helper)
+        run: |
+          STUB_DIR="/tmp/bhl-stub-bin.$$"
+          mkdir -p "$STUB_DIR"
+          cat > "$STUB_DIR/docker-credential-desktop" <<'STUB'
+          #!/bin/bash
+          case "$1" in
+            get) echo '{"ServerURL":"","Username":"","Secret":""}' ;;
+            list) echo '{}' ;;
+            *) echo '{}' ;;
+          esac
+          exit 0
+          STUB
+          chmod +x "$STUB_DIR/docker-credential-desktop"
+          echo "STUB_DIR=$STUB_DIR" >> $GITHUB_ENV
 
       - name: Build Docker images
         env:
-          DOCKER_CONFIG: /tmp/bhl-docker-cfg
           BUILD_COMMIT_SHA: ${{ github.sha }}
           BUILD_BRANCH: ${{ github.ref_name }}
         run: |
-          mkdir -p "$DOCKER_CONFIG"
-          echo '{}' > "$DOCKER_CONFIG/config.json"
+          export PATH="$STUB_DIR:$PATH"
           export BUILD_TIME="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
           docker compose -f $PROJECT_DIR/docker-compose.prod.yml build web api vrp
           echo "Build xong"
+          rm -rf "$STUB_DIR" || true
 
       - name: Restart services
         run: docker compose -f $PROJECT_DIR/docker-compose.prod.yml up -d
