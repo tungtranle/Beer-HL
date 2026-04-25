@@ -7,6 +7,26 @@
 
 ## [Unreleased] — Phase 6 + UX Overhaul + Phase 8 Fleet & Driver + **Phase 9 WMS Pallet/QR/Bin/Cycle Count COMPLETE (15/15)** + **Sprint 1 World-Class (F2/F3/F7/H4/TD-020) GO LIVE** + **Sprint UX-1 World-Class Design System** + **Sprint UX-2 Dashboard Pages Redesign (ALL DONE)** + **Sprint UX-3 Pagination & Filter Audit (in progress)**
 
+### 2026-04-25 — Session: Orders schema fallback + deploy build visibility
+
+#### Fixed
+1. **`GET /v1/orders` có thể nổ 500 trên môi trường DB lệch schema** — repository OMS nay tự detect cột `sales_orders.is_urgent`; nếu DB chưa có cột này thì fallback `is_urgent=false` cho các query list/search/get/pending-approvals thay vì fail toàn bộ màn Đơn hàng.
+
+#### Changed
+1. **`GET /v1/app/version`** nay trả thêm `service_version`, `commit_sha`, `build_time`, `branch`.
+2. **Docker image API + GitHub Actions deploy** truyền metadata build qua `ldflags`/build args để production có thể self-report đúng SHA và thời điểm build.
+3. **`/dashboard/settings/health`** hiển thị block `Build đang chạy` để admin nhìn trực tiếp commit SHA, branch và build time của bản đang chạy.
+
+#### Verified
+1. `go build ./cmd/server` trong `bhl-oms` — pass.
+2. Local API `GET /v1/orders?page=1&limit=5` với token admin — trả 200, meta total `32415`.
+3. `npm run build` trong `bhl-oms/web` — pass.
+4. `http://localhost:18080/v1/app/version` trên instance backend tạm — trả thêm metadata build mới.
+
+#### Docs Updated
+1. `CURRENT_STATE.md`
+2. `CHANGELOG.md`
+
 ### 2026-04-25 — Session: Frontend auth/session hardening for dashboard 401 burst
 
 #### Fixed

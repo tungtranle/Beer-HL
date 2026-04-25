@@ -39,6 +39,13 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
+var (
+	appVersion  = "1.0.0"
+	buildCommit = "unknown"
+	buildTime   = "unknown"
+	buildBranch = "unknown"
+)
+
 func main() {
 	cfg := config.Load()
 
@@ -149,6 +156,10 @@ func main() {
 			"force_update":     false,
 			"update_url":       "https://oms.bhl.vn/update",
 			"release_notes_vi": "Phiên bản đầu tiên – OMS/TMS/WMS",
+			"commit_sha":       buildCommit,
+			"build_time":       buildTime,
+			"branch":           buildBranch,
+			"service_version":  appVersion,
 		})
 	})
 

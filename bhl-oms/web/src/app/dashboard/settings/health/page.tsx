@@ -24,6 +24,17 @@ interface HealthData {
   gps_tracking?: GPSTrackingStats
   recent_ops?: RecentOpsStats
 }
+interface BuildInfo {
+  current_version: string
+  minimum_version: string
+  force_update: boolean
+  update_url: string
+  release_notes_vi: string
+  commit_sha?: string
+  build_time?: string
+  branch?: string
+  service_version?: string
+}
 interface SlowQuery {
   query: string; calls: number; mean_time_ms: number; max_time_ms: number; total_time_ms: number
 }
@@ -38,6 +49,7 @@ const countLabels: Record<string, string> = {
 export default function HealthDashboard() {
   const [health, setHealth] = useState<HealthData | null>(null)
   const [slowQueries, setSlowQueries] = useState<SlowQuery[]>([])
+  const [buildInfo, setBuildInfo] = useState<BuildInfo | null>(null)
   const [loading, setLoading] = useState(true)
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null)
 
@@ -51,6 +63,15 @@ export default function HealthDashboard() {
       ])
       setHealth(hRes.data)
       setSlowQueries(sqRes.data || [])
+
+      try {
+        const versionRes = await fetch('/api/app/version')
+        const versionJson = await versionRes.json()
+        if (versionRes.ok && versionJson.success) {
+          setBuildInfo(versionJson.data)
+        }
+      } catch {}
+
       setLastUpdated(new Date())
     } catch (err) { handleError(err, { userMessage: 'Không tải được health metrics' }) }
     finally { setLoading(false) }
@@ -75,6 +96,30 @@ export default function HealthDashboard() {
           <p className="text-sm text-gray-500">Uptime: {health?.uptime}</p>
         </div>
       </div>
+
+      {buildInfo && (
+        <div className="bg-white rounded-lg p-4 shadow-sm">
+          <h2 className="font-bold mb-3">🏷️ Build đang chạy</h2>
+          <div className="grid grid-cols-1 md:grid-cols-4 gap-3 text-sm">
+            <div className="bg-gray-50 rounded-lg p-3">
+              <div className="text-xs text-gray-500 mb-1">Service version</div>
+              <div className="font-semibold">{buildInfo.service_version || buildInfo.current_version}</div>
+            </div>
+            <div className="bg-gray-50 rounded-lg p-3">
+              <div className="text-xs text-gray-500 mb-1">Commit SHA</div>
+              <div className="font-mono text-xs break-all">{buildInfo.commit_sha || 'unknown'}</div>
+            </div>
+            <div className="bg-gray-50 rounded-lg p-3">
+              <div className="text-xs text-gray-500 mb-1">Branch</div>
+              <div className="font-semibold">{buildInfo.branch || 'unknown'}</div>
+            </div>
+            <div className="bg-gray-50 rounded-lg p-3">
+              <div className="text-xs text-gray-500 mb-1">Build time</div>
+              <div className="font-semibold">{buildInfo.build_time || 'unknown'}</div>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Services */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">

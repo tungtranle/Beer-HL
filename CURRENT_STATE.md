@@ -45,6 +45,7 @@
 
 ### Auth — ✅ Hoàn chỉnh
 - POST `/v1/auth/login`, `/v1/auth/refresh`
+- Public endpoint `GET /v1/app/version` hiện trả thêm metadata deploy/runtime gồm `service_version`, `commit_sha`, `build_time`, `branch` để đối chiếu production đang chạy đúng build nào
 - RS256 JWT, 9 roles: admin, dispatcher, driver, warehouse_handler, management, accountant, dvkh, security, workshop
 - Frontend auth storage đọc và tự migrate cả key legacy `access_token` / `refresh_token` / `user` sang key chuẩn `bhl_*`, giảm lỗi 401 sau khi bundle/frontend key naming thay đổi nhưng user còn session cũ trong localStorage
 - Test credentials: tất cả password `demo123`
@@ -57,6 +58,7 @@
 - **Audit Logs:** GET `/admin/audit-logs`, GET `/admin/audit-logs/:id/diff` (2 endpoints)
 - **DB monitoring:** GET `/admin/slow-queries`, POST `/admin/slow-queries/reset` (2 endpoints)
 - **System Health (Enhanced):** GET `/admin/health` — PostgreSQL, Redis, VRP Solver checks + GPS tracking stats + recent operations
+- Frontend: `/dashboard/settings/health` hiện hiển thị block `Build đang chạy` lấy từ `/v1/app/version` gồm service version, commit SHA, branch, build time để xác minh deploy
 - **Routes CRUD:** GET/POST/PUT/DELETE `/admin/routes` (4 endpoints)
 - **Configs:** GET/PUT `/admin/configs` (2 endpoints)
 - **Credit Limits:** GET/POST/PUT/DELETE `/admin/credit-limits` + GET `/admin/credit-limits/expiring` (5 endpoints)
@@ -83,6 +85,7 @@
   - Tracking delivery attempts: attempt_number, previous_status, previous_reason
 - **Dashboard stats:** GET `/v1/dashboard/stats` — 5 widget metrics (orders, trips, delivery rate, revenue, discrepancies)
 - **Control desk stats:** `GetControlDeskStats(warehouseID?)` (1 endpoint)
+- Orders repository fallback an toàn nếu DB chưa có cột `sales_orders.is_urgent`: list/search/get/pending-approvals sẽ default `is_urgent=false` thay vì nổ 500 do schema production lệch migration
 - **Cutoff 16h:** Hoạt động — configurable qua `system_settings`
 - **Credit limit:** Auto `pending_approval` khi vượt hạn mức — **enriched endpoint with credit details + order items**
 - **DMS sync:** Tự động fire khi tạo/hủy/duyệt đơn (Task 3.4 — async, không block)

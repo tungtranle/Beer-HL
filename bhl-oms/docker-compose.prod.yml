@@ -7,6 +7,11 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
+      args:
+        - APP_VERSION=1.0.0
+        - BUILD_COMMIT_SHA=${BUILD_COMMIT_SHA:-unknown}
+        - BUILD_TIME=${BUILD_TIME:-unknown}
+        - BUILD_BRANCH=${BUILD_BRANCH:-unknown}
     ports:
       - "8080:8080"
     environment:

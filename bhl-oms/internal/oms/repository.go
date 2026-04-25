@@ -3,6 +3,7 @@ package oms
 import (
 	"context"
 	"fmt"
+	"sync"
 	"time"
 
 	"bhl-oms/internal/domain"
@@ -24,12 +25,37 @@ func (r *Repository) GetOrderIDByShipmentID(ctx context.Context, shipmentID uuid
 }
 
 type Repository struct {
-	db  *pgxpool.Pool
-	log logger.Logger
+	db                     *pgxpool.Pool
+	log                    logger.Logger
+	schemaOnce             sync.Once
+	salesOrdersHasIsUrgent bool
 }
 
 func NewRepository(db *pgxpool.Pool, log logger.Logger) *Repository {
 	return &Repository{db: db, log: log}
+}
+
+func (r *Repository) orderUrgentSelect(ctx context.Context) string {
+	r.schemaOnce.Do(func() {
+		const q = `
+			SELECT EXISTS (
+				SELECT 1
+				FROM information_schema.columns
+				WHERE table_schema = 'public'
+				  AND table_name = 'sales_orders'
+				  AND column_name = 'is_urgent'
+			)
+		`
+		if err := r.db.QueryRow(ctx, q).Scan(&r.salesOrdersHasIsUrgent); err != nil {
+			r.log.Warn(ctx, "detect sales_orders.is_urgent failed", logger.Err(err))
+			r.salesOrdersHasIsUrgent = false
+		}
+	})
+
+	if r.salesOrdersHasIsUrgent {
+		return "so.is_urgent"
+	}
+	return "false"
 }
 
 // NextOrderNumber generates a unique order number using a DB sequence.
@@ -347,12 +373,12 @@ func (r *Repository) CreateOrderItem(ctx context.Context, tx pgx.Tx, item *domai
 }
 
 func (r *Repository) ListOrders(ctx context.Context, warehouseID *uuid.UUID, status, deliveryDate, cutoffGroup string, limit, offset int) ([]domain.SalesOrder, int64, error) {
-	query := `
+	query := fmt.Sprintf(`
 		SELECT so.id, so.order_number, so.customer_id, c.name, so.warehouse_id, so.status::text,
 		       COALESCE(so.cutoff_group, '')::text, so.delivery_date::text, so.total_amount, so.deposit_amount, so.total_weight_kg,
 		       so.atp_status, so.credit_status, so.created_at, oc.reject_reason,
 		       oc2.status::text, lt.trip_id, COALESCE(lt.plate_number, ''), COALESCE(lt.driver_name, ''),
-		       COALESCE(c.phone, ''), so.is_urgent
+		       COALESCE(c.phone, ''), %s AS is_urgent
 		FROM sales_orders so
 		JOIN customers c ON c.id = so.customer_id
 		LEFT JOIN order_confirmations oc ON oc.order_id = so.id
@@ -369,7 +395,7 @@ func (r *Repository) ListOrders(ctx context.Context, warehouseID *uuid.UUID, sta
 			LIMIT 1
 		) lt ON true
 		WHERE 1=1
-	`
+	`, r.orderUrgentSelect(ctx))
 	countQuery := `SELECT COUNT(*) FROM sales_orders so WHERE 1=1`
 	args := []interface{}{}
 	argIdx := 1
@@ -433,19 +459,19 @@ func (r *Repository) ListOrders(ctx context.Context, warehouseID *uuid.UUID, sta
 
 func (r *Repository) GetOrder(ctx context.Context, orderID uuid.UUID) (*domain.SalesOrder, error) {
 	var o domain.SalesOrder
-	err := r.db.QueryRow(ctx, `
+	err := r.db.QueryRow(ctx, fmt.Sprintf(`
 		SELECT so.id, so.order_number, so.customer_id, c.name, c.code, so.warehouse_id,
 		       COALESCE(w.name, '') as warehouse_name, so.status::text,
 		       COALESCE(so.cutoff_group, '')::text, so.delivery_date::text, so.delivery_address,
 		       so.time_window, so.total_amount, so.deposit_amount,
 		       so.total_weight_kg, so.total_volume_m3, so.atp_status, so.credit_status, so.notes, so.created_at,
-		       oc.reject_reason, so.is_urgent
+		       oc.reject_reason, %s AS is_urgent
 		FROM sales_orders so
 		JOIN customers c ON c.id = so.customer_id
 		LEFT JOIN warehouses w ON w.id = so.warehouse_id
 		LEFT JOIN order_confirmations oc ON oc.order_id = so.id
 		WHERE so.id = $1
-	`, orderID).Scan(
+	`, r.orderUrgentSelect(ctx)), orderID).Scan(
 		&o.ID, &o.OrderNumber, &o.CustomerID, &o.CustomerName, &o.CustomerCode, &o.WarehouseID,
 		&o.WarehouseName, &o.Status,
 		&o.CutoffGroup, &o.DeliveryDate, &o.DeliveryAddress,
@@ -717,13 +743,13 @@ func (r *Repository) CreateSplitShipment(ctx context.Context, tx pgx.Tx, shipmen
 
 // ListPendingApprovals returns orders with pending_approval status, enriched with credit data and items
 func (r *Repository) ListPendingApprovals(ctx context.Context) ([]map[string]interface{}, error) {
-	rows, err := r.db.Query(ctx, `
+	rows, err := r.db.Query(ctx, fmt.Sprintf(`
 		SELECT so.id, so.order_number, so.customer_id, c.code, c.name,
 		       so.status::text, so.total_amount, so.delivery_date::text, so.created_at,
 		       COALESCE(cl.credit_limit, 0) as credit_limit,
 		       COALESCE((SELECT SUM(CASE WHEN rl.ledger_type = 'debit' THEN rl.amount ELSE -rl.amount END)
 		                 FROM receivable_ledger rl WHERE rl.customer_id = so.customer_id), 0) as current_balance,
-		       so.notes, so.is_urgent
+		       so.notes, %s AS is_urgent
 		FROM sales_orders so
 		JOIN customers c ON c.id = so.customer_id
 		LEFT JOIN credit_limits cl ON cl.customer_id = so.customer_id
@@ -731,7 +757,7 @@ func (r *Repository) ListPendingApprovals(ctx context.Context) ([]map[string]int
 		     AND (cl.effective_to IS NULL OR cl.effective_to >= CURRENT_DATE)
 		WHERE so.status = 'pending_approval'
 		ORDER BY so.created_at DESC
-	`)
+	`, r.orderUrgentSelect(ctx)))
 	if err != nil {
 		return nil, err
 	}
@@ -977,13 +1003,13 @@ func (r *Repository) SearchOrders(ctx context.Context, q string, limit, offset i
 		return nil, 0, err
 	}
 
-	query := `
+	query := fmt.Sprintf(`
 		SELECT DISTINCT ON (so.id)
 		       so.id, so.order_number, so.customer_id, c.name, so.warehouse_id, so.status::text,
 		       COALESCE(so.cutoff_group, '')::text, so.delivery_date::text, so.total_amount, so.deposit_amount, so.total_weight_kg,
 		       so.atp_status, so.credit_status, so.created_at, oc.reject_reason,
 		       oc.status::text, t.id, COALESCE(v.plate_number, ''), COALESCE(d.full_name, ''),
-		       COALESCE(c.phone, ''), so.is_urgent
+		       COALESCE(c.phone, ''), %s AS is_urgent
 		FROM sales_orders so
 		JOIN customers c ON c.id = so.customer_id
 		LEFT JOIN order_confirmations oc ON oc.order_id = so.id
@@ -1001,7 +1027,7 @@ func (r *Repository) SearchOrders(ctx context.Context, q string, limit, offset i
 		)
 		ORDER BY so.id, so.created_at DESC
 		LIMIT $2 OFFSET $3
-	`
+	`, r.orderUrgentSelect(ctx))
 	rows, err := r.db.Query(ctx, query, likePattern, limit, offset)
 	if err != nil {
 		return nil, 0, err
