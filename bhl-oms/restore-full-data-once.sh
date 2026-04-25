@@ -8,6 +8,8 @@
 # ============================================================
 set -euo pipefail
 
+export PATH="/opt/homebrew/bin:/usr/local/bin:/Applications/Docker.app/Contents/Resources/bin:$PATH"
+
 BOLD="\033[1m"
 GREEN="\033[32m"
 RED="\033[31m"
