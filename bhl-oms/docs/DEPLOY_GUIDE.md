@@ -44,6 +44,30 @@ git push
 
 Khi đó workflow deploy mới kéo được file mới và `db-sync.sh` mới apply được xuống server.
 
+## 1.2 Nếu tôi muốn mang TOÀN BỘ data từ máy code sang server thì sao?
+
+Khi cần server có data giống hệt máy code, không dùng GitHub để sync DB trực tiếp. Thay vào đó:
+
+### Trên máy code
+
+```bash
+cd /duong-dan/Beer-HL
+bash bhl-oms/scripts/export-full-data-package.sh
+```
+
+Script sẽ tạo folder `usb-sync-YYYYMMDDTHHMMSS/` chứa:
+- `full-sync.dump`
+- `import-full-data-from-usb.sh`
+- `IMPORT_ON_MAC.command`
+- `README.txt`
+
+### Trên Mac mini/server
+
+1. Copy nguyên folder `usb-sync-...` vào project `Beer-HL`
+2. Chạy `IMPORT_ON_MAC.command` hoặc `bash import-full-data-from-usb.sh`
+
+Lưu ý: cách này sẽ **restore toàn bộ DB `bhl_prod`**, phù hợp khi muốn môi trường server giống hệt máy code. Script import có backup DB hiện tại trước khi restore.
+
 ### Tài khoản đăng nhập (sau khi seed):
 
 | Username | Mật khẩu | Vai trò | Ghi chú |

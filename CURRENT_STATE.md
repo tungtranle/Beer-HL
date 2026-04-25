@@ -25,6 +25,9 @@
 
 - Production server hiện chạy trên Mac mini qua Docker Compose file `bhl-oms/docker-compose.prod.yml`.
 - GitHub Actions self-hosted runner trên Mac mini tự deploy khi push lên `master`.
+- Có 2 cách đồng bộ data:
+  - sync master data/users qua `seed_master.sql` + `db-sync.sh`,
+  - restore full DB package qua `export-full-data-package.sh` và `import-full-data-from-usb.sh` khi cần server giống hệt máy code.
 - Sau mỗi deploy, workflow chạy script `bhl-oms/scripts/db-sync.sh` để:
   - tạo bảng `schema_migrations` nếu chưa có,
   - áp dụng các file `bhl-oms/migrations/[0-9]*.up.sql` chưa từng chạy,

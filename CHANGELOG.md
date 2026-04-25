@@ -13,6 +13,7 @@
 1. **`bhl-oms/scripts/db-sync.sh`** — script đồng bộ production DB sau deploy. Script tự tạo `schema_migrations`, chạy các migration `.up.sql` chưa áp dụng, rồi chạy `seed_master.sql`.
 2. **`bhl-oms/migrations/seed_master.sql`** — canonical master seed cho danh sách users hiện tại trên production.
 3. **`bhl-oms/scripts/export-users-seed.sh`** — script export danh sách users từ DB hiện tại ra `seed_master.sql`, để đưa thay đổi data từ máy code vào repo rồi mới deploy xuống server.
+4. **`bhl-oms/scripts/export-full-data-package.sh`** + **`bhl-oms/scripts/import-full-data-from-usb.sh`** — cặp script export/import full DB package qua USB khi cần mang toàn bộ data từ máy code sang Mac mini.
 
 #### Changed
 1. **GitHub Actions deploy workflow** gọi `db-sync.sh` sau khi restart services để server luôn có schema mới và danh sách users mới nhất.

@@ -7,6 +7,8 @@ Files:
 - `execute_migration.sh` — safe backup + instructions wrapper.
 - `db-sync.sh` — production-safe sync script: create `schema_migrations`, apply missing `.up.sql` migrations, then sync `seed_master.sql`.
 - `export-users-seed.sh` — export users từ DB hiện tại ra `bhl-oms/migrations/seed_master.sql` để commit/push lên GitHub.
+- `export-full-data-package.sh` — export toàn bộ DB `bhl_prod` ra package `usb-sync-...` để mang từ máy code sang Mac mini.
+- `import-full-data-from-usb.sh` — restore full dump package trên Mac mini, có backup DB hiện tại trước khi restore.
 
 Recommended for current production workflow:
 
@@ -23,6 +25,14 @@ bash bhl-oms/scripts/export-users-seed.sh
 ```
 
 Sau đó commit/push file `bhl-oms/migrations/seed_master.sql`. Đây là bước bắt buộc nếu muốn thay đổi data được đưa từ máy code lên GitHub rồi xuống server.
+
+Nếu muốn mang **toàn bộ data** từ máy code sang server, dùng:
+
+```bash
+bash bhl-oms/scripts/export-full-data-package.sh
+```
+
+Script này tạo folder `usb-sync-...` gồm `full-sync.dump`, `import-full-data-from-usb.sh`, `IMPORT_ON_MAC.command` và `README.txt`.
 
 Quick start (on a machine with network access to the Postgres instance):
 
