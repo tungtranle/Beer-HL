@@ -4,15 +4,16 @@ import { useEffect, useState } from 'react'
 const COOKIE_KEY = 'bhl_consent_analytics'
 
 export default function CookieConsent() {
-  const [accepted, setAccepted] = useState<boolean>(() => {
-    try { return typeof window !== 'undefined' && localStorage.getItem(COOKIE_KEY) === '1' } catch { return false }
-  })
+  // mounted=false on server → no hydration mismatch; banner shows only after client hydration
+  const [mounted, setMounted] = useState(false)
+  const [accepted, setAccepted] = useState(false)
 
   useEffect(() => {
-    try { if (typeof window !== 'undefined') setAccepted(localStorage.getItem(COOKIE_KEY) === '1') } catch {}
+    setMounted(true)
+    try { setAccepted(localStorage.getItem(COOKIE_KEY) !== null) } catch {}
   }, [])
 
-  if (accepted) return null
+  if (!mounted || accepted) return null
 
   function accept() {
     try {
@@ -30,11 +31,11 @@ export default function CookieConsent() {
   }
 
   return (
-    <div className="fixed bottom-4 left-4 right-4 z-50 flex items-center justify-between bg-white border rounded-md p-3 shadow-md">
-      <div className="text-sm">Chúng tôi dùng cookie để cải thiện trải nghiệm. Cho phép thu thập dữ liệu phân tích?</div>
-      <div className="ml-4 flex gap-2">
-        <button onClick={decline} className="px-3 py-1 text-sm border rounded">Không</button>
-        <button onClick={accept} className="px-3 py-1 text-sm bg-amber-500 text-white rounded">Đồng ý</button>
+    <div className="fixed bottom-4 left-4 right-4 z-[9999] flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 bg-white border rounded-lg p-4 shadow-lg">
+      <p className="text-sm text-gray-700">Chúng tôi dùng cookie để cải thiện trải nghiệm. Cho phép thu thập dữ liệu phân tích?</p>
+      <div className="flex gap-2 shrink-0">
+        <button onClick={decline} className="flex-1 sm:flex-none px-4 py-2 text-sm border rounded-md hover:bg-gray-50 transition-colors">Không</button>
+        <button onClick={accept} className="flex-1 sm:flex-none px-4 py-2 text-sm bg-amber-500 text-white rounded-md hover:bg-amber-600 transition-colors">Đồng ý</button>
       </div>
     </div>
   )
