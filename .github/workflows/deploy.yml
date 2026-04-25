@@ -34,6 +34,11 @@ jobs:
       - name: Restart services
         run: docker compose -f bhl-oms/docker-compose.prod.yml up -d
 
+      - name: Sync DB (migrations + master data)
+        run: |
+          sleep 8
+          bash bhl-oms/scripts/db-sync.sh
+
       - name: Cleanup old images
         run: docker image prune -f
 
