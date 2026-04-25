@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"sort"
 	"strconv"
+	"sync"
 	"time"
 
 	"bhl-oms/internal/config"
@@ -913,9 +914,26 @@ func (s *Service) ApproveOrder(ctx context.Context, orderID, approvedBy uuid.UUI
 	return nil
 }
 
+// orderSeq is a per-day atomic counter — guarantees unique order numbers
+// within a single process instance (DB UNIQUE constraint is the final guard).
+var (
+	orderSeqMu   sync.Mutex
+	orderSeqDate string
+	orderSeqN    int
+)
+
 func generateOrderNumber() string {
 	now := time.Now()
-	return fmt.Sprintf("SO-%s-%04d", now.Format("20060102"), now.UnixNano()%10000)
+	date := now.Format("20060102")
+	orderSeqMu.Lock()
+	if orderSeqDate != date {
+		orderSeqDate = date
+		orderSeqN = 0
+	}
+	orderSeqN++
+	n := orderSeqN
+	orderSeqMu.Unlock()
+	return fmt.Sprintf("SO-%s-%04d", date, n)
 }
 
 func formatVND(amount float64) string {

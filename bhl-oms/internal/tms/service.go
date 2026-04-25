@@ -2297,6 +2297,12 @@ func (s *Service) RecordPayment(ctx context.Context, userID, tripID, stopID uuid
 		return nil, fmt.Errorf("số tiền phải lớn hơn 0")
 	}
 
+	// Check for duplicate payment on this stop
+	existingPayments, err := s.repo.GetPaymentsByStopID(ctx, stopID)
+	if err == nil && len(existingPayments) > 0 {
+		return nil, fmt.Errorf("điểm giao này đã được ghi nhận thanh toán")
+	}
+
 	// Get order_id from shipment
 	var orderID *uuid.UUID
 	if stop.ShipmentID != nil {
