@@ -14,7 +14,14 @@ YELLOW="\033[33m"
 BLUE="\033[34m"
 NC="\033[0m"
 
-SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+if [ -n "${BHL_DEPLOY_DIR:-}" ] && [ -d "$BHL_DEPLOY_DIR/.git" ]; then
+    SCRIPT_DIR="$BHL_DEPLOY_DIR"
+elif [ -d "$(pwd)/.git" ]; then
+    SCRIPT_DIR="$(pwd)"
+else
+    SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+fi
+
 cd "$SCRIPT_DIR"
 
 # Tự phát hiện compose file

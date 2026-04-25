@@ -209,6 +209,7 @@ Write-Host ""
 
 $remoteCommand = @(
     "cd '$serverPath'"
+    "export BHL_DEPLOY_DIR='$serverPath'"
     "chmod +x '$remoteScriptPath'"
     "bash '$remoteScriptPath'"
 ) -join "; "
