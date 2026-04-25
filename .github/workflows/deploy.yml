@@ -68,6 +68,21 @@ jobs:
           echo "Build xong"
           rm -rf "$STUB_DIR" || true
 
+      - name: Ensure SSL certs exist
+        run: |
+          SSL_DIR="$GITHUB_WORKSPACE/$PROJECT_DIR/nginx/ssl"
+          mkdir -p "$SSL_DIR"
+          if [ ! -f "$SSL_DIR/fullchain.pem" ] || [ ! -f "$SSL_DIR/privkey.pem" ]; then
+            echo "SSL certs missing, generating self-signed..."
+            openssl req -x509 -nodes -days 3650 -newkey rsa:2048 \
+              -keyout "$SSL_DIR/privkey.pem" \
+              -out "$SSL_DIR/fullchain.pem" \
+              -subj '/C=VN/ST=QuangNinh/L=HaLong/O=BHL/CN=bhl.symper.us'
+            echo "Self-signed cert generated"
+          else
+            echo "SSL certs already exist, skipping"
+          fi
+
       - name: Restart services
         run: docker compose -f $PROJECT_DIR/docker-compose.prod.yml up -d
 
