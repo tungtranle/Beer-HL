@@ -30,6 +30,7 @@
   - áp dụng các file `bhl-oms/migrations/[0-9]*.up.sql` chưa từng chạy,
   - áp dụng `bhl-oms/migrations/seed_master.sql` để đồng bộ danh sách users master.
 - `seed_master.sql` là nguồn sự thật cho users/master data cần giữ đồng bộ giữa máy code và server.
+- Nếu danh sách users được sửa trực tiếp trong DB đang dùng làm chuẩn, chạy `bash bhl-oms/scripts/export-users-seed.sh` để export ngược DB đó ra `seed_master.sql`, rồi commit/push lên GitHub.
 - Đồng bộ users dùng `ON CONFLICT (username) DO UPDATE`, có chủ ý **không** ghi đè `password_hash`, nên người dùng đã đổi mật khẩu trên server sẽ không bị reset khi deploy.
 
 ---

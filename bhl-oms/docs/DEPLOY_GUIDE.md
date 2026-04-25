@@ -30,6 +30,20 @@ Script này sẽ:
 - không xóa orders/trips/payments đang có trên production,
 - không ghi đè mật khẩu nếu user đã đổi mật khẩu trên server.
 
+## 1.1 Nếu tôi sửa users trên máy local thì làm sao server biết?
+
+GitHub **không đọc được database** trên máy local. Muốn server biết thay đổi users/master data, cần export dữ liệu đó thành file trong repo trước:
+
+```bash
+cd /Users/tungtranle/Projects/Beer-HL
+bash bhl-oms/scripts/export-users-seed.sh
+git add bhl-oms/migrations/seed_master.sql
+git commit -m "chore: sync users seed from local db"
+git push
+```
+
+Khi đó workflow deploy mới kéo được file mới và `db-sync.sh` mới apply được xuống server.
+
 ### Tài khoản đăng nhập (sau khi seed):
 
 | Username | Mật khẩu | Vai trò | Ghi chú |

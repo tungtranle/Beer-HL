@@ -61,6 +61,7 @@ Trong giai đoạn sản phẩm còn thay đổi liên tục, production không 
 
 - File nguồn chuẩn: `bhl-oms/migrations/seed_master.sql`
 - Script chạy sau deploy: `bhl-oms/scripts/db-sync.sh`
+- Script export ngược từ DB ra repo: `bhl-oms/scripts/export-users-seed.sh`
 - Phạm vi sync tự động:
   - schema migrations mới,
   - master users cần có mặt trên server.
@@ -71,6 +72,8 @@ Trong giai đoạn sản phẩm còn thay đổi liên tục, production không 
   - dữ liệu vận hành phát sinh trên production.
 
 Nguyên tắc: dùng seed idempotent (`ON CONFLICT DO UPDATE`) để đồng bộ cấu hình người dùng và master data, nhưng tránh xóa hoặc reset dữ liệu vận hành thực tế.
+
+Nếu dữ liệu chuẩn đang nằm trong DB local/dev thay vì trong file repo, phải export ngược DB đó ra `seed_master.sql` rồi mới commit/push. GitHub Actions không thể tự biết state trong database nếu state đó chưa được materialize thành file trong repository.
 
 ---
 

@@ -6,6 +6,7 @@ Files:
 - `rebuild_user_catalog.sql` — SQL helper to create `users_canonical`, preview chosen rows, and (commented) INSERT+swap steps. Includes `role_mapping` helper.
 - `execute_migration.sh` — safe backup + instructions wrapper.
 - `db-sync.sh` — production-safe sync script: create `schema_migrations`, apply missing `.up.sql` migrations, then sync `seed_master.sql`.
+- `export-users-seed.sh` — export users từ DB hiện tại ra `bhl-oms/migrations/seed_master.sql` để commit/push lên GitHub.
 
 Recommended for current production workflow:
 
@@ -14,6 +15,14 @@ bash bhl-oms/scripts/db-sync.sh
 ```
 
 Use this after each deploy when you need server schema + users/master data to match the repository without touching operational data.
+
+Nếu users/master data đang được chỉnh trực tiếp trong DB local/dev, chạy thêm:
+
+```bash
+bash bhl-oms/scripts/export-users-seed.sh
+```
+
+Sau đó commit/push file `bhl-oms/migrations/seed_master.sql`. Đây là bước bắt buộc nếu muốn thay đổi data được đưa từ máy code lên GitHub rồi xuống server.
 
 Quick start (on a machine with network access to the Postgres instance):
 

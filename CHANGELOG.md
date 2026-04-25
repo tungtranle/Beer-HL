@@ -12,6 +12,7 @@
 #### Added
 1. **`bhl-oms/scripts/db-sync.sh`** — script đồng bộ production DB sau deploy. Script tự tạo `schema_migrations`, chạy các migration `.up.sql` chưa áp dụng, rồi chạy `seed_master.sql`.
 2. **`bhl-oms/migrations/seed_master.sql`** — canonical master seed cho danh sách users hiện tại trên production.
+3. **`bhl-oms/scripts/export-users-seed.sh`** — script export danh sách users từ DB hiện tại ra `seed_master.sql`, để đưa thay đổi data từ máy code vào repo rồi mới deploy xuống server.
 
 #### Changed
 1. **GitHub Actions deploy workflow** gọi `db-sync.sh` sau khi restart services để server luôn có schema mới và danh sách users mới nhất.
@@ -21,6 +22,7 @@
 1. Chạy trực tiếp `bash bhl-oms/scripts/db-sync.sh` trên server: pass.
 2. Chạy lần 2: `0` migration mới, `41` migration đã có, seed users tiếp tục pass.
 3. Kết quả users active sau sync: accountant `3`, admin `2`, dispatcher `3`, driver `70`, dvkh `2`, management `1`, security `2`, warehouse_handler `2`, workshop `1`.
+4. Chạy `bash bhl-oms/scripts/export-users-seed.sh` sinh lại `seed_master.sql`, sau đó apply file vừa sinh vào DB hiện tại: pass (`INSERT 0 86`, `COMMIT`).
 
 #### Docs Updated
 1. `CURRENT_STATE.md`
