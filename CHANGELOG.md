@@ -7,6 +7,24 @@
 
 ## [Unreleased] — Phase 6 + UX Overhaul + Phase 8 Fleet & Driver + **Phase 9 WMS Pallet/QR/Bin/Cycle Count COMPLETE (15/15)** + **Sprint 1 World-Class (F2/F3/F7/H4/TD-020) GO LIVE** + **Sprint UX-1 World-Class Design System** + **Sprint UX-2 Dashboard Pages Redesign (ALL DONE)** + **Sprint UX-3 Pagination & Filter Audit (in progress)**
 
+### 2026-04-25 — Session: Runner retarget + production stability hardening
+
+#### Changed
+1. **`setup-runner.sh`** hiện hỗ trợ 3 tình huống production quan trọng: tự lấy registration token qua GitHub CLI, tự chuyển SSH remote alias về URL GitHub chuẩn, và tự re-register runner nếu `.runner` còn trỏ tới repo/account cũ.
+2. **`.github/workflows/deploy.yml`** được harden để chỉ chạy trên runner có labels `self-hosted, macOS, production`, serialize deploy bằng `concurrency`, và smoke-test thêm public login page `https://bhl.symper.us/login` sau khi API healthy.
+
+#### Verified
+1. Re-register runner từ `tungtl/Beer-HL` sang `tungtranle/Beer-HL`: pass.
+2. GitHub repo mới thấy runner `mac-mini-prod` ở trạng thái `online`, labels `self-hosted`, `macOS`, `ARM64`, `production`.
+3. `setup-runner.sh https://github.com/tungtranle/Beer-HL` tự lấy token qua `gh` và cài lại LaunchAgent mới: pass.
+
+#### Docs Updated
+1. `CURRENT_STATE.md`
+2. `CHANGELOG.md`
+3. `INF_BHL_OMS_TMS_WMS.md`
+4. `bhl-oms/docs/DEPLOY_GUIDE.md`
+5. `AI_LESSONS.md`
+
 ### 2026-04-25 — Session: Production DB sync for master data/users
 
 #### Added

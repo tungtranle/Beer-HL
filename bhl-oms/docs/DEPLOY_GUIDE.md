@@ -2,7 +2,43 @@
 
 > **Dành cho:** Người quản lý server (non-tech friendly)  
 > **Server:** bhl.symper.us  
-> **Cập nhật:** 23/03/2026
+> **Cập nhật:** 25/04/2026
+
+
+## 0. Auto-deploy hiện tại
+
+- Repo production hiện dùng GitHub Actions workflow `.github/workflows/deploy.yml` chạy trên self-hosted runner `mac-mini-prod` với labels `self-hosted`, `macOS`, `production`.
+- Nếu đổi tài khoản GitHub hoặc đổi repo, **runner cũ không tự chuyển theo**. Cần chạy lại:
+
+```bash
+cd /Users/tungtranle/Projects/Beer-HL
+bash setup-runner.sh https://github.com/tungtranle/Beer-HL
+```
+
+- Script trên sẽ tự lấy registration token qua `gh` nếu máy đã `gh auth login`, và tự re-register runner nếu file `.runner` còn trỏ tới repo cũ.
+
+## 0.1 Ổn định Mac mini để bhl.symper.us không bị chết khi ngủ máy
+
+Hiện production đang chạy trực tiếp trên Mac mini, nên ngoài code còn phụ thuộc cấu hình nguồn điện của macOS.
+
+### Bắt buộc làm trên máy server
+
+```bash
+sudo pmset -a sleep 0 displaysleep 30 disksleep 0 autorestart 1 powernap 0
+```
+
+Ý nghĩa:
+- `sleep 0`: không cho Mac sleep khi cắm điện
+- `autorestart 1`: tự bật lại sau mất điện
+- `powernap 0`: tránh trạng thái sleep nửa vời
+
+### Bắt buộc kiểm tra thêm trong macOS GUI
+
+1. System Settings → Lock Screen → Turn display off: chọn thời gian dài hoặc Never.
+2. System Settings → Energy / Battery → bật wake for network access nếu có.
+3. System Settings → Users & Groups → Login Options → bật auto-login cho user chạy Docker Desktop.
+
+> Nếu FileVault đang bật, macOS có thể không cho auto-login. Trong trường hợp đó, giải pháp ổn định hơn là chuyển production sang Linux server hoặc thêm máy dự phòng/UPS.
 
 ---
 

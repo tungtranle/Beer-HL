@@ -4,10 +4,15 @@ on:
   push:
     branches: [ "master" ]
 
+concurrency:
+  group: production-deploy
+  cancel-in-progress: false
+
 jobs:
   deploy:
     name: Deploy on Mac mini
-    runs-on: self-hosted
+    runs-on: [self-hosted, macOS, production]
+    timeout-minutes: 30
 
     env:
       PATH: /opt/homebrew/bin:/opt/homebrew/sbin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin
@@ -56,7 +61,11 @@ jobs:
             if curl -sf http://localhost:8080/health > /dev/null 2>&1; then
               echo "API healthy - Deploy thanh cong!"
               docker compose -f bhl-oms/docker-compose.prod.yml ps
-              exit 0
+              if curl -skf https://bhl.symper.us/login > /dev/null 2>&1; then
+                echo "Public login page healthy"
+                exit 0
+              fi
+              echo "API healthy nhưng public login page chua pass"
             fi
             echo "Thu $i/5 - doi them 5s..."
             sleep 5

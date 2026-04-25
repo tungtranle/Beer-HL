@@ -24,7 +24,8 @@
 ## Vận hành Production
 
 - Production server hiện chạy trên Mac mini qua Docker Compose file `bhl-oms/docker-compose.prod.yml`.
-- GitHub Actions self-hosted runner trên Mac mini tự deploy khi push lên `master`.
+- GitHub Actions self-hosted runner trên Mac mini tự deploy khi push lên `master`, dùng labels `self-hosted`, `macOS`, `production`.
+- `setup-runner.sh` hiện có thể tự lấy registration token qua `gh`, đồng thời tự re-register runner nếu máy đang còn trỏ tới repo/account GitHub cũ.
 - Có 2 cách đồng bộ data:
   - sync master data/users qua `seed_master.sql` + `db-sync.sh`,
   - restore full DB package qua `export-full-data-package.sh` và `import-full-data-from-usb.sh` khi cần server giống hệt máy code.
@@ -35,6 +36,7 @@
 - `seed_master.sql` là nguồn sự thật cho users/master data cần giữ đồng bộ giữa máy code và server.
 - Nếu danh sách users được sửa trực tiếp trong DB đang dùng làm chuẩn, chạy `bash bhl-oms/scripts/export-users-seed.sh` để export ngược DB đó ra `seed_master.sql`, rồi commit/push lên GitHub.
 - Đồng bộ users dùng `ON CONFLICT (username) DO UPDATE`, có chủ ý **không** ghi đè `password_hash`, nên người dùng đã đổi mật khẩu trên server sẽ không bị reset khi deploy.
+- Điều kiện ổn định cho Mac mini production: cần tắt system sleep khi cắm điện, bật auto-restart sau mất điện, và bật auto-login cho user chạy Docker Desktop/runner; nếu không `bhl.symper.us` có thể down dù code/container vẫn đúng.
 
 ---
 

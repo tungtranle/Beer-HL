@@ -46,6 +46,7 @@
 | L-33 | GitHub Actions self-hosted trên macOS chạy qua LaunchAgent có thể không truy cập được Docker credential helper trong Keychain. Nếu build Docker fail rất nhanh ở bước pull metadata, phải kiểm tra `credsStore`/Keychain trước khi debug code build | Runner production trên Mac mini |
 | L-34 | GitHub/repo không tự biết dữ liệu đang nằm trong DB local. Nếu master data chỉnh trực tiếp trong DB, phải có script export DB -> file seed trong repo rồi mới push/deploy được | DB sync users/master data |
 | L-35 | Next.js `rewrites()` cho `/api/*` là build-time, không phải chỉ runtime env. Nếu Docker build của web không truyền `INTERNAL_API_ORIGIN`/`NEXT_PUBLIC_API_URL`, image sẽ bake `localhost` và `/api/auth/login` sẽ 500 dù `/v1/auth/login` vẫn 200 | Production login proxy fix 25/04 |
+| L-36 | Self-hosted runner GitHub bị khóa theo repo lúc đăng ký. Đổi account/remote KHÔNG tự chuyển runner; phải kiểm tra `.runner`/`gitHubUrl`, re-register runner, rồi xác nhận repo mới thấy runner `online` trước khi tin vào workflow `queued` | Migration từ `tungtl/Beer-HL` sang `tungtranle/Beer-HL` |
 
 ## 🟢 Đánh giá / Scope (khi plan)
 

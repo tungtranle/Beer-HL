@@ -372,6 +372,8 @@ volumes:
 
 ## 4.1 GitHub Actions
 
+> Ghi chú vận hành trên Mac mini: self-hosted runner được GitHub gắn với repo ngay lúc đăng ký. Nếu đổi owner/repo GitHub, phải chạy lại `setup-runner.sh` để re-register runner sang repo mới; chỉ đổi `git remote origin` là chưa đủ. Với model chạy Docker Desktop + LaunchAgent, cần thêm 3 cấu hình hệ điều hành để production ổn định: tắt system sleep khi cắm điện, bật auto-restart sau mất điện, và bật auto-login cho user đang chạy Docker Desktop/runner.
+
 ```yaml
 # .github/workflows/ci.yml
 name: CI/CD Pipeline
