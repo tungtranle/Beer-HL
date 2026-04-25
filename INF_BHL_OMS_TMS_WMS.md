@@ -239,6 +239,8 @@ services:
       - .env.prod
     restart: always
 
+> Lưu ý vận hành: với Next.js, rewrite `/api/*` được resolve ngay lúc build image chứ không chờ runtime. Pipeline build `bhl-web` bắt buộc phải truyền `NEXT_PUBLIC_API_URL`, `INTERNAL_API_ORIGIN`, `INTERNAL_OSRM_ORIGIN`; nếu không image sẽ bake `localhost` và toàn bộ call `/api/*` sau reverse proxy có thể lỗi `500` dù API `/v1/*` vẫn healthy.
+
   vrp:
     image: ${REGISTRY}/bhl-vrp:${TAG:-latest}
     expose:

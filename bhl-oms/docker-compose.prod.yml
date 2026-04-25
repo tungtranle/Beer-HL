@@ -54,6 +54,9 @@ services:
       dockerfile: Dockerfile
       args:
         - NEXT_PUBLIC_CLARITY_ID=wgqlli4s7j
+        - NEXT_PUBLIC_API_URL=http://api:8080
+        - INTERNAL_API_ORIGIN=http://api:8080
+        - INTERNAL_OSRM_ORIGIN=http://osrm:5000
     ports:
       - "3000:3000"
     environment:

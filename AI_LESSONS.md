@@ -45,6 +45,7 @@
 | L-32 | **PHẢI test TỪNG feature ngay sau khi code.** Viết xong → compile → chạy server → gọi API/load page → confirm OK → rồi mới làm tiếp. KHÔNG batch nhiều features rồi test 1 lần. KHÔNG nói "xong" khi chưa test. Xem `.github/instructions/test-after-code.instructions.md` | Phase 8: viết 30 tasks, nhiều file có lỗi nhưng không phát hiện vì không test từng phần |
 | L-33 | GitHub Actions self-hosted trên macOS chạy qua LaunchAgent có thể không truy cập được Docker credential helper trong Keychain. Nếu build Docker fail rất nhanh ở bước pull metadata, phải kiểm tra `credsStore`/Keychain trước khi debug code build | Runner production trên Mac mini |
 | L-34 | GitHub/repo không tự biết dữ liệu đang nằm trong DB local. Nếu master data chỉnh trực tiếp trong DB, phải có script export DB -> file seed trong repo rồi mới push/deploy được | DB sync users/master data |
+| L-35 | Next.js `rewrites()` cho `/api/*` là build-time, không phải chỉ runtime env. Nếu Docker build của web không truyền `INTERNAL_API_ORIGIN`/`NEXT_PUBLIC_API_URL`, image sẽ bake `localhost` và `/api/auth/login` sẽ 500 dù `/v1/auth/login` vẫn 200 | Production login proxy fix 25/04 |
 
 ## 🟢 Đánh giá / Scope (khi plan)
 
