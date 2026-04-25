@@ -32,6 +32,34 @@
 4. `bhl-oms/docs/DEPLOY_GUIDE.md`
 5. `bhl-oms/scripts/README.md`
 
+### 2026-04-25 — Session: One-click full data sync lên Mac Mini + code-only deploy wrapper
+
+#### Added — Non-tech deploy tooling
+- `bhl-oms/sync-full-data-once.ps1`: one-click workflow cho **lần sync dữ liệu này**. Script tự deploy code, export full dump từ local Docker Postgres `bhl_dev`, upload dump lên server, rồi SSH chạy restore.
+- `bhl-oms/restore-full-data-once.sh`: script chạy trên Mac Mini để backup `bhl_prod` hiện tại, restore full dump mới, restart `api/web/redis`, flush cache và health-check.
+- `bhl-oms/SYNC_FULL_DATA_TO_SERVER_ONCE.bat`: wrapper double-click cho user non-tech.
+- `bhl-oms/DEPLOY_CODE_ONLY.bat`: wrapper double-click cho workflow hằng ngày sau này.
+
+#### Changed — Safety / repo hygiene
+- `bhl-oms/.gitignore`: thêm ignore cho `.deploy-config.json`, thư mục `backups/`, và `*.dump` để không push file cấu hình server hoặc dump dữ liệu lên GitHub.
+
+#### Added — Simpler USB workflow
+- `bhl-oms/export-full-data-to-usb.ps1`: gom full local DB thành package để copy qua USB.
+- `bhl-oms/EXPORT_DATA_TO_USB.bat`: wrapper double-click trên Windows.
+- `bhl-oms/import-full-data-from-usb.sh`: restore full dump từ package USB trên Mac Mini.
+- `bhl-oms/IMPORT_ON_MAC.command`: wrapper double-click trên Mac.
+- Mục tiêu: bỏ nhu cầu kết nối SSH giữa hai máy khi chỉ cần sync data một lần để test.
+
+#### Verified
+- VS Code diagnostics: `sync-full-data-once.ps1`, `restore-full-data-once.sh`, `deploy.ps1` — không có syntax errors.
+- PowerShell parser: `sync-full-data-once.ps1` — pass.
+- `deploy.ps1` đã được reuse làm nền cho workflow code-only deploy.
+
+#### Docs Updated
+- `CURRENT_STATE.md`
+- `INF_BHL_OMS_TMS_WMS.md`
+- `CHANGELOG.md`
+
 ### 2026-05-02 — Session: Pagination + Filter Audit (orders/trips/customers + driver monthly stats fix)
 
 #### Fixed — Critical UX bugs reported by user

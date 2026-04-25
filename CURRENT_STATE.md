@@ -1,6 +1,6 @@
 # CURRENT_STATE — BHL OMS-TMS-WMS
 
-> **Cập nhật:** 25/04/2026 (session 25/04 — production auto deploy + DB sync master data)  
+> **Cập nhật:** 25/04/2026 (session 25/04 — production auto deploy + DB sync master data + one-click full data sync workflow)  
 > **Mục đích:** Mô tả trạng thái THỰC TẾ của hệ thống. AI đọc file này để biết code đang làm gì, **không** phải spec nói gì.  
 > **Quy tắc:** Khi code thay đổi → cập nhật file này. Nếu CURRENT_STATE không khớp code → file này sai.
 
@@ -418,6 +418,14 @@
 
 - Scripts added to inspect and rebuild the `users` catalog: [bhl-oms/scripts/rebuild_user_catalog.sql](bhl-oms/scripts/rebuild_user_catalog.sql), [bhl-oms/scripts/run_user_anomaly_report.py](bhl-oms/scripts/run_user_anomaly_report.py), and helper wrappers in `bhl-oms/scripts/`.
 - Progress: anomaly-report generation and mapping helpers prepared; migration INSERT/COMMIT blocks are commented for manual review and staging apply. Follow `bhl-oms/scripts/README.md` for steps.
+
+## Non-tech deploy helpers (2026-04-25)
+
+- Added code-only deploy helper: `bhl-oms/deploy.ps1` + `bhl-oms/DEPLOY_CODE_ONLY.bat`.
+- Added one-time full data sync helper: `bhl-oms/sync-full-data-once.ps1` + `bhl-oms/SYNC_FULL_DATA_TO_SERVER_ONCE.bat`.
+- Added server-side restore helper: `bhl-oms/restore-full-data-once.sh`.
+- Added USB transfer workflow for non-tech use: `bhl-oms/export-full-data-to-usb.ps1` + `bhl-oms/EXPORT_DATA_TO_USB.bat` on Windows, then `bhl-oms/IMPORT_ON_MAC.command` + `bhl-oms/import-full-data-from-usb.sh` on Mac.
+- Workflow intent: first sync current local full DB lên Mac Mini để test, các lần sau chỉ deploy code qua Git + SSH, không restore full data nữa.
 - `zalo_confirm_status` — 5 states
 - `payment_status` — 4 states
 - `dlq_status` — 4 states (pending, retrying, resolved, failed) — NEW

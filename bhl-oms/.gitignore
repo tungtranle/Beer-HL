@@ -26,3 +26,8 @@ Thumbs.db
 # Temp
 _keygen.go
 *.log
+
+# Deploy helpers
+.deploy-config.json
+backups/
+*.dump
