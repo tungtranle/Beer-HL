@@ -1,0 +1,249 @@
+name: QA — Business Rules & Synthetic Tests
+
+on:
+  push:
+    branches: [ "master" ]
+    paths:
+      - "bhl-oms/**"
+      - ".github/workflows/qa.yml"
+  pull_request:
+    branches: [ "master" ]
+    paths:
+      - "bhl-oms/**"
+  # Chạy tự động mỗi đêm lúc 02:00 AM (giờ Việt Nam = UTC+7 → 19:00 UTC)
+  schedule:
+    - cron: '0 19 * * *'
+  workflow_dispatch:
+    inputs:
+      run_e2e:
+        description: 'Chạy Playwright E2E tests?'
+        required: false
+        default: 'true'
+        type: choice
+        options: ['true', 'false']
+
+concurrency:
+  group: qa-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # ─────────────────────────────────────────────────────
+  # JOB 1: Code Quality Check (< 30 giây)
+  # Chạy trước tiên — block nhanh nếu có pattern nguy hiểm
+  # ─────────────────────────────────────────────────────
+  code-quality:
+    name: "Gate A — Code Quality Check"
+    runs-on: [self-hosted, macOS, production]
+    timeout-minutes: 5
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Check silent error patterns (LH-03)
+        run: |
+          echo "Kiểm tra .catch(console.error) — LH-03"
+          COUNT=$(grep -r "\.catch(console\." bhl-oms/web/src --include="*.ts" --include="*.tsx" | wc -l | tr -d ' ')
+          echo "Tìm thấy: $COUNT"
+          if [ "$COUNT" -gt "0" ]; then
+            echo "❌ FAIL: Có $COUNT chỗ dùng .catch(console.*) — cần dùng handleError()"
+            grep -r "\.catch(console\." bhl-oms/web/src --include="*.ts" --include="*.tsx" -n
+            exit 1
+          fi
+          echo "✅ PASS: Không có silent catch"
+
+      - name: Check parseFloat for money (LH-02)
+        run: |
+          echo "Kiểm tra parseFloat/parseInt cho tiền — LH-02"
+          COUNT=$(grep -r "parseFloat\|parseInt" bhl-oms/web/src --include="*.ts" --include="*.tsx" | grep -i "price\|amount\|total\|payment\|vnd\|tien" | wc -l | tr -d ' ')
+          echo "Tìm thấy: $COUNT"
+          if [ "$COUNT" -gt "0" ]; then
+            echo "❌ FAIL: Có $COUNT chỗ dùng parseFloat/parseInt cho tiền — dùng safeParseVND()"
+            grep -r "parseFloat\|parseInt" bhl-oms/web/src --include="*.ts" --include="*.tsx" | grep -i "price\|amount\|total\|payment\|vnd\|tien" -n
+            exit 1
+          fi
+          echo "✅ PASS: Không có parseFloat cho tiền"
+
+      - name: Check safeParseVND exists (LH-02 utility)
+        run: |
+          if [ ! -f "bhl-oms/web/src/lib/safeParseVND.ts" ]; then
+            echo "❌ FAIL: safeParseVND.ts bị xóa hoặc di chuyển"
+            exit 1
+          fi
+          echo "✅ PASS: safeParseVND.ts tồn tại"
+
+      - name: Notify Telegram on failure
+        if: failure()
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+        run: |
+          MESSAGE="❌ <b>BHL QA — Gate A FAILED</b>%0ABranch: ${{ github.ref_name }}%0ACommit: ${{ github.sha }}%0AJob: Code Quality Check%0A%0A<a href='${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}'>Xem chi tiết</a>"
+          curl -s -X POST "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" \
+            -d "chat_id=${TELEGRAM_CHAT_ID}&text=${MESSAGE}&parse_mode=HTML" > /dev/null || true
+
+  # ─────────────────────────────────────────────────────
+  # JOB 2: API Business Rule Tests (Bruno)
+  # Chạy sau code-quality, cần backend đang chạy
+  # ─────────────────────────────────────────────────────
+  api-tests:
+    name: "Gate B — Business Rule API Tests"
+    runs-on: [self-hosted, macOS, production]
+    needs: code-quality
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Check backend health
+        run: |
+          echo "Chờ backend healthy..."
+          for i in 1 2 3 4 5; do
+            if curl -sf http://localhost:8080/health > /dev/null 2>&1; then
+              echo "✅ Backend healthy"
+              break
+            fi
+            echo "Lần $i/5 — đợi 5s..."
+            sleep 5
+          done
+          curl -sf http://localhost:8080/health || { echo "❌ Backend không healthy"; exit 1; }
+
+      - name: Install Bruno CLI (nếu chưa có)
+        run: |
+          if ! command -v bru &> /dev/null; then
+            echo "Cài Bruno CLI..."
+            npm install -g @usebruno/cli 2>&1 | tail -5
+          fi
+          bru --version
+
+      - name: Run API Business Rule Tests
+        working-directory: bhl-oms/tests/api/business-rules
+        run: |
+          echo "Chạy Bruno API tests..."
+          bru run . --env local --reporter-json ../../../test-results/api-results.json 2>&1 || EXIT_CODE=$?
+          echo "Exit code: ${EXIT_CODE:-0}"
+          # Hiển thị kết quả
+          if [ -f "../../../test-results/api-results.json" ]; then
+            python3 -c "
+          import json, sys
+          with open('../../../test-results/api-results.json') as f:
+              results = json.load(f)
+          passed = sum(1 for r in results if r.get('status') == 'pass')
+          failed = sum(1 for r in results if r.get('status') == 'fail')
+          print(f'  ✅ PASS: {passed}')
+          print(f'  ❌ FAIL: {failed}')
+          sys.exit(0 if failed == 0 else 1)
+          " 2>/dev/null || exit ${EXIT_CODE:-0}
+          fi
+
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: api-test-results-${{ github.run_number }}
+          path: bhl-oms/test-results/
+          retention-days: 14
+
+      - name: Notify Telegram on failure
+        if: failure()
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+        run: |
+          MESSAGE="❌ <b>BHL QA — Business Rules FAILED</b>%0ABranch: ${{ github.ref_name }}%0A%0AKiểm tra API test results: %0A<a href='${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}'>Xem chi tiết</a>"
+          curl -s -X POST "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" \
+            -d "chat_id=${TELEGRAM_CHAT_ID}&text=${MESSAGE}&parse_mode=HTML" > /dev/null || true
+
+  # ─────────────────────────────────────────────────────
+  # JOB 3: E2E Synthetic Tests (Playwright)
+  # Chỉ chạy theo schedule ban đêm hoặc manual trigger
+  # ─────────────────────────────────────────────────────
+  e2e-synthetic:
+    name: "Gate C — E2E Synthetic Tests"
+    runs-on: [self-hosted, macOS, production]
+    needs: api-tests
+    # Chỉ chạy khi: schedule (ban đêm) hoặc manual với run_e2e=true
+    if: |
+      github.event_name == 'schedule' ||
+      (github.event_name == 'workflow_dispatch' && github.event.inputs.run_e2e == 'true')
+    timeout-minutes: 20
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Playwright (nếu chưa có)
+        working-directory: bhl-oms/web
+        run: |
+          if [ ! -d "node_modules/@playwright" ]; then
+            echo "Cài Playwright..."
+            npm install --save-dev @playwright/test
+            npx playwright install chromium --with-deps
+          fi
+          npx playwright --version
+
+      - name: Run E2E Synthetic Tests
+        working-directory: bhl-oms/web
+        env:
+          PLAYWRIGHT_BASE_URL: http://localhost:3000
+          SYNTHETIC_DISPATCHER: dispatcher01
+          SYNTHETIC_DRIVER: driver70
+          SYNTHETIC_WAREHOUSE: thukho_hl01
+          SYNTHETIC_PASSWORD: demo123
+        run: |
+          npx playwright test tests/e2e \
+            --project=chromium \
+            --reporter=html,json \
+            --output=../../test-results/e2e/ \
+            2>&1 | tail -30
+
+      - name: Upload E2E results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: e2e-results-${{ github.run_number }}
+          path: bhl-oms/web/playwright-report/
+          retention-days: 14
+
+      - name: Notify Telegram on E2E result
+        if: always()
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          JOB_STATUS: ${{ job.status }}
+        run: |
+          if [ "$JOB_STATUS" = "success" ]; then
+            ICON="✅"; MSG="E2E Synthetic PASSED"
+          else
+            ICON="❌"; MSG="E2E Synthetic FAILED"
+          fi
+          MESSAGE="${ICON} <b>BHL QA — ${MSG}</b>%0ASchedule: $(date '+%d/%m/%Y %H:%M')%0A%0A<a href='${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}'>Xem chi tiết</a>"
+          curl -s -X POST "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" \
+            -d "chat_id=${TELEGRAM_CHAT_ID}&text=${MESSAGE}&parse_mode=HTML" > /dev/null || true
+
+  # ─────────────────────────────────────────────────────
+  # JOB 4: Summary — Gửi báo cáo tổng kết
+  # ─────────────────────────────────────────────────────
+  notify-summary:
+    name: "Tổng kết QA"
+    runs-on: [self-hosted, macOS, production]
+    needs: [code-quality, api-tests]
+    if: always() && github.event_name == 'push'
+    timeout-minutes: 3
+
+    steps:
+      - name: Send QA summary to Telegram
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          CODE_RESULT: ${{ needs.code-quality.result }}
+          API_RESULT: ${{ needs.api-tests.result }}
+        run: |
+          CODE_ICON=$([ "$CODE_RESULT" = "success" ] && echo "✅" || echo "❌")
+          API_ICON=$([ "$API_RESULT" = "success" ] && echo "✅" || echo "❌")
+          OVERALL=$([ "$CODE_RESULT" = "success" ] && [ "$API_RESULT" = "success" ] && echo "✅ ALL PASSED" || echo "❌ CÓ LỖI")
+
+          MESSAGE="${OVERALL}%0A%0A<b>BHL QA Report</b>%0ABranch: ${{ github.ref_name }}%0A%0A${CODE_ICON} Gate A: Code Quality%0A${API_ICON} Gate B: Business Rules%0A%0A<a href='${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}'>Chi tiết</a>"
+          curl -s -X POST "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" \
+            -d "chat_id=${TELEGRAM_CHAT_ID}&text=${MESSAGE}&parse_mode=HTML" > /dev/null || true

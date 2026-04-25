@@ -9,6 +9,7 @@ import { useGpsTracker } from '@/lib/useGpsTracker'
 import { useOnlineStatus } from '@/lib/useOnlineStatus'
 import { useDataRefresh } from '@/lib/notifications'
 import { queueOfflineRequest } from '@/lib/useOfflineSync'
+import { safeParseVNDSafe } from '@/lib/safeParseVND'
 
 interface Stop {
   id: string
@@ -1196,7 +1197,7 @@ export default function DriverTripDetailPage() {
                 <div>
                   <label className="text-sm font-medium text-gray-700">Số tiền thu</label>
                   <input type="number" value={paymentAmount || ''}
-                    onChange={e => setPaymentAmount(parseFloat(e.target.value) || 0)}
+                    onChange={e => setPaymentAmount(safeParseVNDSafe(e.target.value))}
                     className="w-full mt-1 px-3 py-2 border rounded-lg text-lg font-bold" />
                   <p className="text-xs text-gray-400 mt-1">
                     Tổng đơn: {selectedStop.order_amount?.toLocaleString('vi-VN')}đ

@@ -3,6 +3,10 @@ keys/
 
 # Environment
 .env
+.env.local
+.env.*.local
+web/.env.local
+web/.env.*.local
 
 # Go
 bin/
