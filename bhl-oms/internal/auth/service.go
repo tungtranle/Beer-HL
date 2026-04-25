@@ -39,6 +39,7 @@ type Claims struct {
 	Role         string      `json:"role"`
 	Permissions  []string    `json:"permissions"`
 	WarehouseIDs []uuid.UUID `json:"warehouse_ids"`
+	TokenType    string      `json:"token_type,omitempty"` // "access" or "refresh"
 }
 
 func NewService(db *pgxpool.Pool, privKeyPath, pubKeyPath string, accessTTL, refreshTTL time.Duration) (*Service, error) {
@@ -137,6 +138,11 @@ func (s *Service) RefreshToken(ctx context.Context, refreshToken string) (*Token
 		return nil, fmt.Errorf("invalid refresh token")
 	}
 
+	// Reject if caller passes an access token instead of refresh token
+	if claims.TokenType != "" && claims.TokenType != "refresh" {
+		return nil, fmt.Errorf("invalid refresh token")
+	}
+
 	var user domain.User
 	err = s.db.QueryRow(ctx, `
 		SELECT id, username, email, password_hash, full_name, role, permissions, warehouse_ids, is_active
@@ -186,6 +192,7 @@ func (s *Service) generateTokenPair(user *domain.User) (*TokenPair, error) {
 		Role:         user.Role,
 		Permissions:  user.Permissions,
 		WarehouseIDs: user.WarehouseIDs,
+		TokenType:    "access",
 	}
 
 	accessToken, err := jwt.NewWithClaims(jwt.SigningMethodRS256, accessClaims).SignedString(s.privateKey)
@@ -200,8 +207,9 @@ func (s *Service) generateTokenPair(user *domain.User) (*TokenPair, error) {
 			ExpiresAt: jwt.NewNumericDate(now.Add(s.refreshTTL)),
 			Issuer:    "bhl-oms",
 		},
-		UserID: user.ID,
-		Role:   user.Role,
+		UserID:    user.ID,
+		Role:      user.Role,
+		TokenType: "refresh",
 	}
 
 	refreshToken, err := jwt.NewWithClaims(jwt.SigningMethodRS256, refreshClaims).SignedString(s.privateKey)
