@@ -1,0 +1,166 @@
+[
+  {
+    "_meta": {
+      "description": "Golden dataset: Reconciliation Idempotency & Integrity — BHL OMS",
+      "invariants": [
+        "INV-RECON-01: Chạy reconciliation nhiều lần với cùng input → kết quả giống nhau (idempotent)",
+        "INV-RECON-02: Tổng tiền thu + hàng trả = Tổng tiền đơn hàng trong chuyến",
+        "INV-RECON-03: Reconciliation record chỉ được tạo 1 lần cho mỗi trip (no duplicate)",
+        "INV-RECON-04: Chênh lệch (discrepancy) phải được ghi nhận và không tự xóa",
+        "INV-RECON-05: Status recon phải là: pending → in_review → resolved (không bỏ bước)"
+      ],
+      "owner": "internal/reconciliation/service.go",
+      "related_scenarios": ["SC-08"]
+    }
+  },
+  {
+    "id": "RECON-001",
+    "scenario": "Chạy recon lần 2 với cùng trip → không tạo record trùng (idempotent)",
+    "invariant": "INV-RECON-03",
+    "input": {
+      "trip_id": "TRIP-TEST-001",
+      "run_count": 2,
+      "total_amount": 5000000,
+      "cash_collected": 5000000,
+      "returned_items": []
+    },
+    "expected": {
+      "recon_records_count": 1,
+      "status": "pending",
+      "discrepancy_amount": 0
+    }
+  },
+  {
+    "id": "RECON-002",
+    "scenario": "Thu đủ tiền, không có hàng trả → discrepancy = 0",
+    "invariant": "INV-RECON-02",
+    "input": {
+      "trip_id": "TRIP-TEST-002",
+      "orders": [
+        { "id": "O-001", "total": 2000000, "payment_type": "cash" },
+        { "id": "O-002", "total": 3000000, "payment_type": "cash" }
+      ],
+      "cash_collected": 5000000,
+      "returned_items_value": 0
+    },
+    "expected": {
+      "total_order_value": 5000000,
+      "total_collected": 5000000,
+      "discrepancy_amount": 0,
+      "status": "pending"
+    }
+  },
+  {
+    "id": "RECON-003",
+    "scenario": "Thu thiếu tiền → discrepancy dương, ghi nhận",
+    "invariant": "INV-RECON-04",
+    "input": {
+      "trip_id": "TRIP-TEST-003",
+      "orders": [
+        { "id": "O-001", "total": 3000000, "payment_type": "cash" }
+      ],
+      "cash_collected": 2500000,
+      "returned_items_value": 0
+    },
+    "expected": {
+      "total_order_value": 3000000,
+      "total_collected": 2500000,
+      "discrepancy_amount": 500000,
+      "discrepancy_type": "short",
+      "status": "pending",
+      "_invariant": "discrepancy phải được lưu, không được tự set về 0"
+    }
+  },
+  {
+    "id": "RECON-004",
+    "scenario": "Có hàng trả lại → giá trị hàng trả trừ vào total_collected",
+    "invariant": "INV-RECON-02",
+    "input": {
+      "trip_id": "TRIP-TEST-004",
+      "orders": [
+        { "id": "O-001", "total": 4000000, "payment_type": "cash" }
+      ],
+      "cash_collected": 2000000,
+      "returned_items": [
+        { "product_id": "SKU-001", "qty": 5, "unit_price": 400000 }
+      ],
+      "returned_items_value": 2000000
+    },
+    "expected": {
+      "total_order_value": 4000000,
+      "cash_collected": 2000000,
+      "returned_items_value": 2000000,
+      "effective_collected": 4000000,
+      "discrepancy_amount": 0,
+      "status": "pending"
+    },
+    "calculation_note": "effective_collected = cash + returned_value = 2M + 2M = 4M = total → no discrepancy"
+  },
+  {
+    "id": "RECON-005",
+    "scenario": "Status chỉ được đi theo chiều: pending → in_review → resolved",
+    "invariant": "INV-RECON-05",
+    "input": {
+      "transitions_to_test": [
+        { "from": "pending", "to": "in_review", "allowed": true },
+        { "from": "in_review", "to": "resolved", "allowed": true },
+        { "from": "pending", "to": "resolved", "allowed": false, "reason": "phải qua in_review trước" },
+        { "from": "resolved", "to": "pending", "allowed": false, "reason": "không được quay lui từ resolved" },
+        { "from": "resolved", "to": "in_review", "allowed": false, "reason": "không được quay lui" }
+      ]
+    },
+    "expected": {
+      "valid_transition_count": 2,
+      "invalid_transition_count": 3
+    }
+  },
+  {
+    "id": "RECON-006",
+    "scenario": "Chạy idempotency: cùng trip, cùng data → 2 lần chạy cho cùng kết quả",
+    "invariant": "INV-RECON-01",
+    "input": {
+      "trip_id": "TRIP-IDEMPOTENT-001",
+      "cash_collected": 1000000,
+      "returned_items_value": 0,
+      "total_order_value": 1000000
+    },
+    "expected": {
+      "run_1": { "discrepancy_amount": 0, "status": "pending" },
+      "run_2": { "discrepancy_amount": 0, "status": "pending" },
+      "results_identical": true
+    }
+  },
+  {
+    "id": "RECON-007",
+    "scenario": "Tổng tiền không bao giờ âm",
+    "invariant": "INV-RECON-02",
+    "input": {
+      "trip_id": "TRIP-TEST-007",
+      "cash_collected": -500000
+    },
+    "expected": {
+      "error": "INVALID_AMOUNT",
+      "cash_collected_non_negative": true
+    }
+  },
+  {
+    "id": "RECON-008",
+    "scenario": "Đơn COD (tiền mặt) vs chuyển khoản → phân loại đúng",
+    "invariant": "INV-RECON-02",
+    "input": {
+      "trip_id": "TRIP-TEST-008",
+      "orders": [
+        { "id": "O-001", "total": 2000000, "payment_type": "cash" },
+        { "id": "O-002", "total": 3000000, "payment_type": "bank_transfer" }
+      ],
+      "cash_collected": 2000000,
+      "bank_transfer_confirmed": 3000000
+    },
+    "expected": {
+      "cash_portion": 2000000,
+      "transfer_portion": 3000000,
+      "total_collected": 5000000,
+      "discrepancy_amount": 0
+    }
+  }
+]

@@ -1,0 +1,26 @@
+meta {
+  name: TRIP-03 - Dispatch non-existent trip
+  type: http
+  seq: 32
+}
+
+post {
+  url: {{base_url}}/v1/trips/00000000-0000-0000-0000-000000000000/dispatch
+  body: none
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{dispatcher_token}}
+}
+
+assert {
+  res.status: eq 404
+}
+
+docs {
+  ## POST /v1/trips/:id/dispatch — trip không tồn tại → 404
+  
+  State machine transition: planning → dispatched.
+  Không thể dispatch trip không tồn tại.
+}

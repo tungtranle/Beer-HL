@@ -1,0 +1,26 @@
+meta {
+  name: R-RBAC-07 - Driver cannot approve order (critical state machine)
+  type: http
+  seq: 13
+}
+
+post {
+  url: {{base_url}}/v1/orders/00000000-0000-0000-0000-000000000001/approve
+  body: none
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{driver_token}}
+}
+
+assert {
+  res.status: eq 403
+}
+
+docs {
+  ## RBAC: driver → POST /orders/:id/approve
+  
+  Driver KHÔNG được approve đơn hàng (chỉ accountant/admin).
+  Rule: INV-RBAC-01 (state machine access control)
+}

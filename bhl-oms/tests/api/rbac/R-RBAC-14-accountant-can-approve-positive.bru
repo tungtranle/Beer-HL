@@ -1,0 +1,31 @@
+meta {
+  name: R-RBAC-14 - Accountant can approve pending orders (positive test)
+  type: http
+  seq: 51
+}
+
+post {
+  url: {{base_url}}/v1/orders/00000000-0000-0000-0000-000000000001/approve
+  body: none
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{accountant_token}}
+}
+
+assert {
+  # 200 = approved OK
+  # 404 = order not found (test UUID, acceptable)
+  # 422 = order not in pending_approval state (acceptable)
+  # 403 = NOT acceptable — accountant MUST have access
+  res.status: in [200, 404, 422]
+}
+
+docs {
+  ## RBAC: accountant → POST /orders/:id/approve — POSITIVE TEST
+  
+  Kế toán PHẢI có quyền approve đơn hàng pending_approval.
+  HTTP 403 = lỗi RBAC — BUG cần fix ngay.
+  HTTP 404/422 = đơn test UUID không tồn tại — chấp nhận được.
+}

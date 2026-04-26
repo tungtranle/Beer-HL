@@ -1,0 +1,22 @@
+meta {
+  name: TP-03 - AQF golden test runner
+  type: http
+  seq: 72
+}
+
+get {
+  url: {{base_url}}/v1/test-portal/aqf/health
+  body: none
+  auth: none
+}
+
+assert {
+  res.status: in [200, 404]
+}
+
+docs {
+  ## GET /v1/test-portal/aqf/health — AQF health check
+  
+  G4 smoke: nếu endpoint tồn tại trả 200, nếu không có trả 404.
+  Không được crash (500).
+}

@@ -1,0 +1,34 @@
+meta {
+  name: RECON-02 - Create reconciliation record invalid payload
+  type: http
+  seq: 51
+}
+
+post {
+  url: {{base_url}}/v1/reconciliation
+  body: json
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{accountant_token}}
+}
+
+body:json {
+  {
+    "driver_id": "not-a-uuid",
+    "reconciliation_date": "invalid-date",
+    "total_collected": -999
+  }
+}
+
+assert {
+  res.status: in [400, 422]
+}
+
+docs {
+  ## POST /v1/reconciliation — payload không hợp lệ → 400/422
+  
+  Validation: UUID format, date format, total_collected >= 0.
+  Số tiền âm không hợp lệ nghiệp vụ.
+}

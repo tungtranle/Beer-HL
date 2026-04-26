@@ -1,0 +1,187 @@
+[
+  {
+    "_meta": {
+      "description": "Golden dataset: VRP Route Optimization Property Invariants — BHL TMS",
+      "invariants": [
+        "INV-VRP-01: Mỗi đơn hàng xuất hiện đúng 1 lần trong kết quả routing",
+        "INV-VRP-02: Tổng trọng lượng mỗi xe không vượt capacity",
+        "INV-VRP-03: Tổng số chuyến luôn <= số đơn hàng",
+        "INV-VRP-04: Khoảng cách chuyến đi luôn >= 0",
+        "INV-VRP-05: Depot là điểm bắt đầu VÀ kết thúc của mỗi chuyến",
+        "INV-VRP-06: Đơn hàng cùng khách hàng có thể gộp chung 1 chuyến (consolidation)",
+        "INV-VRP-07: Đơn hàng khác ngày giao KHÔNG được gộp chung"
+      ],
+      "owner": "internal/vrp/service.go + vrp-solver/",
+      "note": "Đây là property tests — không cần kết quả tuyệt đối, chỉ cần bất biến không vi phạm"
+    }
+  },
+  {
+    "id": "VRP-PROP-001",
+    "scenario": "Mỗi đơn hàng xuất hiện đúng 1 lần (no duplicate, no missing)",
+    "invariant": "INV-VRP-01",
+    "input": {
+      "orders": [
+        { "id": "O-001", "weight_kg": 50, "delivery_date": "2026-05-01" },
+        { "id": "O-002", "weight_kg": 30, "delivery_date": "2026-05-01" },
+        { "id": "O-003", "weight_kg": 80, "delivery_date": "2026-05-01" }
+      ],
+      "vehicles": [
+        { "id": "V-001", "capacity_kg": 1000 }
+      ]
+    },
+    "expected": {
+      "all_orders_assigned": true,
+      "no_duplicate_orders": true,
+      "order_count_in_result": 3
+    }
+  },
+  {
+    "id": "VRP-PROP-002",
+    "scenario": "Tổng trọng lượng xe không vượt capacity",
+    "invariant": "INV-VRP-02",
+    "input": {
+      "orders": [
+        { "id": "O-001", "weight_kg": 400, "delivery_date": "2026-05-01" },
+        { "id": "O-002", "weight_kg": 400, "delivery_date": "2026-05-01" },
+        { "id": "O-003", "weight_kg": 400, "delivery_date": "2026-05-01" }
+      ],
+      "vehicles": [
+        { "id": "V-001", "capacity_kg": 500 },
+        { "id": "V-002", "capacity_kg": 500 }
+      ]
+    },
+    "expected": {
+      "no_vehicle_overloaded": true,
+      "max_vehicle_load_kg": 500,
+      "trips_needed": 3
+    }
+  },
+  {
+    "id": "VRP-PROP-003",
+    "scenario": "Số chuyến luôn <= số đơn hàng",
+    "invariant": "INV-VRP-03",
+    "input": {
+      "orders": [
+        { "id": "O-001", "weight_kg": 10, "delivery_date": "2026-05-01" },
+        { "id": "O-002", "weight_kg": 10, "delivery_date": "2026-05-01" }
+      ],
+      "vehicles": [
+        { "id": "V-001", "capacity_kg": 1000 },
+        { "id": "V-002", "capacity_kg": 1000 },
+        { "id": "V-003", "capacity_kg": 1000 }
+      ]
+    },
+    "expected": {
+      "trips_count_lte_orders": true,
+      "max_trips": 2
+    }
+  },
+  {
+    "id": "VRP-PROP-004",
+    "scenario": "Khoảng cách chuyến không bao giờ âm",
+    "invariant": "INV-VRP-04",
+    "input": {
+      "stops": [
+        { "lat": 21.0285, "lon": 105.8542, "label": "Depot" },
+        { "lat": 21.0378, "lon": 105.8435, "label": "Stop A" },
+        { "lat": 21.0150, "lon": 105.8700, "label": "Stop B" }
+      ]
+    },
+    "expected": {
+      "all_distances_non_negative": true,
+      "haversine_depot_to_A_km_approx": 1.5
+    }
+  },
+  {
+    "id": "VRP-PROP-005",
+    "scenario": "Depot là điểm đầu và cuối mỗi chuyến",
+    "invariant": "INV-VRP-05",
+    "input": {
+      "depot": { "lat": 21.0285, "lon": 105.8542 },
+      "orders": [
+        { "id": "O-001", "lat": 21.0378, "lon": 105.8435 },
+        { "id": "O-002", "lat": 21.0150, "lon": 105.8700 }
+      ],
+      "vehicles": [{ "id": "V-001", "capacity_kg": 1000 }]
+    },
+    "expected": {
+      "each_trip_starts_at_depot": true,
+      "each_trip_ends_at_depot": true
+    }
+  },
+  {
+    "id": "VRP-PROP-006",
+    "scenario": "Đơn cùng khách hàng, cùng ngày → có thể gộp 1 chuyến",
+    "invariant": "INV-VRP-06",
+    "input": {
+      "orders": [
+        { "id": "O-001", "customer_id": "C-001", "weight_kg": 30, "delivery_date": "2026-05-01" },
+        { "id": "O-002", "customer_id": "C-001", "weight_kg": 20, "delivery_date": "2026-05-01" }
+      ],
+      "vehicles": [{ "id": "V-001", "capacity_kg": 1000 }]
+    },
+    "expected": {
+      "consolidation_allowed": true,
+      "may_use_single_trip": true
+    }
+  },
+  {
+    "id": "VRP-PROP-007",
+    "scenario": "Đơn khác ngày giao KHÔNG được gộp chung 1 chuyến",
+    "invariant": "INV-VRP-07",
+    "input": {
+      "orders": [
+        { "id": "O-001", "weight_kg": 30, "delivery_date": "2026-05-01" },
+        { "id": "O-002", "weight_kg": 30, "delivery_date": "2026-05-02" }
+      ],
+      "vehicles": [{ "id": "V-001", "capacity_kg": 1000 }]
+    },
+    "expected": {
+      "orders_on_different_trips": true,
+      "no_cross_date_consolidation": true
+    }
+  },
+  {
+    "id": "VRP-PROP-008",
+    "scenario": "1 đơn, 1 xe → 1 chuyến (trivial case)",
+    "invariant": "INV-VRP-01",
+    "input": {
+      "orders": [{ "id": "O-001", "weight_kg": 100, "delivery_date": "2026-05-01" }],
+      "vehicles": [{ "id": "V-001", "capacity_kg": 1000 }]
+    },
+    "expected": {
+      "trips_count": 1,
+      "order_assigned": "O-001",
+      "vehicle_assigned": "V-001"
+    }
+  },
+  {
+    "id": "VRP-PROP-009",
+    "scenario": "Không có đơn hàng → không có chuyến",
+    "invariant": "INV-VRP-03",
+    "input": {
+      "orders": [],
+      "vehicles": [{ "id": "V-001", "capacity_kg": 1000 }]
+    },
+    "expected": {
+      "trips_count": 0
+    }
+  },
+  {
+    "id": "VRP-PROP-010",
+    "scenario": "Stress: 50 đơn hàng, 5 xe — tất cả đơn phải được assign",
+    "invariant": "INV-VRP-01",
+    "input": {
+      "_note": "Generated by SC-09 VRP Stress scenario",
+      "order_count": 50,
+      "vehicle_count": 5,
+      "avg_weight_per_order_kg": 20,
+      "vehicle_capacity_kg": 500
+    },
+    "expected": {
+      "all_orders_assigned": true,
+      "no_vehicle_overloaded": true,
+      "solver_status": "OPTIMAL"
+    }
+  }
+]

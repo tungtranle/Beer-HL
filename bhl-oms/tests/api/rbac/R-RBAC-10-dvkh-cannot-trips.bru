@@ -1,0 +1,26 @@
+meta {
+  name: R-RBAC-10 - DVKH cannot access trips list
+  type: http
+  seq: 22
+}
+
+get {
+  url: {{base_url}}/v1/trips
+  body: none
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{dvkh_token}}
+}
+
+assert {
+  res.status: eq 403
+}
+
+docs {
+  ## RBAC: dvkh → GET /trips
+  
+  DVKH KHÔNG được xem danh sách chuyến xe.
+  Chỉ dispatcher/admin/management mới được.
+}

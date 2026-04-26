@@ -1,0 +1,26 @@
+meta {
+  name: WMS-02 - Warehouse handler can view stock
+  type: http
+  seq: 41
+}
+
+get {
+  url: {{base_url}}/v1/wms/stock
+  body: none
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{warehouse_token}}
+}
+
+assert {
+  res.status: in [200, 204]
+}
+
+docs {
+  ## GET /v1/wms/stock — warehouse handler PHẢI có quyền
+  
+  POSITIVE TEST: HTTP 403 = BUG.
+  Warehouse cần xem tồn kho để xử lý picking.
+}

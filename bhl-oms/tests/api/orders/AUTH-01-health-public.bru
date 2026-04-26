@@ -1,0 +1,23 @@
+meta {
+  name: AUTH-01 - Health endpoint public
+  type: http
+  seq: 1
+}
+
+get {
+  url: {{base_url}}/health
+  body: none
+  auth: none
+}
+
+assert {
+  res.status: eq 200
+  res.body.status: eq "ok"
+}
+
+docs {
+  ## /health endpoint — không cần auth
+  
+  Endpoint này public, trả 200 để load balancer/uptime check biết service online.
+  Dùng trong G4 daily workflow.
+}

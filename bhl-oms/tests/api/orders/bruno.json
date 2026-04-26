@@ -1,6 +1,6 @@
 {
   "version": "1",
-  "name": "RBAC Matrix Tests",
+  "name": "BHL Business Endpoints Tests",
   "environments": {
     "local": {
       "variables": {

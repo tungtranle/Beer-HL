@@ -1,0 +1,32 @@
+meta {
+  name: TRIP-01 - Create trip invalid payload
+  type: http
+  seq: 30
+}
+
+post {
+  url: {{base_url}}/v1/trips
+  body: json
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{dispatcher_token}}
+}
+
+body:json {
+  {
+    "driver_id": "not-a-uuid",
+    "planned_date": "not-a-date"
+  }
+}
+
+assert {
+  res.status: in [400, 422]
+}
+
+docs {
+  ## POST /v1/trips — payload không hợp lệ → 400/422
+  
+  Validation: driver_id phải là UUID, planned_date phải là ISO date.
+}

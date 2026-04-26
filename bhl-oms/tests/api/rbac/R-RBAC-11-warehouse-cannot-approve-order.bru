@@ -1,0 +1,25 @@
+meta {
+  name: R-RBAC-11 - Warehouse cannot approve order
+  type: http
+  seq: 40
+}
+
+post {
+  url: {{base_url}}/v1/orders/00000000-0000-0000-0000-000000000001/approve
+  body: none
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{warehouse_token}}
+}
+
+assert {
+  res.status: eq 403
+}
+
+docs {
+  ## RBAC: warehouse_handler → POST /orders/:id/approve
+  
+  Warehouse handler KHÔNG được approve đơn hàng (nghiệp vụ kế toán/admin).
+}

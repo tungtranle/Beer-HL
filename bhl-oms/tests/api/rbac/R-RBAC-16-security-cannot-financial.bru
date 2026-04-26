@@ -1,0 +1,25 @@
+meta {
+  name: R-RBAC-16 - Security cannot see financial data
+  type: http
+  seq: 70
+}
+
+get {
+  url: {{base_url}}/v1/reconciliation
+  body: none
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{security_token}}
+}
+
+assert {
+  res.status: eq 403
+}
+
+docs {
+  ## RBAC: security → GET /reconciliation
+  
+  Security guard KHÔNG được xem dữ liệu tài chính/đối soát.
+}

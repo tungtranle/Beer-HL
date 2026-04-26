@@ -1,0 +1,36 @@
+meta {
+  name: R-RBAC-13 - Accountant cannot create orders
+  type: http
+  seq: 50
+}
+
+post {
+  url: {{base_url}}/v1/orders
+  body: json
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{accountant_token}}
+}
+
+body:json {
+  {
+    "customer_id": "00000000-0000-0000-0000-000000000000",
+    "warehouse_id": "00000000-0000-0000-0000-000000000000",
+    "delivery_date": "2099-01-01",
+    "total_amount": 1000000,
+    "items": []
+  }
+}
+
+assert {
+  res.status: eq 403
+}
+
+docs {
+  ## RBAC: accountant → POST /orders
+  
+  Kế toán KHÔNG được tạo đơn hàng (phân biệt trách nhiệm).
+  Chỉ dvkh/admin mới được tạo đơn.
+}

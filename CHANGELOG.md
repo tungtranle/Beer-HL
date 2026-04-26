@@ -5,7 +5,64 @@
 
 ---
 
-## [Unreleased] — Phase 6 + UX Overhaul + Phase 8 Fleet & Driver + **Phase 9 WMS Pallet/QR/Bin/Cycle Count COMPLETE (15/15)** + **Sprint 1 World-Class (F2/F3/F7/H4/TD-020) GO LIVE** + **Sprint UX-1 World-Class Design System** + **Sprint UX-2 Dashboard Pages Redesign (ALL DONE)** + **Sprint UX-3 Pagination & Filter Audit (in progress)** + **AQF Roadmap Week 1-2 (COMPLETE)**
+## [Unreleased] — Phase 6 + UX Overhaul + Phase 8 Fleet & Driver + **Phase 9 WMS Pallet/QR/Bin/Cycle Count COMPLETE (15/15)** + **Sprint 1 World-Class (F2/F3/F7/H4/TD-020) GO LIVE** + **Sprint UX-1 World-Class Design System** + **Sprint UX-2 Dashboard Pages Redesign (ALL DONE)** + **Sprint UX-3 Pagination & Filter Audit (in progress)** + **AQF Roadmap ALL COMPLETE**
+
+### 2026-05-XX — Session: AQF Roadmap — Golden Cases + G4 + Bruno 36+ Tests (FULL COMPLETE)
+
+#### Added (Golden Cases — Session 2)
+1. **`aqf/golden/vrp-property.cases.json`** (NEW) — 10 VRP property invariant test cases:
+   - INV-VRP-01: order assignment uniqueness (no duplicates)
+   - INV-VRP-02: vehicle capacity constraints
+   - INV-VRP-03: trip count bounds
+   - INV-VRP-04: non-negative route distances
+   - INV-VRP-05: depot start/end
+   - INV-VRP-06: consolidation rules
+   - INV-VRP-07: no cross-date mixing
+   - VRP-PROP-010: stress test 50 orders × 5 vehicles
+2. **`aqf/golden/reconciliation.cases.json`** (NEW) — 8 reconciliation golden cases:
+   - INV-RECON-01: idempotency (double-run, same result)
+   - INV-RECON-02: cash + returns = total collected
+   - INV-RECON-03: no duplicate records
+   - INV-RECON-04: discrepancy amount preserved
+   - INV-RECON-05: state machine pending → in_review → resolved
+3. **`internal/tms/cost_test.go`** (NEW) — Go unit tests cho cost engine + reconciliation:
+   - `TestCostEngine_GoldenCases` — 6 pass (fuel, toll, base fee combinations)
+   - `TestCostEngine_HaversineNonNegative` — 5 pass (random coordinates)
+   - `TestCostEngine_ReconciliationCases` — 6 pass, 2 skip (DB-level idempotency)
+   - **Verified**: `go test -v -run TestCostEngine ./internal/tms/` → ALL PASS ✅
+
+#### Added (G4 Monitoring — Session 2)
+4. **`.github/workflows/aqf-g4.yml`** (NEW) — G4 daily health monitoring workflow:
+   - Trigger: daily 00:00 UTC (07:00 ICT) + manual dispatch
+   - Job 1 `health-check`: curl /health → HTTP 200
+   - Job 2 `api-smoke`: AQF status + risk-monitor + aqf/health
+   - Job 3 `golden-drift-check`: `go test -run TestGolden|TestCostEngine|TestProperty|...`
+
+#### Added (Bruno Tests Extended — Session 2)
+5. **`tests/api/rbac/`** — Mở rộng từ 9 → 16 files (thêm R-RBAC-07..16):
+   - 3 login files mới: dispatcher, accountant, warehouse_handler
+   - R-RBAC-07: driver cannot approve order
+   - R-RBAC-08: driver cannot cancel order
+   - R-RBAC-09: dvkh cannot access reconciliation
+   - R-RBAC-10: dvkh cannot access trips
+   - R-RBAC-11: warehouse cannot approve order
+   - R-RBAC-12: warehouse cannot create trips
+   - R-RBAC-13: accountant cannot create orders
+   - R-RBAC-14: accountant CAN approve (positive test)
+   - R-RBAC-15: dispatcher CAN list trips (positive test)
+   - R-RBAC-16: security cannot see financial data
+6. **`tests/api/orders/`** (NEW folder) — 20 business endpoint tests:
+   - AUTH-01..03: health public, no-token rejected, invalid-token rejected
+   - ORD-01..06: list/pagination/404/invalid create/cancel empty reason/approve nonexistent
+   - TRIP-01..03: invalid payload, not found, dispatch nonexistent
+   - WMS-01..03: requires auth, warehouse positive, confirm-picking not found
+   - RECON-01..02: accountant positive, invalid payload
+   - ADMIN-01..02: users requires admin, credit limit denied driver
+   - TP-01..03: AQF status smoke, risk monitor JSON, AQF health smoke
+
+**Total Bruno tests: 36 rules/cases across 2 collections** ✅
+
+---
 
 ### 2026-05-XX — Session: AQF Roadmap Implementation — Week 1-2 Complete
 

@@ -1,0 +1,26 @@
+meta {
+  name: ADMIN-01 - Admin user list requires admin role
+  type: http
+  seq: 60
+}
+
+get {
+  url: {{base_url}}/v1/admin/users
+  body: none
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{dispatcher_token}}
+}
+
+assert {
+  res.status: eq 403
+}
+
+docs {
+  ## GET /v1/admin/users — dispatcher KHÔNG được xem user list
+  
+  Admin endpoint chỉ dành cho role admin.
+  Dispatcher không có quyền quản lý người dùng.
+}

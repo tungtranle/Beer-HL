@@ -1,0 +1,23 @@
+meta {
+  name: TP-02 - Risk monitor returns JSON
+  type: http
+  seq: 71
+}
+
+get {
+  url: {{base_url}}/v1/test-portal/risk-monitor
+  body: none
+  auth: none
+}
+
+assert {
+  res.status: eq 200
+  res.body.files: isDefined
+}
+
+docs {
+  ## GET /v1/test-portal/risk-monitor — risk monitor returns structured JSON
+  
+  G4 smoke check. Response phải có field `files` chứa danh sách file đã thay đổi
+  kèm classification (high/medium/low risk).
+}

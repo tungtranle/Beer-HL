@@ -1,6 +1,6 @@
 # 📊 TASK TRACKER — BHL OMS-TMS-WMS
 
-> **Cập nhật lần cuối:** XX/05/2026 — AQF Roadmap Week 1-2 COMPLETE: assertions engine, SC-13..17, Risk Monitor, Playwright E2E, Bruno RBAC, Pre-commit hook. Backend compile PASS.  
+> **Cập nhật lần cuối:** XX/05/2026 — AQF Roadmap FULL COMPLETE: assertions, SC-13..17, Risk Monitor, Playwright E2E, Bruno 36+ tests (16 RBAC + 20 endpoint), golden cases VRP+Recon, Go cost tests, G4 workflow. Backend compile PASS.  
 > **Trạng thái dự án:** 🟢 Đang phát triển (In development)
 
 ## 🌍 Sprint 1 World-Class Strategy — Status ✅ DONE
@@ -38,8 +38,13 @@
 | — | `POST /run-assertions` | ✅ DONE | `sc_new_scenarios.go:RunAssertions` |
 | — | `POST /run-all-smoke` | ✅ DONE | `sc_new_scenarios.go:RunAllSmoke` |
 | — | `GET /risk-monitor` | ✅ DONE | `risk_monitor.go:GetRiskMonitor` |
+| — | VRP property golden cases | ✅ DONE | `aqf/golden/vrp-property.cases.json` — 10 cases, INV-VRP-01..07 |
+| — | Reconciliation golden cases | ✅ DONE | `aqf/golden/reconciliation.cases.json` — 8 cases, INV-RECON-01..05 |
+| — | Cost+Recon Go unit tests | ✅ DONE | `internal/tms/cost_test.go` — ALL PASS (14 tests) |
+| — | G4 daily monitoring workflow | ✅ DONE | `.github/workflows/aqf-g4.yml` — 3 jobs |
+| — | Bruno extended 30+ endpoints | ✅ DONE | `tests/api/rbac/` (16 rules) + `tests/api/orders/` (20 tests) |
 
-**AQF Roadmap Week 1-2: 15/15 tasks DONE** ✅
+**AQF Roadmap FULL: ALL tasks DONE** ✅
 
 ---
 

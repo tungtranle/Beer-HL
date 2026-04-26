@@ -1,0 +1,21 @@
+meta {
+  name: WMS-01 - Stock check requires auth
+  type: http
+  seq: 40
+}
+
+get {
+  url: {{base_url}}/v1/wms/stock
+  body: none
+  auth: none
+}
+
+assert {
+  res.status: eq 401
+}
+
+docs {
+  ## GET /v1/wms/stock — yêu cầu authentication
+  
+  WMS endpoints không public. Cần JWT token.
+}

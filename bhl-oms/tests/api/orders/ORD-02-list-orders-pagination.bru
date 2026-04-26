@@ -1,0 +1,26 @@
+meta {
+  name: ORD-02 - List orders pagination shape
+  type: http
+  seq: 11
+}
+
+get {
+  url: {{base_url}}/v1/orders?page=1&limit=10
+  body: none
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{dispatcher_token}}
+}
+
+assert {
+  res.status: eq 200
+}
+
+docs {
+  ## GET /v1/orders?page=1&limit=10 — kiểm tra pagination
+  
+  Response shape phải có phân trang hoặc array.
+  Không trả hết toàn bộ 10,000+ records một lần (performance SLA).
+}

@@ -1,0 +1,34 @@
+meta {
+  name: ORD-04 - Create order invalid payload returns 400
+  type: http
+  seq: 13
+}
+
+post {
+  url: {{base_url}}/v1/orders
+  body: json
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{dvkh_token}}
+}
+
+body:json {
+  {
+    "customer_id": "not-a-uuid",
+    "delivery_date": "invalid-date",
+    "items": []
+  }
+}
+
+assert {
+  res.status: in [400, 422]
+}
+
+docs {
+  ## POST /v1/orders — payload không hợp lệ phải trả 400/422
+  
+  Kiểm tra validation: UUID format, date format, items không được rỗng.
+  Không được tạo đơn với data garbage.
+}

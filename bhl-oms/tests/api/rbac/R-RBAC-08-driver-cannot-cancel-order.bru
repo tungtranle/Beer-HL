@@ -1,0 +1,31 @@
+meta {
+  name: R-RBAC-08 - Driver cannot cancel order
+  type: http
+  seq: 14
+}
+
+post {
+  url: {{base_url}}/v1/orders/00000000-0000-0000-0000-000000000001/cancel
+  body: json
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{driver_token}}
+}
+
+body:json {
+  {
+    "reason": "test"
+  }
+}
+
+assert {
+  res.status: eq 403
+}
+
+docs {
+  ## RBAC: driver → POST /orders/:id/cancel
+  
+  Driver KHÔNG được hủy đơn hàng. Chỉ dvkh/dispatcher/admin mới được.
+}

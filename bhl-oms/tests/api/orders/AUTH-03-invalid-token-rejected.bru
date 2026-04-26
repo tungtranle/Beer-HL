@@ -1,0 +1,26 @@
+meta {
+  name: AUTH-03 - Expired or invalid token rejected
+  type: http
+  seq: 3
+}
+
+get {
+  url: {{base_url}}/v1/orders
+  body: none
+  auth: bearer
+}
+
+auth:bearer {
+  token: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJ0ZXN0IiwicmVhbCI6ImZhbHNlIiwiZXhwIjoxfQ.INVALID_SIG
+}
+
+assert {
+  res.status: in [401, 403]
+}
+
+docs {
+  ## Auth guard: token không hợp lệ / đã hết hạn → 401/403
+  
+  Backend phải validate signature và expiry của JWT.
+  Token giả mạo = reject.
+}

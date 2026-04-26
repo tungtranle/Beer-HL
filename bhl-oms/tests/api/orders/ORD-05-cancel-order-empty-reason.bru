@@ -1,0 +1,36 @@
+meta {
+  name: ORD-05 - Cancel order with empty reason rejected
+  type: http
+  seq: 20
+}
+
+post {
+  url: {{base_url}}/v1/orders/00000000-0000-0000-0000-000000000001/cancel
+  body: json
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{dispatcher_token}}
+}
+
+body:json {
+  {
+    "reason": ""
+  }
+}
+
+assert {
+  # 400 = validation: reason required
+  # 404 = order not found (test UUID)
+  # 422 = order không ở trạng thái có thể cancel
+  # 403 = NOT acceptable (dispatcher phải có quyền cancel)
+  res.status: in [400, 404, 422]
+}
+
+docs {
+  ## POST /v1/orders/:id/cancel — reason rỗng bị reject
+  
+  Business rule: PHẢI có lý do khi hủy đơn (audit trail).
+  Không có reason = 400.
+}

@@ -1,0 +1,22 @@
+meta {
+  name: AUTH-02 - Unauthenticated request rejected
+  type: http
+  seq: 2
+}
+
+get {
+  url: {{base_url}}/v1/orders
+  body: none
+  auth: none
+}
+
+assert {
+  res.status: eq 401
+}
+
+docs {
+  ## Auth guard: request không có token → 401
+  
+  Mọi /v1/* endpoint đều yêu cầu JWT Bearer token.
+  Không token = 401 Unauthorized ngay lập tức.
+}

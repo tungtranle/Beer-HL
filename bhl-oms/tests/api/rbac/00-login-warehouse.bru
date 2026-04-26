@@ -1,0 +1,24 @@
+meta {
+  name: 00 - Login as warehouse handler
+  type: http
+  seq: 6
+}
+
+post {
+  url: {{base_url}}/v1/auth/login
+  body: json
+  auth: none
+}
+
+body:json {
+  {
+    "username": "warehouse01",
+    "password": "warehouse123"
+  }
+}
+
+script:post-response {
+  if (res.status === 200) {
+    bru.setEnvVar("warehouse_token", res.body.data?.token || res.body.token);
+  }
+}

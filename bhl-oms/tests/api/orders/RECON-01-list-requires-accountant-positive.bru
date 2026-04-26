@@ -1,0 +1,26 @@
+meta {
+  name: RECON-01 - Reconciliation list requires accountant
+  type: http
+  seq: 50
+}
+
+get {
+  url: {{base_url}}/v1/reconciliation
+  body: none
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{accountant_token}}
+}
+
+assert {
+  res.status: in [200, 204]
+}
+
+docs {
+  ## GET /v1/reconciliation — accountant PHẢI có quyền xem
+  
+  POSITIVE TEST: HTTP 403 = BUG nghiêm trọng.
+  Kế toán dùng endpoint này để đối soát COD hàng ngày.
+}

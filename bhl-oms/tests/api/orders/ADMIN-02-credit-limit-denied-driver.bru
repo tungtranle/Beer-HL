@@ -1,0 +1,32 @@
+meta {
+  name: ADMIN-02 - Credit limit update requires admin or accountant
+  type: http
+  seq: 61
+}
+
+put {
+  url: {{base_url}}/v1/admin/credit-limits/00000000-0000-0000-0000-000000000000
+  body: json
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{driver_token}}
+}
+
+body:json {
+  {
+    "credit_limit": 50000000
+  }
+}
+
+assert {
+  res.status: eq 403
+}
+
+docs {
+  ## PUT /v1/admin/credit-limits/:id — driver KHÔNG được thay đổi hạn mức tín dụng
+  
+  Security critical: chỉ admin/accountant mới được thay hạn mức.
+  Driver có thể lợi dụng để tăng limit cho khách hàng quen.
+}

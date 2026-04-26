@@ -1,0 +1,26 @@
+meta {
+  name: ORD-03 - Get single order not found returns 404
+  type: http
+  seq: 12
+}
+
+get {
+  url: {{base_url}}/v1/orders/00000000-0000-0000-0000-000000000000
+  body: none
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{dispatcher_token}}
+}
+
+assert {
+  res.status: eq 404
+}
+
+docs {
+  ## GET /v1/orders/:id — UUID không tồn tại phải trả 404
+  
+  Không được trả 500 hoặc panic khi ID không tồn tại.
+  UUID all-zeros = guaranteed không tồn tại trong DB.
+}

@@ -1,0 +1,32 @@
+meta {
+  name: WMS-03 - Confirm picking invalid order UUID
+  type: http
+  seq: 42
+}
+
+post {
+  url: {{base_url}}/v1/wms/orders/00000000-0000-0000-0000-000000000000/confirm-picking
+  body: json
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{warehouse_token}}
+}
+
+body:json {
+  {
+    "picked_items": []
+  }
+}
+
+assert {
+  res.status: in [400, 404, 422]
+}
+
+docs {
+  ## POST /v1/wms/orders/:id/confirm-picking — order UUID không tồn tại
+  
+  Không thể confirm picking cho đơn hàng không tồn tại.
+  items rỗng cũng có thể bị reject (validation).
+}

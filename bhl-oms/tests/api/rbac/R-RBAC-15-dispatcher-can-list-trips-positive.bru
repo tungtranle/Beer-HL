@@ -1,0 +1,26 @@
+meta {
+  name: R-RBAC-15 - Dispatcher can list trips (positive test)
+  type: http
+  seq: 60
+}
+
+get {
+  url: {{base_url}}/v1/trips
+  body: none
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{dispatcher_token}}
+}
+
+assert {
+  res.status: in [200, 204]
+}
+
+docs {
+  ## RBAC: dispatcher → GET /trips — POSITIVE TEST
+  
+  Dispatcher PHẢI có quyền xem danh sách chuyến xe.
+  HTTP 403 = lỗi RBAC — BUG.
+}

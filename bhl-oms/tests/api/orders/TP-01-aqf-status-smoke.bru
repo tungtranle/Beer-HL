@@ -1,0 +1,22 @@
+meta {
+  name: TP-01 - Test portal AQF status public
+  type: http
+  seq: 70
+}
+
+get {
+  url: {{base_url}}/v1/test-portal/aqf/status
+  body: none
+  auth: none
+}
+
+assert {
+  res.status: in [200, 401]
+}
+
+docs {
+  ## GET /v1/test-portal/aqf/status — smoke check AQF gate
+  
+  Dùng trong G4 workflow để verify AQF status endpoint khả dụng.
+  Nếu bị lock down thì 401, nếu public thì 200.
+}
