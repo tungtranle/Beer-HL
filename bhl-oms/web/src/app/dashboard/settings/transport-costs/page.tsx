@@ -390,7 +390,7 @@ export default function TransportCostsPage() {
                       </tr>
                     ))}
                     {tollStations.length === 0 && (
-                      <tr><td colSpan={9} className="text-center py-8 text-gray-400">Chưa có trạm thu phí. Bấm "+ Thêm trạm" để thêm.</td></tr>
+                      <tr><td colSpan={9} className="text-center py-8 text-gray-400">Chưa có trạm thu phí. Bấm &quot;+ Thêm trạm&quot; để thêm.</td></tr>
                     )}
                   </tbody>
                 </table>
@@ -522,7 +522,7 @@ export default function TransportCostsPage() {
                   </div>
                 ))}
                 {expressways.length === 0 && (
-                  <div className="text-center py-12 text-gray-400">Chưa có tuyến cao tốc. Bấm "+ Thêm tuyến" để thêm.</div>
+                  <div className="text-center py-12 text-gray-400">Chưa có tuyến cao tốc. Bấm &quot;+ Thêm tuyến&quot; để thêm.</div>
                 )}
               </div>
             </div>

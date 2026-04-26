@@ -1,0 +1,148 @@
+# AQF Traceability Map — BHL OMS-TMS-WMS
+# REQ ID → Test Cases → Golden Cases → Status
+# AQF 4.0 Section 9.4 — Spec-to-Test Traceability
+# Cập nhật: 2026-04-26
+
+requirements:
+
+  # ─── OMS Business Rules ────────────────────────────────
+
+  - id: BR-CRD-01
+    description: "order.total > customer.available_credit_limit → status=pending_approval"
+    module: "oms"
+    tests:
+      unit:
+        - "internal/aqf/golden_test.go#TestGolden_CreditCases"
+        - "internal/aqf/property_test.go#TestProperty_Invariant_CreditCheck_Deterministic"
+      golden: "aqf/golden/credit.cases.json"
+    status: "covered"
+    lastVerified: "2026-04-26"
+
+  - id: BR-CRD-02
+    description: "credit_limit=0 → unlimited (luôn confirmed)"
+    module: "oms"
+    tests:
+      unit:
+        - "internal/aqf/golden_test.go#TestGolden_CreditCases"
+        - "internal/aqf/property_test.go#TestProperty_Invariant_UnlimitedCredit"
+    status: "covered"
+    lastVerified: "2026-04-26"
+
+  - id: BR-OMS-03
+    description: "Order number = SO-{YYYYMMDD}-{NNNN}"
+    module: "oms"
+    tests:
+      unit:
+        - "internal/oms/service_test.go#TestGenerateOrderNumber_Format"
+        - "internal/oms/service_test.go#TestGenerateOrderNumber_Uniqueness"
+        - "internal/aqf/property_test.go#TestProperty_Invariant_OrderNumberFormat"
+    status: "covered"
+    lastVerified: "2026-04-26"
+
+  - id: BR-OMS-04
+    description: "Trước 16h = before_16h (giao hôm nay), Sau 16h = after_16h (giao T+1)"
+    module: "oms"
+    tests:
+      unit:
+        - "internal/oms/service_test.go#TestCutoffGroupLogic_Before16h"
+        - "internal/oms/service_test.go#TestCutoffGroupLogic_After16h"
+    status: "covered"
+    lastVerified: "2026-04-26"
+
+  # ─── WMS Business Rules ────────────────────────────────
+
+  - id: INV-FEFO-01
+    description: "WMS luôn cấp phát lô có expiry_date sớm nhất trước (FEFO)"
+    module: "wms"
+    tests:
+      unit:
+        - "internal/aqf/golden_test.go#TestGolden_InventoryFEFO"
+        - "internal/aqf/property_test.go#TestProperty_Invariant_FEFO_OldestFirst"
+        - "internal/aqf/property_test.go#TestProperty_Invariant_FEFO_TotalQty"
+      golden: "aqf/golden/inventory-fefo.cases.json"
+    status: "covered"
+    lastVerified: "2026-04-26"
+
+  # ─── State Machine Rules ───────────────────────────────
+
+  - id: INV-STATE-01
+    description: "Order state machine: chỉ valid transitions được phép"
+    module: "oms"
+    tests:
+      unit:
+        - "internal/aqf/golden_test.go#TestGolden_OrderStateMachine"
+        - "internal/aqf/property_test.go#TestProperty_Invariant_StateMachine_TerminalStates"
+        - "internal/aqf/property_test.go#TestProperty_Invariant_StateMachine_NoSelfLoop"
+      golden: "aqf/golden/order-state-machine.cases.json"
+    status: "covered"
+    lastVerified: "2026-04-26"
+
+  - id: INV-STATE-02
+    description: "Trip state machine: driver không start khi chưa approved"
+    module: "tms"
+    tests:
+      unit: []  # cần viết khi tms/service.go state machine được extract
+      golden: "aqf/golden/trip-state-machine.cases.json"
+    status: "partial"
+    lastVerified: "2026-04-26"
+    openQuestion: "Q-TMS-001: Cancel trip in_progress có được không?"
+
+  # ─── RBAC Rules ────────────────────────────────────────
+
+  - id: INV-RBAC-01
+    description: "9 roles × endpoints: không ai truy cập endpoint ngoài quyền"
+    module: "middleware"
+    tests:
+      unit:
+        - "internal/aqf/auth_matrix_test.go#TestAuthMatrix_AllRoles_CriticalEndpoints"
+        - "internal/aqf/auth_matrix_test.go#TestAuthMatrix_Driver_CannotCreateOrder"
+        - "internal/aqf/auth_matrix_test.go#TestAuthMatrix_OnlyAdmin_CanDeleteUser"
+        - "internal/aqf/auth_matrix_test.go#TestAuthMatrix_ApproveOrder_OnlyAdminAndAccountant"
+        - "internal/aqf/auth_matrix_test.go#TestAuthMatrix_VRP_OnlyAuthorizedRoles"
+      golden: "aqf/golden/permissions.matrix.yml"
+    status: "covered"
+    lastVerified: "2026-04-26"
+
+  # ─── Geo Rules ─────────────────────────────────────────
+
+  - id: INV-GEO-01
+    description: "Khoảng cách địa lý không bao giờ âm"
+    module: "oms/tms"
+    tests:
+      unit:
+        - "internal/aqf/property_test.go#TestProperty_Invariant_HaversineNonNegative"
+        - "internal/aqf/property_test.go#TestProperty_Invariant_HaversineSymmetric"
+    status: "covered"
+    lastVerified: "2026-04-26"
+
+  # ─── Money Rules ───────────────────────────────────────
+
+  - id: INV-MONEY-01
+    description: "Tổng tiền không bao giờ âm"
+    module: "oms"
+    tests:
+      unit:
+        - "internal/aqf/property_test.go#TestProperty_Invariant_MoneyNonNegative"
+    status: "covered"
+    lastVerified: "2026-04-26"
+
+  # ─── Missing Coverage (cần bổ sung) ──────────────────
+
+  - id: BR-VRP-COST-01
+    description: "Chi phí chuyến đi = fuel + toll + driver_allowance"
+    module: "tms"
+    tests:
+      unit: []  # cần tạo internal/tms/cost_test.go
+      golden: "aqf/golden/cost-engine.cases.json"
+    status: "missing"
+    priority: "high"
+    action: "Tạo internal/tms/cost_test.go với golden validation"
+
+  - id: BR-RECON-01
+    description: "Reconciliation idempotent: chạy 2 lần không tạo duplicate"
+    module: "reconciliation"
+    tests:
+      unit: []  # cần tạo
+    status: "missing"
+    priority: "high"
+    action: "Tạo internal/reconciliation/service_test.go"

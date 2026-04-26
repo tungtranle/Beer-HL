@@ -18,7 +18,7 @@ interface Task {
 
 export default function CycleCountPage() {
   const [tasks, setTasks] = useState<Task[]>([])
-  const [warehouseID, setWarehouseID] = useState('a0000000-0000-0000-0000-000000000001')
+  const [warehouseID, _setWarehouseID] = useState('a0000000-0000-0000-0000-000000000001')
   const [date, setDate] = useState(new Date().toISOString().slice(0, 10))
   const [classes, setClasses] = useState<string[]>(['A', 'B', 'C'])
   const [active, setActive] = useState<Task | null>(null)

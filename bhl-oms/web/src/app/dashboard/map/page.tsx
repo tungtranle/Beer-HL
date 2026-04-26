@@ -125,8 +125,11 @@ export default function DispatcherMapPage() {
     const token = getToken()
     if (!token) return
 
-    const protocol = window.location.protocol === 'https:' ? 'wss' : 'ws'
-    const wsUrl = `${protocol}://${window.location.hostname}:8080/ws/gps?token=${token}`
+    const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
+    const wsHost = window.location.port === '3000'
+      ? `${window.location.hostname}:8080`
+      : window.location.host
+    const wsUrl = `${protocol}//${wsHost}/ws/gps?token=${token}`
 
     const connect = () => {
       const ws = new WebSocket(wsUrl)

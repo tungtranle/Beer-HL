@@ -36,7 +36,7 @@ export default function ClarityClient() {
     if (typeof (window as any).clarity === 'function') return
     try {
       ;(function(c: any,l: any,a: string,r: string,i: string,t?: any,y?: any){
-        c[a]=c[a]||function(){(c[a].q=c[a].q||[]).push(arguments)};
+        c[a]=c[a]||function(...args: unknown[]){(c[a].q=c[a].q||[]).push(args)};
         t=l.createElement(r);t.async=1;t.src='https://www.clarity.ms/tag/'+i;
         y=l.getElementsByTagName(r)[0];y.parentNode.insertBefore(t,y);
       })(window,document,'clarity','script',CLARITY_PROJECT_ID);

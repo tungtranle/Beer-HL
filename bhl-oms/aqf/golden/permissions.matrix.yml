@@ -1,0 +1,115 @@
+# aqf/golden/permissions.matrix.yml
+# RBAC Permission Matrix — BHL OMS-TMS-WMS
+# 9 roles: admin, dispatcher, driver, warehouse_handler, accountant, management, dvkh, security, workshop
+# Legend: ALLOW / DENY / ALLOW_OWN (chỉ resource của mình)
+# Source of truth: internal/middleware/permission_guard.go + internal/domain/permissions.go
+
+version: "1.0"
+updated: "2026-04-26"
+
+critical_endpoints:
+  # Format: "METHOD /v1/path": { role: ALLOW|DENY|ALLOW_OWN }
+
+  "POST /v1/orders":
+    admin: ALLOW
+    dispatcher: ALLOW
+    dvkh: ALLOW
+    driver: DENY
+    warehouse_handler: DENY
+    accountant: DENY
+    management: DENY
+    security: DENY
+    workshop: DENY
+
+  "DELETE /v1/admin/users/:id":
+    admin: ALLOW
+    dispatcher: DENY
+    dvkh: DENY
+    driver: DENY
+    warehouse_handler: DENY
+    accountant: DENY
+    management: DENY
+    security: DENY
+    workshop: DENY
+
+  "POST /v1/orders/:id/approve":
+    admin: ALLOW
+    accountant: ALLOW        # chief_accountant flag required
+    dispatcher: DENY
+    dvkh: DENY
+    driver: DENY
+    warehouse_handler: DENY
+    management: DENY
+    security: DENY
+    workshop: DENY
+
+  "POST /v1/planning/vrp":
+    admin: ALLOW
+    dispatcher: ALLOW
+    management: ALLOW
+    driver: DENY
+    warehouse_handler: DENY
+    accountant: DENY
+    dvkh: DENY
+    security: DENY
+    workshop: DENY
+
+  "POST /v1/trips/:id/stops/:sid/update":
+    admin: ALLOW
+    driver: ALLOW_OWN        # chỉ trip được assign
+    dispatcher: ALLOW
+    warehouse_handler: DENY
+    accountant: DENY
+    management: DENY
+    dvkh: DENY
+    security: DENY
+    workshop: DENY
+
+  "POST /v1/reconciliation/:id/resolve":
+    admin: ALLOW
+    accountant: ALLOW
+    dispatcher: DENY
+    driver: DENY
+    warehouse_handler: DENY
+    management: DENY
+    dvkh: DENY
+    security: DENY
+    workshop: DENY
+
+  "GET /v1/admin/permissions":
+    admin: ALLOW
+    dispatcher: DENY
+    driver: DENY
+    warehouse_handler: DENY
+    accountant: DENY
+    management: DENY
+    dvkh: DENY
+    security: DENY
+    workshop: DENY
+
+  "GET /v1/admin/audit-logs":
+    admin: ALLOW
+    management: ALLOW
+    dispatcher: DENY
+    driver: DENY
+    warehouse_handler: DENY
+    accountant: DENY
+    dvkh: DENY
+    security: DENY
+    workshop: DENY
+
+  "POST /v1/gate-check":
+    admin: ALLOW
+    warehouse_handler: ALLOW
+    security: ALLOW
+    dispatcher: DENY
+    driver: DENY
+    accountant: DENY
+    management: DENY
+    dvkh: DENY
+    workshop: DENY
+
+# Test assertions:
+# Mỗi cell "DENY" phải return HTTP 403 khi gọi đúng endpoint với đúng role token
+# Mỗi cell "ALLOW" phải return HTTP 200/201/202 với data hợp lệ
+# Mỗi cell "ALLOW_OWN" phải: 200 khi own resource, 403 khi resource của người khác

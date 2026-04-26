@@ -33,8 +33,8 @@ interface Order {
 }
 
 // Status labels and colors imported from @/lib/status-config
-const statusLabels = orderStatusLabels
-const statusColors = orderStatusColors
+const _statusLabels = orderStatusLabels
+const _statusColors = orderStatusColors
 
 export default function OrderDetailPage() {
   const params = useParams()

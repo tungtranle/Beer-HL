@@ -494,7 +494,7 @@ export default function HandoverAPage() {
           </div>
           {/* Signatory progress segments */}
           {(() => {
-            const total = detail.signatories?.length || 3
+            const _total = detail.signatories?.length || 3
             return (
               <div className="flex gap-1 mb-4">
                 {(detail.signatories || []).map((sig, i) => (
@@ -601,8 +601,8 @@ export default function HandoverAPage() {
           {handovers.map(h => {
             const sc = statusConfig[h.status] || statusConfig.pending
             const trip = (h as any)._trip || {}
-            const confirmed = (h.signatories || []).filter(s => s.action === 'confirm').length
-            const total = (h.signatories || []).length
+            const _confirmed = (h.signatories || []).filter(s => s.action === 'confirm').length
+            const _total = (h.signatories || []).length
 
             return (
               <div

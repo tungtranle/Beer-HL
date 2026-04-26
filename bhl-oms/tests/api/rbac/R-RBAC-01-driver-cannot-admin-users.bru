@@ -1,0 +1,27 @@
+meta {
+  name: R-RBAC-01 - Driver cannot access admin users
+  type: http
+  seq: 10
+}
+
+get {
+  url: {{base_url}}/v1/admin/users
+  body: none
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{driver_token}}
+}
+
+assert {
+  res.status: eq 403
+}
+
+docs {
+  ## RBAC Rule: driver → GET /admin/users
+  
+  Driver (tài xế) KHÔNG được phép truy cập admin endpoint quản lý users.
+  Expected: HTTP 403 Forbidden
+  Rule: AUTH-RBAC-DRIVER-RESTRICTED
+}

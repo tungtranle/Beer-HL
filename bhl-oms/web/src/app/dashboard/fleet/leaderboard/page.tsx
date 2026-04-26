@@ -13,7 +13,7 @@ interface LeaderboardEntry {
   badge_count: number
 }
 
-const medalEmoji = (rank: number) => {
+const _medalEmoji = (rank: number) => {
   if (rank === 1) return '🥇'
   if (rank === 2) return '🥈'
   if (rank === 3) return '🥉'

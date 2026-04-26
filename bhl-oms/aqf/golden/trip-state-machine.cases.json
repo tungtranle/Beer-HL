@@ -1,0 +1,89 @@
+[
+  {
+    "_meta": {
+      "description": "Golden dataset: Trip State Machine transitions — BHL TMS",
+      "invariant": "INV-STATE-02",
+      "owner": "tms/service.go",
+      "rules": [
+        "Trip: planned → approved → in_progress → completed",
+        "Driver không thể start trip khi chưa approved",
+        "completed là terminal state"
+      ]
+    }
+  },
+  {
+    "id": "TRIP-STATE-001",
+    "scenario": "Happy path: planned → approved → in_progress → completed",
+    "allowed": true,
+    "transitions": [
+      { "from": "planned", "to": "approved", "trigger": "dispatcher_approves", "actor": "dispatcher" },
+      { "from": "approved", "to": "in_progress", "trigger": "driver_starts", "actor": "driver" },
+      { "from": "in_progress", "to": "completed", "trigger": "all_stops_done", "actor": "system" }
+    ]
+  },
+  {
+    "id": "TRIP-STATE-002",
+    "scenario": "Cancel planned trip (chưa approve)",
+    "allowed": true,
+    "transitions": [
+      { "from": "planned", "to": "cancelled", "trigger": "dispatcher_cancels", "actor": "dispatcher" }
+    ]
+  },
+  {
+    "id": "TRIP-STATE-003",
+    "scenario": "Cancel approved trip (chưa start)",
+    "allowed": true,
+    "transitions": [
+      { "from": "approved", "to": "cancelled", "trigger": "dispatcher_cancels", "actor": "dispatcher" }
+    ]
+  },
+  {
+    "id": "TRIP-STATE-004",
+    "scenario": "FORBIDDEN: Driver start trip khi chưa approved",
+    "allowed": false,
+    "transitions": [
+      { "from": "planned", "to": "in_progress", "trigger": "driver_starts", "actor": "driver" }
+    ],
+    "expected_error": "INVALID_STATE_TRANSITION",
+    "http_status": 400
+  },
+  {
+    "id": "TRIP-STATE-005",
+    "scenario": "FORBIDDEN: Cancel trip đang in_progress",
+    "allowed": false,
+    "transitions": [
+      { "from": "in_progress", "to": "cancelled", "trigger": "cancel", "actor": "dispatcher" }
+    ],
+    "expected_error": "CANNOT_CANCEL_IN_PROGRESS",
+    "http_status": 400,
+    "human_question": "Q-TMS-001: Có cho phép cancel trip đang giao không? Nếu có, driver phải xác nhận?"
+  },
+  {
+    "id": "TRIP-STATE-006",
+    "scenario": "FORBIDDEN: Reopen completed trip",
+    "allowed": false,
+    "transitions": [
+      { "from": "completed", "to": "in_progress", "trigger": "reopen", "actor": "admin" }
+    ],
+    "expected_error": "INVALID_STATE_TRANSITION",
+    "http_status": 400
+  },
+  {
+    "id": "TRIP-STATE-007",
+    "scenario": "Stop partial delivery → trip remains in_progress",
+    "allowed": true,
+    "transitions": [
+      { "from": "in_progress", "to": "in_progress", "trigger": "stop_partial_delivery", "actor": "driver" }
+    ],
+    "notes": "Trip status không đổi, chỉ stop status thay đổi"
+  },
+  {
+    "id": "TRIP-STATE-008",
+    "scenario": "Re-planning: completed trip với failed stops → tạo redelivery trip mới",
+    "allowed": true,
+    "transitions": [
+      { "from": "completed", "to": "completed", "trigger": "create_redelivery_trip", "actor": "system" }
+    ],
+    "notes": "Trip gốc ở completed, tạo TRIP MỚI cho redelivery stops"
+  }
+]

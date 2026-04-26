@@ -1,0 +1,26 @@
+meta {
+  name: R-RBAC-05 - Security cannot access financial reconciliation
+  type: http
+  seq: 30
+}
+
+get {
+  url: {{base_url}}/v1/reconciliation
+  body: none
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{security_token}}
+}
+
+assert {
+  res.status: eq 403
+}
+
+docs {
+  ## RBAC Rule: security → GET /reconciliation
+  
+  Bảo vệ KHÔNG được xem dữ liệu đối soát tài chính.
+  Expected: HTTP 403 Forbidden
+}

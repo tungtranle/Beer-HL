@@ -1,0 +1,24 @@
+meta {
+  name: 00 - Login as security
+  type: http
+  seq: 3
+}
+
+post {
+  url: {{base_url}}/v1/auth/login
+  body: json
+  auth: none
+}
+
+body:json {
+  {
+    "username": "security01",
+    "password": "security123"
+  }
+}
+
+script:post-response {
+  if (res.status === 200) {
+    bru.setEnvVar("security_token", res.body.data?.token || res.body.token);
+  }
+}

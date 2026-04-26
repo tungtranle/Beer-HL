@@ -143,12 +143,12 @@ const conditionLabels: Record<string, string> = {
 
 export default function DriverTripDetailPage() {
   const params = useParams()
-  const router = useRouter()
+  const _router = useRouter()
   const tripId = params.id as string
   const [trip, setTrip] = useState<TripDetail | null>(null)
   const [loading, setLoading] = useState(true)
   const [actionLoading, setActionLoading] = useState(false)
-  const user = getUser()
+  const _user = getUser()
 
   // Start GPS tracking for driver
   useGpsTracker()

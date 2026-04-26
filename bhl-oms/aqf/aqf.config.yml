@@ -1,0 +1,257 @@
+# aqf.config.yml — BHL OMS-TMS-WMS
+# AQF 4.0 — Cấu hình riêng cho dự án Beer HL
+# Cập nhật: 2026-04-26
+# Profile: oms-tms-wms (extends web-app)
+# Solo founder / vibe coding
+
+project:
+  name: "BHL OMS-TMS-WMS"
+  description: "Phân phối bia Hà Nội — 80 users nội bộ"
+  go_live: "2026-05-15"
+  profile: oms-tms-wms
+
+stack:
+  backend: "go+gin"
+  frontend: "nextjs14"
+  db: "postgres:5434"
+  cache: "redis:6379"
+  vrp: "python+ortools:8090"
+  mobile: "pwa"
+  cicd: "github-actions"
+  hosting: "mac-mini-self-hosted"
+
+# ─────────────────────────────────────────────
+# QUALITY GATES
+# ─────────────────────────────────────────────
+gates:
+  G0:
+    enabled: true
+    target_seconds: 60
+    checks:
+      - go_build          # go build ./...
+      - go_vet            # go vet ./...
+      - go_test_unit      # go test ./... -short (unit only)
+      - secret_diff       # gitleaks staged files
+    trigger: pre-commit
+    block_commit_on_fail: true
+
+  G1:
+    enabled: true
+    target_minutes: 5
+    checks:
+      - go_test_affected  # chỉ packages thay đổi
+      - lint_go           # golangci-lint
+      - lint_frontend     # eslint + tsc --noEmit
+      - sast_diff         # semgrep rules/go/gin-security
+      - dependency_scan   # govulncheck + npm audit
+      - pii_scan          # regex scan: phone/CMND trong response logs
+      - migration_check   # kiểm tra naming convention và rollback pair
+    trigger: pre-push / github-actions on PR
+    block_pr_on_fail: true
+
+  G2:
+    enabled: true
+    target_minutes: 10
+    trigger_conditions:
+      - "migrations/** changed"       # RISK-DB-SCHEMA
+      - "internal/auth/** changed"    # RISK-AUTH
+      - "internal/oms/service.go"     # RISK-PRICING (credit, ATP)
+      - "internal/middleware/** changed"  # RISK-RBAC
+      - "internal/reconciliation/**"  # RISK-RECONCILIATION
+      - "internal/tms/service.go"     # RISK-ROUTING (cost engine)
+      - "internal/wms/service.go"     # RISK-INVENTORY (FEFO)
+    checks:
+      - golden_dataset        # aqf/golden/**
+      - property_tests        # business invariants
+      - migration_rollback    # up → seed → down → up on ephemeral DB
+      - authorization_matrix  # 9 roles × critical endpoints
+      - state_machine_tests   # order/trip/stop/redelivery states
+    block_deploy_on_fail: true
+
+  G3:
+    enabled: true
+    target_minutes: 15
+    trigger_conditions:
+      - "pre-deploy to staging/production"
+      - "weekly scheduled"
+    checks:
+      - test_portal_smoke     # Run all scenarios in Test Portal
+      - e2e_critical_journeys # Playwright 4 critical paths
+      - api_rbac_matrix       # Bruno collection: 9 roles × top 30 endpoints
+      - visual_baseline       # screenshot diff vs baseline
+    output: decision_brief
+
+  G4:
+    enabled: true
+    trigger_conditions:
+      - "post-deploy production"
+      - "daily 07:00 on staging"
+    checks:
+      - synthetic_monitoring  # Checkly or scheduled Playwright
+      - health_endpoint       # /v1/admin/health all green
+      - sentry_error_rate     # < 0.1% error rate
+      - business_metrics      # orders created, trips completed today
+
+# ─────────────────────────────────────────────
+# ORACLE ENGINE
+# ─────────────────────────────────────────────
+oracles:
+  specification:
+    sources:
+      - "BRD_BHL_OMS_TMS_WMS.md"
+      - "RULES.md"               # business rules: BR-ATP-01, BR-CRD-01, etc.
+      - "API_BHL_OMS_TMS_WMS.md"
+
+  property:
+    # Bất biến business KHÔNG BAO GIỜ được vi phạm
+    invariants:
+      - id: INV-MONEY-01
+        name: "Tiền không âm"
+        rule: "total_amount >= 0 AND discount_amount >= 0"
+        priority: critical
+        oracle_type: go_property_test
+      - id: INV-MONEY-02
+        name: "Tiền dùng NUMERIC không float"
+        rule: "all monetary DB columns are NUMERIC(15,2)"
+        priority: critical
+        oracle_type: db_schema_check
+      - id: INV-CREDIT-01
+        name: "Credit flow phải có pending_approval khi vượt limit"
+        rule: "order.total > credit_limit → order.status = pending_approval"
+        priority: critical
+        oracle_type: go_property_test
+        file: "aqf/golden/credit.cases.json"
+      - id: INV-STATE-01
+        name: "Stop không được skip trạng thái"
+        rule: "pending → arrived → delivering → delivered (strict order)"
+        priority: critical
+        oracle_type: state_machine_test
+        file: "internal/tms/service_test.go"
+      - id: INV-FEFO-01
+        name: "WMS luôn lấy hàng cũ nhất trước"
+        rule: "allocation always picks batch with earliest expiry_date"
+        priority: critical
+        oracle_type: go_property_test
+        file: "aqf/golden/inventory-fefo.cases.json"
+      - id: INV-RBAC-01
+        name: "9 roles không được truy cập endpoint ngoài quyền"
+        rule: "permission_matrix[role][endpoint] == allowed"
+        priority: critical
+        oracle_type: rbac_matrix_test
+        file: "aqf/golden/permissions.matrix.yml"
+      - id: INV-RECON-01
+        name: "Reconciliation không tạo duplicate"
+        rule: "reconciliation_records per trip = 1"
+        priority: high
+        oracle_type: go_property_test
+      - id: INV-DECIMAL-01
+        name: "PostgreSQL enum/date luôn cast ::text trong SELECT"
+        rule: "all pgx queries with enum/date use ::text cast"
+        priority: critical
+        oracle_type: static_analysis
+        tool: "grep -r 'status,' internal/ | grep -v '::text'"
+
+  golden:
+    path: "aqf/golden/"
+    required_before_go_live:
+      - "credit.cases.json"
+      - "inventory-fefo.cases.json"
+      - "permissions.matrix.yml"
+      - "order-state-machine.cases.json"
+      - "trip-state-machine.cases.json"
+      - "cost-engine.cases.json"
+      - "vrp-property.cases.json"
+
+  metamorphic:
+    relations:
+      - name: "VRP route order invariant"
+        description: "Đổi thứ tự orders input không đổi tổng cost của solution"
+      - name: "Reconciliation idempotent"
+        description: "Chạy reconciliation 2 lần không tạo 2 record"
+      - name: "ATP check monotone"
+        description: "Tăng available_stock không bao giờ làm ATP từ pass → fail"
+
+# ─────────────────────────────────────────────
+# TEST PORTAL — Decision Interface chính
+# ─────────────────────────────────────────────
+decision_interface:
+  primary: test_portal
+  url: "http://localhost:3001"   # Next.js frontend
+  portal_backend: "http://localhost:8080/v1/test-portal"
+
+  # Decision Brief format
+  decision_brief:
+    language: "vi"
+    delivery: [test_portal, telegram]  # dual delivery
+    telegram_chat_id: "${TELEGRAM_CHAT_ID}"  # từ .env
+    auto_ship_threshold: 85   # confidence >= 85 → auto SHIP
+    hold_threshold: 60        # confidence < 60 → HOLD
+    # 60–84: SHIP WITH WARNING
+
+  # Smoke test schedule
+  smoke_schedule:
+    daily_staging: "07:00"
+    pre_deploy: "trigger"
+    weekly_full: "Monday 08:00"
+
+# ─────────────────────────────────────────────
+# EVIDENCE STORE
+# ─────────────────────────────────────────────
+evidence:
+  store_path: "aqf/evidence/"
+  retention_days: 30
+  artifacts:
+    - go_test_json      # go test -json output
+    - bruno_results     # Bruno CLI JSON output
+    - playwright_report # HTML + screenshots
+    - scenario_results  # Test Portal assertion results
+    - decision_briefs   # Lịch sử Decision Brief
+
+# ─────────────────────────────────────────────
+# INCIDENT → REGRESSION LOOP
+# ─────────────────────────────────────────────
+incident_loop:
+  sources:
+    - sentry           # Error rate spike
+    - known_issues_md  # KNOWN_ISSUES.md entries
+  on_incident:
+    1. create_regression_test_in: "internal/*/service_test.go hoặc testportal/scenarios.go"
+    2. add_golden_case: "aqf/golden/<module>.cases.json"
+    3. update_risk_rules: "aqf/risk-rules.yml nếu cần thêm pattern"
+    4. document_in: "AI_LESSONS.md"
+
+# ─────────────────────────────────────────────
+# KPIs — BHL specific
+# ─────────────────────────────────────────────
+kpis:
+  leading:
+    - name: "G0 pass rate"
+      target: "> 95%"
+    - name: "Test Portal smoke: all green before deploy"
+      target: "100% before go-live"
+    - name: "Mean time to detect (MTTD)"
+      target: "< 5 phút trong CI"
+  lagging:
+    - name: "Production bugs / sprint"
+      target: "0 critical, < 2 medium"
+    - name: "Regression coverage"
+      target: "100% of known incidents have regression test"
+
+# ─────────────────────────────────────────────
+# HUMAN-IN-THE-LOOP
+# ─────────────────────────────────────────────
+human_loop:
+  budget_per_week: 30min  # tổng thời gian human cần dành cho QA
+  open_questions:
+    - id: "Q-BHL-001"
+      question: "Credit vượt >200% → auto reject hay vẫn pending_approval?"
+      affects: "oms/service.go credit check logic"
+      block_ship: false
+    - id: "Q-BHL-002"
+      question: "Driver hoàn toàn offline (không 4G) → offline queue sync khi nào? timeout bao lâu?"
+      affects: "web/src/lib/useOfflineSync.ts"
+      block_ship: true  # LH-04 chưa wire
+    - id: "Q-BHL-003"
+      question: "FEFO: nếu 2 lô cùng ngày hết hạn → ưu tiên lô nào (lot_number nhỏ hơn)?"
+      affects: "wms/service.go FEFO sort"
+      block_ship: false

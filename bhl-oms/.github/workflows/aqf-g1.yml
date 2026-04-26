@@ -1,0 +1,352 @@
+# AQF G1 — PR Fast Confidence Gate
+# Muc tieu: < 5 phut
+# Chay: moi PR duoc mo hoac push moi
+# Khong pass → PR khong duoc review / merge
+
+name: "AQF G1 — PR Fast Gate"
+
+on:
+  pull_request:
+    branches: [main, develop]
+  push:
+    branches: [main, develop]
+
+env:
+  GO_VERSION: "1.23"
+  NODE_VERSION: "20"
+
+jobs:
+  # ═══════════════════════════════════════════════════════
+  # G1-1: Go lint + vet
+  # ═══════════════════════════════════════════════════════
+  g1-go-lint:
+    name: "G1 ▸ Go lint + vet"
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: bhl-oms
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683  # v4 pinned SHA
+
+      - uses: actions/setup-go@0aaccfd150d50ccaeb58ebd88d65a4827a5f4ad9  # v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache: true
+
+      - name: go vet
+        run: go vet ./...
+
+      - name: golangci-lint
+        uses: golangci/golangci-lint-action@4afd733a84b1f43292c63897423277bb7f4313a9  # v6
+        with:
+          version: v1.62
+          working-directory: bhl-oms
+
+  # ═══════════════════════════════════════════════════════
+  # G1-2: Go unit tests (race + coverage)
+  # ═══════════════════════════════════════════════════════
+  g1-go-test:
+    name: "G1 ▸ Go unit tests"
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: bhl-oms
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: test
+          POSTGRES_PASSWORD: test
+          POSTGRES_DB: bhl_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+
+      - uses: actions/setup-go@0aaccfd150d50ccaeb58ebd88d65a4827a5f4ad9
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache: true
+
+      - name: Run migrations
+        run: |
+          PGPASSWORD=test psql -h localhost -U test -d bhl_test \
+            -f migrations/001_init.up.sql 2>/dev/null || true
+          PGPASSWORD=test psql -h localhost -U test -d bhl_test \
+            -f migrations/002_checklist.up.sql 2>/dev/null || true
+
+      - name: go test (unit + short)
+        run: go test -race -short -coverprofile=coverage.out -timeout 120s ./...
+        env:
+          DB_URL: postgres://test:test@localhost:5432/bhl_test?sslmode=disable
+          REDIS_URL: redis://localhost:6379/0
+          JWT_PRIVATE_KEY_PATH: keys/private.pem
+          JWT_PUBLIC_KEY_PATH: keys/public.pem
+
+      - name: Coverage summary
+        run: go tool cover -func=coverage.out | tail -5
+
+      - name: Upload coverage
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4
+        with:
+          name: go-coverage
+          path: bhl-oms/coverage.out
+          retention-days: 7
+
+  # ═══════════════════════════════════════════════════════
+  # G1-3: Frontend typecheck + lint
+  # ═══════════════════════════════════════════════════════
+  g1-frontend:
+    name: "G1 ▸ Frontend typecheck + lint"
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: bhl-oms/web
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+
+      - uses: actions/setup-node@cdca7365b2dadb8aad0a33bc7601856ffabcc48e  # v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+          cache-dependency-path: bhl-oms/web/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: TypeScript check
+        run: npx tsc --noEmit
+
+      - name: ESLint
+        run: npm run lint
+        continue-on-error: false
+
+  # ═══════════════════════════════════════════════════════
+  # G1-4: Dependency vulnerability scan
+  # ═══════════════════════════════════════════════════════
+  g1-dep-scan:
+    name: "G1 ▸ Dependency scan"
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: bhl-oms
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+
+      - uses: actions/setup-go@0aaccfd150d50ccaeb58ebd88d65a4827a5f4ad9
+        with:
+          go-version: ${{ env.GO_VERSION }}
+
+      - name: govulncheck (Go dependencies)
+        run: |
+          go install golang.org/x/vuln/cmd/govulncheck@latest
+          govulncheck ./...
+
+      - uses: actions/setup-node@cdca7365b2dadb8aad0a33bc7601856ffabcc48e
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+
+      - name: npm audit (frontend)
+        working-directory: bhl-oms/web
+        run: |
+          npm ci
+          npm audit --audit-level=critical
+        continue-on-error: true  # warn, không block (nhiều false positive)
+
+  # ═══════════════════════════════════════════════════════
+  # G1-5: Secret scan (gitleaks)
+  # ═══════════════════════════════════════════════════════
+  g1-secret-scan:
+    name: "G1 ▸ Secret scan"
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          fetch-depth: 0  # full history for gitleaks
+
+      - name: Gitleaks scan
+        uses: gitleaks/gitleaks-action@ff98106e4c7b2bc287b24eaf42907196329070c7  # v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITLEAKS_LICENSE: ${{ secrets.GITLEAKS_LICENSE }}  # optional: để bỏ qua watermark
+
+  # ═══════════════════════════════════════════════════════
+  # G1-6: SAST — Semgrep (chỉ diff)
+  # ═══════════════════════════════════════════════════════
+  g1-sast:
+    name: "G1 ▸ SAST (Semgrep diff)"
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          fetch-depth: 0
+
+      - name: Semgrep scan
+        uses: semgrep/semgrep-action@v1
+        with:
+          config: >-
+            p/go
+            p/jwt
+            p/sql-injection
+            p/secrets
+          generateSarif: true
+        env:
+          SEMGREP_APP_TOKEN: ${{ secrets.SEMGREP_APP_TOKEN }}
+        continue-on-error: true  # informational ở G1
+
+      - name: Upload SARIF
+        if: always()
+        uses: github/codeql-action/upload-sarif@4355c1a75cf8b0b3e33d5e9e70d78bf5f5a5e5e5  # approximate, update with real SHA
+        with:
+          sarif_file: semgrep.sarif
+        continue-on-error: true
+
+  # ═══════════════════════════════════════════════════════
+  # G1-7: PII scan (phone/email trong code và log output)
+  # ═══════════════════════════════════════════════════════
+  g1-pii-scan:
+    name: "G1 ▸ PII scan"
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+
+      - name: PII scan on changed files
+        run: |
+          # Scan cho phone VN, email, CMND/CCCD patterns trong source code
+          # (không phải test fixtures)
+          FILES=$(git diff --name-only HEAD~1 HEAD 2>/dev/null || git ls-files)
+          FINDINGS=0
+
+          for file in $FILES; do
+            # Bỏ qua test fixtures, golden data, docs
+            if echo "$file" | grep -qE "(test|spec|golden|\.md|\.txt|\.json)"; then
+              continue
+            fi
+            if [ ! -f "$file" ]; then continue; fi
+
+            # Phone VN trong Go string literals (không phải comment)
+            if grep -nP '"[^"]*?(0|\+84)[3-9][0-9]{8}[^"]*?"' "$file" 2>/dev/null; then
+              echo "⚠️  PII WARN: Phone VN trong $file"
+              FINDINGS=$((FINDINGS + 1))
+            fi
+
+            # Hardcoded email trong code (không phải placeholder/test)
+            if grep -nP '"[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}"' "$file" 2>/dev/null | \
+               grep -v "example\.com\|test\.\|placeholder"; then
+              echo "⚠️  PII WARN: Email thật trong $file"
+              FINDINGS=$((FINDINGS + 1))
+            fi
+          done
+
+          if [ $FINDINGS -gt 0 ]; then
+            echo ""
+            echo "⚠️  Tìm thấy $FINDINGS vị trí nghi ngờ chứa PII."
+            echo "   Kiểm tra và đảm bảo đây là placeholder, không phải data thật."
+            # Warning, không block ở G1 (chỉ block ở G2+ với confirmation)
+          else
+            echo "✅ PII scan: không phát hiện vấn đề"
+          fi
+
+  # ═══════════════════════════════════════════════════════
+  # G1-8: Migration naming convention check
+  # ═══════════════════════════════════════════════════════
+  g1-migration-check:
+    name: "G1 ▸ Migration convention check"
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: bhl-oms
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+
+      - name: Check migration files
+        run: |
+          FAIL=0
+          for f in migrations/*.sql; do
+            [ -f "$f" ] || continue
+            filename=$(basename "$f")
+
+            # Convention: NNN_description.up.sql or .down.sql
+            if ! echo "$filename" | grep -qE '^[0-9]{3}_[a-z0-9_]+\.(up|down)\.sql$'; then
+              echo "❌ Migration naming fail: $filename"
+              echo "   Expected: NNN_description.up.sql / .down.sql"
+              FAIL=1
+            fi
+          done
+
+          # Check every .up.sql has matching .down.sql
+          for upfile in migrations/*.up.sql; do
+            [ -f "$upfile" ] || continue
+            downfile="${upfile/.up.sql/.down.sql}"
+            if [ ! -f "$downfile" ]; then
+              echo "❌ Missing rollback: $downfile"
+              FAIL=1
+            fi
+          done
+
+          if [ $FAIL -ne 0 ]; then
+            echo ""
+            echo "AQF G1 FAIL: Migration convention vi phạm."
+            exit 1
+          fi
+          echo "✅ Migration convention: OK"
+
+  # ═══════════════════════════════════════════════════════
+  # G1 Gate Summary — tổng hợp kết quả
+  # ═══════════════════════════════════════════════════════
+  g1-gate-summary:
+    name: "G1 ▸ Gate Summary"
+    needs:
+      - g1-go-lint
+      - g1-go-test
+      - g1-frontend
+      - g1-dep-scan
+      - g1-secret-scan
+      - g1-pii-scan
+      - g1-migration-check
+    runs-on: ubuntu-latest
+    if: always()
+    steps:
+      - name: Evaluate G1 gate result
+        run: |
+          LINT="${{ needs.g1-go-lint.result }}"
+          TEST="${{ needs.g1-go-test.result }}"
+          FRONTEND="${{ needs.g1-frontend.result }}"
+          SECRET="${{ needs.g1-secret-scan.result }}"
+          MIGRATION="${{ needs.g1-migration-check.result }}"
+
+          FAIL=0
+          for job in LINT TEST FRONTEND SECRET MIGRATION; do
+            eval "result=\$$job"
+            if [ "$result" = "failure" ]; then
+              echo "❌ G1 FAIL: $job"
+              FAIL=1
+            fi
+          done
+
+          if [ $FAIL -ne 0 ]; then
+            echo ""
+            echo "══════════════════════════════════════"
+            echo "AQF G1 GATE: FAIL — PR không được merge"
+            echo "══════════════════════════════════════"
+            exit 1
+          fi
+
+          echo ""
+          echo "══════════════════════════════════════"
+          echo "AQF G1 GATE: PASS ✅"
+          echo "══════════════════════════════════════"

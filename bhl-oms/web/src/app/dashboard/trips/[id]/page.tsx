@@ -60,11 +60,11 @@ export default function TripDetailPage() {
   const mapInstanceRef = useRef<any>(null)
 
   // Cancel trip modal state
-  const [showCancelModal, setShowCancelModal] = useState(false)
+  const [_showCancelModal, setShowCancelModal] = useState(false)
   const [cancelReason, setCancelReason] = useState('')
   const [cancelNote, setCancelNote] = useState('')
 
-  const cancelReasons = [
+  const _cancelReasons = [
     'Khách hàng yêu cầu hủy',
     'Xe gặp sự cố kỹ thuật',
     'Tài xế không khả dụng',
@@ -99,7 +99,7 @@ export default function TripDetailPage() {
     }
   }
 
-  const confirmCancelTrip = async () => {
+  const _confirmCancelTrip = async () => {
     if (!trip || !cancelReason) return
     setUpdating(true)
     setShowCancelModal(false)

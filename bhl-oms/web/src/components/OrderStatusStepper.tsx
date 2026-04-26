@@ -40,7 +40,7 @@ export function OrderStatusStepper({ status }: Props) {
           {orderProgressSteps.map((step, idx) => {
             const isCompleted = idx < currentStep || (idx === currentStep && status === 'delivered')
             const isCurrent = idx === currentStep && !isSpecial && status !== 'delivered'
-            const isUpcoming = idx > currentStep
+            const _isUpcoming = idx > currentStep
 
             return (
               <div key={step.key} className="flex flex-col items-center" style={{ width: `${100 / orderProgressSteps.length}%` }}>

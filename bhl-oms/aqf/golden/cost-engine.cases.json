@@ -1,0 +1,117 @@
+[
+  {
+    "_meta": {
+      "description": "Golden dataset: VRP Cost Engine — BHL TMS",
+      "invariants": [
+        "INV-COST-01: Chi phí chuyến đi không bao giờ âm",
+        "INV-COST-02: Toll = 0 nếu không qua trạm nào",
+        "INV-COST-03: Tổng chi phí = fuel + toll + driver_allowance",
+        "INV-COST-04: Haversine distance >= 0"
+      ],
+      "owner": "tms/service.go + tms/handler_cost.go",
+      "toll_rule": "Trạm thu phí tính khi đoạn đường qua điểm có bán kính 500m từ tọa độ trạm"
+    }
+  },
+  {
+    "id": "COST-001",
+    "scenario": "Chuyến đi đơn giản, không qua trạm thu phí",
+    "input": {
+      "total_distance_km": 30.5,
+      "fuel_price_per_liter": 22000,
+      "fuel_consumption_per_100km": 12,
+      "toll_stations_on_route": [],
+      "driver_allowance": 50000
+    },
+    "expected": {
+      "fuel_cost": 80520,
+      "toll_cost": 0,
+      "driver_allowance": 50000,
+      "total_cost": 130520,
+      "cost_status": "ok"
+    },
+    "calculation_note": "fuel = 30.5 * 12/100 * 22000 = 80520"
+  },
+  {
+    "id": "COST-002",
+    "scenario": "Chuyến đi qua 1 trạm thu phí BOT",
+    "input": {
+      "total_distance_km": 80.0,
+      "fuel_price_per_liter": 22000,
+      "fuel_consumption_per_100km": 12,
+      "toll_stations_on_route": [
+        { "name": "Trạm BOT Pháp Vân", "fee": 45000 }
+      ],
+      "driver_allowance": 100000
+    },
+    "expected": {
+      "fuel_cost": 211200,
+      "toll_cost": 45000,
+      "driver_allowance": 100000,
+      "total_cost": 356200,
+      "cost_status": "ok"
+    },
+    "calculation_note": "fuel = 80 * 12/100 * 22000 = 211200"
+  },
+  {
+    "id": "COST-003",
+    "scenario": "Chuyến đi qua 2 trạm thu phí",
+    "input": {
+      "total_distance_km": 120.0,
+      "fuel_price_per_liter": 23000,
+      "fuel_consumption_per_100km": 12,
+      "toll_stations_on_route": [
+        { "name": "Trạm 1", "fee": 35000 },
+        { "name": "Trạm 2", "fee": 50000 }
+      ],
+      "driver_allowance": 150000
+    },
+    "expected": {
+      "fuel_cost": 331200,
+      "toll_cost": 85000,
+      "driver_allowance": 150000,
+      "total_cost": 566200,
+      "cost_status": "ok"
+    },
+    "calculation_note": "fuel = 120 * 12/100 * 23000 = 331200; toll = 35000+50000"
+  },
+  {
+    "id": "COST-004",
+    "scenario": "Distance = 0 (kho và khách cùng địa điểm)",
+    "input": {
+      "total_distance_km": 0,
+      "fuel_price_per_liter": 22000,
+      "fuel_consumption_per_100km": 12,
+      "toll_stations_on_route": [],
+      "driver_allowance": 0
+    },
+    "expected": {
+      "fuel_cost": 0,
+      "toll_cost": 0,
+      "driver_allowance": 0,
+      "total_cost": 0,
+      "cost_status": "ok"
+    },
+    "invariant_check": "INV-COST-01: total_cost = 0 >= 0"
+  },
+  {
+    "id": "COST-005",
+    "scenario": "Metamorphic: đảo thứ tự stops không đổi total cost (nếu cùng distance)",
+    "type": "metamorphic",
+    "input": {
+      "route_A": {
+        "stops": ["WH → KH1 → KH2"],
+        "total_distance_km": 50.0,
+        "toll_stations_on_route": []
+      },
+      "route_B": {
+        "stops": ["WH → KH2 → KH1"],
+        "total_distance_km": 50.0,
+        "toll_stations_on_route": []
+      }
+    },
+    "expected": {
+      "cost_A_equals_cost_B": true
+    },
+    "notes": "Nếu tổng khoảng cách bằng nhau thì chi phí phải bằng nhau"
+  }
+]

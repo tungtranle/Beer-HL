@@ -1,6 +1,6 @@
 'use client'
 
-import { getStatusConfig, getStatusLabel, type OrderStatus } from '@/lib/status-config'
+import { getStatusConfig, getStatusLabel } from '@/lib/status-config'
 import { CountdownDisplay } from './CountdownDisplay'
 
 interface Props {

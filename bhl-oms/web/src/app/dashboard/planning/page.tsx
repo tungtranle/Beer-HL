@@ -153,7 +153,7 @@ function TripDetailModal({ trip, tripIdx, vehicles, warehouse, onClose }: {
         // Set leg distances (legs include depot→stop1, stop1→stop2, ..., lastStop→depot)
         setLegDistances(osrm.legs)
         const returnLeg = osrm.legs.length > 0 ? osrm.legs[osrm.legs.length - 1] : null
-        const deliveryKm = osrm.legs.slice(0, -1).reduce((s, l) => s + l.distance_km, 0) + (osrm.legs[0]?.distance_km || 0)
+        const _deliveryKm = osrm.legs.slice(0, -1).reduce((s, l) => s + l.distance_km, 0) + (osrm.legs[0]?.distance_km || 0)
         setRouteTotals({
           total_km: osrm.total_km,
           total_min: osrm.total_min,
@@ -726,7 +726,7 @@ export default function PlanningPage() {
     { key: 'time_limit', icon: '⏱', color: 'text-green-500', label: 'Giới hạn thời gian/chuyến', desc: 'Thời gian lái + giao hàng', enabled: true },
   ])
   const [maxTripHours, setMaxTripHours] = useState(8)
-  const [costOptimize, setCostOptimize] = useState(false)
+  const [_costOptimize, setCostOptimize] = useState(false)
   const [optimizeFor, setOptimizeFor] = useState<'cost' | 'time'>('cost')
   const [costReadiness, setCostReadiness] = useState<{
     ready: boolean; toll_station_count: number; expressway_count: number;
@@ -2513,7 +2513,7 @@ export default function PlanningPage() {
                       const totalUnassigned = vrpResult.unassigned_shipments?.length || 0
                       const assignRate = totalAssigned / (totalAssigned + totalUnassigned) * 100
                       const avgUtil = vrpResult.summary?.avg_capacity_util_pct || 0
-                      const avgStops = vrpResult.summary?.avg_stops_per_trip || 0
+                      const _avgStops = vrpResult.summary?.avg_stops_per_trip || 0
                       const totalDist = vrpResult.summary?.total_distance_km || 0
                       const distPerStop = totalAssigned > 0 ? totalDist / totalAssigned : 0
                       const overloadedTrips = trips.filter(t => {

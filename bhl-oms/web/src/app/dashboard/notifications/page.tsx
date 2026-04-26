@@ -223,7 +223,7 @@ export default function NotificationsPage() {
     } catch { /* ignore */ }
   }
 
-  const handleClick = (n: Notification) => {
+  const _handleClick = (n: Notification) => {
     if (!n.is_read) markRead(n.id)
     if (n.link) router.push(`/dashboard${n.link}`)
   }

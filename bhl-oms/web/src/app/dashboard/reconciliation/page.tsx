@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useState } from 'react'
-import { apiFetch, getUser, getToken } from '@/lib/api'
+import { apiFetch, getToken } from '@/lib/api'
 import { formatVND } from '@/lib/status-config'
 import { toast } from '@/lib/useToast'
 import { Pagination } from '@/components/ui/Pagination'

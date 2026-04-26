@@ -1,0 +1,68 @@
+[
+  {
+    "_meta": {
+      "description": "Golden dataset: Order State Machine transitions",
+      "invariant": "INV-STATE-01",
+      "owner": "oms/service.go",
+      "rules": ["Chỉ transition hợp lệ mới được phép", "pending_approval chỉ từ confirmed khi credit exceeded"]
+    }
+  },
+  {
+    "id": "ORD-STATE-001",
+    "scenario": "Happy path: new → confirmed → in_transit → delivered",
+    "allowed": true,
+    "transitions": [
+      { "from": "new", "to": "pending_customer_confirm", "trigger": "create_order_zalo" },
+      { "from": "pending_customer_confirm", "to": "confirmed", "trigger": "customer_confirms" },
+      { "from": "confirmed", "to": "in_transit", "trigger": "trip_start" },
+      { "from": "in_transit", "to": "delivered", "trigger": "all_stops_delivered" }
+    ]
+  },
+  {
+    "id": "ORD-STATE-002",
+    "scenario": "Credit exceeded: confirmed → pending_approval → approved → confirmed",
+    "allowed": true,
+    "transitions": [
+      { "from": "confirmed", "to": "pending_approval", "trigger": "credit_limit_exceeded" },
+      { "from": "pending_approval", "to": "confirmed", "trigger": "accountant_approves" }
+    ]
+  },
+  {
+    "id": "ORD-STATE-003",
+    "scenario": "Cancel: chỉ từ new/confirmed",
+    "allowed": true,
+    "transitions": [
+      { "from": "new", "to": "cancelled", "trigger": "cancel" },
+      { "from": "confirmed", "to": "cancelled", "trigger": "cancel" }
+    ]
+  },
+  {
+    "id": "ORD-STATE-004",
+    "scenario": "FORBIDDEN: không được cancel khi đang in_transit",
+    "allowed": false,
+    "transitions": [
+      { "from": "in_transit", "to": "cancelled", "trigger": "cancel" }
+    ],
+    "expected_error": "INVALID_STATE_TRANSITION",
+    "http_status": 400
+  },
+  {
+    "id": "ORD-STATE-005",
+    "scenario": "Partially delivered → redelivery chain",
+    "allowed": true,
+    "transitions": [
+      { "from": "in_transit", "to": "partially_delivered", "trigger": "some_stops_failed" },
+      { "from": "partially_delivered", "to": "confirmed", "trigger": "create_redelivery_shipment" }
+    ]
+  },
+  {
+    "id": "ORD-STATE-006",
+    "scenario": "FORBIDDEN: Redelivery từ delivered (đã giao đủ)",
+    "allowed": false,
+    "transitions": [
+      { "from": "delivered", "to": "confirmed", "trigger": "create_redelivery_shipment" }
+    ],
+    "expected_error": "REDELIVERY_NOT_ALLOWED",
+    "http_status": 400
+  }
+]

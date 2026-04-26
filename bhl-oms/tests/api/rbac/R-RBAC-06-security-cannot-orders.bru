@@ -1,0 +1,26 @@
+meta {
+  name: R-RBAC-06 - Security cannot access orders
+  type: http
+  seq: 31
+}
+
+get {
+  url: {{base_url}}/v1/orders
+  body: none
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{security_token}}
+}
+
+assert {
+  res.status: eq 403
+}
+
+docs {
+  ## RBAC Rule: security → GET /orders
+  
+  Bảo vệ KHÔNG được xem danh sách đơn hàng.
+  Expected: HTTP 403 Forbidden
+}

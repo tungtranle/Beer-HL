@@ -1,6 +1,6 @@
 # 📊 TASK TRACKER — BHL OMS-TMS-WMS
 
-> **Cập nhật lần cuối:** 24/04/2026 — Sprint 2 AI Intelligence Layer: Planning + BRD 14D + DECISIONS DEC-AI-01  
+> **Cập nhật lần cuối:** XX/05/2026 — AQF Roadmap Week 1-2 COMPLETE: assertions engine, SC-13..17, Risk Monitor, Playwright E2E, Bruno RBAC, Pre-commit hook. Backend compile PASS.  
 > **Trạng thái dự án:** 🟢 Đang phát triển (In development)
 
 ## 🌍 Sprint 1 World-Class Strategy — Status ✅ DONE
@@ -14,6 +14,32 @@
 | H4 BOT/Toll 16→84         | W1 | ✅ DONE | Mig 039: +44 stations từ VETC 22-23 (is_active=FALSE chờ geocode → TD-H4-geocode); cost engine sẵn |
 | H2 Route Library          | W1 | ⏳ TODO | Sprint 2 |
 | Load test (k6)            | W4 | ✅ DONE | load_probe Go: p95 ≤ 42.8ms cho 4 endpoints — PASS criteria <500ms |
+
+---
+
+## 🎯 AQF Roadmap — 3 Weeks Implementation (AQF_BHL_SETUP.md)
+
+> Mục tiêu: nâng AQF từ "build passes" → "runtime-verified, DB-asserted, multi-layer quality gate"
+
+| ID | Task | Status | File / Deliverable |
+|----|------|--------|--------------------|
+| 1.1 | DB Assertion Engine | ✅ DONE | `internal/testportal/assertions.go` |
+| 1.2 | SC-13..17 Scenarios | ✅ DONE | `internal/testportal/sc_new_scenarios.go` |
+| 1.3 | Golden Runner | ✅ DONE | `internal/testportal/aqf_golden.go` (đã có) |
+| 1.4 | Playwright 4 journeys | ✅ DONE | `tests/e2e/` — login, order-lifecycle, credit, gate-check |
+| 1.5 | Bruno RBAC tests | ✅ DONE | `tests/api/rbac/` — 9 files, 6 RBAC rules |
+| 2.1 | Decision Brief frontend | ✅ DONE | `aqf-command-center.tsx` (đã có) |
+| 2.2 | Risk Monitor backend | ✅ DONE | `internal/testportal/risk_monitor.go` |
+| 2.3 | Business Health panel | ✅ DONE | `GetBusinessHealth` + frontend (đã có) |
+| 2.4 | Open Questions panel | ✅ DONE | `AQFQuestions` + frontend (đã có) |
+| 2.5 | Pre-commit G0 hook | ✅ DONE | `scripts/install-precommit-hook.bat` |
+| 2.6 | GitHub Actions G1 push | ✅ DONE | `.github/workflows/aqf-g1.yml` (đã có) |
+| 2.7 | RBAC matrix test | ✅ DONE | `tests/api/rbac/` Bruno collection |
+| — | `POST /run-assertions` | ✅ DONE | `sc_new_scenarios.go:RunAssertions` |
+| — | `POST /run-all-smoke` | ✅ DONE | `sc_new_scenarios.go:RunAllSmoke` |
+| — | `GET /risk-monitor` | ✅ DONE | `risk_monitor.go:GetRiskMonitor` |
+
+**AQF Roadmap Week 1-2: 15/15 tasks DONE** ✅
 
 ---
 
@@ -63,7 +89,20 @@
 
 ---
 
-## 🎯 TỔNG QUAN TIẾN ĐỘ
+## ✅ AQF QA Gate — 26/04/2026
+
+| Gate | Kết quả | Ghi chú |
+|------|---------|---------|
+| G0: go build | ✅ PASS | exit 0 |
+| G0: go vet | ✅ PASS | 1 fix: unreachable code ai/service.go |
+| G1: go test ./... | ✅ PASS | 21 pass, 2 skip |
+| G2: tsc --noEmit | ✅ PASS | 0 errors |
+| G2: next build | ✅ PASS | 57 pages |
+| G2: npm run lint | ✅ PASS | 0 errors, 465 warnings (intentional) |
+| G2 Live: AQF /status | ✅ 6/6 PASS | Confidence 80/100 CAUTION |
+| Blocker còn lại | ⚠️ Q-BHL-002 | Offline sync strategy chưa trả lời → SHIP blocked |
+
+
 
 ```
 ╔══════════════════════════════════════════════════════════════╗

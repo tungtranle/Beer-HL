@@ -1,0 +1,26 @@
+{
+  "version": "1",
+  "name": "RBAC Matrix Tests",
+  "environments": {
+    "local": {
+      "variables": {
+        "base_url": "http://localhost:8080",
+        "driver_token": "",
+        "dvkh_token": "",
+        "security_token": "",
+        "dispatcher_token": "",
+        "admin_token": ""
+      }
+    },
+    "production": {
+      "variables": {
+        "base_url": "http://bhl-oms.local:8080",
+        "driver_token": "",
+        "dvkh_token": "",
+        "security_token": "",
+        "dispatcher_token": "",
+        "admin_token": ""
+      }
+    }
+  }
+}

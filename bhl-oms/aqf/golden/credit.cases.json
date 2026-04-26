@@ -1,0 +1,86 @@
+[
+  {
+    "_meta": {
+      "description": "Golden dataset: Credit Limit rules — BHL OMS",
+      "invariant": "INV-CREDIT-01",
+      "rules": ["BR-CRD-01: order.total > credit_limit.amount → pending_approval", "BR-CRD-02: credit_limit.amount=0 → unlimited"],
+      "owner": "oms/service.go"
+    }
+  },
+  {
+    "id": "CRD-001",
+    "scenario": "Order vượt credit limit → pending_approval",
+    "input": {
+      "customer_credit_limit": 50000000,
+      "existing_debt": 45000000,
+      "new_order_total": 8000000
+    },
+    "expected": {
+      "order_status": "pending_approval",
+      "credit_status": "over_limit",
+      "event_type": "order.credit_exceeded"
+    }
+  },
+  {
+    "id": "CRD-002",
+    "scenario": "Order trong credit limit → confirmed bình thường",
+    "input": {
+      "customer_credit_limit": 50000000,
+      "existing_debt": 10000000,
+      "new_order_total": 5000000
+    },
+    "expected": {
+      "order_status": "confirmed",
+      "credit_status": "ok"
+    }
+  },
+  {
+    "id": "CRD-003",
+    "scenario": "Credit limit = 0 (unlimited) → luôn confirmed",
+    "input": {
+      "customer_credit_limit": 0,
+      "existing_debt": 999999999,
+      "new_order_total": 50000000
+    },
+    "expected": {
+      "order_status": "confirmed",
+      "credit_status": "unlimited"
+    }
+  },
+  {
+    "id": "CRD-004",
+    "scenario": "Tổng tiền KHÔNG BAO GIỜ âm",
+    "input": {
+      "order_total": -1000
+    },
+    "expected": {
+      "error": "INVALID_AMOUNT",
+      "http_status": 400
+    }
+  },
+  {
+    "id": "CRD-005",
+    "scenario": "Kế toán approve pending_approval → confirmed",
+    "input": {
+      "order_status": "pending_approval",
+      "actor_role": "accountant",
+      "action": "approve"
+    },
+    "expected": {
+      "order_status": "confirmed",
+      "event_type": "order.approved"
+    }
+  },
+  {
+    "id": "CRD-006",
+    "scenario": "Non-accountant KHÔNG được approve",
+    "input": {
+      "order_status": "pending_approval",
+      "actor_role": "dispatcher",
+      "action": "approve"
+    },
+    "expected": {
+      "http_status": 403
+    }
+  }
+]

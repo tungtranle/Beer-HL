@@ -1,0 +1,41 @@
+# .github/labeler.yml
+# Tu dong add label vao PR khi co file thay doi
+# Can cai action: actions/labeler trong workflow
+
+# Golden dataset changes — require explicit owner approval
+golden-change:
+  - bhl-oms/aqf/golden/**
+  - bhl-oms/aqf/risk-rules.yml
+
+# Risk-tagged PRs
+risk-auth:
+  - bhl-oms/internal/auth/**
+  - bhl-oms/internal/middleware/auth*.go
+  - bhl-oms/internal/middleware/permission_guard.go
+
+risk-db-schema:
+  - bhl-oms/migrations/*.sql
+
+risk-business-logic:
+  - bhl-oms/internal/oms/service.go
+  - bhl-oms/internal/tms/service.go
+  - bhl-oms/internal/wms/service.go
+
+risk-vrp:
+  - bhl-oms/internal/tms/service.go
+  - bhl-oms/vrp-solver/**
+
+risk-infra:
+  - bhl-oms/Dockerfile
+  - bhl-oms/docker-compose*.yml
+  - .github/workflows/**
+  - bhl-oms/nginx/**
+
+frontend-change:
+  - bhl-oms/web/src/**
+
+bug-fix:
+  - head-branch:
+      - "fix/.*"
+      - "bugfix/.*"
+      - "hotfix/.*"

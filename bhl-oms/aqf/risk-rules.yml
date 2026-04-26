@@ -1,0 +1,210 @@
+# aqf/risk-rules.yml — BHL OMS-TMS-WMS
+# AQF 4.0 Risk Engine — Rules đặc thù cho dự án BHL
+# Thứ tự quan trọng: rule đầu tiên khớp được áp dụng
+# combineStrategy: union (PR khớp nhiều rule → lấy union gates + checks)
+
+version: "4.0"
+project: "bhl-oms-tms-wms"
+
+rules:
+
+  # ── CRITICAL: Auth & RBAC ──────────────────────────────
+  - id: RISK-BHL-AUTH
+    name: "Authentication & Authorization (RS256 JWT + RBAC)"
+    patterns:
+      - "internal/auth/**"
+      - "internal/middleware/auth*.go"
+      - "internal/middleware/permission_guard.go"
+      - "internal/admin/handler.go"    # user/session management
+    risk: critical
+    requiredGates: [G1, G2]
+    additionalChecks:
+      - authorization_matrix_9roles    # 9 roles × all endpoints
+      - session_management_tests
+      - jwt_rs256_validation
+      - permission_cache_invalidation  # Redis TTL 300s
+    humanQuestion: "Thay đổi này có ảnh hưởng đến quyền của role nào trong 9 roles không?"
+    regressionTests:
+      - "internal/auth/service_test.go"
+
+  # ── CRITICAL: Database Migration ──────────────────────
+  - id: RISK-BHL-MIGRATION
+    name: "Database Migration (PostgreSQL 16)"
+    patterns:
+      - "migrations/*.sql"
+      - "migrations/*.up.sql"
+      - "migrations/*.down.sql"
+    risk: critical
+    requiredGates: [G1, G2]
+    additionalChecks:
+      - migration_naming_convention    # format: NNN_description.up.sql
+      - migration_has_rollback_pair    # mỗi .up.sql phải có .down.sql
+      - migration_ephemeral_db_test    # chạy up→seed→down→up trên DB tạm
+      - migration_no_float_money       # không dùng float cho tiền
+      - migration_enum_pgx_safe        # enum columns cần cast ::text check
+    humanQuestion: "Migration có rollback an toàn không? Data hiện có có bị ảnh hưởng không?"
+
+  # ── CRITICAL: Credit & ATP Logic ──────────────────────
+  - id: RISK-BHL-CREDIT
+    name: "Credit Limit & ATP Business Rules"
+    patterns:
+      - "internal/oms/service.go"
+      - "internal/oms/handler.go"
+      - "internal/admin/handler.go"    # credit-limits endpoints
+      - "web/src/app/dashboard/orders/new/**"
+    risk: critical
+    requiredGates: [G1, G2]
+    additionalChecks:
+      - golden_credit                  # aqf/golden/credit.cases.json
+      - property_no_negative_amount    # INV-MONEY-01
+      - credit_audit_trail             # entity_events credit_limit.updated
+    humanQuestion: "Credit vượt limit → pending_approval hay reject? Mức vượt nào trigger?"
+    regressionTests:
+      - "internal/oms/credit_test.go"  # cần tạo
+
+  # ── CRITICAL: State Machines ──────────────────────────
+  - id: RISK-BHL-STATE-MACHINES
+    name: "Order / Trip / Stop State Machines"
+    patterns:
+      - "internal/oms/service.go"
+      - "internal/tms/service.go"
+      - "internal/wms/service.go"
+    risk: critical
+    requiredGates: [G1, G2]
+    additionalChecks:
+      - golden_order_states            # aqf/golden/order-state-machine.cases.json
+      - golden_trip_states             # aqf/golden/trip-state-machine.cases.json
+      - redelivery_state_tests         # partially_delivered/failed → redelivery chain
+    humanQuestion: "Thay đổi state transition nào? Rule nào cho phép / chặn transition đó?"
+    regressionTests:
+      - "internal/oms/service_test.go"
+      - "internal/tms/service_test.go"
+
+  # ── CRITICAL: WMS FEFO & Inventory ────────────────────
+  - id: RISK-BHL-INVENTORY
+    name: "WMS Inventory — FEFO Allocation"
+    patterns:
+      - "internal/wms/service.go"
+      - "internal/wms/handler.go"
+      - "internal/oms/service.go"      # ATP check
+    risk: critical
+    requiredGates: [G1, G2]
+    additionalChecks:
+      - golden_fefo                    # aqf/golden/inventory-fefo.cases.json
+      - property_fefo_oldest_first     # INV-FEFO-01
+      - property_no_overallocation     # không cấp phát quá tồn kho
+      - reconciliation_tests           # WMS bàn giao A/B/C
+    humanQuestion: "FEFO có thay đổi không? Nếu 2 lô cùng ngày hết hạn, ưu tiên lô nào?"
+    regressionTests:
+      - "internal/wms/fefo_test.go"    # cần tạo
+      - "internal/wms/service_test.go"
+
+  # ── CRITICAL: VRP Cost Engine ─────────────────────────
+  - id: RISK-BHL-VRP-COST
+    name: "VRP Solver & Cost Engine"
+    patterns:
+      - "internal/tms/service.go"      # cost engine calculations
+      - "vrp-solver/**"
+      - "internal/tms/handler.go"      # VRP planning endpoints
+    risk: critical
+    requiredGates: [G1, G2]
+    additionalChecks:
+      - golden_cost_engine             # aqf/golden/cost-engine.cases.json
+      - metamorphic_vrp_order_invariant
+      - property_toll_calculation      # 500m threshold
+      - property_haversine_nonnegative
+    humanQuestion: "Cost formula thay đổi chỗ nào? Có toll station mới không?"
+    regressionTests:
+      - "internal/tms/cost_test.go"    # cần tạo
+
+  # ── HIGH: Reconciliation ──────────────────────────────
+  - id: RISK-BHL-RECONCILIATION
+    name: "Reconciliation — Goods / Payment / Asset"
+    patterns:
+      - "internal/reconciliation/**"
+    risk: high
+    requiredGates: [G1, G2]
+    additionalChecks:
+      - property_reconciliation_idempotent  # INV-RECON-01
+      - golden_reconciliation
+    humanQuestion: null
+    regressionTests:
+      - "internal/reconciliation/service_test.go"  # cần tạo
+
+  # ── HIGH: Integration — Bravo/DMS/Zalo ────────────────
+  - id: RISK-BHL-INTEGRATION
+    name: "External Integration — Bravo / DMS / Zalo"
+    patterns:
+      - "internal/integration/**"
+      - "internal/notification/**"
+    risk: high
+    requiredGates: [G1, G2]
+    additionalChecks:
+      - integration_202_not_blocking   # trả 202, không block nghiệp vụ
+      - webhook_schema_validation
+      - mock_server_contract           # cmd/mock_server
+    humanQuestion: null
+
+  # ── HIGH: GPS & Real-time ─────────────────────────────
+  - id: RISK-BHL-GPS
+    name: "GPS Tracking & Real-time PubSub"
+    patterns:
+      - "internal/gps/**"
+      - "web/src/app/dashboard/control-tower/**"
+    risk: high
+    requiredGates: [G1]
+    additionalChecks:
+      - gps_simulation_test       # test portal GPS scenarios
+      - redis_pubsub_test
+    humanQuestion: null
+
+  # ── MEDIUM: Frontend Pages ────────────────────────────
+  - id: RISK-BHL-FRONTEND
+    name: "Frontend Page Changes"
+    patterns:
+      - "web/src/app/**/*.tsx"
+      - "web/src/components/**"
+    risk: medium
+    requiredGates: [G1]
+    additionalChecks:
+      - visual_diff_targeted           # screenshot diff vs baseline
+      - accessibility_scan             # axe-core
+      - lighthouse_baseline
+    skipGates: [G2]  # không cần domain tests cho pure frontend
+
+  # ── MEDIUM: API Layer (không phải service) ─────────────
+  - id: RISK-BHL-API-HANDLER
+    name: "API Handler (không có business logic thay đổi)"
+    patterns:
+      - "internal/*/handler.go"
+    risk: medium
+    requiredGates: [G1]
+    additionalChecks:
+      - api_rbac_matrix_smoke          # chỉ check endpoint mới
+      - response_schema_lint
+
+  # ── LOW: Config & Infra ───────────────────────────────
+  - id: RISK-BHL-CONFIG
+    name: "Docker / Deploy / Config"
+    patterns:
+      - "Dockerfile"
+      - "docker-compose*.yml"
+      - ".github/workflows/**"
+      - "bhl-oms/deploy/**"
+      - "nginx/**"
+    risk: high   # sai config = production down
+    requiredGates: [G1]
+    additionalChecks:
+      - hadolint
+      - yaml_lint
+      - env_example_sync              # .env.example và .env phải sync keys
+
+  # ── DEFAULT ───────────────────────────────────────────
+  - id: RISK-DEFAULT
+    name: "General Code Change"
+    patterns: ["**"]
+    risk: medium
+    requiredGates: [G1]
+    additionalChecks: []
+
+combineStrategy: union

@@ -36,28 +36,7 @@ interface EODSession {
   checkpoints: EODCheckpoint[]
 }
 
-// Container Return data submitted by driver (Trạm 1)
-interface ContainerReturnData {
-  items: { asset_type: string; epod_qty: number; actual_qty: number }[]
-  returned_goods: { product_name: string; quantity: number; reason: string }[]
-  discrepancy_reason?: string
-}
 
-// Cash Handover data (Trạm 2)
-interface CashHandoverData {
-  cash_details: { customer_name: string; amount: number; method: string }[]
-  total_cash: number
-}
-
-// Vehicle Return data (Trạm 3)
-interface VehicleReturnData {
-  km_start: number
-  km_end: number
-  fuel_level: number
-  checklist: Record<string, boolean>
-  damage_description?: string
-  damage_photos?: string[]
-}
 
 const checkpointLabels: Record<string, string> = {
   container_return: 'Giao vỏ & hàng trả → Thủ kho',
@@ -250,7 +229,7 @@ export default function DriverEODPage() {
   const currentCheckpoint = session.checkpoints?.find(
     cp => cp.status === 'pending' || cp.status === 'rejected'
   )
-  const nextActionType = currentCheckpoint?.checkpoint_type
+  const _nextActionType = currentCheckpoint?.checkpoint_type
 
   return (
     <div className="min-h-screen bg-slate-50 pb-20">
@@ -453,7 +432,7 @@ export default function DriverEODPage() {
 
 // ===== Trạm 1: Container Return Form =====
 function ContainerReturnForm({
-  items, setItems, returnedGoods, setReturnedGoods,
+  items, setItems, returnedGoods: _returnedGoods, setReturnedGoods: _setReturnedGoods,
   discrepancy, setDiscrepancy, onSubmit, submitting,
 }: {
   items: { asset_type: string; epod_qty: number; actual_qty: number }[]

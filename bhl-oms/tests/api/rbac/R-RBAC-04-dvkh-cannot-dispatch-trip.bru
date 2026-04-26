@@ -1,0 +1,35 @@
+meta {
+  name: R-RBAC-04 - DVKH cannot dispatch trip
+  type: http
+  seq: 20
+}
+
+post {
+  url: {{base_url}}/v1/trips
+  body: json
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{dvkh_token}}
+}
+
+body:json {
+  {
+    "driver_id": "00000000-0000-0000-0000-000000000000",
+    "vehicle_id": "00000000-0000-0000-0000-000000000000",
+    "order_ids": [],
+    "planned_date": "2099-01-01"
+  }
+}
+
+assert {
+  res.status: eq 403
+}
+
+docs {
+  ## RBAC Rule: dvkh → POST /trips
+  
+  DVKH (dịch vụ khách hàng) KHÔNG được dispatch chuyến. Chỉ dispatcher mới được.
+  Expected: HTTP 403 Forbidden
+}

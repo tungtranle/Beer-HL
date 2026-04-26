@@ -1,0 +1,68 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "aqf/schemas/evidence.v4.json",
+  "title": "AQF Evidence Schema v4",
+  "description": "Schema cho mỗi CI run evidence artifact — BHL OMS-TMS-WMS",
+  "type": "object",
+  "required": ["runId", "timestamp", "context", "riskClassification", "gates", "confidenceScore"],
+  "properties": {
+    "runId": { "type": "string" },
+    "timestamp": { "type": "string", "format": "date-time" },
+    "context": {
+      "type": "object",
+      "required": ["commitSha", "branch"],
+      "properties": {
+        "commitSha": { "type": "string" },
+        "branch": { "type": "string" },
+        "pr": { "type": "string" },
+        "actor": { "type": "string" },
+        "triggeredBy": { "type": "string", "enum": ["push", "pull_request", "schedule", "workflow_dispatch"] }
+      }
+    },
+    "riskClassification": {
+      "type": "object",
+      "required": ["overallRisk", "gatesRequired"],
+      "properties": {
+        "categories": { "type": "array", "items": { "type": "string" } },
+        "overallRisk": { "type": "string", "enum": ["low", "medium", "high", "critical"] },
+        "gatesRequired": { "type": "array", "items": { "type": "string" } },
+        "rulesMatched": { "type": "array", "items": { "type": "string" } }
+      }
+    },
+    "gates": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "object",
+        "required": ["status"],
+        "properties": {
+          "status": { "type": "string", "enum": ["pass", "fail", "skip", "warn"] },
+          "duration_s": { "type": "number" },
+          "checks": { "type": "object" }
+        }
+      }
+    },
+    "confidenceScore": {
+      "type": "object",
+      "required": ["value", "decision"],
+      "properties": {
+        "value": { "type": "number", "minimum": 0, "maximum": 100 },
+        "decision": {
+          "type": "string",
+          "enum": ["SHIP", "SHIP-WITH-CAUTION", "HOLD", "HOLD-PENDING-ANSWER"]
+        },
+        "blocking": { "type": "array", "items": { "type": "string" } },
+        "warnings": { "type": "array", "items": { "type": "string" } },
+        "openQuestions": { "type": "array", "items": { "type": "string" } }
+      }
+    },
+    "artifacts": {
+      "type": "object",
+      "properties": {
+        "playwright_trace": { "type": "string" },
+        "coverage_html": { "type": "string" },
+        "security_sarif": { "type": "string" },
+        "screenshots": { "type": "array", "items": { "type": "string" } }
+      }
+    }
+  }
+}

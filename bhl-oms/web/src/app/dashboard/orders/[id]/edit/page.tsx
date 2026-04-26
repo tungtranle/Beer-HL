@@ -1,8 +1,8 @@
-'use client'
+﻿'use client'
 
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { useParams, useRouter } from 'next/navigation'
-import { apiFetch, getUser } from '@/lib/api'
+import { apiFetch } from '@/lib/api'
 import { toast } from '@/lib/useToast'
 import { formatVND } from '@/lib/status-config'
 import SearchableSelect from '@/lib/SearchableSelect'
@@ -311,9 +311,9 @@ export default function EditOrderPage() {
                     creditExceeded ? 'bg-red-50 text-red-700 border border-red-200' : 'bg-green-50 text-green-700 border border-green-200'
                   }`}>
                     {creditExceeded ? (
-                      <>⚠️ Đơn hàng <strong>{formatVND(totalAmount)}</strong> VƯỢT hạn mức khả dụng <strong>{formatVND(creditInfo.available_limit)}</strong> → Đơn sẽ ở trạng thái <strong>"Chờ duyệt"</strong></>
+                      <>⚠️ Đơn hàng <strong>{formatVND(totalAmount)}</strong> VƯỢT hạn mức khả dụng <strong>{formatVND(creditInfo.available_limit)}</strong> → Đơn sẽ ở trạng thái <strong>&quot;Chờ duyệt&quot;</strong></>
                     ) : (
-                      <>✅ Đơn hàng <strong>{formatVND(totalAmount)}</strong> trong hạn mức khả dụng <strong>{formatVND(creditInfo.available_limit)}</strong> → Đơn sẽ <strong>"Đã xác nhận"</strong></>
+                      <>✅ Đơn hàng <strong>{formatVND(totalAmount)}</strong> trong hạn mức khả dụng <strong>{formatVND(creditInfo.available_limit)}</strong> → Đơn sẽ <strong>&quot;Đã xác nhận&quot;</strong></>
                     )}
                   </div>
                 )}
@@ -330,7 +330,7 @@ export default function EditOrderPage() {
           </div>
 
           {items.length === 0 ? (
-            <p className="text-gray-400 text-sm text-center py-4">Nhấn "Thêm sản phẩm" để bắt đầu</p>
+            <p className="text-gray-400 text-sm text-center py-4">Nh\u1ea5n &quot;Th\u00eam s\u1ea3n ph\u1ea9m&quot; \u0111\u1ec3 b\u1eaft \u0111\u1ea7u</p>
           ) : (
             <table className="w-full text-sm">
               <thead className="bg-gray-50">
@@ -469,11 +469,11 @@ export default function EditOrderPage() {
                           Tiền hàng <strong>{formatVND(totalAmount)}</strong> vượt hạn mức khả dụng <strong>{formatVND(creditInfo.available_limit)}</strong>
                           {' '}(vượt {formatVND(totalAmount - creditInfo.available_limit)})
                         </p>
-                        <p className="mt-1">→ Đơn sẽ chuyển về trạng thái <strong className="text-orange-700">"Chờ duyệt"</strong> — cần quản lý/kế toán phê duyệt.</p>
+                        <p className="mt-1">→ Đơn sẽ chuyển về trạng thái <strong className="text-orange-700">&quot;Chờ duyệt&quot;</strong> — cần quản lý/kế toán phê duyệt.</p>
                       </div>
                     ) : (
                       <p className="text-sm text-green-600 mt-1">
-                        Tiền hàng {formatVND(totalAmount)} trong hạn mức khả dụng {formatVND(creditInfo.available_limit)} → Đơn sẽ <strong>"Đã xác nhận"</strong> ✓
+                        Tiền hàng {formatVND(totalAmount)} trong hạn mức khả dụng {formatVND(creditInfo.available_limit)} → Đơn sẽ <strong>&quot;Đã xác nhận&quot;</strong> ✓
                       </p>
                     )}
                   </div>

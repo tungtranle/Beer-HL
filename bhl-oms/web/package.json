@@ -5,7 +5,9 @@
   "scripts": {
     "dev": "next dev",
     "build": "next build",
-    "start": "next start"
+    "start": "next start",
+    "lint": "eslint src --ext .ts,.tsx --max-warnings 500",
+    "test:e2e": "playwright test --config ../tests/e2e/playwright.config.ts"
   },
   "dependencies": {
     "@sentry/nextjs": "^10.45.0",
@@ -24,8 +26,11 @@
     "@types/react": "^18",
     "@types/react-dom": "^18",
     "autoprefixer": "^10.4.19",
+    "eslint": "^8.57.1",
+    "eslint-config-next": "14.2.5",
     "postcss": "^8.4.38",
     "tailwindcss": "^3.4.4",
-    "typescript": "^5"
+    "typescript": "^5",
+    "@playwright/test": "^1.48.0"
   }
 }

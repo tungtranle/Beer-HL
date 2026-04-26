@@ -1,0 +1,26 @@
+meta {
+  name: R-RBAC-02 - Driver cannot access credit limits
+  type: http
+  seq: 11
+}
+
+get {
+  url: {{base_url}}/v1/admin/credit-limits
+  body: none
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{driver_token}}
+}
+
+assert {
+  res.status: eq 403
+}
+
+docs {
+  ## RBAC Rule: driver → GET /admin/credit-limits
+  
+  Driver KHÔNG được xem credit limits của khách hàng.
+  Expected: HTTP 403 Forbidden
+}

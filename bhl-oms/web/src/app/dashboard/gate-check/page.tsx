@@ -41,7 +41,7 @@ export default function GateCheckPage() {
   const [showQrModal, setShowQrModal] = useState(false)
   const [qrInput, setQrInput] = useState('')
 
-  const user = getUser()
+  const _user = getUser()
 
   const loadPendingQueue = () => {
     apiFetch<any>('/trips?status=ready&limit=20').then(res => {

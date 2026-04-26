@@ -48,6 +48,7 @@
 | L-35 | Next.js `rewrites()` cho `/api/*` là build-time, không phải chỉ runtime env. Nếu Docker build của web không truyền `INTERNAL_API_ORIGIN`/`NEXT_PUBLIC_API_URL`, image sẽ bake `localhost` và `/api/auth/login` sẽ 500 dù `/v1/auth/login` vẫn 200 | Production login proxy fix 25/04 |
 | L-36 | Self-hosted runner GitHub bị khóa theo repo lúc đăng ký. Đổi account/remote KHÔNG tự chuyển runner; phải kiểm tra `.runner`/`gitHubUrl`, re-register runner, rồi xác nhận repo mới thấy runner `online` trước khi tin vào workflow `queued` | Migration từ `tungtl/Beer-HL` sang `tungtranle/Beer-HL` |
 | L-37 | Khi đổi key localStorage cho auth frontend, PHẢI giữ backward compatibility hoặc auto-migrate key cũ (`access_token`/`refresh_token`/`user`) và refresh token trước WS connect. Nếu không dashboard có thể bắn 401 hàng loạt dù user tưởng vẫn còn đăng nhập | Dashboard 401 + notifications WS fail 25/04 |
+| L-38 | **WebSocket trong dev** (port 3000): KHÔNG dùng `window.location.host` vì Next.js dev server KHÔNG proxy WS. PHẢI dùng pattern: `const wsHost = window.location.port === '3000' ? hostname:8080 : window.location.host`. KHÔNG hardcode `hostname:8080` vì vỡ production. Chuẩn duy nhất là detect port. | notifications.tsx + map/page.tsx fail WS dev |
 
 ## 🟢 Đánh giá / Scope (khi plan)
 

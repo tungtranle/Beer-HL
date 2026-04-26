@@ -40,7 +40,7 @@ func (s *Service) GetCreditRiskScore(ctx context.Context, customerID uuid.UUID) 
 	cacheKey := customerID.String()
 
 	// Try cache (6h TTL)
-	if content, provider, ok := s.repo.GetInsight(ctx, "credit_risk", cacheKey); ok {
+	if content, _, ok := s.repo.GetInsight(ctx, "credit_risk", cacheKey); ok {
 		// Cache hit — parse narrative back
 		return &CreditRiskScore{
 			CustomerID: customerID,
@@ -49,7 +49,6 @@ func (s *Service) GetCreditRiskScore(ctx context.Context, customerID uuid.UUID) 
 			ComputedAt: time.Now(),
 			DebtTrend:  "stable",
 		}, nil
-		_ = provider
 	}
 
 	input, err := s.repo.GetCreditRiskInput(ctx, customerID)

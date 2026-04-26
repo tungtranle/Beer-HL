@@ -33,7 +33,7 @@ const statusDot: Record<string, string> = {
 type SavedView = 'all' | 'today' | 'active' | 'issues'
 
 export default function TripsPage() {
-  const user = getUser()
+  const _user = getUser()
   const [trips, setTrips] = useState<Trip[]>([])
   const [loading, setLoading] = useState(true)
   const [filter, setFilter] = useState('')

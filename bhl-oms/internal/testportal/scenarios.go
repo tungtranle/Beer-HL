@@ -73,6 +73,11 @@ func (h *Handler) ListScenarios(c *gin.Context) {
 		scenarioRealJune13(),
 		scenarioControlTower(),
 		scenarioOpsAuditRegression(),
+		scenarioDocExpiry(),
+		scenarioFEFOAllocation(),
+		scenarioDriverEOD(),
+		scenarioKPISnapshot(),
+		scenarioRBACViolation(),
 	}
 	response.OK(c, scenarios)
 }
@@ -131,6 +136,16 @@ func (h *Handler) LoadScenario(c *gin.Context) {
 		loadErr, summary = h.loadScenarioControlTower(ctx)
 	case "SC-12":
 		loadErr, summary = h.loadScenarioOpsAuditRegression(ctx)
+	case "SC-13":
+		loadErr, summary = h.loadScenarioDocExpiry(ctx)
+	case "SC-14":
+		loadErr, summary = h.loadScenarioFEFOAllocation(ctx)
+	case "SC-15":
+		loadErr, summary = h.loadScenarioDriverEOD(ctx)
+	case "SC-16":
+		loadErr, summary = h.loadScenarioKPISnapshot(ctx)
+	case "SC-17":
+		loadErr, summary = h.loadScenarioRBACViolation(ctx)
 	default:
 		response.BadRequest(c, "Scenario không tồn tại: "+req.ScenarioID)
 		return
@@ -147,11 +162,15 @@ func (h *Handler) LoadScenario(c *gin.Context) {
 		h.log.Warn(ctx, "backfill_order_events_failed", logger.F("err", err.Error()))
 	}
 
+	// Run assertions and include in response
+	assertions := h.RunScenarioAssertions(ctx, req.ScenarioID)
+
 	h.log.Info(ctx, "scenario_loaded", logger.F("scenario", req.ScenarioID))
 	response.OK(c, gin.H{
 		"scenario_id": req.ScenarioID,
 		"status":      "loaded",
 		"message":     summary,
+		"assertions":  assertions,
 	})
 }
 

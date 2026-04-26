@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useState, useRef } from 'react'
-import { apiFetch, getUser } from '@/lib/api'
+import { apiFetch } from '@/lib/api'
 import { toast } from '@/lib/useToast'
 import { handleError } from '@/lib/handleError'
 

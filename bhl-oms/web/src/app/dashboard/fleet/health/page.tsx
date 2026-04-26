@@ -23,7 +23,7 @@ const scoreColor = (s: number | null) => {
   return 'text-red-600'
 }
 
-const scoreBg = (s: number | null) => {
+const _scoreBg = (s: number | null) => {
   if (s === null) return 'bg-gray-100'
   if (s >= 80) return 'bg-green-50 border-green-200'
   if (s >= 50) return 'bg-yellow-50 border-yellow-200'

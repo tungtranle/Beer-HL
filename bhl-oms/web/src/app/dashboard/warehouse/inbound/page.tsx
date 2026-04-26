@@ -11,7 +11,7 @@ interface Pallet { id: string; lpn_code: string; qr_payload: string }
 
 export default function InboundPage() {
   const [products, setProducts] = useState<Product[]>([])
-  const [warehouseID, setWarehouseID] = useState('a0000000-0000-0000-0000-000000000001')
+  const [warehouseID, _setWarehouseID] = useState('a0000000-0000-0000-0000-000000000001')
   const [productID, setProductID] = useState('')
   const [batch, setBatch] = useState('')
   const [prodDate, setProdDate] = useState('')

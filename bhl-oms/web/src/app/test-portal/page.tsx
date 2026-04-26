@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react'
 import SearchableSelect from '@/lib/SearchableSelect'
+import AQFCommandCenter from './aqf-command-center'
 
 const API = '/api/test-portal'
 
@@ -42,7 +43,7 @@ interface Product {
   weight_kg: number; volume_m3: number
 }
 
-type Tab = 'test-cases' | 'orders' | 'order-confirm' | 'delivery-confirm' | 'stock' | 'credit' | 'ops-audit' | 'create-order' | 'gps-sim' | 'drivers'
+type Tab = 'aqf' | 'test-cases' | 'orders' | 'order-confirm' | 'delivery-confirm' | 'stock' | 'credit' | 'ops-audit' | 'create-order' | 'gps-sim' | 'drivers'
 
 interface TimelineEvent {
   id: string; event_type: string; actor_type: string; actor_name: string
@@ -89,6 +90,7 @@ interface ScenarioDataPoint {
 }
 
 const tabs: { key: Tab; label: string; icon: string }[] = [
+  { key: 'aqf', label: 'AQF Command Center', icon: '⚡' },
   { key: 'test-cases', label: 'Kịch bản test', icon: '🎯' },
   { key: 'orders', label: 'Đơn hàng', icon: '📋' },
   { key: 'order-confirm', label: 'Xác nhận đơn (Zalo)', icon: '📱' },
@@ -201,6 +203,7 @@ export default function TestPortalPage() {
       </div>
 
       <div className="max-w-7xl mx-auto px-6 py-4">
+        {tab === 'aqf' && <AQFCommandCenter />}
         {tab === 'test-cases' && <TestCasesTab setTab={setTab} setPreferredGPSScenario={setPreferredGPSScenario} showToast={showToast} refresh={refresh} />}
         {tab === 'orders' && <OrdersTab refreshKey={refreshKey} showToast={showToast} refresh={refresh} />}
         {tab === 'order-confirm' && <OrderConfirmTab refreshKey={refreshKey} showToast={showToast} refresh={refresh} />}
@@ -503,7 +506,7 @@ function TestCasesTab({ setTab, setPreferredGPSScenario, showToast, refresh }: {
 }
 
 // ===== Tab: Orders =====
-function OrdersTab({ refreshKey, showToast, refresh }: { refreshKey: number; showToast: (msg: string) => void; refresh: () => void }) {
+function OrdersTab({ refreshKey, showToast: _showToast, refresh: _refresh }: { refreshKey: number; showToast: (msg: string) => void; refresh: () => void }) {
   const [items, setItems] = useState<Order[]>([])
   const [loading, setLoading] = useState(true)
 

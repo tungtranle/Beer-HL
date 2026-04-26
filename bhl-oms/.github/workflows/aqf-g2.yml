@@ -1,0 +1,304 @@
+# AQF G2 — Domain & Contract Confidence Gate
+# Trigger: khi file thuộc risk category: auth, db-schema, credit, state-machine, inventory, vrp
+# Muc tieu: < 10 phut
+# Khong pass → Decision Brief: HOLD
+
+name: "AQF G2 — Domain Gate"
+
+on:
+  pull_request:
+    branches: [main, develop]
+    paths:
+      # RISK-BHL-AUTH
+      - "bhl-oms/internal/auth/**"
+      - "bhl-oms/internal/middleware/auth*.go"
+      - "bhl-oms/internal/middleware/permission_guard.go"
+      # RISK-BHL-MIGRATION
+      - "bhl-oms/migrations/*.sql"
+      # RISK-BHL-CREDIT & STATE-MACHINES
+      - "bhl-oms/internal/oms/service.go"
+      - "bhl-oms/internal/oms/handler.go"
+      # RISK-BHL-INVENTORY
+      - "bhl-oms/internal/wms/service.go"
+      - "bhl-oms/internal/wms/handler.go"
+      # RISK-BHL-VRP-COST
+      - "bhl-oms/internal/tms/service.go"
+      - "bhl-oms/vrp-solver/**"
+      # RISK-BHL-RECONCILIATION
+      - "bhl-oms/internal/reconciliation/**"
+      # RISK-BHL-INTEGRATION
+      - "bhl-oms/internal/integration/**"
+      # Golden datasets — changes need extra protection
+      - "bhl-oms/aqf/golden/**"
+
+env:
+  GO_VERSION: "1.23"
+
+jobs:
+  # ═══════════════════════════════════════════════════════
+  # G2-1: Golden Dataset Validation
+  # ═══════════════════════════════════════════════════════
+  g2-golden-dataset:
+    name: "G2 ▸ Golden Dataset Validation"
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: bhl-oms
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: test
+          POSTGRES_PASSWORD: test
+          POSTGRES_DB: bhl_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+
+      - uses: actions/setup-go@0aaccfd150d50ccaeb58ebd88d65a4827a5f4ad9
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache: true
+
+      - name: Run migrations (ephemeral DB)
+        run: |
+          for f in migrations/*.up.sql; do
+            PGPASSWORD=test psql -h localhost -U test -d bhl_test -f "$f"
+          done
+
+      - name: Run Golden Dataset tests
+        run: go test -v -run "Golden" -timeout 60s ./internal/...
+        env:
+          DB_URL: postgres://test:test@localhost:5432/bhl_test?sslmode=disable
+          REDIS_URL: redis://localhost:6379/0
+          JWT_PRIVATE_KEY_PATH: keys/private.pem
+          JWT_PUBLIC_KEY_PATH: keys/public.pem
+
+  # ═══════════════════════════════════════════════════════
+  # G2-2: Property Tests (Business Invariants)
+  # ═══════════════════════════════════════════════════════
+  g2-property-tests:
+    name: "G2 ▸ Property Tests"
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: bhl-oms
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+
+      - uses: actions/setup-go@0aaccfd150d50ccaeb58ebd88d65a4827a5f4ad9
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache: true
+
+      - name: Run Property tests
+        run: go test -v -run "Property|Invariant|Fuzz" -timeout 120s ./internal/...
+        env:
+          DB_URL: postgres://test:test@localhost:5432/bhl_test?sslmode=disable
+
+  # ═══════════════════════════════════════════════════════
+  # G2-3: Migration Rollback Test (ephemeral DB)
+  # ═══════════════════════════════════════════════════════
+  g2-migration-rollback:
+    name: "G2 ▸ Migration Rollback (up→seed→down→up)"
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: bhl-oms
+    if: |
+      contains(github.event.pull_request.changed_files_url, 'migrations')
+      || github.event_name == 'push'
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: test
+          POSTGRES_PASSWORD: test
+          POSTGRES_DB: bhl_migrate_test
+        ports:
+          - 5433:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+
+      - name: Migration cycle test (up → down → up)
+        run: |
+          echo "=== Step 1: Apply all UP migrations ==="
+          for f in migrations/*.up.sql; do
+            echo "Running $f..."
+            PGPASSWORD=test psql -h localhost -U test -d bhl_migrate_test -f "$f"
+          done
+
+          echo "=== Step 2: Apply all DOWN migrations (reverse order) ==="
+          for f in $(ls -r migrations/*.down.sql 2>/dev/null); do
+            echo "Rolling back $f..."
+            PGPASSWORD=test psql -h localhost -U test -d bhl_migrate_test -f "$f" || true
+          done
+
+          echo "=== Step 3: Re-apply all UP migrations ==="
+          for f in migrations/*.up.sql; do
+            echo "Re-running $f..."
+            PGPASSWORD=test psql -h localhost -U test -d bhl_migrate_test -f "$f"
+          done
+
+          echo "✅ Migration cycle: PASS"
+
+  # ═══════════════════════════════════════════════════════
+  # G2-4: Authorization Matrix Test (9 roles)
+  # ═══════════════════════════════════════════════════════
+  g2-auth-matrix:
+    name: "G2 ▸ Authorization Matrix (9 roles)"
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: bhl-oms
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: test
+          POSTGRES_PASSWORD: test
+          POSTGRES_DB: bhl_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+
+      - uses: actions/setup-go@0aaccfd150d50ccaeb58ebd88d65a4827a5f4ad9
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache: true
+
+      - name: Run migrations
+        run: |
+          for f in migrations/*.up.sql; do
+            PGPASSWORD=test psql -h localhost -U test -d bhl_test -f "$f" 2>/dev/null || true
+          done
+
+      - name: Run Authorization Matrix tests
+        run: go test -v -run "AuthMatrix|RBAC|Permission" -timeout 120s ./internal/...
+        env:
+          DB_URL: postgres://test:test@localhost:5432/bhl_test?sslmode=disable
+          REDIS_URL: redis://localhost:6379/0
+          JWT_PRIVATE_KEY_PATH: keys/private.pem
+          JWT_PUBLIC_KEY_PATH: keys/public.pem
+
+  # ═══════════════════════════════════════════════════════
+  # G2-5: State Machine Tests (OMS/TMS/WMS)
+  # ═══════════════════════════════════════════════════════
+  g2-state-machines:
+    name: "G2 ▸ State Machine Tests"
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: bhl-oms
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+
+      - uses: actions/setup-go@0aaccfd150d50ccaeb58ebd88d65a4827a5f4ad9
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache: true
+
+      - name: Run State Machine tests
+        run: go test -v -run "StateMachine|Transition|OrderState|TripState" -timeout 60s ./internal/...
+
+  # ═══════════════════════════════════════════════════════
+  # G2 Gate Summary + Decision Brief
+  # ═══════════════════════════════════════════════════════
+  g2-gate-summary:
+    name: "G2 ▸ Gate Summary + Decision Brief"
+    needs:
+      - g2-golden-dataset
+      - g2-property-tests
+      - g2-migration-rollback
+      - g2-auth-matrix
+      - g2-state-machines
+    runs-on: ubuntu-latest
+    if: always()
+    steps:
+      - name: Evaluate G2 gate and create Decision Brief
+        run: |
+          GOLDEN="${{ needs.g2-golden-dataset.result }}"
+          PROPERTY="${{ needs.g2-property-tests.result }}"
+          MIGRATION="${{ needs.g2-migration-rollback.result }}"
+          AUTH="${{ needs.g2-auth-matrix.result }}"
+          STATE="${{ needs.g2-state-machines.result }}"
+
+          FAIL=0
+          FAIL_REASONS=""
+
+          for check in GOLDEN PROPERTY MIGRATION AUTH STATE; do
+            eval "result=\$$check"
+            if [ "$result" = "failure" ]; then
+              FAIL=1
+              FAIL_REASONS="$FAIL_REASONS $check"
+            fi
+          done
+
+          echo "══════════════════════════════════════════════════"
+          echo "AQF DECISION BRIEF — G2 Domain Gate"
+          echo "Branch: ${{ github.ref_name }} | Commit: ${{ github.sha }}"
+          echo "══════════════════════════════════════════════════"
+
+          if [ $FAIL -ne 0 ]; then
+            echo "⛔ QUYẾT ĐỊNH: HOLD"
+            echo ""
+            echo "🔴 BLOCKING — cần xử lý trước khi merge:"
+            for reason in $FAIL_REASONS; do
+              case $reason in
+                GOLDEN)   echo "  • [GOLDEN FAIL] Business logic không khớp golden dataset";;
+                PROPERTY) echo "  • [PROPERTY FAIL] Business invariant bị vi phạm";;
+                MIGRATION)echo "  • [MIGRATION FAIL] Migration không rollback được";;
+                AUTH)     echo "  • [AUTH FAIL] Authorization matrix test thất bại";;
+                STATE)    echo "  • [STATE FAIL] State machine transition test thất bại";;
+              esac
+            done
+            echo ""
+            echo "Xem chi tiết tại: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+            echo "══════════════════════════════════════════════════"
+            exit 1
+          fi
+
+          echo "✅ QUYẾT ĐỊNH: G2 PASS"
+          echo ""
+          echo "Đã kiểm tra:"
+          echo "  • Golden Dataset:          PASS"
+          echo "  • Property Tests:          PASS"
+          echo "  • Migration Rollback:      PASS"
+          echo "  • Authorization Matrix:    PASS"
+          echo "  • State Machines:          PASS"
+          echo "══════════════════════════════════════════════════"

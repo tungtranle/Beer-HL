@@ -1,0 +1,91 @@
+[
+  {
+    "_meta": {
+      "description": "Golden dataset: FEFO Inventory Allocation — BHL WMS",
+      "invariant": "INV-FEFO-01",
+      "rule": "Always pick lot with earliest expiry_date first",
+      "owner": "wms/service.go"
+    }
+  },
+  {
+    "id": "FEFO-001",
+    "scenario": "2 lô khác ngày hết hạn → lấy lô cũ hơn",
+    "input": {
+      "product_id": "SKU-001",
+      "requested_qty": 10,
+      "available_lots": [
+        { "lot_number": "L002", "expiry_date": "2026-08-01", "qty": 50 },
+        { "lot_number": "L001", "expiry_date": "2026-06-01", "qty": 50 }
+      ]
+    },
+    "expected": {
+      "allocated_lot": "L001",
+      "allocated_qty": 10
+    }
+  },
+  {
+    "id": "FEFO-002",
+    "scenario": "Lô cũ không đủ số lượng → split sang lô mới",
+    "input": {
+      "product_id": "SKU-001",
+      "requested_qty": 30,
+      "available_lots": [
+        { "lot_number": "L001", "expiry_date": "2026-06-01", "qty": 20 },
+        { "lot_number": "L002", "expiry_date": "2026-08-01", "qty": 50 }
+      ]
+    },
+    "expected": {
+      "allocations": [
+        { "lot_number": "L001", "qty": 20 },
+        { "lot_number": "L002", "qty": 10 }
+      ]
+    }
+  },
+  {
+    "id": "FEFO-003",
+    "scenario": "Không đủ tổng tồn kho → ATP fail",
+    "input": {
+      "product_id": "SKU-001",
+      "requested_qty": 100,
+      "available_lots": [
+        { "lot_number": "L001", "expiry_date": "2026-06-01", "qty": 30 },
+        { "lot_number": "L002", "expiry_date": "2026-08-01", "qty": 30 }
+      ]
+    },
+    "expected": {
+      "atp_status": "insufficient",
+      "available_qty": 60
+    }
+  },
+  {
+    "id": "FEFO-004",
+    "scenario": "2 lô cùng ngày hết hạn → ưu tiên lot_number nhỏ hơn (tiebreak)",
+    "input": {
+      "product_id": "SKU-001",
+      "requested_qty": 10,
+      "available_lots": [
+        { "lot_number": "L003", "expiry_date": "2026-07-01", "qty": 50 },
+        { "lot_number": "L001", "expiry_date": "2026-07-01", "qty": 50 }
+      ]
+    },
+    "expected": {
+      "allocated_lot": "L001",
+      "_note": "Q-BHL-003: tiebreak cần confirm"
+    }
+  },
+  {
+    "id": "FEFO-005",
+    "scenario": "Không được over-allocate (INV > tồn kho)",
+    "input": {
+      "product_id": "SKU-001",
+      "requested_qty": 50,
+      "available_lots": [
+        { "lot_number": "L001", "expiry_date": "2026-06-01", "qty": 40 }
+      ]
+    },
+    "expected": {
+      "atp_status": "insufficient",
+      "error_code": "INSUFFICIENT_STOCK"
+    }
+  }
+]

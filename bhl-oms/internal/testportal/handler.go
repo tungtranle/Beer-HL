@@ -65,6 +65,9 @@ func (h *Handler) RegisterRoutes(r *gin.RouterGroup) {
 		// Scenario data loading (new)
 		tp.GET("/scenarios", h.ListScenarios)
 		tp.POST("/load-scenario", h.LoadScenario)
+		tp.POST("/run-assertions", h.RunAssertions)
+		tp.POST("/run-all-smoke", h.RunAllSmoke)
+		tp.GET("/risk-monitor", h.GetRiskMonitor)
 
 		// Zalo inbox — NPP customer view
 		tp.GET("/zalo-inbox", h.ZaloInbox)
@@ -75,6 +78,18 @@ func (h *Handler) RegisterRoutes(r *gin.RouterGroup) {
 		tp.POST("/gps/start", h.GPSStart)
 		tp.POST("/gps/stop", h.GPSStop)
 		tp.GET("/gps/status", h.GPSStatus)
+
+		// AQF Command Center — Quality Gate visibility & control
+		aqf := tp.Group("/aqf")
+		{
+			aqf.GET("/status", h.AQFStatus)
+			aqf.POST("/run", h.AQFRun)
+			aqf.GET("/golden", h.AQFGolden)
+			aqf.GET("/health", h.AQFHealth)
+			aqf.GET("/evidence", h.AQFEvidence)
+			aqf.GET("/questions", h.AQFQuestions)
+			aqf.POST("/answer", h.AQFAnswer)
+		}
 	}
 }
 

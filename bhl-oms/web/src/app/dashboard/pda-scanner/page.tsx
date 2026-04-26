@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState, useCallback } from 'react'
 import Link from 'next/link'
-import { apiFetch, getUser } from '@/lib/api'
+import { apiFetch } from '@/lib/api'
 
 interface ScanResult {
   barcode: string

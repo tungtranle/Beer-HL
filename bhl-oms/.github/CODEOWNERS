@@ -1,0 +1,18 @@
+# CODEOWNERS — AQF 4.0 Protection Rules
+# Chi founder/owner duoc approve nhung file nay
+# Thay "@founder" bang GitHub username thuc te
+
+# AQF golden datasets — CRITICAL: chi owner approve
+bhl-oms/aqf/golden/                   @founder
+bhl-oms/aqf/risk-rules.yml            @founder
+bhl-oms/aqf/                          @founder
+
+# Security & Auth core — require owner review
+bhl-oms/internal/auth/                @founder
+bhl-oms/internal/middleware/auth*.go  @founder
+bhl-oms/internal/middleware/permission_guard.go @founder
+bhl-oms/keys/                         @founder
+
+# GitHub Actions workflows — khong de AI tu sua
+.github/workflows/                    @founder
+.github/CODEOWNERS                    @founder

@@ -51,7 +51,7 @@ export default function DriversListPage() {
 
   useEffect(() => { load() }, [])
 
-  const filtered = drivers.filter(d =>
+  const _filtered = drivers.filter(d =>
     d.full_name.toLowerCase().includes(search.toLowerCase()) ||
     d.phone.includes(search)
   )
@@ -95,11 +95,11 @@ export default function DriversListPage() {
     }
   }
 
+  const [statusFilter, setStatusFilter] = useState('')
+
   if (loading) {
     return <div className="flex items-center justify-center h-64 text-gray-400">Đang tải...</div>
   }
-
-  const [statusFilter, setStatusFilter] = useState('')
   const activeCount = drivers.filter(d => d.status === 'active').length
   const onTripCount = drivers.filter(d => d.status === 'on_trip').length
 

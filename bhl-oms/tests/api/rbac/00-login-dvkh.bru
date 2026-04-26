@@ -1,0 +1,24 @@
+meta {
+  name: 00 - Login as dvkh
+  type: http
+  seq: 2
+}
+
+post {
+  url: {{base_url}}/v1/auth/login
+  body: json
+  auth: none
+}
+
+body:json {
+  {
+    "username": "dvkh01",
+    "password": "dvkh123"
+  }
+}
+
+script:post-response {
+  if (res.status === 200) {
+    bru.setEnvVar("dvkh_token", res.body.data?.token || res.body.token);
+  }
+}
