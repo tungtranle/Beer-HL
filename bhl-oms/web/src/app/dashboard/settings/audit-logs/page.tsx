@@ -307,22 +307,22 @@ function extractChanges(detail: Record<string, unknown>): Array<{ field: string;
   } else {
     // Detect old_X / new_X pairs
     const keys = Object.keys(detail)
-    const processed = (new Set() as unknown) as Set<string>
+    const processed: Record<string, boolean> = {}
     for (const key of keys) {
-      if (key.startsWith('old_') && !processed.has(key)) {
+      if (key.startsWith('old_') && !processed[key]) {
         const field = key.slice(4)
         const newKey = `new_${field}`
         if (newKey in detail) {
           changes.push({ field, old_value: detail[key], new_value: detail[newKey] })
-          processed.add(key)
-          processed.add(newKey)
+          processed[key] = true
+          processed[newKey] = true
         }
       }
     }
     // If no pairs found, show all fields
     if (changes.length === 0) {
       for (const [k, v] of Object.entries(detail)) {
-        if (!processed.has(k)) changes.push({ field: k, old_value: '', new_value: v })
+        if (!processed[k]) changes.push({ field: k, old_value: '', new_value: v })
       }
     }
   }

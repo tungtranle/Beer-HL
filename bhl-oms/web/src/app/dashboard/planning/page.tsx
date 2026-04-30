@@ -146,11 +146,11 @@ function TripDetailModal({ trip, tripIdx, vehicles, warehouse, vrpConstraintsMap
       const validStops = trip.stops.filter(s => s.latitude && s.longitude)
 
       // Offset co-located stops so markers don't overlap
-      const usedCoords = (new Map() as unknown) as Map<string, number>
+      const usedCoords: Record<string, number> = {}
       const offsetStops = validStops.map(s => {
         const key = `${s.latitude.toFixed(5)},${s.longitude.toFixed(5)}`
-        const count = usedCoords.get(key) || 0
-        usedCoords.set(key, count + 1)
+        const count = usedCoords[key] || 0
+        usedCoords[key] = count + 1
         if (count === 0) return { ...s }
         const angle = (count * 60) * (Math.PI / 180)
         const offset = 0.0003 * count
@@ -185,12 +185,12 @@ function TripDetailModal({ trip, tripIdx, vehicles, warehouse, vrpConstraintsMap
 
           // Toll station markers
       if (trip.tolls_passed?.length) {
-        const seen = (new Set() as unknown) as Set<string>
+        const seen: Record<string, boolean> = {}
         trip.tolls_passed.forEach((tp: any) => {
           if (!tp.latitude || !tp.longitude) return
           const key = `${tp.latitude.toFixed(4)},${tp.longitude.toFixed(4)}`
-          if (seen.has(key)) return
-          seen.add(key)
+          if (seen[key]) return
+          seen[key] = true
           const isExpressway = tp.toll_type === 'expressway'
           const bgColor = isExpressway ? '#3b82f6' : '#f97316'
           const markerLabel = isExpressway ? 'CT' : 'TT'
@@ -539,7 +539,7 @@ function VehicleStatusModal({ vehicles, onClose }: { vehicles: Vehicle[]; onClos
 // ─── Driver Status Modal ────────────────────────────
 function DriverStatusModal({ drivers, checkins, onClose }: { drivers: Driver[]; checkins: any[]; onClose: () => void }) {
   const [selectedDriver, setSelectedDriver] = useState<Driver | null>(null)
-  const checkinMap = (new Map(checkins.map(c => [c.driver_id || c.id, c] as [string, any])) as unknown) as Map<string, any>
+  const checkinMap: Record<string, any> = checkins.reduce((acc: Record<string, any>, c: any) => { acc[c.driver_id || c.id] = c; return acc }, {})
 
   const statusGroups: Record<string, { label: string; color: string; dot: string }> = {
     available: { label: 'Sẵn sàng', color: 'bg-green-100 text-green-800', dot: 'bg-green-500' },
@@ -562,7 +562,7 @@ function DriverStatusModal({ drivers, checkins, onClose }: { drivers: Driver[]; 
         reason: c.reason,
       }))
     : drivers.map(d => {
-        const checkin = checkinMap.get(d.id)
+        const checkin = checkinMap[d.id]
         const checkinStatus = checkin?.checkin_status || checkin?.status || 'not_checked_in'
         return { ...d, checkin_status: checkinStatus, reason: checkin?.reason }
       })
@@ -809,9 +809,9 @@ export default function PlanningPage() {
 
   useEffect(() => {
     if (!vrpResult?.trips) return
-    const ids = (new Set() as unknown) as Set<string>
-    vrpResult.trips.forEach(t => t.stops.forEach(s => { if (s.customer_id) ids.add(s.customer_id) }))
-    const missing = Array.from(ids).filter(id => !(id in vrpConstraintsMap))
+    const idsMap: Record<string, boolean> = {}
+    vrpResult.trips.forEach(t => t.stops.forEach(s => { if (s.customer_id) idsMap[s.customer_id] = true }))
+    const missing = Object.keys(idsMap).filter(id => !(id in vrpConstraintsMap))
     if (missing.length === 0) return
     Promise.all(missing.map(id =>
       apiFetch<any>(`/customers/${id}/vrp-constraints`).then(r => ({ id, data: r.data })).catch(() => null)
@@ -1073,7 +1073,7 @@ export default function PlanningPage() {
             // Init driver assignment (auto-assign: prefer default driver, fallback by order)
             if (r.data?.trips) {
               const init: Record<string, string> = {}
-              const usedDrivers = (new Set() as unknown) as Set<string>
+              const usedDrivers: Record<string, boolean> = {}
               // First pass: assign default drivers from vehicle mapping
               r.data.trips.forEach((t: VRPTrip) => {
                 const vehicle = vehicles.find(v => v.id === t.vehicle_id)
@@ -1081,7 +1081,7 @@ export default function PlanningPage() {
                   const defaultDriver = drivers.find(d => d.id === vehicle.default_driver_id)
                   if (defaultDriver && defaultDriver.status === 'active') {
                     init[t.vehicle_id] = defaultDriver.id
-                    usedDrivers.add(defaultDriver.id)
+                    usedDrivers[defaultDriver.id] = true
                   }
                 }
               })
@@ -1089,10 +1089,10 @@ export default function PlanningPage() {
               let driverIdx = 0
               r.data.trips.forEach((t: VRPTrip) => {
                 if (!init[t.vehicle_id]) {
-                  while (driverIdx < drivers.length && usedDrivers.has(drivers[driverIdx].id)) driverIdx++
+                  while (driverIdx < drivers.length && usedDrivers[drivers[driverIdx].id]) driverIdx++
                   if (driverIdx < drivers.length) {
                     init[t.vehicle_id] = drivers[driverIdx].id
-                    usedDrivers.add(drivers[driverIdx].id)
+                    usedDrivers[drivers[driverIdx].id] = true
                     driverIdx++
                   }
                 }
@@ -1451,19 +1451,19 @@ export default function PlanningPage() {
         setSavedJobId('loaded')
         if (result?.trips) {
           const init: Record<string, string> = {}
-          const usedDrivers = (new Set() as unknown) as Set<string>
+          const usedDrivers: Record<string, boolean> = {}
           result.trips.forEach((t: VRPTrip) => {
             const vehicle = vehicles.find(v => v.id === t.vehicle_id)
             if (vehicle?.default_driver_id) {
               const dd = drivers.find(d => d.id === vehicle.default_driver_id)
-              if (dd && dd.status === 'active') { init[t.vehicle_id] = dd.id; usedDrivers.add(dd.id) }
+              if (dd && dd.status === 'active') { init[t.vehicle_id] = dd.id; usedDrivers[dd.id] = true }
             }
           })
           let di = 0
           result.trips.forEach((t: VRPTrip) => {
             if (!init[t.vehicle_id]) {
-              while (di < drivers.length && usedDrivers.has(drivers[di].id)) di++
-              if (di < drivers.length) { init[t.vehicle_id] = drivers[di].id; usedDrivers.add(drivers[di].id); di++ }
+              while (di < drivers.length && usedDrivers[drivers[di].id]) di++
+              if (di < drivers.length) { init[t.vehicle_id] = drivers[di].id; usedDrivers[drivers[di].id] = true; di++ }
             }
           })
           setDriverAssign(init)
@@ -3478,19 +3478,19 @@ export default function PlanningPage() {
                   // Auto-assign drivers
                   // Auto-assign drivers (prefer default)
                   const init: Record<string, string> = {}
-                  const usedDrivers = (new Set() as unknown) as Set<string>
+                  const usedDrivers: Record<string, boolean> = {}
                   result.trips.forEach((t) => {
                     const vehicle = vehicles.find(v => v.id === t.vehicle_id)
                     if (vehicle?.default_driver_id) {
                       const dd = drivers.find(d => d.id === vehicle.default_driver_id)
-                      if (dd && dd.status === 'active') { init[t.vehicle_id] = dd.id; usedDrivers.add(dd.id) }
+                      if (dd && dd.status === 'active') { init[t.vehicle_id] = dd.id; usedDrivers[dd.id] = true }
                     }
                   })
                   let di = 0
                   result.trips.forEach((t) => {
                     if (!init[t.vehicle_id]) {
-                      while (di < drivers.length && usedDrivers.has(drivers[di].id)) di++
-                      if (di < drivers.length) { init[t.vehicle_id] = drivers[di].id; usedDrivers.add(drivers[di].id); di++ }
+                      while (di < drivers.length && usedDrivers[drivers[di].id]) di++
+                      if (di < drivers.length) { init[t.vehicle_id] = drivers[di].id; usedDrivers[drivers[di].id] = true; di++ }
                     }
                   })
                   setDriverAssign(init)

@@ -15,10 +15,11 @@ import {
   ShieldCheck, CheckCircle2, Scale, FileBarChart, BarChart3, Bell,
   Settings, SlidersHorizontal, CreditCard, ScrollText, Navigation, Activity,
   Wrench, Search, LogOut, ChevronDown, PanelLeftClose, PanelLeft, Shield, ClipboardCheck,
-  DollarSign,
+  DollarSign, BookOpen,
   type LucideIcon,
 } from 'lucide-react'
 import { UserMenu } from '@/components/dashboard/UserMenu'
+import { HelpDrawer } from '@/components/HelpDrawer'
 
 // ── Types ─────────────────────────────────────────
 
@@ -98,6 +99,7 @@ const navGroups: NavGroup[] = [
   {
     label: 'Hệ thống',
     items: [
+      { href: '/dashboard/help', label: 'Trợ giúp', icon: BookOpen, roles: ['admin', 'dispatcher', 'dvkh', 'accountant', 'management', 'warehouse_handler', 'security', 'workshop'] },
       { href: '/dashboard/settings', label: 'Quản trị hệ thống', icon: Settings, roles: ['admin'] },
       { href: '/dashboard/settings/permissions', label: 'Phân quyền', icon: Shield, roles: ['admin'] },
       { href: '/dashboard/settings/configs', label: 'Cấu hình', icon: SlidersHorizontal, roles: ['admin'] },
@@ -138,6 +140,7 @@ const pathLabels: Record<string, string> = {
   '/dashboard/reconciliation/daily-close': 'Chốt sổ ngày',
   '/dashboard/kpi': 'Báo cáo KPI',
   '/dashboard/notifications': 'Thông báo',
+  '/dashboard/help': 'Trợ giúp',
   '/dashboard/settings': 'Quản trị hệ thống',
   '/dashboard/settings/permissions': 'Phân quyền',
   '/dashboard/settings/configs': 'Cấu hình hệ thống',
@@ -164,6 +167,7 @@ const roleLabels: Record<string, string> = {
   accountant: 'Kế toán',
   driver: 'Tài xế',
   warehouse: 'Thủ kho',
+  warehouse_handler: 'Thủ kho',
   security: 'Bảo vệ',
   management: 'Ban giám đốc',
   workshop: 'Phân xưởng',
@@ -176,6 +180,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   const router = useRouter()
   const [user, setUser] = useState<any>(null)
   const [collapsed, setCollapsed] = useState(false)
+  const [helpOpen, setHelpOpen] = useState(false)
 
   useEffect(() => {
     if (!getToken()) { router.replace('/login'); return }
@@ -370,6 +375,15 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
 
               <div className="w-px h-6 bg-gray-200 mx-0.5 hidden sm:block" />
 
+              {/* Help button */}
+              <button
+                onClick={() => setHelpOpen(true)}
+                className="p-1.5 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded-lg transition"
+                title="Trợ giúp (H)"
+              >
+                <BookOpen size={18} strokeWidth={1.5} />
+              </button>
+
               {/* Notification bell */}
               <NotificationBell />
 
@@ -389,6 +403,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
 
         <ToastContainer />
         <CommandPalette />
+        <HelpDrawer open={helpOpen} onClose={() => setHelpOpen(false)} userRole={user?.role || ''} />
       </div>
     </NotificationProvider>
   )

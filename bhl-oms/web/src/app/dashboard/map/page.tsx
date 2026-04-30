@@ -27,9 +27,9 @@ const statusColors: Record<string, string> = {
 export default function DispatcherMapPage() {
   const mapContainerRef = useRef<HTMLDivElement>(null)
   const mapRef = useRef<any>(null)
-  const markersRef = useRef<Map<string, any>>(new Map())
+  const markersRef = useRef<any>({})
   const wsRef = useRef<WebSocket | null>(null)
-  const [vehicles, setVehicles] = useState<Map<string, VehiclePosition>>(new Map())
+  const [vehicles, setVehicles] = useState<Record<string, VehiclePosition>>({})
   const [connected, setConnected] = useState(false)
   const [selectedVehicle, setSelectedVehicle] = useState<string | null>(null)
 
@@ -74,11 +74,11 @@ export default function DispatcherMapPage() {
   }, [])
 
   // Update markers when vehicles change
-  const updateMarkers = useCallback(async (positions: Map<string, VehiclePosition>) => {
+  const updateMarkers = useCallback(async (positions: Record<string, VehiclePosition>) => {
     if (!mapRef.current) return
     const L = (await import('leaflet')).default
 
-    positions.forEach((pos, vehicleId) => {
+    Object.entries(positions).forEach(([vehicleId, pos]) => {
       const isMoving = pos.speed > 2
       const color = isMoving ? statusColors.moving : statusColors.idle
 
@@ -97,7 +97,7 @@ export default function DispatcherMapPage() {
         iconAnchor: [16, 16],
       })
 
-      const existingMarker = markersRef.current.get(vehicleId)
+      const existingMarker = markersRef.current[vehicleId]
       const tripLabel = pos.trip_status === 'in_transit' ? 'Đang giao hàng' : pos.trip_status === 'planned' ? 'Chờ xuất phát' : pos.trip_status === 'started' ? 'Đã xuất phát' : ''
       const popupContent = `
         <div style="min-width:180px">
@@ -117,7 +117,7 @@ export default function DispatcherMapPage() {
           .addTo(mapRef.current)
           .bindPopup(popupContent)
         marker.on('click', () => setSelectedVehicle(vehicleId))
-        markersRef.current.set(vehicleId, marker)
+        markersRef.current[vehicleId] = marker
       }
     })
   }, [])
@@ -145,8 +145,8 @@ export default function DispatcherMapPage() {
           const data = JSON.parse(event.data)
           if (data.vehicle_id) {
             setVehicles(prev => {
-              const updated = new Map(prev)
-              updated.set(data.vehicle_id, data)
+              const updated = { ...prev }
+              updated[data.vehicle_id] = data
               return updated
             })
           }
@@ -189,11 +189,11 @@ export default function DispatcherMapPage() {
           headers: { Authorization: `Bearer ${getToken()}` }
         })).json()
         if (res.data) {
-          const posMap = (new Map() as unknown) as Map<string, VehiclePosition>
+          const posMap: Record<string, VehiclePosition> = {}
           Object.entries(res.data).forEach(([vehicleId, posData]: [string, any]) => {
             try {
               const pos = typeof posData === 'string' ? JSON.parse(posData) : posData
-              posMap.set(vehicleId, {
+              posMap[vehicleId] = {
                 vehicle_id: pos.vehicle_id || vehicleId,
                 vehicle_plate: pos.vehicle_plate || undefined,
                 driver_name: pos.driver_name || undefined,
@@ -203,13 +203,13 @@ export default function DispatcherMapPage() {
                 speed: pos.speed,
                 heading: pos.heading,
                 ts: pos.ts,
-              })
+              }
             } catch { /* ignore */ }
           })
           setVehicles(prev => {
-            const merged = new Map(prev)
-            posMap.forEach((v, k) => {
-              if (!merged.has(k)) merged.set(k, v)
+            const merged = { ...prev }
+            Object.entries(posMap).forEach(([k, v]) => {
+              if (!merged[k]) merged[k] = v
             })
             return merged
           })
@@ -235,7 +235,7 @@ export default function DispatcherMapPage() {
           <span className="text-sm text-gray-500">
             {connected ? 'Live' : 'Đang kết nối...'}
           </span>
-          <span className="text-sm font-medium text-blue-600">{vehicles.size} xe</span>
+          <span className="text-sm font-medium text-blue-600">{Object.keys(vehicles).length} xe</span>
         </div>
       </div>
 
@@ -245,7 +245,7 @@ export default function DispatcherMapPage() {
       {/* Vehicle list sidebar (bottom panel on mobile) */}
       <div className="bg-white border-t max-h-48 overflow-y-auto">
         <div className="p-2 space-y-1">
-          {Array.from(vehicles.values()).map(v => (
+          {Object.values(vehicles).map(v => (
             <div key={v.vehicle_id}
               onClick={() => {
                 setSelectedVehicle(v.vehicle_id)
@@ -279,7 +279,7 @@ export default function DispatcherMapPage() {
               </div>
             </div>
           ))}
-          {vehicles.size === 0 && (
+          {Object.keys(vehicles).length === 0 && (
             <p className="text-center text-gray-400 text-sm py-4">Chưa có xe nào đang hoạt động</p>
           )}
         </div>

@@ -68,23 +68,23 @@ function navigateLink(link: string) {
 }
 
 function mergeGroups(notifs: Notification[]): { grouped: boolean; items: Notification[]; key: string | null }[] {
-  const groupKeyMap = (new Map() as unknown) as Map<string, Notification[]>
-  const processedGroupKeys = (new Set() as unknown) as Set<string>
+  const groupKeyMap: Record<string, Notification[]> = {}
+  const processedGroupKeys: Record<string, boolean> = {}
   const result: { grouped: boolean; items: Notification[]; key: string | null }[] = []
 
   for (const n of notifs) {
     if (n.group_key) {
-      const arr = groupKeyMap.get(n.group_key) || []
+      const arr = groupKeyMap[n.group_key] || []
       arr.push(n)
-      groupKeyMap.set(n.group_key, arr)
+      groupKeyMap[n.group_key] = arr
     }
   }
 
   for (const n of notifs) {
     if (n.group_key) {
-      if (processedGroupKeys.has(n.group_key)) continue
-      processedGroupKeys.add(n.group_key)
-      const groupItems = groupKeyMap.get(n.group_key)!
+      if (processedGroupKeys[n.group_key]) continue
+      processedGroupKeys[n.group_key] = true
+      const groupItems = groupKeyMap[n.group_key]!
       result.push({ grouped: groupItems.length > 1, items: groupItems, key: n.group_key })
     } else {
       result.push({ grouped: false, items: [n], key: null })
