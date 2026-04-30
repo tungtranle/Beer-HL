@@ -1,16 +1,17 @@
 #!/bin/bash
 # ============================================================
 # OSRM Health Monitor & Auto-Restart Script
-# Chạy với cron job: */5 * * * * /opt/bhl/scripts/osrm-monitor.sh
+# Chạy với cron job: */5 * * * * /path/to/scripts/osrm-monitor.sh
 # ============================================================
 set -e
 
-COMPOSE_FILE="${COMPOSE_FILE:-docker-compose.prod.yml}"
-COMPOSE_DIR="${COMPOSE_DIR:-.}"
-OSRM_PORT="${OSRM_PORT:-5000}"
-OSRM_URL="http://localhost:${OSRM_PORT}"
-OSRM_DATA_PATH="${OSRM_DATA_PATH:-./osrm-data/vietnam-latest.osrm}"
-LOG_FILE="/var/log/osrm-monitor.log"
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+PROJECT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
+COMPOSE_FILE="${COMPOSE_FILE:-$PROJECT_DIR/docker-compose.prod.yml}"
+OSRM_CHECK_SERVICE="${OSRM_CHECK_SERVICE:-api}"
+OSRM_INTERNAL_URL="${OSRM_INTERNAL_URL:-http://osrm:5000}"
+OSRM_DATA_PATH="${OSRM_DATA_PATH:-$PROJECT_DIR/osrm-data/vietnam-latest.osrm}"
+LOG_FILE="${LOG_FILE:-/var/log/osrm-monitor.log}"
 
 # Color codes
 RED='\033[0;31m'
@@ -25,35 +26,40 @@ log() {
     echo "[$(date +'%Y-%m-%d %H:%M:%S')] $*" >> "$LOG_FILE"
 }
 
-check_osrm_health() {
-    # Try status endpoint (requires curl)
-    if ! command -v curl &> /dev/null; then
-        # Fallback: try wget
-        if ! command -v wget &> /dev/null; then
-            log "WARN: Neither curl nor wget available. Skipping OSRM health check."
-            return 2
-        fi
-        wget -qO- "$OSRM_URL/status" 2>/dev/null | grep -q "status" && return 0
-        return 1
-    fi
-    
-    curl -sf "$OSRM_URL/status" > /dev/null 2>&1 && return 0 || return 1
+docker_compose() {
+    docker compose -f "$COMPOSE_FILE" "$@"
+}
+
+service_is_running() {
+    local service=$1
+    local container_id
+    container_id="$(docker_compose ps -q "$service" 2>/dev/null | head -n 1)"
+    [ -n "$container_id" ] || return 1
+    [ "$(docker inspect -f '{{.State.Status}}' "$container_id" 2>/dev/null || true)" = "running" ]
 }
 
 check_osrm_data() {
-    if [ ! -f "$OSRM_DATA_PATH" ]; then
-        log "ERROR: OSRM data file not found: $OSRM_DATA_PATH"
-        return 1
+    [ -f "$OSRM_DATA_PATH" ]
+}
+
+check_osrm_health() {
+    # Probe OSRM via Docker internal network through the api service
+    # OSRM port 5000 is not exposed to host — must go through Docker network
+    if ! service_is_running "$OSRM_CHECK_SERVICE"; then
+        log "WARN: Helper service '$OSRM_CHECK_SERVICE' is not running. Cannot probe OSRM from Docker network."
+        return 2
     fi
-    return 0
+
+    if docker_compose exec -T "$OSRM_CHECK_SERVICE" wget -qO- "$OSRM_INTERNAL_URL/status" 2>/dev/null | grep -q '"status"'; then
+        return 0
+    fi
+    return 1
 }
 
 restart_osrm() {
     log "ACTION: Restarting OSRM service..."
-    cd "$COMPOSE_DIR"
-    if docker compose -f "$COMPOSE_FILE" restart osrm >> "$LOG_FILE" 2>&1; then
+    if docker_compose restart osrm >> "$LOG_FILE" 2>&1; then
         log "SUCCESS: OSRM restarted"
-        # Wait for OSRM to be ready
         sleep 15
         if check_osrm_health; then
             log "SUCCESS: OSRM is healthy after restart"
@@ -73,15 +79,15 @@ log "=== OSRM Health Check Started ==="
 
 # Check if OSRM data exists
 if ! check_osrm_data; then
-    log "CRITICAL: OSRM data missing. Manual intervention required."
+    log "CRITICAL: OSRM data missing at $OSRM_DATA_PATH. Manual intervention required."
     echo -e "${RED}ERROR: OSRM data file not found at $OSRM_DATA_PATH${NC}" >&2
     exit 1
 fi
 
-# Check OSRM health
+# Check OSRM health via Docker network
 if check_osrm_health; then
-    log "OK: OSRM is healthy"
-    echo -e "${GREEN}[✓]${NC} OSRM is healthy at $OSRM_URL"
+    log "OK: OSRM is healthy via $OSRM_CHECK_SERVICE -> $OSRM_INTERNAL_URL"
+    echo -e "${GREEN}[✓]${NC} OSRM is healthy via $OSRM_CHECK_SERVICE -> $OSRM_INTERNAL_URL"
     exit 0
 else
     log "WARN: OSRM health check failed"
