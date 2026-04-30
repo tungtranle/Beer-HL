@@ -146,11 +146,11 @@ function TripDetailModal({ trip, tripIdx, vehicles, warehouse, vrpConstraintsMap
       const validStops = trip.stops.filter(s => s.latitude && s.longitude)
 
       // Offset co-located stops so markers don't overlap
-      const usedCoords = new Map<string, number>()
+      const usedCoords: Record<string, number> = {}
       const offsetStops = validStops.map(s => {
         const key = `${s.latitude.toFixed(5)},${s.longitude.toFixed(5)}`
-        const count = usedCoords.get(key) || 0
-        usedCoords.set(key, count + 1)
+        const count = usedCoords[key] || 0
+        usedCoords[key] = count + 1
         if (count === 0) return { ...s }
         const angle = (count * 60) * (Math.PI / 180)
         const offset = 0.0003 * count
