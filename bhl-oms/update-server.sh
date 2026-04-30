@@ -236,6 +236,34 @@ cleanup_stub() {
 trap cleanup_stub EXIT
 
 set +e
+
+# Bước 4a: Khởi động các service hạ tầng (postgres, redis, osrm, vrp) nếu chưa chạy
+echo -e "  ${BLUE}→${NC} Đảm bảo postgres, redis, osrm, vrp đang chạy..."
+PATH="$STUB_DIR:$PATH" \
+docker compose -f "$COMPOSE_FILE" --env-file "$ENV_FILE" up -d postgres redis osrm vrp 2>&1 | tee /tmp/bhl_infra.log | \
+    grep -E "(Starting|Started|Recreated|Running|error|ERROR)" | tail -20
+
+# Chờ OSRM sẵn sàng (tối đa 60s)
+echo -e "  ${BLUE}→${NC} Chờ OSRM sẵn sàng..."
+OSRM_READY=false
+for i in $(seq 1 12); do
+    if PATH="$STUB_DIR:$PATH" docker compose -f "$COMPOSE_FILE" --env-file "$ENV_FILE" exec -T osrm \
+        curl -sf http://localhost:5000/status >/dev/null 2>&1; then
+        OSRM_READY=true
+        break
+    fi
+    sleep 5
+    printf "."
+done
+echo ""
+if [ "$OSRM_READY" = "true" ]; then
+    echo -e "  ${GREEN}✓ OSRM — OK${NC}"
+else
+    echo -e "  ${YELLOW}! OSRM chưa ready sau 60s — tiếp tục build...${NC}"
+fi
+
+# Bước 4b: Rebuild & restart api + web
+echo -e "  ${BLUE}→${NC} Build và khởi động lại api + web..."
 PATH="$STUB_DIR:$PATH" \
 docker compose -f "$COMPOSE_FILE" --env-file "$ENV_FILE" up -d --build api web 2>&1 | tee /tmp/bhl_build.log | \
     grep -E "(Building|built|Started|Recreated|Step |Pull|✓|error|ERROR)" | tail -40
@@ -277,6 +305,39 @@ if [ "$API_OK" = true ]; then
 else
     echo -e "  ${RED}✗ Backend API — Lỗi! Xem log:${NC}"
     echo -e "    docker compose -f $COMPOSE_FILE logs api --tail 30"
+fi
+
+# Check OSRM
+OSRM_OK=false
+for i in {1..5}; do
+    if docker compose -f "$COMPOSE_FILE" --env-file "$ENV_FILE" exec -T osrm \
+        curl -sf http://localhost:5000/status >/dev/null 2>&1; then
+        OSRM_OK=true
+        break
+    fi
+    sleep 5
+done
+if [ "$OSRM_OK" = "true" ]; then
+    echo -e "  ${GREEN}✓ OSRM Routing — OK${NC}"
+else
+    echo -e "  ${YELLOW}! OSRM — Chưa ready (có thể cần thêm thời gian khởi động)${NC}"
+    echo -e "    Kiểm tra: docker compose -f $COMPOSE_FILE logs osrm --tail 20"
+fi
+
+# Check VRP
+VRP_OK=false
+for i in {1..3}; do
+    if docker compose -f "$COMPOSE_FILE" --env-file "$ENV_FILE" exec -T vrp \
+        curl -sf http://localhost:8090/health >/dev/null 2>&1; then
+        VRP_OK=true
+        break
+    fi
+    sleep 3
+done
+if [ "$VRP_OK" = "true" ]; then
+    echo -e "  ${GREEN}✓ VRP Solver — OK${NC}"
+else
+    echo -e "  ${YELLOW}! VRP — Chưa ready${NC}"
 fi
 
 # Check tổng số containers
