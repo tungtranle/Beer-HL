@@ -508,6 +508,31 @@ func (h *Handler) CreateRedelivery(c *gin.Context) {
 	})
 }
 
+// ListWarehouses returns all active warehouses for dropdown/selection purposes
+func (h *Handler) ListWarehouses(c *gin.Context) {
+	warehouses, err := h.svc.GetAllWarehouses(c.Request.Context())
+	if err != nil {
+		h.log.Error(c.Request.Context(), "ListWarehouses failed", err)
+		response.InternalError(c)
+		return
+	}
+	if warehouses == nil {
+		warehouses = []domain.Warehouse{}
+	}
+	response.OK(c, warehouses)
+}
+
+// GetDashboardStats returns aggregate statistics for dashboard hero section
+func (h *Handler) GetDashboardStats(c *gin.Context) {
+	stats, err := h.svc.GetDashboardStats(c.Request.Context())
+	if err != nil {
+		h.log.Error(c.Request.Context(), "GetDashboardStats failed", err)
+		response.InternalError(c)
+		return
+	}
+	response.OK(c, stats)
+}
+
 func (h *Handler) ListDeliveryAttempts(c *gin.Context) {
 	id, err := uuid.Parse(c.Param("id"))
 	if err != nil {

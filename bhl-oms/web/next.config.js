@@ -2,6 +2,7 @@ const { withSentryConfig } = require("@sentry/nextjs");
 
 // In Docker production, Next.js server proxies to sibling containers via their service names.
 // Locally, falls back to localhost.
+const API_ORIGIN = process.env.INTERNAL_API_ORIGIN || 'http://localhost:8080'
 const OSRM_ORIGIN = process.env.INTERNAL_OSRM_ORIGIN || 'http://localhost:5000'
 
 /** @type {import('next').NextConfig} */
@@ -48,6 +49,11 @@ const nextConfig = {
   },
   async rewrites() {
     return [
+      // Go backend API proxy — routes /v1/* to backend port 8080
+      {
+        source: '/v1/:path*',
+        destination: `${API_ORIGIN}/v1/:path*`,
+      },
       // OSRM routing — proxied server-side (avoids CORS from browser to Docker)
       {
         source: '/osrm/:path*',
