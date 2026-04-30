@@ -130,7 +130,7 @@ export default function SearchableSelect({ options, value, onChange, placeholder
               type="text"
               value={search}
               onChange={e => setSearch(e.target.value)}
-              placeholder="🔍 Tìm theo mã hoặc tên..."
+              placeholder="Tìm theo mã hoặc tên..."
               className="w-full px-3 py-2 border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-amber-400"
             />
           </div>

@@ -1,4 +1,4 @@
-'use client'
+﻿'use client'
 
 // WMS Phase 9 task 9.13 — Realtime alerts dashboard.
 
@@ -38,7 +38,7 @@ export default function RealtimeDashboardPage() {
     <div className="p-4 max-w-7xl mx-auto">
       <div className="flex items-center justify-between mb-4">
         <div className="flex items-center gap-3">
-          <h1 className="text-2xl font-bold">📊 Cảnh báo kho realtime</h1>
+          <h1 className="text-2xl font-bold">Cảnh báo kho realtime</h1>
           {urgentCount > 0 && (
             <span className="px-2 py-1 bg-red-600 text-white text-xs font-bold rounded-full animate-pulse">
               {urgentCount} cảnh báo
@@ -55,10 +55,10 @@ export default function RealtimeDashboardPage() {
         <Card title="🟠 Tồn dưới mức an toàn" items={data.low_safety_stock} render={(it: any) =>
           <div className="text-sm"><span className="font-mono">{it.sku}</span> · {it.name} · <strong>{it.qty}</strong> tồn</div>
         } />
-        <Card title="🔴 Sắp hết hạn (HSD<30d, SL≥50)" items={data.near_expiry_high_qty} render={(it: any) =>
+        <Card title=" Sắp hết hạn (HSD<30d, SL≥50)" items={data.near_expiry_high_qty} render={(it: any) =>
           <div className="text-sm"><span className="font-mono">{it.lpn}</span> · Lô {it.batch} · HSD {it.expiry} · {it.qty} đơn vị</div>
         } />
-        <Card title="🟡 Bin chiếm > 90%" items={data.bins_over_90} render={(it: any) =>
+        <Card title=" Bin chiếm > 90%" items={data.bins_over_90} render={(it: any) =>
           <div className="text-sm"><span className="font-mono">{it.bin_code}</span> · {it.occupied}/{it.capacity}</div>
         } />
         <Card title="🟣 Pallet mồ côi (>7 ngày staging)" items={data.orphan_pallets} render={(it: any) =>

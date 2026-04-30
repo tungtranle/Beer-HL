@@ -1,4 +1,4 @@
-'use client'
+﻿'use client'
 
 import { useEffect, useState, useCallback, useRef } from 'react'
 import Link from 'next/link'
@@ -8,6 +8,8 @@ import { handleError } from '@/lib/handleError'
 import { useRouter } from 'next/navigation'
 import { useDataRefresh } from '@/lib/notifications'
 import { useAIFeature } from '@/hooks/useAIFeature'
+import { Modal, Textarea, Button } from '@/components/ui'
+import { Truck, Bus, CalendarDays, ShieldAlert, AlertTriangle, Circle } from 'lucide-react'
 
 // ─── Types ───────────────────────────────────────────
 
@@ -152,8 +154,8 @@ const exceptionTypeDescription: Record<string, string> = {
 }
 
 const emptyStateText: Record<string, string> = {
-  dispatcher: 'Không có cảnh báo — tốt lắm! 🎉',
-  admin: 'Không có cảnh báo — tốt lắm! 🎉',
+  dispatcher: 'Không có cảnh báo — tốt lắm!',
+  admin: 'Không có cảnh báo — tốt lắm!',
 }
 
 const OFF_ROUTE_THRESHOLD_KM = 1.2
@@ -755,7 +757,7 @@ export default function ControlTowerPage() {
         const tripHintHtml = tripForVehicle
           ? `<div style="margin-top:6px;font-size:11px;color:#2563eb;font-weight:600">Bấm vào xe để mở tuyến ${tripForVehicle.trip_number}</div>`
           : ''
-        const popupContent = `<div style="min-width:180px"><div style="display:flex;align-items:center;gap:6px"><b style="font-size:13px">${v.vehicle_plate}</b><span style="font-size:11px;color:#6b7280">${v.speed} km/h</span></div><div style="font-size:12px;color:#374151;margin-top:2px">${v.driver_name}</div><div style="font-size:11px;color:${tripStatusColor(v.trip_status)};margin-top:1px">${tripStatusLabel[v.trip_status] || v.trip_status}</div>${aiScoreHtml}${progressHtml}${routeAlertHtml}${tripHintHtml}${isAnomaly && !isOffRoute ? '<div style="margin-top:4px;font-size:11px;font-weight:700;color:#dc2626">⚠ Cảnh báo hoạt động</div>' : ''}</div>`
+        const popupContent = `<div style="min-width:180px"><div style="display:flex;align-items:center;gap:6px"><b style="font-size:13px">${v.vehicle_plate}</b><span style="font-size:11px;color:#6b7280">${v.speed} km/h</span></div><div style="font-size:12px;color:#374151;margin-top:2px">${v.driver_name}</div><div style="font-size:11px;color:${tripStatusColor(v.trip_status)};margin-top:1px">${tripStatusLabel[v.trip_status] || v.trip_status}</div>${aiScoreHtml}${progressHtml}${routeAlertHtml}${tripHintHtml}${isAnomaly && !isOffRoute ? '<div style="margin-top:4px;font-size:11px;font-weight:700;color:#dc2626">Cảnh báo hoạt động</div>' : ''}</div>`
 
         const marker = L.marker([v.lat, v.lng], { icon })
           .addTo(leafletMapRef.current)
@@ -862,13 +864,13 @@ export default function ControlTowerPage() {
       if (routeOverlay?.warehouseLat && routeOverlay?.warehouseLng) {
         const whIcon = L.divIcon({
           className: '',
-          html: `<div style="width:28px;height:28px;border-radius:6px;background:#1e40af;border:2.5px solid #fff;box-shadow:0 1px 4px rgba(0,0,0,.3);display:flex;align-items:center;justify-content:center;color:#fff;font-size:14px">🏭</div>`,
+          html: `<div style="width:28px;height:28px;border-radius:6px;background:#1e40af;border:2.5px solid #fff;box-shadow:0 1px 4px rgba(0,0,0,.3);display:flex;align-items:center;justify-content:center;color:#fff;font-size:11px;font-weight:700">KHO</div>`,
           iconSize: [28, 28],
           iconAnchor: [14, 14],
         })
         const whMarker = L.marker([routeOverlay.warehouseLat, routeOverlay.warehouseLng], { icon: whIcon })
           .addTo(map)
-          .bindPopup('<div style="font-weight:700;font-size:13px">🏭 Kho xuất hàng</div>', { maxWidth: 200 })
+          .bindPopup('<div style="font-weight:700;font-size:13px">Kho xuất hàng</div>', { maxWidth: 200 })
         routeLayersRef.current.push(whMarker)
       }
 
@@ -892,7 +894,7 @@ export default function ControlTowerPage() {
         })
         const etaStr = s.estimated_arrival ? new Date(s.estimated_arrival).toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' }) : ''
         const actualStr = s.actual_arrival ? new Date(s.actual_arrival).toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' }) : ''
-        const popupHtml = `<div style="min-width:160px"><div style="font-weight:700;font-size:13px">#${s.stop_order} ${s.customer_name || ''}</div>${s.customer_address ? `<div style="font-size:11px;color:#6b7280;margin-top:2px">📍 ${s.customer_address}</div>` : ''}${etaStr ? `<div style="font-size:11px;margin-top:3px">⏰ ETA: ${etaStr}</div>` : ''}${actualStr ? `<div style="font-size:11px;color:#16a34a">✓ Đến: ${actualStr}</div>` : ''}<div style="margin-top:3px;font-size:11px;font-weight:600;color:${st.color}">${s.status === 'delivered' ? 'Đã giao' : s.status === 'pending' ? 'Chờ giao' : s.status === 'arrived' ? 'Đã đến' : s.status === 'failed' ? 'Thất bại' : s.status === 'delivering' ? 'Đang giao' : s.status}</div></div>`
+        const popupHtml = `<div style="min-width:160px"><div style="font-weight:700;font-size:13px">#${s.stop_order} ${s.customer_name || ''}</div>${s.customer_address ? `<div style="font-size:11px;color:#6b7280;margin-top:2px">[đ/c] ${s.customer_address}</div>` : ''}${etaStr ? `<div style="font-size:11px;margin-top:3px">ETA: ${etaStr}</div>` : ''}${actualStr ? `<div style="font-size:11px;color:#16a34a">✓ Đến: ${actualStr}</div>` : ''}<div style="margin-top:3px;font-size:11px;font-weight:600;color:${st.color}">${s.status === 'delivered' ? 'Đã giao' : s.status === 'pending' ? 'Chờ giao' : s.status === 'arrived' ? 'Đã đến' : s.status === 'failed' ? 'Thất bại' : s.status === 'delivering' ? 'Đang giao' : s.status}</div></div>`
         const stopMarker = L.marker([s.latitude!, s.longitude!], { icon: sIcon })
           .addTo(map)
           .bindPopup(popupHtml, { maxWidth: 220 })
@@ -1076,13 +1078,13 @@ export default function ControlTowerPage() {
   const alertsPanel = (
     <>
       <div className="p-3 border-b flex items-center justify-between">
-        <h2 className="text-sm font-bold text-gray-800">⚠️ Cảnh báo ({exceptions.length})</h2>
+        <h2 className="text-sm font-bold text-gray-800 inline-flex items-center gap-1.5"><AlertTriangle className="w-4 h-4 text-amber-500" aria-hidden="true" />Cảnh báo ({exceptions.length})</h2>
         {mapPriorityMode && (
           <button
             onClick={() => setAlertsDrawerOpen(false)}
             className="text-gray-400 hover:text-gray-700 text-sm"
           >
-            ✕
+            ×
           </button>
         )}
       </div>
@@ -1135,7 +1137,7 @@ export default function ControlTowerPage() {
       <div className={`${mapExpanded ? 'w-[320px] min-w-[320px]' : 'w-[25%] min-w-[280px]'} border-r bg-white flex flex-col overflow-hidden transition-all duration-300`}>
         {/* Metric Cards */}
         <div className="p-3 border-b space-y-2">
-          <h2 className="text-sm font-bold text-gray-800 mb-2">📊 Hôm nay</h2>
+          <h2 className="text-sm font-bold text-gray-800 mb-2">Hôm nay</h2>
           <div className="grid grid-cols-2 gap-2">
             <MetricCard label="Chuyến" value={stats?.total_trips_today ?? 0} type="default" />
             <MetricCard label="Đang giao" value={stats?.in_transit ?? 0} type={stats?.in_transit ? 'ok' : 'default'} />
@@ -1153,7 +1155,7 @@ export default function ControlTowerPage() {
             className="flex items-center justify-between px-3 py-2 mt-2 rounded-lg border border-red-300 bg-red-50 hover:bg-red-100 transition text-sm"
           >
             <span className="flex items-center gap-2">
-              <span className="text-lg">🚨</span>
+              <ShieldAlert className="w-4 h-4 text-red-600" aria-hidden="true" />
               <span className="font-medium text-red-700">Cảnh báo GPS</span>
             </span>
             <span className="text-xs text-red-600">Chi tiết →</span>
@@ -1163,16 +1165,16 @@ export default function ControlTowerPage() {
         {/* Trip/Fleet Toggle (Task 6.17) */}
         <div className="flex border-b">
           <button onClick={() => setLeftView('trips')}
-            className={`flex-1 text-xs py-2 font-medium transition ${leftView === 'trips' ? 'text-brand-600 border-b-2 border-brand-500' : 'text-gray-400 hover:text-gray-600'}`}>
-            🚛 Chuyến ({activeTrips.length})
+            className={`flex-1 text-xs py-2 font-medium transition inline-flex items-center justify-center gap-1.5 ${leftView === 'trips' ? 'text-brand-600 border-b-2 border-brand-500' : 'text-gray-400 hover:text-gray-600'}`}>
+            <Truck className="w-3.5 h-3.5" aria-hidden="true" /> Chuyến ({activeTrips.length})
           </button>
           <button onClick={() => setLeftView('fleet')}
-            className={`flex-1 text-xs py-2 font-medium transition ${leftView === 'fleet' ? 'text-brand-600 border-b-2 border-brand-500' : 'text-gray-400 hover:text-gray-600'}`}>
-            🚚 Đội xe ({vehicles.length})
+            className={`flex-1 text-xs py-2 font-medium transition inline-flex items-center justify-center gap-1.5 ${leftView === 'fleet' ? 'text-brand-600 border-b-2 border-brand-500' : 'text-gray-400 hover:text-gray-600'}`}>
+            <Bus className="w-3.5 h-3.5" aria-hidden="true" /> Đội xe ({vehicles.length})
           </button>
           <button onClick={() => setLeftView('gantt')}
-            className={`flex-1 text-xs py-2 font-medium transition ${leftView === 'gantt' ? 'text-brand-600 border-b-2 border-brand-500' : 'text-gray-400 hover:text-gray-600'}`}>
-            📅 Timeline
+            className={`flex-1 text-xs py-2 font-medium transition inline-flex items-center justify-center gap-1.5 ${leftView === 'gantt' ? 'text-brand-600 border-b-2 border-brand-500' : 'text-gray-400 hover:text-gray-600'}`}>
+            <CalendarDays className="w-3.5 h-3.5" aria-hidden="true" /> Timeline
           </button>
         </div>
 
@@ -1242,7 +1244,7 @@ export default function ControlTowerPage() {
               <div className="border-t px-3 py-2 space-y-2 bg-gray-50">
                 <div className="flex items-center justify-between text-xs">
                   <span className="font-semibold text-gray-700">{selectedTrip.trip_number}</span>
-                  <button onClick={() => setSelectedTrip(null)} className="text-gray-400 hover:text-gray-600">✕</button>
+                  <button onClick={() => setSelectedTrip(null)} className="text-gray-400 hover:text-gray-600">×</button>
                 </div>
                 <div className="text-xs text-gray-500">
                   {selectedTrip.vehicle_plate} · {selectedTrip.driver_name} · {selectedTrip.total_stops} điểm
@@ -1382,7 +1384,7 @@ export default function ControlTowerPage() {
                     <div className="mt-1 flex items-center gap-1 text-[10px]">
                       <span className="text-gray-500 truncate flex-1">{progress?.etaText ?? '—'}</span>
                       {isOffRoute && (
-                        <span className="text-red-600 font-semibold shrink-0">⚠ {deviation?.toFixed(1)}km lệch</span>
+                        <span className="text-red-600 font-semibold shrink-0">{deviation?.toFixed(1)}km lệch</span>
                       )}
                     </div>
                   </div>
@@ -1393,7 +1395,7 @@ export default function ControlTowerPage() {
                 <div className="font-medium text-gray-500 mb-1">Chú thích timeline</div>
                 <div className="flex items-center gap-1.5 mb-0.5"><div className="w-3 h-2 rounded bg-brand-400 shrink-0"/><span>Đúng tiến độ</span></div>
                 <div className="flex items-center gap-1.5 mb-0.5"><div className="w-3 h-2 rounded bg-red-400 shrink-0"/><span>Trễ ETA</span></div>
-                <div className="flex items-center gap-1.5"><span className="text-amber-600">⚠</span><span>Lệch tuyến &gt;{OFF_ROUTE_THRESHOLD_KM}km</span></div>
+                <div className="flex items-center gap-1.5"><span className="text-amber-600 font-bold text-xs">!</span><span>Lệch tuyến &gt;{OFF_ROUTE_THRESHOLD_KM}km</span></div>
               </div>
             </div>
           )}
@@ -1425,14 +1427,15 @@ export default function ControlTowerPage() {
           <span className="text-gray-500">Lọc:</span>
           {[
             { label: 'Tất cả', value: '' },
-            { label: '🟢 Đang chạy', value: 'in_transit' },
-            { label: '🟡 Chờ', value: 'assigned' },
-            { label: '⚫ Offline', value: 'offline' },
+            { label: 'Đang chạy', value: 'in_transit', dot: 'bg-green-500' },
+            { label: 'Chờ', value: 'assigned', dot: 'bg-amber-400' },
+            { label: 'Offline', value: 'offline', dot: 'bg-slate-400' },
           ].map(f => (
             <button key={f.value}
               onClick={() => setMapFilter(f.value)}
-              className={`px-2 py-1 rounded-full transition ${mapFilter === f.value ? 'bg-brand-500 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}
+              className={`px-2 py-1 rounded-full transition inline-flex items-center gap-1 ${mapFilter === f.value ? 'bg-brand-500 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}
             >
+              {f.dot && <span className={`w-2 h-2 rounded-full ${f.dot}`} />}
               {f.label}
             </button>
           ))}
@@ -1445,7 +1448,7 @@ export default function ControlTowerPage() {
                 : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
             }`}
           >
-            {mapExpanded ? '🗗 Thu gọn bản đồ' : '🗖 Mở rộng bản đồ'}
+            {mapExpanded ? 'Thu gọn bản đồ' : 'Mở rộng bản đồ'}
           </button>
           <button
             onClick={() => {
@@ -1458,7 +1461,7 @@ export default function ControlTowerPage() {
                 : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
             }`}
           >
-            {mapFullscreen ? '🡼 Thoát toàn màn hình' : '⛶ Toàn màn hình'}
+            {mapFullscreen ? 'Thoát toàn màn hình' : 'Toàn màn hình'}
           </button>
           {mapPriorityMode && (
             <button
@@ -1469,7 +1472,7 @@ export default function ControlTowerPage() {
                   : 'bg-amber-100 text-amber-700 hover:bg-amber-200'
               }`}
             >
-              {alertsDrawerOpen ? `✕ Ẩn cảnh báo (${exceptions.length})` : `⚠ Cảnh báo (${exceptions.length})`}
+              {alertsDrawerOpen ? `Ẩn cảnh báo (${exceptions.length})` : `Cảnh báo (${exceptions.length})`}
             </button>
           )}
           <button
@@ -1480,7 +1483,7 @@ export default function ControlTowerPage() {
                 : 'bg-green-100 text-green-600 hover:bg-green-200'
             }`}
           >
-            {gpsSimRunning ? '⏹ Tắt GPS giả lập' : '▶ Bật GPS giả lập'}
+            {gpsSimRunning ? 'Tắt GPS giả lập' : 'Bật GPS giả lập'}
           </button>
         </div>
         {/* Map container + controls */}
@@ -1488,7 +1491,7 @@ export default function ControlTowerPage() {
           <div ref={mapRef} className="absolute inset-0" />
           {osrmUnavailable && (
             <div className="absolute top-2 left-1/2 -translate-x-1/2 z-[900] flex items-center gap-1.5 bg-amber-50 border border-amber-300 text-amber-800 text-xs font-medium px-3 py-1.5 rounded-full shadow pointer-events-none">
-              <span>⚠</span><span>OSRM chưa chạy — đường nét đứt là tạm thời. Chạy <strong>START_OSRM_ONLY.bat</strong> để có tuyến thực tế.</span>
+              <AlertTriangle className="w-3.5 h-3.5 shrink-0" /><span>OSRM chưa chạy — đường nét đứt là tạm thời. Chạy <strong>START_OSRM_ONLY.bat</strong> để có tuyến thực tế.</span>
             </div>
           )}
 
@@ -1556,7 +1559,7 @@ export default function ControlTowerPage() {
             <div className="absolute left-3 top-3 z-[800] w-[300px] rounded-xl bg-white/95 backdrop-blur border border-gray-200 p-3" style={{ boxShadow: '0 2px 6px rgba(0,0,0,0.3)' }}>
               <div className="flex items-start justify-between gap-2">
                 <div>
-                  <div className="text-sm font-bold text-gray-900">🚛 {focusedVehicle.vehicle_plate}</div>
+                  <div className="text-sm font-bold text-gray-900 inline-flex items-center gap-1"><Truck className="w-3.5 h-3.5 text-slate-500" aria-hidden="true" />{focusedVehicle.vehicle_plate}</div>
                   <div className="text-xs text-gray-500">{focusedVehicle.driver_name}</div>
                 </div>
                 <button
@@ -1566,7 +1569,7 @@ export default function ControlTowerPage() {
                   }}
                   className="text-gray-400 hover:text-gray-700 text-sm"
                 >
-                  ✕
+                  ×
                 </button>
               </div>
 
@@ -1633,84 +1636,93 @@ export default function ControlTowerPage() {
     </div>
 
     {/* ═══ MOVE STOP MODAL ═══ */}
-    {moveStopModal && (
-      <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center" onClick={() => setMoveStopModal(null)}>
-        <div className="bg-white rounded-xl shadow-xl w-96 p-5" onClick={e => e.stopPropagation()}>
-          <h3 className="text-lg font-bold mb-3">↗ Chuyển điểm giao</h3>
-          <p className="text-sm text-gray-500 mb-3">Chọn chuyến đích để chuyển điểm giao này sang:</p>
-          <select
-            value={moveTargetTrip}
-            onChange={e => setMoveTargetTrip(e.target.value)}
-            className="w-full border rounded-lg px-3 py-2 text-sm mb-4"
-          >
-            <option value="">-- Chọn chuyến đích --</option>
-            {activeTrips.filter(t => t.id !== moveStopModal.fromTripId).map(t => (
-              <option key={t.id} value={t.id}>{t.trip_number} — {t.vehicle_plate} ({t.total_stops} stops)</option>
-            ))}
-          </select>
-          <div className="flex gap-2 justify-end">
-            <button onClick={() => setMoveStopModal(null)} className="text-sm px-4 py-2 rounded-lg border hover:bg-gray-50">Hủy</button>
-            <button
-              onClick={handleMoveStop}
-              disabled={!moveTargetTrip || actionLoading}
-              className="text-sm px-4 py-2 rounded-lg bg-brand-500 text-white hover:bg-brand-600 disabled:opacity-50"
-            >{actionLoading ? 'Đang xử lý...' : 'Chuyển'}</button>
-          </div>
+    <Modal
+      open={!!moveStopModal}
+      onClose={() => setMoveStopModal(null)}
+      title="Chuyển điểm giao"
+      size="sm"
+      footer={
+        <div className="flex gap-2 justify-end">
+          <Button variant="ghost" onClick={() => setMoveStopModal(null)}>Hủy</Button>
+          <Button
+            variant="primary"
+            onClick={handleMoveStop}
+            disabled={!moveTargetTrip || actionLoading}
+            loading={actionLoading}
+          >Chuyển</Button>
         </div>
-      </div>
-    )}
+      }
+    >
+      <p className="text-sm text-slate-500 mb-3">Chọn chuyến đích để chuyển điểm giao này sang:</p>
+      <select
+        value={moveTargetTrip}
+        onChange={e => setMoveTargetTrip(e.target.value)}
+        className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm"
+      >
+        <option value="">-- Chọn chuyến đích --</option>
+        {activeTrips.filter(t => t.id !== moveStopModal?.fromTripId).map(t => (
+          <option key={t.id} value={t.id}>{t.trip_number} — {t.vehicle_plate} ({t.total_stops} stops)</option>
+        ))}
+      </select>
+    </Modal>
 
     {/* ═══ CANCEL TRIP CONFIRM ═══ */}
-    {cancelConfirm && (
-      <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center" onClick={() => setCancelConfirm(null)}>
-        <div className="bg-white rounded-xl shadow-xl w-96 p-5" onClick={e => e.stopPropagation()}>
-          <h3 className="text-lg font-bold text-red-600 mb-3">🚫 Hủy chuyến {cancelConfirm.trip_number}?</h3>
-          <p className="text-sm text-gray-500 mb-2">Tất cả điểm giao chưa hoàn thành sẽ chuyển sang trạng thái &quot;Bỏ qua&quot;.</p>
-          <textarea
-            value={cancelReason}
-            onChange={e => setCancelReason(e.target.value)}
-            placeholder="Lý do hủy (tùy chọn)..."
-            className="w-full border rounded-lg px-3 py-2 text-sm mb-4 h-20 resize-none"
-          />
-          <div className="flex gap-2 justify-end">
-            <button onClick={() => setCancelConfirm(null)} className="text-sm px-4 py-2 rounded-lg border hover:bg-gray-50">Đóng</button>
-            <button
-              onClick={handleCancelTrip}
-              disabled={actionLoading}
-              className="text-sm px-4 py-2 rounded-lg bg-red-600 text-white hover:bg-red-700 disabled:opacity-50"
-            >{actionLoading ? 'Đang xử lý...' : 'Xác nhận hủy'}</button>
-          </div>
+    <Modal
+      open={!!cancelConfirm}
+      onClose={() => setCancelConfirm(null)}
+      title={`Hủy chuyến ${cancelConfirm?.trip_number}?`}
+      size="sm"
+      footer={
+        <div className="flex gap-2 justify-end">
+          <Button variant="ghost" onClick={() => setCancelConfirm(null)}>Đóng</Button>
+          <Button
+            variant="danger"
+            onClick={handleCancelTrip}
+            disabled={actionLoading}
+            loading={actionLoading}
+          >Xác nhận hủy</Button>
         </div>
-      </div>
-    )}
+      }
+    >
+      <p className="text-sm text-slate-500 mb-3">Tất cả điểm giao chưa hoàn thành sẽ chuyển sang trạng thái &quot;Bỏ qua&quot;.</p>
+      <Textarea
+        value={cancelReason}
+        onChange={e => setCancelReason(e.target.value)}
+        placeholder="Lý do hủy (tùy chọn)..."
+        rows={3}
+      />
+    </Modal>
 
     {/* ═══ BULK MOVE STOPS MODAL ═══ */}
-    {bulkMoveModal && selectedTrip && (
-      <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center" onClick={() => setBulkMoveModal(false)}>
-        <div className="bg-white rounded-xl shadow-xl w-96 p-5" onClick={e => e.stopPropagation()}>
-          <h3 className="text-lg font-bold mb-3">↗ Chuyển {bulkMoveStops.size} điểm giao</h3>
-          <p className="text-sm text-gray-500 mb-3">Chọn chuyến đích để chuyển các điểm giao đã chọn:</p>
-          <select
-            value={moveTargetTrip}
-            onChange={e => setMoveTargetTrip(e.target.value)}
-            className="w-full border rounded-lg px-3 py-2 text-sm mb-4"
-          >
-            <option value="">-- Chọn chuyến đích --</option>
-            {activeTrips.filter(t => t.id !== selectedTrip.id).map(t => (
-              <option key={t.id} value={t.id}>{t.trip_number} — {t.vehicle_plate} ({t.total_stops} stops)</option>
-            ))}
-          </select>
-          <div className="flex gap-2 justify-end">
-            <button onClick={() => setBulkMoveModal(false)} className="text-sm px-4 py-2 rounded-lg border hover:bg-gray-50">Hủy</button>
-            <button
-              onClick={handleBulkMoveStops}
-              disabled={!moveTargetTrip || actionLoading}
-              className="text-sm px-4 py-2 rounded-lg bg-brand-500 text-white hover:bg-brand-600 disabled:opacity-50"
-            >{actionLoading ? 'Đang xử lý...' : `Chuyển ${bulkMoveStops.size} điểm`}</button>
-          </div>
+    <Modal
+      open={!!(bulkMoveModal && selectedTrip)}
+      onClose={() => setBulkMoveModal(false)}
+      title={`Chuyển ${bulkMoveStops.size} điểm giao`}
+      size="sm"
+      footer={
+        <div className="flex gap-2 justify-end">
+          <Button variant="ghost" onClick={() => setBulkMoveModal(false)}>Hủy</Button>
+          <Button
+            variant="primary"
+            onClick={handleBulkMoveStops}
+            disabled={!moveTargetTrip || actionLoading}
+            loading={actionLoading}
+          >Chuyển {bulkMoveStops.size} điểm</Button>
         </div>
-      </div>
-    )}
+      }
+    >
+      <p className="text-sm text-slate-500 mb-3">Chọn chuyến đích để chuyển các điểm giao đã chọn:</p>
+      <select
+        value={moveTargetTrip}
+        onChange={e => setMoveTargetTrip(e.target.value)}
+        className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm"
+      >
+        <option value="">-- Chọn chuyến đích --</option>
+        {selectedTrip && activeTrips.filter(t => t.id !== selectedTrip.id).map(t => (
+          <option key={t.id} value={t.id}>{t.trip_number} — {t.vehicle_plate} ({t.total_stops} stops)</option>
+        ))}
+      </select>
+    </Modal>
 
     </>
   )

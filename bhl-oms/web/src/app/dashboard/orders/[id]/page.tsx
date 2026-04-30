@@ -16,6 +16,7 @@ import { PinnedNotesBar } from '@/components/PinnedNotesBar'
 import { CreditAgingChip } from '@/components/CreditAgingChip'
 import { TimelineKPIBar } from '@/components/TimelineKPIBar'
 import { useDataRefresh } from '@/lib/notifications'
+import { Package, History, RefreshCw, Camera, MessageCircle, CheckCircle2, XCircle } from 'lucide-react'
 
 interface OrderItem {
   id: string; product_id: string; product_name: string; product_sku: string
@@ -140,7 +141,7 @@ export default function OrderDetailPage() {
               <a href={`https://zalo.me/${order.customer_phone.replace(/\D/g, '')}`}
                 target="_blank" rel="noopener noreferrer"
                 className="inline-flex items-center gap-1 px-2 py-0.5 bg-blue-50 text-blue-600 rounded text-xs hover:bg-blue-100 transition">
-                💬 Zalo
+                <MessageCircle className="w-3 h-3" aria-hidden="true" /> Zalo
               </a>
             </div>
           )}
@@ -152,24 +153,25 @@ export default function OrderDetailPage() {
       <div className="bg-white rounded-xl shadow-sm mb-6">
         <div className="flex border-b">
           {[
-            { key: 'items' as const, label: '📦 Sản phẩm', count: order.items?.length },
-            { key: 'timeline' as const, label: '📜 Lịch sử & Ghi chú' },
+            { key: 'items' as const, label: 'Sản phẩm', count: order.items?.length, Icon: Package },
+            { key: 'timeline' as const, label: 'Lịch sử & Ghi chú', Icon: History },
             ...(order.re_delivery_count && order.re_delivery_count > 0
-              ? [{ key: 'attempts' as const, label: '🔄 Giao lại', count: order.re_delivery_count }]
+              ? [{ key: 'attempts' as const, label: 'Giao lại', count: order.re_delivery_count, Icon: RefreshCw }]
               : []),
             ...(order.epod_photos && order.epod_photos.length > 0
-              ? [{ key: 'epod' as const, label: '📸 Ảnh ePOD', count: order.epod_photos.length }]
+              ? [{ key: 'epod' as const, label: 'Ảnh ePOD', count: order.epod_photos.length, Icon: Camera }]
               : []),
           ].map((tab) => (
             <button
               key={tab.key}
               onClick={() => setActiveTab(tab.key)}
-              className={`px-5 py-3 text-sm font-medium transition border-b-2 ${
+              className={`px-5 py-3 text-sm font-medium transition border-b-2 inline-flex items-center gap-1.5 ${
                 activeTab === tab.key
                   ? 'border-brand-500 text-brand-600'
                   : 'border-transparent text-gray-500 hover:text-gray-700'
               }`}
             >
+              {'Icon' in tab && tab.Icon && <tab.Icon className="w-3.5 h-3.5" aria-hidden="true" />}
               {tab.label}
               {tab.count !== undefined && (
                 <span className="ml-1.5 px-1.5 py-0.5 bg-gray-100 rounded text-xs">{tab.count}</span>
@@ -270,25 +272,25 @@ export default function OrderDetailPage() {
         {order.status === 'pending_approval' && (
           <button
             onClick={() => handleAction('approve')}
-            className="px-5 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition"
+            className="px-5 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition inline-flex items-center gap-1.5"
           >
-            ✅ Duyệt đơn hàng
+            <CheckCircle2 className="w-4 h-4" aria-hidden="true" /> Duyệt đơn hàng
           </button>
         )}
         {canRedelivery && (
           <button
             onClick={() => setShowRedeliveryModal(true)}
-            className="px-5 py-2 bg-[#F68634] text-white rounded-lg hover:bg-[#e5752a] transition"
+            className="px-5 py-2 bg-[#F68634] text-white rounded-lg hover:bg-[#e5752a] transition inline-flex items-center gap-1.5"
           >
-            � Giao bổ sung
+            <RefreshCw className="w-4 h-4" aria-hidden="true" /> Giao bổ sung
           </button>
         )}
         {['confirmed', 'pending_approval', 'draft'].includes(order.status) && (
           <button
             onClick={() => handleAction('cancel')}
-            className="px-5 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition"
+            className="px-5 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition inline-flex items-center gap-1.5"
           >
-            ❌ Hủy đơn hàng
+            <XCircle className="w-4 h-4" aria-hidden="true" /> Hủy đơn hàng
           </button>
         )}
       </div>

@@ -1,4 +1,4 @@
-'use client'
+﻿'use client'
 
 import { useEffect, useState, useCallback } from 'react'
 import { useSearchParams } from 'next/navigation'
@@ -32,10 +32,10 @@ interface TripForHandover {
 // ── Helper ──────────────────────────────────────────
 
 const statusConfig: Record<string, { label: string; color: string; icon: string }> = {
-  pending: { label: 'Chờ xác nhận', color: 'bg-yellow-100 text-yellow-800', icon: '⏳' },
-  partially_signed: { label: 'Đang xác nhận', color: 'bg-blue-100 text-blue-800', icon: '🔄' },
-  completed: { label: 'Hoàn tất', color: 'bg-green-100 text-green-800', icon: '✅' },
-  rejected: { label: 'Bị từ chối', color: 'bg-red-100 text-red-800', icon: '❌' },
+  pending: { label: 'Chờ xác nhận', color: 'bg-yellow-100 text-yellow-800', icon: '' },
+  partially_signed: { label: 'Đang xác nhận', color: 'bg-blue-100 text-blue-800', icon: '' },
+  completed: { label: 'Hoàn tất', color: 'bg-green-100 text-green-800', icon: '✓' },
+  rejected: { label: 'Bị từ chối', color: 'bg-red-100 text-red-800', icon: '✗' },
 }
 
 function timeAgo(dateStr: string): string {
@@ -248,7 +248,7 @@ export default function HandoverAPage() {
       <div className="max-w-[800px] mx-auto">
         <div className="flex items-center gap-3 mb-6">
           <button onClick={() => { setMode('list'); loadHandovers() }} className="text-gray-400 hover:text-gray-600 text-xl">←</button>
-          <h1 className="text-2xl font-bold text-gray-800">📋 Tạo biên bản bàn giao A</h1>
+          <h1 className="text-2xl font-bold text-gray-800"> Tạo biên bản bàn giao A</h1>
         </div>
 
         {/* Step 1: Select trip */}
@@ -308,7 +308,7 @@ export default function HandoverAPage() {
         {/* Items table (auto-populated from picking) */}
         {items.length > 0 && (
           <div className="bg-white rounded-xl shadow-sm p-5 mb-4">
-            <h2 className="font-semibold text-gray-700 mb-3">📦 Danh sách hàng hóa bàn giao</h2>
+            <h2 className="font-semibold text-gray-700 mb-3"> Danh sách hàng hóa bàn giao</h2>
             <div className="overflow-x-auto">
               <table className="w-full text-sm">
                 <thead className="bg-gray-50 text-gray-600">
@@ -342,9 +342,9 @@ export default function HandoverAPage() {
                       </td>
                       <td className="py-2 px-3 text-center">
                         {item.actual_qty === item.expected_qty ? (
-                          <span className="text-green-600">✅</span>
+                          <span className="text-green-600">✓</span>
                         ) : (
-                          <span className="text-red-600">⚠️</span>
+                          <span className="text-red-600"></span>
                         )}
                       </td>
                     </tr>
@@ -411,7 +411,7 @@ export default function HandoverAPage() {
           {submitting ? (
             <><span className="animate-spin w-5 h-5 border-2 border-white border-t-transparent rounded-full" /> Đang tạo...</>
           ) : (
-            <>📋 Tạo biên bản &amp; gửi cho Tài xế, Bảo vệ xác nhận</>
+            <> Tạo biên bản &amp; gửi cho Tài xế, Bảo vệ xác nhận</>
           )}
         </button>
 
@@ -436,7 +436,7 @@ export default function HandoverAPage() {
         {/* Reject reason */}
         {detail.reject_reason && (
           <div className="bg-red-50 border border-red-200 rounded-xl p-4 mb-4">
-            <div className="font-semibold text-red-700 mb-1">❌ Lý do từ chối</div>
+            <div className="font-semibold text-red-700 mb-1">✗ Lý do từ chối</div>
             <div className="text-red-600">{detail.reject_reason}</div>
           </div>
         )}
@@ -444,7 +444,7 @@ export default function HandoverAPage() {
         {/* Items table */}
         {detail.items && detail.items.length > 0 && (
           <div className="bg-white rounded-xl shadow-sm p-5 mb-4">
-            <h2 className="font-semibold text-gray-700 mb-3">📦 Danh sách hàng hóa bàn giao</h2>
+            <h2 className="font-semibold text-gray-700 mb-3"> Danh sách hàng hóa bàn giao</h2>
             <div className="overflow-x-auto">
               <table className="w-full text-sm">
                 <thead className="bg-gray-50 text-gray-600">
@@ -467,9 +467,9 @@ export default function HandoverAPage() {
                       <td className="py-2 px-3 text-right">{item.actual_qty}</td>
                       <td className="py-2 px-3 text-center">
                         {item.actual_qty === item.expected_qty ? (
-                          <span className="text-green-600">✅</span>
+                          <span className="text-green-600">✓</span>
                         ) : (
-                          <span className="text-red-600 font-medium">⚠️ {item.actual_qty - item.expected_qty > 0 ? '+' : ''}{item.actual_qty - item.expected_qty}</span>
+                          <span className="text-red-600 font-medium"> {item.actual_qty - item.expected_qty > 0 ? '+' : ''}{item.actual_qty - item.expected_qty}</span>
                         )}
                       </td>
                     </tr>
@@ -508,7 +508,7 @@ export default function HandoverAPage() {
               <div key={idx} className={`flex items-center justify-between p-3 rounded-lg border ${sig.action === 'confirm' ? 'bg-green-50 border-green-200' : sig.action === 'reject' ? 'bg-red-50 border-red-200' : 'bg-gray-50 border-gray-200'}`}>
                 <div className="flex items-center gap-3">
                   <span className="text-lg">
-                    {sig.action === 'confirm' ? '✅' : sig.action === 'reject' ? '❌' : '⏳'}
+                    {sig.action === 'confirm' ? '✓' : sig.action === 'reject' ? '✗' : ''}
                   </span>
                   <div>
                     <div className="font-medium text-gray-800">{sig.role_label || sig.role}</div>
@@ -552,7 +552,7 @@ export default function HandoverAPage() {
         {/* Notes */}
         {detail.notes && (
           <div className="bg-white rounded-xl shadow-sm p-5 mb-4">
-            <h2 className="font-semibold text-gray-700 mb-2">📝 Ghi chú</h2>
+            <h2 className="font-semibold text-gray-700 mb-2"> Ghi chú</h2>
             <p className="text-gray-600">{detail.notes}</p>
           </div>
         )}
@@ -569,7 +569,7 @@ export default function HandoverAPage() {
     <div className="max-w-[1200px] mx-auto">
       <div className="flex items-center justify-between mb-6">
         <div className="flex items-center gap-3">
-          <h1 className="text-2xl font-bold text-gray-800">📋 Bàn giao xuất kho (A)</h1>
+          <h1 className="text-2xl font-bold text-gray-800"> Bàn giao xuất kho (A)</h1>
           <button onClick={loadHandovers} className="p-1.5 rounded-lg hover:bg-gray-100 text-gray-400 hover:text-gray-600 transition" title="Làm mới">
             <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" /></svg>
           </button>
@@ -592,7 +592,7 @@ export default function HandoverAPage() {
         </div>
       ) : handovers.length === 0 ? (
         <div className="bg-white rounded-xl shadow-sm p-12 text-center">
-          <div className="text-4xl mb-3">📋</div>
+          <div className="text-4xl mb-3"></div>
           <p className="text-gray-500 font-medium">Chưa có biên bản bàn giao nào</p>
           <p className="text-gray-400 text-sm mt-1">Bấm &quot;Tạo biên bản mới&quot; sau khi soạn hàng xong</p>
         </div>

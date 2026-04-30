@@ -1,7 +1,31 @@
 # 📊 TASK TRACKER — BHL OMS-TMS-WMS
 
-> **Cập nhật lần cuối:** 30/04/2026 — Pre-Go-Live Audit + 10 RBAC Quick Wins + bhl-oms cleanup.
+> **Cập nhật lần cuối:** 30/04/2026 — Component System Sprint 2 COMPLETE (P1 components + migration + catalog).
 > **Trạng thái dự án:** 🟢 Đang phát triển → ⚠️ CONDITIONAL GO sau khi fix 4 CRIT còn lại.
+
+## 🧩 Component System — BHL_Component_System_Proposal.md (30/04/2026)
+
+| ID | Task | Status | Note |
+|----|------|--------|------|
+| CS-P0-1 | Tạo `Modal` (replaces 22 fixed inset-0) | ✅ DONE | `ui/Modal.tsx` |
+| CS-P0-2 | Tạo `ConfirmDialog` (replaces window.confirm) | ✅ DONE | `ui/ConfirmDialog.tsx` |
+| CS-P0-3 | Tạo `Input` (replaces 24 raw input) | ✅ DONE | `ui/Input.tsx` |
+| CS-P0-4 | Tạo `Textarea` | ✅ DONE | `ui/Textarea.tsx` |
+| CS-P0-5 | Tạo `FormField` wrapper | ✅ DONE | `ui/FormField.tsx` |
+| CS-P0-6 | Tạo `Tabs` line+pill variant (replaces 21 setTab) | ✅ DONE | `ui/Tabs.tsx` |
+| CS-P0-7 | Tạo `Badge` count/dot | ✅ DONE | `ui/Badge.tsx` |
+| CS-P0-8 | Tạo `Tooltip` hover | ✅ DONE | `ui/Tooltip.tsx` |
+| CS-P0-9 | Tạo `Alert` inline banner (replaces bg-yellow-50 hardcode) | ✅ DONE | `ui/Alert.tsx` |
+| CS-P0-10 | Export tất cả từ `index.ts` | ✅ DONE | Single entry `@/components/ui` |
+| CS-LINT-1 | ESLint warn `<button>/<input>/<select>/<textarea>` thô | ✅ DONE | `.eslintrc.json` |
+| CS-P1-1 | `DataTable` chuẩn (sort, loading, empty, sticky) | ✅ DONE | `ui/DataTable.tsx` |
+| CS-P1-2 | `FilterBar` (date range + status + search) | ✅ DONE | `ui/FilterBar.tsx` |
+| CS-P1-3 | `ActionMenu`/`DropdownMenu` (replaces 22 absolute bg-white) | ✅ DONE | `ui/ActionMenu.tsx` |
+| CS-P1-4 | `Drawer`/`SidePanel` slide phải | ✅ DONE | `ui/Drawer.tsx` |
+| CS-P1-5 | `DateRangePicker` | ✅ DONE | `ui/DateRangePicker.tsx` |
+| CS-MIG-1 | Migrate 5 trang core: `kpi`, `orders`, `trips`, `planning`, `control-tower` | ✅ DONE | orders (Drawer+Modal), control-tower (3×Modal+Textarea+Button) — kpi/trips/planning không có pattern |
+| CS-CAT-1 | Catalog tại `/test-portal/components` | ✅ DONE | 23 primitives, auth-guarded, interactive demos |
+
 
 ## 🚦 Pre-Go-Live Audit (30/04/2026)
 

@@ -1,4 +1,4 @@
-'use client'
+﻿'use client'
 
 import { useEffect, useRef, useState, useCallback } from 'react'
 import Link from 'next/link'
@@ -120,7 +120,7 @@ export default function PDABarcodeScannerPage() {
       {/* Header */}
       <div className="flex items-center gap-3">
         <Link href="/dashboard" className="text-2xl">←</Link>
-        <h1 className="text-xl font-bold">📱 PDA Barcode Scanner</h1>
+        <h1 className="text-xl font-bold"> PDA Barcode Scanner</h1>
       </div>
 
       {/* Camera View */}
@@ -178,7 +178,7 @@ export default function PDABarcodeScannerPage() {
       {lastScan && (
         <div className="bg-green-50 border-2 border-green-400 rounded-xl p-4 shadow-sm">
           <div className="flex items-start gap-3">
-            <span className="text-2xl">✅</span>
+            <span className="text-green-600 font-bold text-xl">OK</span>
             <div className="flex-1">
               <div className="font-bold text-green-900 text-lg leading-tight">{lastScan.product_name}</div>
               <div className="font-mono text-xs text-green-600 mt-0.5">{lastScan.product_sku}</div>

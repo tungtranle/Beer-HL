@@ -1,4 +1,4 @@
-'use client'
+﻿'use client'
 
 import { useEffect, useState, useCallback } from 'react'
 import { apiFetch, getUser } from '@/lib/api'
@@ -25,9 +25,9 @@ const cpTypeLabels: Record<string, string> = {
 }
 
 const cpTypeIcons: Record<string, string> = {
-  container_return: '📦',
-  cash_handover: '💰',
-  vehicle_return: '🚛',
+  container_return: '',
+  cash_handover: '',
+  vehicle_return: '',
 }
 
 // Subpage selection
@@ -134,9 +134,9 @@ export default function EODReceiverPage() {
   // List view
   if (viewMode === 'list') {
     const eodSteps = [
-      { key: 'container_return', label: 'Nhận vỏ & hàng trả', icon: '📦', role: 'warehouse_handler' },
-      { key: 'cash_handover', label: 'Nhận tiền mặt', icon: '💰', role: 'accountant' },
-      { key: 'vehicle_return', label: 'Nhận xe về kho', icon: '🚛', role: 'dispatcher/admin' },
+      { key: 'container_return', label: 'Nhận vỏ & hàng trả', icon: '', role: 'warehouse_handler' },
+      { key: 'cash_handover', label: 'Nhận tiền mặt', icon: '', role: 'accountant' },
+      { key: 'vehicle_return', label: 'Nhận xe về kho', icon: '', role: 'dispatcher/admin' },
     ]
     const activeStep = eodSteps.findIndex(s => s.key === cpType)
 
@@ -181,7 +181,7 @@ export default function EODReceiverPage() {
 
         {checkpoints.length === 0 ? (
           <div className="text-center py-16 bg-gray-50 rounded-xl">
-            <div className="text-6xl mb-4">📋</div>
+            <div className="text-6xl mb-4"></div>
             <p className="text-gray-500">Chưa có tài xế nào gửi yêu cầu {cpTypeLabels[cpType]?.toLowerCase()}</p>
             <p className="text-xs text-gray-400 mt-2">Trang sẽ tự cập nhật mỗi 15 giây</p>
           </div>
@@ -266,7 +266,7 @@ export default function EODReceiverPage() {
                         />
                       </td>
                       <td className={`text-center font-medium ${match ? 'text-green-600' : 'text-red-600'}`}>
-                        {match ? '✅ Khớp' : '❌ Lệch'}
+                        {match ? '✓ Khớp' : '✗ Lệch'}
                       </td>
                     </tr>
                   )
@@ -328,7 +328,7 @@ export default function EODReceiverPage() {
             <h4 className="font-medium text-gray-700 mt-4 mb-2">Checklist TX khai:</h4>
             {driverData.checklist && Object.entries(driverData.checklist).map(([key, val]: [string, any]) => (
               <div key={key} className="flex items-center gap-2 text-sm py-1">
-                <span>{val ? '✅' : '⛔'}</span>
+                <span>{val ? '✓' : ''}</span>
                 <span>{key.replace(/_/g, ' ')}</span>
               </div>
             ))}
@@ -380,7 +380,7 @@ export default function EODReceiverPage() {
           disabled={processing}
           className="flex-1 h-12 bg-green-600 text-white rounded-xl font-semibold hover:bg-green-700 disabled:opacity-50 transition-colors"
         >
-          {processing ? 'Đang xử lý...' : '✅ Xác nhận'}
+          {processing ? 'Đang xử lý...' : '✓ Xác nhận'}
         </button>
         <button
           onClick={() => {
@@ -393,7 +393,7 @@ export default function EODReceiverPage() {
           disabled={processing}
           className="h-12 px-6 bg-red-600 text-white rounded-xl font-semibold hover:bg-red-700 disabled:opacity-50 transition-colors"
         >
-          ❌ Từ chối
+          ✗ Từ chối
         </button>
       </div>
     </div>

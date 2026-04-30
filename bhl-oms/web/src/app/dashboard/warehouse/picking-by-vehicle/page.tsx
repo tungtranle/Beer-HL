@@ -1,4 +1,4 @@
-'use client'
+﻿'use client'
 
 import { useEffect, useState } from 'react'
 import { apiFetch } from '@/lib/api'
@@ -51,9 +51,9 @@ function formatVND(amount: number): string {
 }
 
 const pickStatusConfig: Record<string, { label: string; color: string; icon: string }> = {
-  completed: { label: 'Đã soạn', color: 'bg-green-100 text-green-800', icon: '✅' },
-  in_progress: { label: 'Đang soạn', color: 'bg-blue-100 text-blue-800', icon: '🔄' },
-  pending: { label: 'Chờ soạn', color: 'bg-yellow-100 text-yellow-800', icon: '⏳' },
+  completed: { label: 'Đã soạn', color: 'bg-green-100 text-green-800', icon: '✓' },
+  in_progress: { label: 'Đang soạn', color: 'bg-blue-100 text-blue-800', icon: '' },
+  pending: { label: 'Chờ soạn', color: 'bg-yellow-100 text-yellow-800', icon: '' },
 }
 
 const progressColor = (pct: number) =>
@@ -146,7 +146,7 @@ export default function PickingByVehiclePage() {
       {/* Header */}
       <div className="flex items-center justify-between mb-2">
         <div>
-          <h1 className="text-2xl font-bold text-gray-800">📦 Soạn hàng theo xe</h1>
+          <h1 className="text-2xl font-bold text-gray-800"> Soạn hàng theo xe</h1>
           <p className="text-base text-gray-500">Chọn xe → xem từng đơn → soạn &amp; xác nhận ngay tại đây</p>
         </div>
         <div className="flex items-center gap-3">
@@ -160,7 +160,7 @@ export default function PickingByVehiclePage() {
             onClick={() => loadData(dateStr || undefined)}
             className="bg-[#F68634] text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-orange-600 transition"
           >
-            🔄 Làm mới
+             Làm mới
           </button>
         </div>
       </div>
@@ -239,7 +239,7 @@ export default function PickingByVehiclePage() {
                 >
                   <div className="flex items-center justify-between">
                     <div className="flex items-center gap-4">
-                      <span className="text-2xl">{hasHandover ? '📋' : isReady ? '✅' : '🚛'}</span>
+                      <span className="text-2xl">{hasHandover ? '' : isReady ? '✓' : ''}</span>
                       <div>
                         <div className="flex items-center gap-2">
                           <span className="font-bold text-lg text-gray-800">{wb.vehicle_plate || 'Chưa gán xe'}</span>
@@ -256,10 +256,10 @@ export default function PickingByVehiclePage() {
                       <div className="text-right">
                         {hasHandover ? (
                           <div className="text-sm font-bold text-blue-600">
-                            📋 {handoverDone ? 'ĐÃ BÀN GIAO' : wb.handover_status === 'partially_signed' ? 'ĐANG KÝ BÀN GIAO' : 'CHỜ BÀN GIAO'}
+                             {handoverDone ? 'ĐÃ BÀN GIAO' : wb.handover_status === 'partially_signed' ? 'ĐANG KÝ BÀN GIAO' : 'CHỜ BÀN GIAO'}
                           </div>
                         ) : isReady ? (
-                          <div className="text-sm font-bold text-green-600">✅ SẴN SÀNG BÀN GIAO</div>
+                          <div className="text-sm font-bold text-green-600">✓ SẴN SÀNG BÀN GIAO</div>
                         ) : (
                           <div className="text-sm font-semibold text-gray-600">
                             {completedOrders.length}/{(wb.orders || []).length} đơn · {pct}%
@@ -383,7 +383,7 @@ export default function PickingByVehiclePage() {
                                             <div className="text-right">
                                               {itemIdx === 0 && !isDone && (
                                                 <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold bg-[#F68634] text-white mb-1">
-                                                  🔥 Pick trước (FEFO)
+                                                   Pick trước (FEFO)
                                                 </span>
                                               )}
                                               <div className="flex items-center gap-1 justify-end">
@@ -412,7 +412,7 @@ export default function PickingByVehiclePage() {
                                       {isConfirming ? (
                                         <><span className="animate-spin w-5 h-5 border-2 border-white border-t-transparent rounded-full" /> Đang xử lý...</>
                                       ) : (
-                                        <>✅ Xác nhận đã soạn xong đơn {order.order_number}</>
+                                        <>✓ Xác nhận đã soạn xong đơn {order.order_number}</>
                                       )}
                                     </button>
                                   )}
@@ -426,7 +426,7 @@ export default function PickingByVehiclePage() {
                         {completedOrders.length > 0 && (
                           <div className="mt-2">
                             <div className="text-xs font-semibold text-green-600 mb-1 uppercase tracking-wide">
-                              ✅ Đã soạn xong ({completedOrders.length})
+                              ✓ Đã soạn xong ({completedOrders.length})
                             </div>
                             {completedOrders.map(order => (
                               <div key={`done-${order.stop_order}`} className="flex items-center justify-between py-2 px-3 bg-green-50 rounded-lg mb-1 opacity-75">
@@ -438,7 +438,7 @@ export default function PickingByVehiclePage() {
                                   <span className="text-gray-400">·</span>
                                   <span className="text-sm text-gray-500">{order.customer_name}</span>
                                 </div>
-                                <span className="text-xs bg-green-100 text-green-700 px-2 py-0.5 rounded-full">✅ Đã soạn</span>
+                                <span className="text-xs bg-green-100 text-green-700 px-2 py-0.5 rounded-full">✓ Đã soạn</span>
                               </div>
                             ))}
                           </div>
@@ -468,7 +468,7 @@ export default function PickingByVehiclePage() {
                           }}
                           className="mt-4 inline-flex items-center justify-center gap-2 w-full h-14 bg-green-600 text-white rounded-xl font-medium text-base hover:bg-green-700 transition"
                         >
-                          📋 Tạo biên bản bàn giao xuất kho
+                           Tạo biên bản bàn giao xuất kho
                         </button>
                       )}
 
@@ -478,7 +478,7 @@ export default function PickingByVehiclePage() {
                           onClick={() => window.location.href = `/dashboard/handover-a?trip_id=${wb.trip_id}`}
                           className="mt-4 inline-flex items-center justify-center gap-2 w-full h-14 bg-blue-600 text-white rounded-xl font-medium text-base hover:bg-blue-700 transition"
                         >
-                          📋 Xem biên bản bàn giao ({handoverDone ? 'Hoàn tất' : wb.handover_status === 'partially_signed' ? 'Đang ký' : 'Chờ ký'})
+                           Xem biên bản bàn giao ({handoverDone ? 'Hoàn tất' : wb.handover_status === 'partially_signed' ? 'Đang ký' : 'Chờ ký'})
                         </button>
                       )}
                     </div>

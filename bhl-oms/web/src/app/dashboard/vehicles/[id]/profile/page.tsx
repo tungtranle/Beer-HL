@@ -41,8 +41,8 @@ function daysUntil(s: string): number { return Math.ceil((new Date(s).getTime() 
 
 function docStatus(days: number) {
   if (days < 0)  return { color: 'text-red-700',    bg: 'bg-red-50 border-red-300',    badge: 'bg-red-600 text-white',    icon: '🚨' }
-  if (days <= 30) return { color: 'text-amber-700', bg: 'bg-amber-50 border-amber-300', badge: 'bg-amber-500 text-white', icon: '⚠️' }
-  return             { color: 'text-green-700',   bg: 'bg-green-50 border-green-200',  badge: 'bg-green-600 text-white',  icon: '✅' }
+  if (days <= 30) return { color: 'text-amber-700', bg: 'bg-amber-50 border-amber-300', badge: 'bg-amber-500 text-white', icon: '' }
+  return             { color: 'text-green-700',   bg: 'bg-green-50 border-green-200',  badge: 'bg-green-600 text-white',  icon: '✓' }
 }
 
 const STATUS_LABEL: Record<string, { label: string; color: string }> = {
@@ -132,7 +132,7 @@ export default function VehicleProfilePage() {
         <div className="bg-white rounded-2xl shadow-sm border border-stone-200 overflow-hidden">
           {(hasDocAlerts || hasDocWarnings) && (
             <div className={`px-5 py-2 text-sm font-semibold flex items-center gap-2 ${hasDocAlerts ? 'bg-red-600 text-white' : 'bg-amber-500 text-white'}`}>
-              {hasDocAlerts ? '🚨 Có giấy tờ hết hạn — cần xử lý ngay!' : '⚠️ Có giấy tờ sắp hết hạn'}
+              {hasDocAlerts ? '🚨 Có giấy tờ hết hạn — cần xử lý ngay!' : ' Có giấy tờ sắp hết hạn'}
             </div>
           )}
           <div className="p-6 flex items-start justify-between gap-4">
@@ -142,8 +142,8 @@ export default function VehicleProfilePage() {
               <div className="flex flex-wrap items-center gap-2 mt-3">
                 <span className={`inline-flex items-center px-2.5 py-1 rounded-full border text-xs font-semibold ${statusInfo.color}`}>{statusInfo.label}</span>
                 {vehicle?.vehicle_type && <span className="text-xs px-2 py-1 bg-stone-100 rounded-full text-stone-600">{vehicle.vehicle_type}</span>}
-                {vehicle?.capacity_kg && <span className="text-xs px-2 py-1 bg-stone-100 rounded-full text-stone-600">⚖️ {(vehicle.capacity_kg/1000).toFixed(1)}T</span>}
-                {vehicle?.fuel_type && <span className="text-xs px-2 py-1 bg-stone-100 rounded-full text-stone-600">⛽ {vehicle.fuel_type}</span>}
+                {vehicle?.capacity_kg && <span className="text-xs px-2 py-1 bg-stone-100 rounded-full text-stone-600"> {(vehicle.capacity_kg/1000).toFixed(1)}T</span>}
+                {vehicle?.fuel_type && <span className="text-xs px-2 py-1 bg-stone-100 rounded-full text-stone-600"> {vehicle.fuel_type}</span>}
                 {vehicle?.year_of_manufacture && <span className="text-xs px-2 py-1 bg-stone-100 rounded-full text-stone-600">Năm {vehicle.year_of_manufacture}</span>}
               </div>
             </div>
@@ -159,17 +159,17 @@ export default function VehicleProfilePage() {
         {/* KPIs */}
         {util && (
           <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-            <KPICard icon="🛣️" label="Tổng km đã chạy" value={`${util.total_km.toLocaleString('vi-VN')} km`}/>
-            <KPICard icon="📦" label="Số chuyến" value={String(util.total_trips)}/>
+            <KPICard icon="" label="Tổng km đã chạy" value={`${util.total_km.toLocaleString('vi-VN')} km`}/>
+            <KPICard icon="" label="Số chuyến" value={String(util.total_trips)}/>
             <KPICard icon="📅" label="Ngày hoạt động" value={String(util.active_days)}/>
-            <KPICard icon="📊" label="TB km/ngày" value={`${util.avg_km_per_day.toFixed(0)} km`}/>
+            <KPICard icon="" label="TB km/ngày" value={`${util.avg_km_per_day.toFixed(0)} km`}/>
           </div>
         )}
 
         {/* Documents + Maintenance */}
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           <div className="bg-white rounded-xl shadow-sm border border-stone-200 p-5">
-            <h2 className="text-sm font-semibold text-stone-700 mb-3">📋 Trạng thái giấy tờ</h2>
+            <h2 className="text-sm font-semibold text-stone-700 mb-3"> Trạng thái giấy tờ</h2>
             {docEvents.length === 0 ? (
               <p className="text-sm text-stone-400 italic py-4 text-center">Chưa có dữ liệu giấy tờ</p>
             ) : (
@@ -196,7 +196,7 @@ export default function VehicleProfilePage() {
           </div>
 
           <div className="bg-white rounded-xl shadow-sm border border-stone-200 p-5">
-            <h2 className="text-sm font-semibold text-stone-700 mb-3">🔧 Bảo dưỡng & Chi phí</h2>
+            <h2 className="text-sm font-semibold text-stone-700 mb-3"> Bảo dưỡng & Chi phí</h2>
             <div className="space-y-3">
               <div className="flex justify-between items-center">
                 <span className="text-xs text-stone-500">Bảo dưỡng cuối</span>

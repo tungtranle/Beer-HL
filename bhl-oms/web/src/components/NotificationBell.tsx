@@ -5,15 +5,15 @@ import { useNotifications } from '@/lib/notifications'
 import { useRouter } from 'next/navigation'
 import { PersistentToast } from '@/components/notifications/PersistentToast'
 import { AutoToast } from '@/components/notifications/AutoToast'
+import { CheckCircle2, XCircle, AlertTriangle, Info, Bell, ClipboardList, Truck, Package, DollarSign, FileText, Wrench, BarChart3, type LucideIcon } from 'lucide-react'
 
-const categoryIcons: Record<string, string> = {
-  success: '✅', warning: '⚠️', error: '❌', info: 'ℹ️',
-  order: '📋', delivery: '🚛', system: '🔔',
-  trip: '🚛', eod: '📋', reconciliation: '💰', finance: '💰',
-  oms: '📋', tms: '🚛', wms: '📦', rec: '💰',
-  document: '📄', asset: '🔧', incident: '⚠️', kpi: '📊',
-  eod_checkpoint: '📋', eod_confirmed: '✅', eod_rejected: '❌',
-  document_expiry: '📄',
+const categoryIconMap: Record<string, LucideIcon> = {
+  success: CheckCircle2, warning: AlertTriangle, error: XCircle, info: Info,
+  order: ClipboardList, delivery: Truck, system: Bell,
+  trip: Truck, eod: ClipboardList, reconciliation: DollarSign, finance: DollarSign,
+  oms: ClipboardList, tms: Truck, wms: Package, rec: DollarSign,
+  document: FileText, document_expiry: FileText, asset: Wrench, incident: AlertTriangle, kpi: BarChart3,
+  eod_checkpoint: ClipboardList, eod_confirmed: CheckCircle2, eod_rejected: XCircle,
 }
 
 // Priority left-border color: inline style for dynamic classes (avoids Tailwind purge)
@@ -260,10 +260,10 @@ export function NotificationBell() {
                         } ${n.resolved_at ? 'opacity-60' : ''}`}
                       >
                         {/* Category icon */}
-                        <div className={`flex-shrink-0 w-9 h-9 rounded-full flex items-center justify-center text-sm ${
+                        <div className={`flex-shrink-0 w-9 h-9 rounded-full flex items-center justify-center ${
                           !n.is_read ? 'bg-orange-100' : 'bg-gray-100'
                         }`}>
-                          {categoryIcons[n.category] || '🔔'}
+                          {(() => { const IconComp = categoryIconMap[n.category] ?? Bell; return <IconComp className={`h-4 w-4 ${!n.is_read ? 'text-brand-600' : 'text-slate-500'}`} aria-hidden="true" /> })()}
                         </div>
 
                         {/* Text */}

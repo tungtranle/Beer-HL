@@ -19,13 +19,15 @@ const WAITING_FOR: Record<string, { label: string; color: string }> = {
   on_credit:                { label: 'Chờ NPP thanh toán', color: 'bg-pink-50 text-pink-700 border-pink-200' },
 }
 
+import { Loader2 } from 'lucide-react'
+
 export function WaitingForBanner({ status }: { status: string }) {
   const cfg = WAITING_FOR[status]
   if (!cfg) return null
 
   return (
     <div className={`px-4 py-3 rounded-lg mb-4 flex items-center gap-2 border ${cfg.color}`}>
-      <span className="animate-pulse text-lg">⏳</span>
+      <Loader2 className="h-4 w-4 animate-spin text-current shrink-0" aria-hidden="true" />
       <span className="font-medium text-sm">{cfg.label}</span>
     </div>
   )

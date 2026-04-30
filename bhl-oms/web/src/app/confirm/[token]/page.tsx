@@ -1,4 +1,4 @@
-'use client'
+﻿'use client'
 
 import { useEffect, useState } from 'react'
 import { useParams } from 'next/navigation'
@@ -109,7 +109,7 @@ export default function NPPConfirmPage() {
     return (
       <div className="min-h-screen flex items-center justify-center bg-amber-50 p-4">
         <div className="bg-white rounded-2xl shadow-lg p-6 max-w-sm w-full text-center">
-          <div className="text-4xl mb-4">❌</div>
+          <div className="text-4xl mb-4">✗</div>
           <h1 className="text-xl font-bold text-red-600">{error}</h1>
           <p className="text-gray-500 mt-2 text-sm">Vui lòng liên hệ nhà cung cấp hoặc kiểm tra lại đường link.</p>
         </div>
@@ -126,7 +126,7 @@ export default function NPPConfirmPage() {
       <div className="bg-white rounded-2xl shadow-lg p-6 max-w-sm w-full space-y-4">
         {/* Logo / Brand */}
         <div className="text-center">
-          <div className="text-3xl mb-1">🍺</div>
+          <div className="text-3xl mb-1">Beer HL</div>
           <h1 className="text-xl font-bold text-amber-700">Bia Hạ Long</h1>
           <p className="text-sm text-gray-500">Xác nhận giao hàng</p>
         </div>
@@ -175,13 +175,13 @@ export default function NPPConfirmPage() {
           <div className="space-y-3">
             <button onClick={handleConfirm} disabled={submitting}
               className="w-full py-3 bg-green-600 text-white rounded-xl font-medium text-lg hover:bg-green-700 disabled:opacity-50">
-              {submitting ? 'Đang xử lý...' : '✅ Xác nhận đã nhận hàng'}
+              {submitting ? 'Đang xử lý...' : '✓ Xác nhận đã nhận hàng'}
             </button>
 
             {!showDispute ? (
               <button onClick={() => setShowDispute(true)}
                 className="w-full py-3 bg-white border-2 border-red-300 text-red-600 rounded-xl font-medium hover:bg-red-50">
-                ⚠️ Có vấn đề / Khiếu nại
+                ! Có vấn đề / Khiếu nại
               </button>
             ) : (
               <div className="space-y-2">
@@ -194,7 +194,7 @@ export default function NPPConfirmPage() {
                 />
                 <button onClick={handleDispute} disabled={submitting || !disputeReason.trim()}
                   className="w-full py-3 bg-red-600 text-white rounded-xl font-medium hover:bg-red-700 disabled:opacity-50">
-                  {submitting ? 'Đang gửi...' : '📨 Gửi khiếu nại'}
+                  {submitting ? 'Đang gửi...' : ' Gửi khiếu nại'}
                 </button>
               </div>
             )}
@@ -208,7 +208,7 @@ export default function NPPConfirmPage() {
         {/* Success Message */}
         {actionDone && (
           <div className="text-center py-4">
-            <div className="text-4xl mb-2">{data.status === 'confirmed' ? '🎉' : '📨'}</div>
+            <div className="text-4xl mb-2">{data.status === 'confirmed' ? '' : ''}</div>
             <p className="font-medium text-lg">
               {data.status === 'confirmed' ? 'Cảm ơn bạn đã xác nhận!' : 'Khiếu nại đã được ghi nhận'}
             </p>

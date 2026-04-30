@@ -1,10 +1,12 @@
-'use client'
+﻿'use client'
 
 import { useEffect, useState } from 'react'
 import { apiFetch } from '@/lib/api'
 import { toast } from '@/lib/useToast'
 import { NppHealthBadge, type NppHealth } from '@/components/ui/NppHealthBadge'
 import { Pagination } from '@/components/ui/Pagination'
+import { PageHeader, LoadingState } from '@/components/ui'
+import { Store, AlertTriangle } from 'lucide-react'
 
 interface Customer {
   id: string
@@ -150,29 +152,31 @@ export default function CustomersPage() {
   }
 
   if (loading) {
-    return <div className="flex items-center justify-center h-64 text-gray-400">Đang tải...</div>
+    return <LoadingState size="section" />
   }
 
   return (
     <div>
-      <div className="flex items-center justify-between mb-6">
-        <div>
-          <h1 className="text-2xl font-bold text-gray-900">🏪 Danh mục khách hàng</h1>
-          <p className="text-sm text-gray-500 mt-1">{totalRows.toLocaleString('vi-VN')} khách hàng (NPP)</p>
-        </div>
-        <div className="flex gap-3">
-          <input
-            type="text"
-            placeholder="Tìm theo tên, mã, địa chỉ..."
-            value={search}
-            onChange={e => setSearch(e.target.value)}
-            className="px-4 py-2 border rounded-lg text-sm w-64 focus:ring-2 focus:ring-brand-500 focus:border-brand-500 outline-none"
-          />
-          <button onClick={openCreate} className="px-4 py-2 bg-brand-500 text-white rounded-lg text-sm font-medium hover:bg-brand-600">
-            + Thêm khách hàng
-          </button>
-        </div>
-      </div>
+      <PageHeader
+        title="Danh mục khách hàng"
+        icon={Store}
+        iconTone="brand"
+        subtitle={`${totalRows.toLocaleString('vi-VN')} khách hàng (NPP)`}
+        actions={
+          <div className="flex gap-3">
+            <input
+              type="text"
+              placeholder="Tìm theo tên, mã, địa chỉ..."
+              value={search}
+              onChange={e => setSearch(e.target.value)}
+              className="px-4 py-2 border rounded-lg text-sm w-64 focus:ring-2 focus:ring-brand-500 focus:border-brand-500 outline-none"
+            />
+            <button onClick={openCreate} className="px-4 py-2 bg-brand-500 text-white rounded-lg text-sm font-medium hover:bg-brand-600">
+              + Thêm khách hàng
+            </button>
+          </div>
+        }
+      />
 
       {/* Province filter chips */}
       {provinces.length > 0 && (
@@ -229,7 +233,7 @@ export default function CustomersPage() {
       {Object.values(healthMap).filter(h => h.risk_band === 'RED').length > 0 && (
         <div className="mb-6 bg-red-50 border border-red-200 rounded-xl p-4">
           <div className="flex items-center gap-2 mb-3">
-            <span className="text-red-600 font-bold text-sm">⚠️ NPP cần chú ý ngay ({Object.values(healthMap).filter(h => h.risk_band === 'RED').length} NPP)</span>
+            <span className="text-red-600 font-bold text-sm inline-flex items-center gap-1"><AlertTriangle className="w-3.5 h-3.5" aria-hidden="true" />NPP cần chú ý ngay ({Object.values(healthMap).filter(h => h.risk_band === 'RED').length} NPP)</span>
           </div>
           <div className="flex flex-wrap gap-2">
             {Object.entries(healthMap)
@@ -300,7 +304,7 @@ export default function CustomersPage() {
                   </span>
                 </td>
                 <td className="px-4 py-3 text-center">
-                  <a href={`/dashboard/customers/${c.id}/vrp-constraints`} className="text-emerald-600 hover:underline text-xs mr-2" title="Ràng buộc giao hàng cho VRP">🚚 VRP</a>
+                  <a href={`/dashboard/customers/${c.id}/vrp-constraints`} className="text-emerald-600 hover:underline text-xs mr-2" title="Ràng buộc giao hàng cho VRP"> VRP</a>
                   <button onClick={() => openEdit(c)} className="text-brand-500 hover:underline text-xs mr-2">Sửa</button>
                   <button onClick={() => handleDelete(c.id, c.name)} className="text-red-600 hover:underline text-xs">Xóa</button>
                 </td>

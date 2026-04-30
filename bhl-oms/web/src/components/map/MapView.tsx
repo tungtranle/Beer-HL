@@ -1,4 +1,4 @@
-/**
+﻿/**
  * MapView — Google Maps-like map component built on MapLibre GL JS
  *
  * Features:
@@ -498,7 +498,7 @@ const MapView = forwardRef<MapViewRef, MapViewProps>(function MapView(props, ref
             .setHTML(`
               <div style="font-family:Roboto,'Noto Sans',sans-serif">
                 <div style="font-size:14px;font-weight:500;color:#202124;margin-bottom:6px">
-                  📍 Vị trí đã chọn
+                   Vị trí đã chọn
                 </div>
                 <div style="font-size:12px;color:#5f6368;line-height:1.6">
                   <div>Lat: <b>${lat.toFixed(6)}</b></div>

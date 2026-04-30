@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react'
 import { apiFetch } from '@/lib/api'
 import { handleError } from '@/lib/handleError'
+import { RefreshCw } from 'lucide-react'
 
 interface DeliveryAttempt {
   id: string
@@ -53,7 +54,7 @@ export function DeliveryAttempts({ orderId }: { orderId: string }) {
   if (attempts.length === 0) {
     return (
       <div className="py-8 text-center text-gray-400">
-        <p className="text-4xl mb-2">🔄</p>
+        <RefreshCw className="w-10 h-10 mx-auto mb-2 text-gray-300" aria-hidden="true" />
         <p>Chưa có lần giao lại nào</p>
       </div>
     )

@@ -5,7 +5,49 @@
 
 ---
 
-## [Unreleased] — Phase 6 + UX Overhaul + Phase 8 Fleet & Driver + **Phase 9 WMS Pallet/QR/Bin/Cycle Count COMPLETE (15/15)** + **Sprint 1 World-Class (F2/F3/F7/H4/TD-020) GO LIVE** + **Sprint UX-1 World-Class Design System** + **Sprint UX-2 Dashboard Pages Redesign (ALL DONE)** + **Sprint UX-3 Pagination & Filter Audit (in progress)** + **AQF Roadmap ALL COMPLETE** + **Session 28/04 Historical Data Completeness Audit**
+## [Unreleased] — Phase 6 + UX Overhaul + Phase 8 Fleet & Driver + **Phase 9 WMS Pallet/QR/Bin/Cycle Count COMPLETE (15/15)** + **Sprint 1 World-Class (F2/F3/F7/H4/TD-020) GO LIVE** + **Sprint UX-1 World-Class Design System** + **Sprint UX-2 Dashboard Pages Redesign (ALL DONE)** + **Sprint UX-3 Pagination & Filter Audit (in progress)** + **AQF Roadmap ALL COMPLETE** + **Session 28/04 Historical Data Completeness Audit** + **Sprint Component System (30/04) COMPLETE**
+
+### 2026-04-30 — Component System Sprint 2: P1 Components + Migration + Catalog
+
+#### Added
+1. **5 P1 UI primitives** (`bhl-oms/web/src/components/ui/`)
+   - `DataTable.tsx` — Generic typed table: sort, sticky header, loading skeleton, empty state, `onRowClick`
+   - `FilterBar.tsx` — Standard filter bar: search + status dropdown + date range + reset + extra slot
+   - `ActionMenu.tsx` — ⋯ dropdown menu, replaces 22 ad-hoc `absolute bg-white` dropdowns
+   - `Drawer.tsx` — Slide-in side panel (right/left), createPortal, size sm/md/lg/xl/full, Esc close
+   - `DateRangePicker.tsx` — Date range với 7 presets (today/yesterday/last7/last30/thisWeek/thisMonth/lastMonth)
+2. **Component Catalog** (`/test-portal/components`) — Auth-guarded page (admin/management), 23 primitives với interactive demos
+
+#### Modified
+1. **`index.ts`** — Updated exports: now 23 primitives (18 P0 + 5 P1)
+2. **`orders/page.tsx`** — Replaced `fixed inset-0 z-40 flex justify-end` sidebar → `<Drawer>`, replaced Import Excel `fixed inset-0 z-50` → `<Modal>` + `<Button>`
+3. **`control-tower/page.tsx`** — Replaced 3 ad-hoc modals (MoveStop, CancelTrip, BulkMove) → `<Modal>` + `<Textarea>` + `<Button>`
+
+#### Docs Updated
+- `TASK_TRACKER.md` — CS-P1-1..5 ✅, CS-MIG-1 ✅, CS-CAT-1 ✅; header updated
+
+### 2026-04-30 — Component Design System Sprint (9 new UI primitives)
+
+#### Added
+1. **9 new UI primitives** (`bhl-oms/web/src/components/ui/`)
+   - `Modal.tsx` — Overlay portal, Esc close, backdrop click, scroll lock, size sm/md/lg/xl/full
+   - `ConfirmDialog.tsx` — Wraps Modal, danger variant, replaces `window.confirm()`
+   - `Input.tsx` — label/error/hint/prefixIcon/suffixIcon, full HTML input passthrough
+   - `Textarea.tsx` — label/error/hint, resize control
+   - `FormField.tsx` — Wrapper cho custom inputs với consistent label + error/hint layout
+   - `Tabs.tsx` — Controlled tab bar + panels, variant: line/pill, tabs array with badge support
+   - `Badge.tsx` — Count badge (khác StatusChip), tone: brand/info/success/warning/danger/neutral
+   - `Tooltip.tsx` — Hover tooltip pure CSS, position: top/bottom/left/right
+   - `Alert.tsx` — Inline banner, tone: info/success/warning/danger, dismissible, actions slot
+
+#### Modified
+1. **`index.ts`** — Updated to export all 18 primitives (9 original + 9 new)
+2. **`.eslintrc.json`** — Added `no-restricted-syntax` warn rules banning raw `<input>`, `<textarea>`, `<select>`, `window.confirm()`, ad-hoc spinner divs
+
+#### Docs Updated
+- `BRD_BHL_OMS_TMS_WMS.md` — Added section `14E. COMPONENT DESIGN SYSTEM`
+- `TASK_TRACKER.md` — Added Component System Sprint section (COMP-001..010)
+- `docs/specs/CURRENT_STATE_COMPACT.md` — Added Component System section
 
 ### 2026-04-28 — Comprehensive Historical Data Completeness Audit & Supplementation
 
@@ -156,6 +198,16 @@
 8. `go test ./internal/kpi ./internal/testportal` — PASS: no test files, compile OK.
 9. `get_errors` on `internal/kpi/service.go`, `internal/testportal/demo_service.go`, `web/src/app/dashboard/kpi/page.tsx` — PASS.
 10. `npx eslint src/app/dashboard/kpi/page.tsx src/components/ai/AIInboxPanel.tsx src/components/ai/DispatchBriefCard.tsx src/components/ai/OutreachQueueWidget.tsx --max-warnings 500` — PASS: 0 errors, 0 warnings from touched files; TypeScript support notice only.
+
+---
+
+### 2026-04-30 — Hotfix: backend health shim
+
+#### Fixed
+1. Add public endpoint `/v1/health` returning 200 for CI and health-check compatibility.
+
+#### Docs Updated
+1. This `CHANGELOG.md` entry.
 11. AQF G2 data-safety code review — PASS: new historical scenario is read-only except owned event evidence; live ops inserts are registered through `qa_owned_entities`; no `TRUNCATE`, no unscoped transactional `DELETE`, expected `historical_rows_touched = 0` after load/cleanup.
 12. Localhost smoke — PASS: `http://localhost:8080/health` HTTP 200 và `http://localhost:3000/login` HTTP 200.
 13. `gofmt -w cmd/server/main.go internal/domain/models.go internal/oms/* internal/tms/*` — PASS.

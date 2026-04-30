@@ -7,6 +7,8 @@ import { apiFetch, getUser, getToken } from '@/lib/api'
 import { handleError } from '@/lib/handleError'
 import { useDataRefresh } from '@/lib/notifications'
 import { Pagination } from '@/components/ui/Pagination'
+import { PageHeader, Button, Input } from '@/components/ui'
+import { Truck, Download, Plus, RefreshCw, CalendarDays, ListFilter, AlertTriangle, Search, type LucideIcon } from 'lucide-react'
 
 interface Trip {
   id: string; trip_number: string; vehicle_plate: string; driver_name: string
@@ -141,11 +143,11 @@ export default function TripsPage() {
     else setSelected(new Set(filtered.map(t => t.id)))
   }
 
-  const savedViews: { key: SavedView; label: string; icon: string }[] = [
-    { key: 'today', label: 'Hôm nay', icon: '📅' },
-    { key: 'active', label: 'Đang chạy', icon: '🚛' },
-    { key: 'all', label: 'Tất cả', icon: '📋' },
-    { key: 'issues', label: 'Có vấn đề', icon: '⚠️' },
+  const savedViews: { key: SavedView; label: string; Icon: LucideIcon }[] = [
+    { key: 'today', label: 'Hôm nay', Icon: CalendarDays },
+    { key: 'active', label: 'Đang chạy', Icon: Truck },
+    { key: 'all', label: 'Tất cả', Icon: ListFilter },
+    { key: 'issues', label: 'Có vấn đề', Icon: AlertTriangle },
   ]
 
   const statusFilters = [
@@ -160,32 +162,25 @@ export default function TripsPage() {
   return (
     <div className="max-w-[1400px] mx-auto">
       {/* Header */}
-      <div className="flex items-center gap-3 mb-4">
-        <h1 className="text-2xl font-bold text-gray-800">🚛 Quản lý chuyến xe</h1>
-        <button onClick={loadTrips} title="Làm mới"
-          className="p-1.5 rounded-lg hover:bg-gray-100 text-gray-400 hover:text-gray-600 transition">
-          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
-          </svg>
-        </button>
-        <div className="ml-auto flex gap-2">
-          <Link href="/dashboard/planning"
-            className="px-3 py-1.5 bg-brand-500 text-white text-sm rounded-lg hover:bg-brand-600 transition font-medium">
-            + Tạo chuyến mới
-          </Link>
-          <button onClick={handleExport}
-            className="px-3 py-1.5 bg-white border text-sm rounded-lg hover:bg-gray-50 transition text-gray-600">
-            📥 Xuất Excel
-          </button>
-        </div>
-      </div>
+      <PageHeader
+        title="Quản lý chuyến xe"
+        icon={Truck}
+        iconTone="brand"
+        actions={
+          <div className="flex items-center gap-2">
+            <Button variant="secondary" size="sm" leftIcon={RefreshCw} onClick={loadTrips}>Làm mới</Button>
+            <Link href="/dashboard/planning"><Button variant="primary" size="sm" leftIcon={Plus}>Tạo chuyến mới</Button></Link>
+            <Button variant="secondary" size="sm" leftIcon={Download} onClick={handleExport}>Xuất Excel</Button>
+          </div>
+        }
+      />
 
       {/* Saved views (Linear/Notion style) */}
       <div className="flex items-center gap-1 mb-3 border-b pb-2">
         {savedViews.map(v => (
           <button key={v.key} onClick={() => applyView(v.key)}
             className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-sm font-medium transition ${view === v.key ? 'bg-gray-100 text-gray-900' : 'text-gray-500 hover:text-gray-700 hover:bg-gray-50'}`}>
-            <span>{v.icon}</span>
+            <v.Icon className="w-3.5 h-3.5" aria-hidden="true" />
             <span>{v.label}</span>
             <span className={`text-[10px] px-1.5 rounded-full font-bold ${view === v.key ? 'bg-gray-900 text-white' : 'bg-gray-200 text-gray-600'}`}>
               {viewCounts[v.key]}
@@ -219,15 +214,13 @@ export default function TripsPage() {
       {/* Search + bulk action bar */}
       <div className="flex items-center gap-3 mb-3">
         <div className="relative flex-1 max-w-sm">
-          <svg className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
-          </svg>
-          <input
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" aria-hidden="true" />
+          <Input
             type="text"
             placeholder="Tìm mã chuyến, biển số, tài xế..."
             value={search}
             onChange={e => setSearch(e.target.value)}
-            className="w-full pl-9 pr-4 py-2 text-sm border rounded-lg focus:ring-2 focus:ring-brand-500 focus:border-brand-500 outline-none"
+            className="pl-9"
           />
         </div>
         <span className="text-sm text-gray-500">{filtered.length} chấn / trang • tổng {totalRows.toLocaleString('vi-VN')}</span>
@@ -254,7 +247,7 @@ export default function TripsPage() {
         </div>
       ) : filtered.length === 0 ? (
         <div className="bg-white rounded-xl shadow-sm p-16 text-center">
-          <div className="text-5xl mb-4">🚛</div>
+          <Truck className="w-12 h-12 text-slate-300 mx-auto mb-4" aria-hidden="true" />
           <h3 className="text-base font-semibold text-gray-700 mb-1">
             {view === 'today' ? 'Không có chuyến nào hôm nay' : 'Không tìm thấy chuyến xe'}
           </h3>

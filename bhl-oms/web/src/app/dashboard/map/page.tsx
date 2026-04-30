@@ -1,4 +1,4 @@
-'use client'
+﻿'use client'
 
 import { useEffect, useRef, useState, useCallback } from 'react'
 import Link from 'next/link'
@@ -90,7 +90,7 @@ export default function DispatcherMapPage() {
           box-shadow: 0 2px 6px rgba(0,0,0,0.3);
           font-size: 14px; color: white;
           transform: rotate(${pos.heading || 0}deg);
-        ">🚚</div>`,
+        "></div>`,
         iconSize: [32, 32],
         iconAnchor: [16, 16],
       })
@@ -100,10 +100,10 @@ export default function DispatcherMapPage() {
       const popupContent = `
         <div style="min-width:180px">
           <b style="font-size:14px">${pos.vehicle_plate || vehicleId}</b><br/>
-          <span style="color:#555">👤 ${pos.driver_name || 'Chưa xác định'}</span><br/>
-          ${tripLabel ? `<span style="color:#2563eb">📦 ${tripLabel}</span><br/>` : ''}
-          <span style="color:#666">🚀 ${pos.speed?.toFixed(1) || 0} km/h</span><br/>
-          <span style="color:#999;font-size:11px">⏱️ ${pos.ts ? new Date(pos.ts).toLocaleTimeString('vi-VN') : '--'}</span>
+          <span style="color:#555"> ${pos.driver_name || 'Chưa xác định'}</span><br/>
+          ${tripLabel ? `<span style="color:#2563eb"> ${tripLabel}</span><br/>` : ''}
+          <span style="color:#666"> ${pos.speed?.toFixed(1) || 0} km/h</span><br/>
+          <span style="color:#999;font-size:11px"> ${pos.ts ? new Date(pos.ts).toLocaleTimeString('vi-VN') : '--'}</span>
         </div>
       `
       if (existingMarker) {
@@ -226,7 +226,7 @@ export default function DispatcherMapPage() {
       <div className="bg-white border-b px-4 py-3 flex items-center justify-between">
         <div className="flex items-center gap-3">
           <Link href="/dashboard/trips" className="text-xl">←</Link>
-          <h1 className="text-lg font-bold">🗺️ Bản đồ điều phối</h1>
+          <h1 className="text-lg font-bold"> Bản đồ điều phối</h1>
         </div>
         <div className="flex items-center gap-2">
           <span className={`w-2 h-2 rounded-full ${connected ? 'bg-green-500' : 'bg-red-500'}`} />
@@ -260,7 +260,7 @@ export default function DispatcherMapPage() {
                 <span className={`w-3 h-3 rounded-full ${v.speed > 2 ? 'bg-green-500' : 'bg-amber-500'}`} />
                 <div>
                   <span className="font-medium text-sm">{v.vehicle_plate || v.vehicle_id}</span>
-                  {v.driver_name && <span className="text-xs text-gray-500 ml-2">👤 {v.driver_name}</span>}
+                  {v.driver_name && <span className="text-xs text-gray-500 ml-2"> {v.driver_name}</span>}
                 </div>
               </div>
               <div className="text-right">

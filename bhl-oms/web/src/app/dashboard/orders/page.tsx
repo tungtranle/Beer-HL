@@ -1,4 +1,4 @@
-'use client'
+﻿'use client'
 
 import { useEffect, useState, useCallback } from 'react'
 import Link from 'next/link'
@@ -7,6 +7,8 @@ import { apiFetch, getUser } from '@/lib/api'
 import { orderStatusLabels, orderStatusColors, formatVND } from '@/lib/status-config'
 import { StatusChip } from '@/components/ui/StatusChip'
 import { Pagination } from '@/components/ui/Pagination'
+import { Modal, Drawer, Button, PageHeader, LoadingState, Input } from '@/components/ui'
+import { Download, Upload, Plus, RefreshCw, Search, FileText, Clock, KeyRound, Truck, CheckCircle, AlertTriangle, Ban, type LucideIcon } from 'lucide-react'
 import { toast } from '@/lib/useToast'
 import { handleError } from '@/lib/handleError'
 import { useDataRefresh } from '@/lib/notifications'
@@ -332,14 +334,14 @@ export default function OrdersPage() {
   const inDelivery = stats ? stats.confirmed + stats.shipment_created + stats.in_transit + stats.delivering : 0
   const issues = stats ? stats.failed + stats.rejected + stats.partially_delivered : 0
 
-  const summaryCards = stats ? [
-    { label: 'Mới', count: stats.draft, color: 'border-gray-300 bg-gray-50', textColor: 'text-gray-700', icon: '📝', statuses: ['draft'] },
-    { label: 'Chờ KH', count: stats.pending_customer_confirm, color: 'border-amber-300 bg-amber-50', textColor: 'text-amber-700', icon: '⏳', statuses: ['pending_customer_confirm'] },
-    { label: 'Chờ duyệt', count: stats.pending_approval, color: 'border-yellow-300 bg-yellow-50', textColor: 'text-yellow-700', icon: '🔑', statuses: ['pending_approval'] },
-    { label: 'Đang giao', count: inDelivery, color: 'border-blue-300 bg-blue-50', textColor: 'text-blue-700', icon: '🚛', statuses: ['confirmed', 'shipment_created', 'in_transit', 'delivering'] },
-    { label: 'Đã giao', count: stats.delivered, color: 'border-green-300 bg-green-50', textColor: 'text-green-700', icon: '✅', statuses: ['delivered'] },
-    { label: 'Có vấn đề', count: issues, color: 'border-red-300 bg-red-50', textColor: 'text-red-700', icon: '⚠️', statuses: ['failed', 'rejected', 'partially_delivered'] },
-    { label: 'Hủy/Nợ', count: stats.cancelled + stats.on_credit, color: 'border-gray-300 bg-gray-50', textColor: 'text-gray-500', icon: '🚫', statuses: ['cancelled', 'on_credit'] },
+  const summaryCards: { label: string; count: number; color: string; textColor: string; icon: LucideIcon; statuses: string[] }[] = stats ? [
+    { label: 'Mới', count: stats.draft, color: 'border-gray-300 bg-gray-50', textColor: 'text-gray-700', icon: FileText, statuses: ['draft'] },
+    { label: 'Chờ KH', count: stats.pending_customer_confirm, color: 'border-amber-300 bg-amber-50', textColor: 'text-amber-700', icon: Clock, statuses: ['pending_customer_confirm'] },
+    { label: 'Chờ duyệt', count: stats.pending_approval, color: 'border-yellow-300 bg-yellow-50', textColor: 'text-yellow-700', icon: KeyRound, statuses: ['pending_approval'] },
+    { label: 'Đang giao', count: inDelivery, color: 'border-blue-300 bg-blue-50', textColor: 'text-blue-700', icon: Truck, statuses: ['confirmed', 'shipment_created', 'in_transit', 'delivering'] },
+    { label: 'Đã giao', count: stats.delivered, color: 'border-green-300 bg-green-50', textColor: 'text-green-700', icon: CheckCircle, statuses: ['delivered'] },
+    { label: 'Có vấn đề', count: issues, color: 'border-red-300 bg-red-50', textColor: 'text-red-700', icon: AlertTriangle, statuses: ['failed', 'rejected', 'partially_delivered'] },
+    { label: 'Hủy/Nợ', count: stats.cancelled + stats.on_credit, color: 'border-gray-300 bg-gray-50', textColor: 'text-gray-500', icon: Ban, statuses: ['cancelled', 'on_credit'] },
   ] : []
 
   // Filter orders by view tab
@@ -352,36 +354,18 @@ export default function OrdersPage() {
   return (
     <div>
       {/* Header */}
-      <div className="flex items-center justify-between mb-6">
-        <div className="flex items-center gap-3">
-          <h1 className="text-2xl font-bold text-gray-800">Quản lý đơn hàng</h1>
-          <button onClick={() => { loadOrders(); loadStats() }} className="p-1.5 rounded-lg hover:bg-gray-100 text-gray-400 hover:text-gray-600 transition" title="Làm mới">
-            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" /></svg>
-          </button>
-        </div>
-        <div className="flex items-center gap-2">
-          <button
-            onClick={handleExport}
-            className="px-3 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition text-sm font-medium"
-            title="Xuất Excel"
-          >
-            📥 Xuất Excel
-          </button>
-          <button
-            onClick={() => { setShowImportModal(true); setImportFile(null); setImportResult(null) }}
-            className="px-3 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition text-sm font-medium"
-            title="Import đơn từ Excel"
-          >
-            📤 Import Excel
-          </button>
-          <Link
-            href="/dashboard/orders/new"
-            className="px-4 py-2 bg-brand-500 text-white rounded-lg hover:bg-brand-600 transition text-sm font-medium"
-          >
-            ➕ Tạo đơn hàng mới
-          </Link>
-        </div>
-      </div>
+      <PageHeader
+        title="Quản lý đơn hàng"
+        subtitle={stats ? `Tổng trong phạm vi: ${stats.total}` : undefined}
+        actions={
+          <div className="flex items-center gap-2">
+            <Button variant="secondary" size="sm" leftIcon={RefreshCw} onClick={() => { loadOrders(); loadStats() }}>Làm mới</Button>
+            <Button variant="secondary" size="sm" leftIcon={Download} onClick={handleExport}>Xuất Excel</Button>
+            <Button variant="secondary" size="sm" leftIcon={Upload} onClick={() => { setShowImportModal(true); setImportFile(null); setImportResult(null) }}>Import Excel</Button>
+            <Link href="/dashboard/orders/new"><Button variant="primary" size="sm" leftIcon={Plus}>Tạo đơn hàng mới</Button></Link>
+          </div>
+        }
+      />
 
       {/* Summary Cards */}
       {stats && (
@@ -402,7 +386,7 @@ export default function OrdersPage() {
               className={`border rounded-xl p-3 text-left transition hover:shadow-md ${card.color}`}
             >
               <div className="flex items-center justify-between mb-1">
-                <span className="text-lg">{card.icon}</span>
+                <card.icon className="w-4 h-4" aria-hidden="true" />
                 <span className={`text-2xl font-bold ${card.textColor}`}>{card.count}</span>
               </div>
               <p className={`text-xs font-medium ${card.textColor}`}>{card.label}</p>
@@ -415,12 +399,13 @@ export default function OrdersPage() {
       <div className="bg-white rounded-xl shadow-sm p-4 mb-4 space-y-3">
         {/* Search */}
         <div className="relative">
-          <input
+          <Search className="absolute left-3 top-2.5 h-4 w-4 text-slate-400" aria-hidden="true" />
+          <Input
             type="text"
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
-            placeholder="🔍 Tìm kiếm: tên KH, SĐT, mã đơn, biển số xe..."
-            className="w-full px-4 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-brand-500/30 focus:border-brand-500"
+            placeholder="Tìm kiếm: tên KH, SĐT, mã đơn, biển số xe..."
+            className="pl-9"
           />
           {searchQuery && (
             <button
@@ -542,8 +527,8 @@ export default function OrdersPage() {
         <div className="flex gap-1 border-b border-gray-100">
           {([
             { key: 'all', label: 'Tất cả' },
-            { key: 'exceptions', label: '⚠️ Ngoại lệ' },
-            { key: 'redelivery', label: '🔄 Giao lại' },
+            { key: 'exceptions', label: ' Ngoại lệ' },
+            { key: 'redelivery', label: ' Giao lại' },
           ] as const).map((tab) => (
             <button
               key={tab.key}
@@ -577,16 +562,16 @@ export default function OrdersPage() {
           <tbody className="divide-y divide-gray-100">
             {loading ? (
               <tr>
-                <td colSpan={7} className="py-8 text-center text-gray-400">
-                  Đang tải...
+                <td colSpan={7} className="py-8 text-center">
+                  <LoadingState size="inline" label="Đang tải..." />
                 </td>
               </tr>
             ) : filteredOrders.length === 0 ? (
               <tr>
                 <td colSpan={7} className="py-12 text-center">
                   <p className="text-gray-400 mb-2">
-                    {viewTab === 'exceptions' ? '✅ Không có đơn ngoại lệ nào — tất cả đơn đang xử lý bình thường' :
-                     viewTab === 'redelivery' ? '✅ Không có đơn giao bổ sung nào' :
+                    {viewTab === 'exceptions' ? '✓ Không có đơn ngoại lệ nào — tất cả đơn đang xử lý bình thường' :
+                     viewTab === 'redelivery' ? '✓ Không có đơn giao bổ sung nào' :
                      isSearching ? `Không tìm thấy kết quả cho "${searchQuery}"` :
                      'Chưa có đơn hàng nào — tạo đơn mới từ nút "+ Tạo đơn" phía trên'}
                   </p>
@@ -603,7 +588,7 @@ export default function OrdersPage() {
                   <td className="py-3 px-3">
                     <div className="flex items-center gap-1">
                       {order.is_urgent && (
-                        <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-bold bg-red-100 text-red-700" title="Giao gấp">⚡ Gấp</span>
+                        <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-bold bg-red-100 text-red-700" title="Giao gấp"> Gấp</span>
                       )}
                       <Link href={`/dashboard/orders/${order.id}`} className="font-mono text-xs text-blue-600 hover:underline">
                         {order.order_number}
@@ -690,19 +675,17 @@ export default function OrdersPage() {
       </div>
 
       {/* Customer Context Sidebar (slide-in) */}
-      {(sidebarCustomer || sidebarLoading) && (
-        <div className="fixed inset-0 z-40 flex justify-end">
-          <div className="absolute inset-0 bg-black/20" onClick={() => { setSidebarCustomer(null); setSidebarLoading(false) }} />
-          <div className="relative w-96 bg-white shadow-xl overflow-y-auto animate-slide-in-right">
-            <div className="sticky top-0 bg-white border-b p-4 flex items-center justify-between z-10">
-              <h3 className="font-bold text-lg">🏪 Thông tin khách hàng</h3>
-              <button onClick={() => { setSidebarCustomer(null); setSidebarLoading(false) }} className="text-gray-400 hover:text-gray-600 text-xl">×</button>
-            </div>
-            {sidebarLoading ? (
-              <div className="flex justify-center py-20">
-                <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-brand-500" />
-              </div>
-            ) : sidebarCustomer && (
+      <Drawer
+        open={!!(sidebarCustomer || sidebarLoading)}
+        onClose={() => { setSidebarCustomer(null); setSidebarLoading(false) }}
+        title="🏪 Thông tin khách hàng"
+        size="lg"
+      >
+        {sidebarLoading ? (
+          <div className="flex justify-center py-20">
+            <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-brand-500" />
+          </div>
+        ) : sidebarCustomer && (
               <div className="p-4 space-y-4">
                 {/* Customer info + Health Score hero */}
                 <div className="space-y-2">
@@ -731,8 +714,8 @@ export default function OrdersPage() {
                       </div>
                     )}
                   </div>
-                  {sidebarCustomer.phone && <div className="text-sm">📞 {sidebarCustomer.phone}</div>}
-                  {sidebarCustomer.address && <div className="text-sm text-gray-600">📍 {sidebarCustomer.address}</div>}
+                  {sidebarCustomer.phone && <div className="text-sm"> {sidebarCustomer.phone}</div>}
+                  {sidebarCustomer.address && <div className="text-sm text-gray-600"> {sidebarCustomer.address}</div>}
                 </div>
 
                 {/* F2: Churn risk detail */}
@@ -747,13 +730,13 @@ export default function OrdersPage() {
                 )}
                 {sidebarHealth && sidebarHealth.score >= 40 && sidebarHealth.score < 70 && (
                   <div className="flex items-center gap-2 text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
-                    <span className="text-base">⚠️</span>
+                    <span className="text-base"></span>
                     <p>NPP cần theo dõi — hoạt động giảm so với trung bình</p>
                   </div>
                 )}
                 {sidebarCustomer.credit_limit != null && (
                   <div className="bg-gray-50 rounded-lg p-3 space-y-2">
-                    <h4 className="text-sm font-medium">💰 Hạn mức tín dụng</h4>
+                    <h4 className="text-sm font-medium"> Hạn mức tín dụng</h4>
                     <div className="flex justify-between text-sm">
                       <span className="text-gray-500">Hạn mức</span>
                       <span className="font-medium">{formatVND(sidebarCustomer.credit_limit)}</span>
@@ -813,7 +796,7 @@ export default function OrdersPage() {
 
                 {/* Order history */}
                 <div>
-                  <h4 className="text-sm font-medium mb-2">📋 Đơn hàng gần đây ({sidebarOrders.length})</h4>
+                  <h4 className="text-sm font-medium mb-2"> Đơn hàng gần đây ({sidebarOrders.length})</h4>
                   {sidebarOrders.length === 0 ? (
                     <p className="text-sm text-gray-400">Chưa có đơn hàng nào</p>
                   ) : (
@@ -838,22 +821,28 @@ export default function OrdersPage() {
                 </div>
               </div>
             )}
-          </div>
-        </div>
-      )}
+      </Drawer>
 
       {/* Import Excel Modal */}
-      {showImportModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center">
-          <div className="absolute inset-0 bg-black/30" onClick={() => setShowImportModal(false)} />
-          <div className="relative bg-white rounded-2xl shadow-xl w-full max-w-lg p-6">
-            <div className="flex items-center justify-between mb-4">
-              <h2 className="text-lg font-bold">📤 Import đơn hàng từ Excel</h2>
-              <button onClick={() => setShowImportModal(false)} className="text-gray-400 hover:text-gray-600 text-xl">×</button>
-            </div>
-
-            <div className="space-y-4">
-              {/* Template download */}
+      <Modal
+        open={showImportModal}
+        onClose={() => setShowImportModal(false)}
+        title="📤 Import đơn hàng từ Excel"
+        size="md"
+        footer={
+          <div className="flex justify-end gap-2">
+            <Button variant="ghost" onClick={() => setShowImportModal(false)}>Đóng</Button>
+            <Button
+              variant="primary"
+              onClick={handleImport}
+              disabled={!importFile || importing}
+              loading={importing}
+            >📤 Import</Button>
+          </div>
+        }
+      >
+        <div className="space-y-4">
+          {/* Template download */}
               <div className="bg-blue-50 border border-blue-200 rounded-lg p-3">
                 <p className="text-sm text-blue-700 mb-2">Tải file mẫu để biết đúng định dạng import:</p>
                 <button
@@ -901,27 +890,8 @@ export default function OrdersPage() {
                   )}
                 </div>
               )}
-
-              {/* Actions */}
-              <div className="flex justify-end gap-2">
-                <button
-                  onClick={() => setShowImportModal(false)}
-                  className="px-4 py-2 text-sm text-gray-600 hover:text-gray-800"
-                >
-                  Đóng
-                </button>
-                <button
-                  onClick={handleImport}
-                  disabled={!importFile || importing}
-                  className="px-4 py-2 bg-brand-500 text-white rounded-lg hover:bg-brand-600 transition text-sm font-medium disabled:opacity-50 disabled:cursor-not-allowed"
-                >
-                  {importing ? 'Đang import...' : '📤 Import'}
-                </button>
-              </div>
-            </div>
-          </div>
         </div>
-      )}
+      </Modal>
     </div>
   )
 }

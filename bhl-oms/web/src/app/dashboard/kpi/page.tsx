@@ -1,10 +1,12 @@
-'use client'
+﻿'use client'
 
 import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { apiFetch } from '@/lib/api'
 import { formatVND } from '@/lib/status-config'
 import { handleError } from '@/lib/handleError'
+import { PageHeader, LoadingState } from '@/components/ui'
+import { BarChart3, AlertTriangle, Ban, Map, CheckCircle2, Info } from 'lucide-react'
 
 interface KPIReport {
   period: string
@@ -168,11 +170,7 @@ export default function KPIDashboardPage() {
     cancelled: 'Đã hủy', rejected: 'Bị từ chối', on_credit: 'Nợ', pending_approval: 'Chờ duyệt'
   }
 
-  const Spinner = () => (
-    <div className="flex items-center justify-center h-64">
-      <div className="animate-spin w-8 h-8 border-4 border-blue-500 border-t-transparent rounded-full" />
-    </div>
-  )
+  const Spinner = () => <LoadingState size="section" />
 
   const scope = scopeFor(period)
   const scopeLabel = period === 'today' ? scope.to : `${scope.from} → ${scope.to}`
@@ -182,12 +180,12 @@ export default function KPIDashboardPage() {
 
   return (
     <div className="max-w-[1400px] mx-auto">
-      <div className="flex items-center justify-between mb-6">
-        <div>
-          <h1 className="text-2xl font-bold text-gray-800">📈 Bảng điều khiển KPI</h1>
-          <p className="text-sm text-gray-500">Chỉ số hiệu suất vận hành</p>
-        </div>
-      </div>
+      <PageHeader
+        title="Bảng điều khiển KPI"
+        subtitle="Chỉ số hiệu suất vận hành"
+        icon={BarChart3}
+        iconTone="brand"
+      />
 
       <div className="mb-6 rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
         <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
@@ -217,14 +215,15 @@ export default function KPIDashboardPage() {
       {/* Main tabs */}
       <div className="flex gap-1 mb-6 bg-gray-100 p-1 rounded-lg w-fit">
         {([
-          { value: 'overview' as Tab, label: 'Tổng quan', icon: '📊' },
-          { value: 'issues' as Tab, label: 'Có vấn đề', icon: '⚠️' },
-          { value: 'cancellations' as Tab, label: 'Hủy / Nợ', icon: '🚫' },
-          { value: 'route_pnl' as Tab, label: 'Tuyến đường P&L', icon: '🗺️' },
+          { value: 'overview' as Tab, label: 'Tổng quan', Icon: BarChart3 },
+          { value: 'issues' as Tab, label: 'Có vấn đề', Icon: AlertTriangle },
+          { value: 'cancellations' as Tab, label: 'Hủy / Nợ', Icon: Ban },
+          { value: 'route_pnl' as Tab, label: 'Tuyến đường P&L', Icon: Map },
         ]).map(t => (
           <button key={t.value} onClick={() => setTab(t.value)}
-            className={`px-4 py-2 rounded-md text-sm font-medium transition ${tab === t.value ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}>
-            {t.icon} {t.label}
+            className={`px-4 py-2 rounded-md text-sm font-medium transition inline-flex items-center gap-1.5 ${tab === t.value ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}>
+            <t.Icon className="w-3.5 h-3.5" aria-hidden="true" />
+            {t.label}
             {t.value === 'issues' && issues && issues.summary.total > 0 && (
               <span className="ml-1.5 bg-red-100 text-red-700 text-xs px-1.5 py-0.5 rounded-full">{issues.summary.total}</span>
             )}
@@ -271,12 +270,15 @@ export default function KPIDashboardPage() {
               {/* Auto-insights */}
               {hero.insights && hero.insights.length > 0 && (
                 <div className="flex-1 space-y-1.5 border-l pl-5">
-                  {hero.insights.slice(0, 3).map((ins, i) => (
-                    <div key={i} className={`flex items-start gap-2 text-sm px-3 py-1.5 rounded-lg ${ins.type === 'positive' ? 'bg-green-50 text-green-700' : ins.type === 'warning' ? 'bg-amber-50 text-amber-700' : 'bg-blue-50 text-blue-700'}`}>
-                      <span>{ins.type === 'positive' ? '✅' : ins.type === 'warning' ? '⚠️' : 'ℹ️'}</span>
-                      <span>{ins.message}</span>
-                    </div>
-                  ))}
+                  {hero.insights.slice(0, 3).map((ins, i) => {
+                    const InsIcon = ins.type === 'positive' ? CheckCircle2 : ins.type === 'warning' ? AlertTriangle : Info
+                    return (
+                      <div key={i} className={`flex items-start gap-2 text-sm px-3 py-1.5 rounded-lg ${ins.type === 'positive' ? 'bg-green-50 text-green-700' : ins.type === 'warning' ? 'bg-amber-50 text-amber-700' : 'bg-blue-50 text-blue-700'}`}>
+                        <InsIcon className="w-4 h-4 mt-0.5 shrink-0" aria-hidden="true" />
+                        <span>{ins.message}</span>
+                      </div>
+                    )
+                  })}
                 </div>
               )}
             </div>
@@ -403,7 +405,7 @@ export default function KPIDashboardPage() {
                 </thead>
                 <tbody className="divide-y divide-gray-100">
                   {(issues.items || []).length === 0 ? (
-                    <tr><td colSpan={6} className="px-4 py-8 text-center text-gray-400">Không có vấn đề nào trong kỳ này 🎉</td></tr>
+                    <tr><td colSpan={6} className="px-4 py-8 text-center text-gray-400">Không có vấn đề nào trong kỳ này </td></tr>
                   ) : (issues.items || []).map(item => (
                     <tr key={item.id} className="hover:bg-gray-50">
                       <td className="px-4 py-3 font-mono text-xs">{item.order_number}</td>
@@ -431,13 +433,13 @@ export default function KPIDashboardPage() {
         <>
           {loading ? <Spinner /> : !routePnl ? (
             <div className="bg-white rounded-xl shadow-sm p-8 text-center">
-              <div className="text-4xl mb-3">🗺️</div>
+              <div className="text-4xl mb-3"></div>
               <p className="text-gray-500 font-medium">Route P&L sắp ra mắt</p>
               <p className="text-sm text-gray-400 mt-2 max-w-md mx-auto">Tính năng này sẽ hiển thị: doanh thu/km theo từng tuyến, tuyến đang lỗ, hiệu suất tải trọng, và đề xuất tối ưu lộ trình.</p>
               <div className="mt-4 grid grid-cols-1 md:grid-cols-3 gap-3 max-w-lg mx-auto text-left">
-                <div className="bg-blue-50 rounded-lg p-3"><div className="text-xs font-semibold text-blue-700">💰 Doanh thu/km</div><div className="text-xs text-blue-600 mt-1">So sánh hiệu quả từng tuyến</div></div>
-                <div className="bg-amber-50 rounded-lg p-3"><div className="text-xs font-semibold text-amber-700">📦 Tải trọng TB</div><div className="text-xs text-amber-600 mt-1">% sử dụng thực tế/chuyến</div></div>
-                <div className="bg-red-50 rounded-lg p-3"><div className="text-xs font-semibold text-red-700">⚠️ Tuyến lỗ</div><div className="text-xs text-red-600 mt-1">Tuyến nào cần xem lại?</div></div>
+                <div className="bg-blue-50 rounded-lg p-3"><div className="text-xs font-semibold text-blue-700"> Doanh thu/km</div><div className="text-xs text-blue-600 mt-1">So sánh hiệu quả từng tuyến</div></div>
+                <div className="bg-amber-50 rounded-lg p-3"><div className="text-xs font-semibold text-amber-700"> Tải trọng TB</div><div className="text-xs text-amber-600 mt-1">% sử dụng thực tế/chuyến</div></div>
+                <div className="bg-red-50 rounded-lg p-3"><div className="text-xs font-semibold text-red-700"> Tuyến lỗ</div><div className="text-xs text-red-600 mt-1">Tuyến nào cần xem lại?</div></div>
               </div>
             </div>
           ) : (
@@ -445,11 +447,11 @@ export default function KPIDashboardPage() {
               {routePnl.top_route && (
                 <div className="flex gap-3">
                   <div className="flex-1 bg-green-50 border border-green-200 rounded-xl p-4">
-                    <div className="text-xs text-green-600 font-semibold uppercase">🏆 Tuyến hiệu quả nhất</div>
+                    <div className="text-xs text-green-600 font-semibold uppercase"> Tuyến hiệu quả nhất</div>
                     <div className="text-lg font-bold text-green-800 mt-1">{routePnl.top_route}</div>
                   </div>
                   <div className="flex-1 bg-red-50 border border-red-200 rounded-xl p-4">
-                    <div className="text-xs text-red-600 font-semibold uppercase">⚠️ Tuyến cần cải thiện</div>
+                    <div className="text-xs text-red-600 font-semibold uppercase"> Tuyến cần cải thiện</div>
                     <div className="text-lg font-bold text-red-800 mt-1">{routePnl.worst_route}</div>
                   </div>
                 </div>

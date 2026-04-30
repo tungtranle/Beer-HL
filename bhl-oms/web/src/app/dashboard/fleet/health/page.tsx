@@ -1,4 +1,4 @@
-'use client'
+﻿'use client'
 
 import { useState, useEffect } from 'react'
 import { apiFetch } from '@/lib/api'
@@ -59,7 +59,7 @@ export default function HealthPage() {
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
-        <h1 className="text-2xl font-bold text-gray-900">🔧 Sức khỏe Đội xe</h1>
+        <h1 className="text-2xl font-bold text-gray-900"> Sức khỏe Đội xe</h1>
         <div className="flex items-center gap-2">
           <span className="text-xs text-gray-500">Sắp xếp:</span>
           {[
@@ -80,21 +80,21 @@ export default function HealthPage() {
 
       <div className="grid grid-cols-3 gap-4">
         <div className="bg-red-50 border border-red-200 rounded-xl p-4 flex items-center gap-4 cursor-pointer hover:shadow-md transition" onClick={() => setSortBy('score_asc')}>
-          <div className="text-3xl">⚠️</div>
+          <div className="text-3xl"></div>
           <div>
             <p className="text-3xl font-bold text-red-600">{critical.length}</p>
             <p className="text-sm text-red-700">Nguy hiểm (&lt;50)</p>
           </div>
         </div>
         <div className="bg-yellow-50 border border-yellow-200 rounded-xl p-4 flex items-center gap-4">
-          <div className="text-3xl">🔔</div>
+          <div className="text-3xl"></div>
           <div>
             <p className="text-3xl font-bold text-yellow-600">{warning.length}</p>
             <p className="text-sm text-yellow-700">Cảnh báo (50–79)</p>
           </div>
         </div>
         <div className="bg-green-50 border border-green-200 rounded-xl p-4 flex items-center gap-4">
-          <div className="text-3xl">✅</div>
+          <div className="text-3xl">✓</div>
           <div>
             <p className="text-3xl font-bold text-green-600">{healthy.length}</p>
             <p className="text-sm text-green-700">Tốt (≥80)</p>

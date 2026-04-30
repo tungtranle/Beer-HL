@@ -1,4 +1,4 @@
-'use client'
+﻿'use client'
 
 import { useEffect, useState, useCallback } from 'react'
 import { useRouter } from 'next/navigation'
@@ -141,7 +141,7 @@ export default function AuditLogsPage() {
     <div className="max-w-[1400px] mx-auto">
       <div className="flex items-center justify-between mb-6">
         <div>
-          <h1 className="text-2xl font-bold text-gray-800">📋 Nhật ký hệ thống</h1>
+          <h1 className="text-2xl font-bold text-gray-800"> Nhật ký hệ thống</h1>
           <p className="text-sm text-gray-500">Audit log — Lịch sử mọi thay đổi trong hệ thống (entity_events)</p>
         </div>
         <button

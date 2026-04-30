@@ -27,8 +27,8 @@ const CATEGORY_BADGE: Record<string, { icon: string; label: string; color: strin
   finance:        { icon: 'KT', label: 'Tài chính',   color: 'bg-orange-100 text-orange-700' },
   document:       { icon: 'TL', label: 'Tài liệu',    color: 'bg-gray-100 text-gray-700' },
   incident:       { icon: '⚠', label: 'Sự cố',        color: 'bg-red-100 text-red-700' },
-  asset:          { icon: '🔧', label: 'Thiết bị',    color: 'bg-gray-100 text-gray-600' },
-  kpi:            { icon: '📊', label: 'KPI',          color: 'bg-indigo-100 text-indigo-700' },
+  asset:          { icon: '', label: 'Thiết bị',    color: 'bg-gray-100 text-gray-600' },
+  kpi:            { icon: '', label: 'KPI',          color: 'bg-indigo-100 text-indigo-700' },
   system:         { icon: 'HT', label: 'Hệ thống',    color: 'bg-gray-100 text-gray-700' },
 }
 
@@ -261,7 +261,7 @@ export default function NotificationsPage() {
             </div>
           ) : displayedNotifications.length === 0 ? (
             <div className="bg-white rounded-xl border border-gray-200 p-12 text-center">
-              <p className="text-4xl mb-3">🔔</p>
+              <p className="text-4xl mb-3"></p>
               {searchQuery ? (
                 <>
                   <p className="text-gray-700 font-medium">Không tìm thấy kết quả</p>

@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useRef } from 'react'
+import { CheckCircle2, AlertTriangle, XCircle, CreditCard, FileText, Ban, type LucideIcon } from 'lucide-react'
 
 // ==================== V4 SPEC §4 — 7 INTERACTION MODALS ====================
 
@@ -25,7 +26,7 @@ export const REASONS: Record<string, string[]> = {
 
 const MODAL_CONFIG: Record<ModalType, {
   title: string
-  icon: string
+  Icon: LucideIcon
   ctaColor: string
   ctaLabel: string
   requireReason: boolean
@@ -35,7 +36,7 @@ const MODAL_CONFIG: Record<ModalType, {
 }> = {
   delivery_success: {
     title: 'Xác nhận giao hàng thành công',
-    icon: '✅',
+    Icon: CheckCircle2,
     ctaColor: 'bg-green-600 hover:bg-green-700',
     ctaLabel: 'Xác nhận giao thành công',
     requireReason: false,
@@ -44,7 +45,7 @@ const MODAL_CONFIG: Record<ModalType, {
   },
   delivery_partial: {
     title: 'Giao hàng thiếu',
-    icon: '⚠️',
+    Icon: AlertTriangle,
     ctaColor: 'bg-[#F68634] hover:bg-[#e5752a]',
     ctaLabel: 'Xác nhận giao thiếu',
     requireReason: true,
@@ -53,7 +54,7 @@ const MODAL_CONFIG: Record<ModalType, {
   },
   delivery_reject: {
     title: 'NPP từ chối nhận hàng',
-    icon: '❌',
+    Icon: XCircle,
     ctaColor: 'bg-red-600 hover:bg-red-700',
     ctaLabel: 'Xác nhận từ chối',
     requireReason: true,
@@ -62,7 +63,7 @@ const MODAL_CONFIG: Record<ModalType, {
   },
   kt_approve_credit: {
     title: 'Duyệt hạn mức tín dụng',
-    icon: '💳',
+    Icon: CreditCard,
     ctaColor: 'bg-green-600 hover:bg-green-700',
     ctaLabel: 'Duyệt',
     requireReason: false,
@@ -71,7 +72,7 @@ const MODAL_CONFIG: Record<ModalType, {
   },
   record_npp_rejection: {
     title: 'Ghi nhận NPP từ chối (qua Zalo/ĐT)',
-    icon: '📝',
+    Icon: FileText,
     ctaColor: 'bg-red-600 hover:bg-red-700',
     ctaLabel: 'Ghi nhận từ chối',
     requireReason: true,
@@ -80,7 +81,7 @@ const MODAL_CONFIG: Record<ModalType, {
   },
   record_npp_dispute: {
     title: 'Ghi nhận NPP báo sai lệch (qua Zalo/ĐT)',
-    icon: '📝',
+    Icon: FileText,
     ctaColor: 'bg-[#F68634] hover:bg-[#e5752a]',
     ctaLabel: 'Ghi nhận sai lệch',
     requireReason: true,
@@ -89,7 +90,7 @@ const MODAL_CONFIG: Record<ModalType, {
   },
   gate_fail: {
     title: 'Gate Check FAIL',
-    icon: '🚫',
+    Icon: Ban,
     ctaColor: 'bg-red-600 hover:bg-red-700',
     ctaLabel: 'Xác nhận FAIL',
     requireReason: true,
@@ -158,7 +159,7 @@ export function InteractionModal({ type, context, onSubmit, onClose }: Props) {
   if (config.fullscreenColor) {
     return (
       <div className="fixed inset-0 z-50 flex flex-col items-center justify-center bg-red-600 text-white p-8">
-        <span className="text-8xl mb-6">🚫</span>
+        <Ban className="w-20 h-20 mb-6" aria-hidden="true" />
         <h1 className="text-3xl font-bold mb-4">{config.title}</h1>
 
         {/* Context */}
@@ -204,7 +205,7 @@ export function InteractionModal({ type, context, onSubmit, onClose }: Props) {
       <div className="bg-white rounded-xl w-full max-w-md shadow-2xl">
         {/* Header */}
         <div className="flex items-center gap-3 p-5 border-b">
-          <span className="text-2xl">{config.icon}</span>
+          <span className="text-2xl"><config.Icon className="w-6 h-6" aria-hidden="true" /></span>
           <h3 className="text-lg font-semibold text-gray-900">{config.title}</h3>
           <button onClick={onClose} className="ml-auto text-gray-400 hover:text-gray-600 text-xl">×</button>
         </div>

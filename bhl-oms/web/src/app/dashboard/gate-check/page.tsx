@@ -1,4 +1,4 @@
-'use client'
+﻿'use client'
 
 import { useState, useEffect } from 'react'
 import { apiFetch, getUser } from '@/lib/api'
@@ -22,10 +22,10 @@ interface TripForGate {
 }
 
 const statusConfig: Record<string, { label: string; color: string; icon: string; bg: string }> = {
-  completed: { label: 'Bàn giao hoàn tất — Cho xe qua', color: 'text-green-800', icon: '✅', bg: 'bg-green-50 border-green-300' },
-  partially_signed: { label: 'Đang chờ xác nhận', color: 'text-yellow-800', icon: '⏳', bg: 'bg-yellow-50 border-yellow-300' },
-  pending: { label: 'Chưa có ai xác nhận', color: 'text-yellow-800', icon: '⏳', bg: 'bg-yellow-50 border-yellow-300' },
-  rejected: { label: 'Bàn giao bị từ chối', color: 'text-red-800', icon: '❌', bg: 'bg-red-50 border-red-300' },
+  completed: { label: 'Bàn giao hoàn tất — Cho xe qua', color: 'text-green-800', icon: '✓', bg: 'bg-green-50 border-green-300' },
+  partially_signed: { label: 'Đang chờ xác nhận', color: 'text-yellow-800', icon: '', bg: 'bg-yellow-50 border-yellow-300' },
+  pending: { label: 'Chưa có ai xác nhận', color: 'text-yellow-800', icon: '', bg: 'bg-yellow-50 border-yellow-300' },
+  rejected: { label: 'Bàn giao bị từ chối', color: 'text-red-800', icon: '✗', bg: 'bg-red-50 border-red-300' },
 }
 
 export default function GateCheckPage() {
@@ -148,7 +148,7 @@ export default function GateCheckPage() {
   return (
     <div className="max-w-[900px] mx-auto">
       <div className="flex items-center gap-3 mb-2">
-        <h1 className="text-2xl font-bold text-gray-800">🔒 Kiểm soát cổng</h1>
+        <h1 className="text-2xl font-bold text-gray-800"> Kiểm soát cổng</h1>
       </div>
       <p className="text-base text-gray-500 mb-6">Kiểm tra Bàn giao A đã hoàn tất → mở barrier cho xe xuất kho</p>
 
@@ -194,7 +194,7 @@ export default function GateCheckPage() {
             disabled={searching}
             className="px-6 h-12 bg-[#F68634] text-white rounded-lg hover:bg-orange-600 transition text-base disabled:opacity-50"
           >
-            {searching ? 'Đang tìm...' : '🔍 Tìm'}
+            {searching ? 'Đang tìm...' : ' Tìm'}
           </button>
         </div>
       </div>
@@ -279,7 +279,7 @@ export default function GateCheckPage() {
 
             {handoverStatus === 'none' ? (
               <div className="bg-gray-50 border-2 border-gray-200 rounded-xl p-6 text-center">
-                <span className="text-2xl">📋</span>
+                <span className="text-2xl"></span>
                 <p className="text-gray-500 mt-2 font-medium">Chưa có biên bản bàn giao cho chuyến này</p>
                 <p className="text-gray-400 text-sm mt-1">Thủ kho cần tạo biên bản bàn giao trước</p>
               </div>
@@ -310,7 +310,7 @@ export default function GateCheckPage() {
                   {(handover?.signatories || []).map((sig, idx) => (
                     <div key={idx} className="flex items-center justify-between p-3 rounded-lg border">
                       <div className="flex items-center gap-2">
-                        <span>{sig.action === 'confirm' ? '✅' : sig.action === 'reject' ? '❌' : '⏳'}</span>
+                        <span>{sig.action === 'confirm' ? '✓' : sig.action === 'reject' ? '✗' : ''}</span>
                         <span className="font-medium">{sig.role_label || sig.role}</span>
                         {sig.name && <span className="text-sm text-gray-500">({sig.name})</span>}
                       </div>
@@ -348,13 +348,13 @@ export default function GateCheckPage() {
                           disabled={confirming}
                           className="flex-1 h-14 bg-green-600 text-white rounded-xl font-bold text-lg hover:bg-green-700 transition disabled:opacity-50"
                         >
-                          {confirming ? 'Đang xử lý...' : '✅ Xác nhận — Cho qua cổng'}
+                          {confirming ? 'Đang xử lý...' : '✓ Xác nhận — Cho qua cổng'}
                         </button>
                         <button
                           onClick={() => setShowRejectForm(true)}
                           className="px-6 h-14 bg-red-100 text-red-700 rounded-xl font-medium hover:bg-red-200 transition"
                         >
-                          ❌ Từ chối
+                          ✗ Từ chối
                         </button>
                       </div>
                     ) : (
@@ -373,7 +373,7 @@ export default function GateCheckPage() {
                             disabled={confirming || !rejectReason.trim()}
                             className="flex-1 h-14 bg-red-600 text-white rounded-xl font-bold hover:bg-red-700 transition disabled:opacity-50"
                           >
-                            {confirming ? 'Đang xử lý...' : '❌ Xác nhận từ chối'}
+                            {confirming ? 'Đang xử lý...' : '✗ Xác nhận từ chối'}
                           </button>
                           <button
                             onClick={() => setShowRejectForm(false)}

@@ -1,6 +1,7 @@
 'use client'
 
 import { orderProgressSteps, orderSpecialStatuses, getOrderStepIndex, isSpecialStatus, getStatusLabel } from '@/lib/status-config'
+import { PartyPopper } from 'lucide-react'
 
 interface Props {
   status: string
@@ -100,7 +101,7 @@ export function OrderStatusStepper({ status }: Props) {
       {/* Delivered success banner */}
       {status === 'delivered' && (
         <div className="mt-4 flex items-center gap-3 p-3 rounded-lg border border-teal-200 bg-teal-50 text-teal-700">
-          <span className="text-2xl">🎉</span>
+          <PartyPopper className="w-5 h-5 text-teal-600" aria-hidden="true" />
           <div>
             <span className="font-semibold">Giao hàng thành công</span>
             <p className="text-sm opacity-80">Đơn hàng đã được giao đến NPP</p>

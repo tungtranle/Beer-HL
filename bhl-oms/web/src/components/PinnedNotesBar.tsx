@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react'
 import { apiFetch } from '@/lib/api'
 import { toast } from '@/lib/useToast'
+import { Pin } from 'lucide-react'
 
 /**
  * PinnedNotesBar — §17 UX Spec v5
@@ -49,7 +50,7 @@ export function PinnedNotesBar({ orderId }: { orderId: string }) {
     <div className="mb-4 space-y-2">
       {notes.map(note => (
         <div key={note.id} className="flex items-start gap-3 px-4 py-3 bg-amber-50 border-l-4 border-amber-400 rounded-lg">
-          <span className="text-sm shrink-0">📌</span>
+          <Pin className="h-3.5 w-3.5 text-amber-500 shrink-0 mt-0.5" aria-hidden="true" />
           <div className="flex-1 min-w-0">
             <p className="text-sm text-gray-800">{note.content}</p>
             <p className="text-xs text-gray-400 mt-1">

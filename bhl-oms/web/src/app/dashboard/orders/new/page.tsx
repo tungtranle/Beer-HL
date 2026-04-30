@@ -346,7 +346,7 @@ export default function NewOrderPage() {
                 }))}
                 value={customerId}
                 onChange={setCustomerId}
-                placeholder="🔍 Tìm NPP theo mã hoặc tên..."
+                placeholder=" Tìm NPP theo mã hoặc tên..."
               />
               {/* F2 — NPP Health badge inline */}
               {customerId && (
@@ -398,7 +398,7 @@ export default function NewOrderPage() {
               {/* Warehouse suggestions */}
               {suggestions.length > 0 && (
                 <div className="mt-2 border rounded-lg bg-blue-50 p-2">
-                  <p className="text-xs font-medium text-blue-700 mb-1">💡 Gợi ý kho (điểm = 60% tồn kho + 40% khoảng cách):</p>
+                  <p className="text-xs font-medium text-blue-700 mb-1"> Gợi ý kho (điểm = 60% tồn kho + 40% khoảng cách):</p>
                   {suggestions.slice(0, 3).map((s, idx) => (
                     <button
                       key={s.id}
@@ -450,7 +450,7 @@ export default function NewOrderPage() {
                 onChange={(e) => setIsUrgent(e.target.checked)}
                 className="w-4 h-4 text-red-600 border-gray-300 rounded focus:ring-red-500"
               />
-              <span className="text-sm font-medium text-gray-700">⚡ Đơn gấp</span>
+              <span className="text-sm font-medium text-gray-700"> Đơn gấp</span>
               {isUrgent && <span className="text-xs text-red-600 bg-red-50 px-2 py-0.5 rounded-full">Ưu tiên giao trước</span>}
             </label>
           </div>
@@ -501,9 +501,9 @@ export default function NewOrderPage() {
                     creditExceeded ? 'bg-red-50 text-red-700 border border-red-200' : 'bg-green-50 text-green-700 border border-green-200'
                   }`}>
                     {creditExceeded ? (
-                      <>⚠️ Đơn hàng <strong>{formatVND(totalAmount)}</strong> VƯỢT hạn mức khả dụng <strong>{formatVND(creditInfo.available_limit)}</strong> → Đơn sẽ ở trạng thái <strong>&quot;Chờ duyệt&quot;</strong></>
+                      <> Đơn hàng <strong>{formatVND(totalAmount)}</strong> VƯỢT hạn mức khả dụng <strong>{formatVND(creditInfo.available_limit)}</strong> → Đơn sẽ ở trạng thái <strong>&quot;Chờ duyệt&quot;</strong></>
                     ) : (
-                      <>✅ Đơn hàng <strong>{formatVND(totalAmount)}</strong> trong hạn mức khả dụng <strong>{formatVND(creditInfo.available_limit)}</strong> → Đơn sẽ <strong>&quot;Đã xác nhận&quot;</strong></>
+                      <>✓ Đơn hàng <strong>{formatVND(totalAmount)}</strong> trong hạn mức khả dụng <strong>{formatVND(creditInfo.available_limit)}</strong> → Đơn sẽ <strong>&quot;Đã xác nhận&quot;</strong></>
                     )}
                   </div>
                 )}
@@ -558,7 +558,7 @@ export default function NewOrderPage() {
                           }))}
                           value={item.product_id}
                           onChange={(val) => updateItem(idx, 'product_id', val)}
-                          placeholder="🔍 Tìm sản phẩm..."
+                          placeholder=" Tìm sản phẩm..."
                         />
                       </td>
                       <td className="py-2 px-3">
@@ -586,13 +586,13 @@ export default function NewOrderPage() {
                           <div className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-semibold ${
                             atpOk ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'
                           }`}>
-                            <span>{atpOk ? '✅' : '❌'}</span>
+                            <span>{atpOk ? '✓' : '✗'}</span>
                             <span>ATP: {formatNumber(atp!.atp)}</span>
                             <span className="text-gray-400">/ Đặt: {formatNumber(item.quantity)}</span>
                           </div>
                         ) : (
                           <div className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-semibold bg-red-100 text-red-700">
-                            <span>❌</span>
+                            <span>✗</span>
                             <span>ATP: 0</span>
                             <span className="text-gray-400">/ Đặt: {formatNumber(item.quantity)}</span>
                           </div>
@@ -680,13 +680,13 @@ export default function NewOrderPage() {
         {/* Pre-submit validation summary */}
         {itemsWithProduct.length > 0 && (
           <div className="bg-white rounded-xl shadow-sm p-6">
-            <h2 className="font-semibold mb-3">🔍 Kiểm tra trước khi tạo đơn</h2>
+            <h2 className="font-semibold mb-3"> Kiểm tra trước khi tạo đơn</h2>
             <div className="space-y-2">
               {/* ATP check summary */}
               <div className={`flex items-start gap-3 px-4 py-3 rounded-lg ${
                 hasAtpIssue ? 'bg-red-50 border border-red-200' : 'bg-green-50 border border-green-200'
               }`}>
-                <span className="text-xl">{hasAtpIssue ? '❌' : '✅'}</span>
+                <span className="text-xl">{hasAtpIssue ? '✗' : '✓'}</span>
                 <div>
                   <p className={`font-semibold text-sm ${hasAtpIssue ? 'text-red-700' : 'text-green-700'}`}>
                     Kiểm tra tồn kho (ATP)
@@ -721,7 +721,7 @@ export default function NewOrderPage() {
                 <div className={`flex items-start gap-3 px-4 py-3 rounded-lg ${
                   creditExceeded ? 'bg-yellow-50 border border-yellow-200' : 'bg-green-50 border border-green-200'
                 }`}>
-                  <span className="text-xl">{creditExceeded ? '⚠️' : '✅'}</span>
+                  <span className="text-xl">{creditExceeded ? '' : '✓'}</span>
                   <div>
                     <p className={`font-semibold text-sm ${creditExceeded ? 'text-yellow-700' : 'text-green-700'}`}>
                       Kiểm tra hạn mức nợ
@@ -748,13 +748,13 @@ export default function NewOrderPage() {
                 <div className={`flex items-center gap-3 px-4 py-3 rounded-lg ${
                   creditExceeded ? 'bg-orange-50 border border-orange-200' : 'bg-blue-50 border border-blue-200'
                 }`}>
-                  <span className="text-xl">📋</span>
+                  <span className="text-xl"></span>
                   <p className="text-sm font-medium">
                     Dự kiến trạng thái đơn sau khi tạo:{' '}
                     <span className={`inline-block px-2 py-0.5 rounded text-xs font-bold ${
                       creditExceeded ? 'bg-orange-200 text-orange-800' : 'bg-green-200 text-green-800'
                     }`}>
-                      {creditExceeded ? '⏳ Chờ duyệt (pending_approval)' : '✅ Đã xác nhận (confirmed)'}
+                      {creditExceeded ? ' Chờ duyệt (pending_approval)' : '✓ Đã xác nhận (confirmed)'}
                     </span>
                   </p>
                 </div>
@@ -766,7 +766,7 @@ export default function NewOrderPage() {
         {/* Error + Submit */}
         {error && (
           <div className="bg-red-50 text-red-600 text-sm px-4 py-3 rounded-lg border border-red-200">
-            ❌ {error}
+            ✗ {error}
           </div>
         )}
 
@@ -776,7 +776,7 @@ export default function NewOrderPage() {
             disabled={submitting || items.length === 0 || hasAtpIssue}
             className="px-6 py-2.5 bg-brand-500 text-white rounded-lg hover:bg-brand-600 transition disabled:opacity-50 disabled:cursor-not-allowed font-medium"
           >
-            {submitting ? 'Đang tạo...' : hasAtpIssue ? '🚫 Không đủ tồn kho' : '✅ Tạo đơn hàng'}
+            {submitting ? 'Đang tạo...' : hasAtpIssue ? ' Không đủ tồn kho' : '✓ Tạo đơn hàng'}
           </button>
           <button
             type="button"
@@ -851,8 +851,8 @@ export default function NewOrderPage() {
 
             {/* Action buttons preview */}
             <div className="flex gap-2 pt-2">
-              <div className="flex-1 py-2 bg-green-500 text-white rounded-lg text-center text-xs font-medium">✅ Xác nhận</div>
-              <div className="flex-1 py-2 bg-red-100 text-red-600 rounded-lg text-center text-xs font-medium">❌ Từ chối</div>
+              <div className="flex-1 py-2 bg-green-500 text-white rounded-lg text-center text-xs font-medium">✓ Xác nhận</div>
+              <div className="flex-1 py-2 bg-red-100 text-red-600 rounded-lg text-center text-xs font-medium">✗ Từ chối</div>
             </div>
           </div>
 

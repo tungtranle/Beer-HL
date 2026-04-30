@@ -1,4 +1,4 @@
-'use client'
+﻿'use client'
 
 import { useEffect, useState, useCallback } from 'react'
 import { useParams, useRouter } from 'next/navigation'
@@ -45,16 +45,16 @@ const checkpointLabels: Record<string, string> = {
 }
 
 const checkpointIcons: Record<string, string> = {
-  container_return: '📦',
-  cash_handover: '💰',
-  vehicle_return: '🚛',
+  container_return: '',
+  cash_handover: '',
+  vehicle_return: '',
 }
 
 const statusIcons: Record<string, string> = {
-  pending: '⏳',
+  pending: '',
   submitted: '📤',
-  confirmed: '✅',
-  rejected: '❌',
+  confirmed: '✓',
+  rejected: '✗',
 }
 
 export default function DriverEODPage() {
@@ -155,7 +155,7 @@ export default function DriverEODPage() {
   if (session?.status === 'completed') {
     return (
       <div className="flex flex-col items-center justify-center min-h-screen bg-gradient-to-b from-green-50 to-white px-4">
-        <div className="animate-bounce text-8xl mb-6">✅</div>
+        <div className="animate-bounce text-8xl mb-6">✓</div>
         <h1 className="text-2xl font-bold text-gray-900 mb-2">KẾT CA HOÀN THÀNH</h1>
         <p className="text-gray-600 mb-6">
           Chuyến {session.trip_number} đã hoàn tất
@@ -163,7 +163,7 @@ export default function DriverEODPage() {
         <div className="w-full max-w-sm space-y-3 mb-8">
           {session.checkpoints?.map(cp => (
             <div key={cp.id} className="flex items-center gap-3 bg-white rounded-lg px-4 py-3 shadow-sm">
-              <span className="text-green-600 text-lg">✅</span>
+              <span className="text-green-600 text-lg">✓</span>
               <div className="flex-1">
                 <div className="text-sm font-medium text-gray-800">
                   Trạm {cp.checkpoint_order}: {checkpointLabels[cp.checkpoint_type]?.split('→')[0]}
@@ -207,7 +207,7 @@ export default function DriverEODPage() {
         <div className="px-4 py-6 space-y-4">
           {!isOnline && (
             <div className="bg-red-50 border border-red-200 rounded-lg p-3 text-sm text-red-700">
-              ⚠️ Bạn đang offline. Kết ca yêu cầu kết nối mạng.
+               Bạn đang offline. Kết ca yêu cầu kết nối mạng.
             </div>
           )}
           <div className="text-center py-8">
@@ -271,17 +271,17 @@ export default function DriverEODPage() {
         <div className="grid grid-cols-2 gap-3">
           <div className="bg-white rounded-xl p-4 shadow-sm">
             <div className="text-2xl font-bold text-green-600">{session.total_stops_delivered}</div>
-            <div className="text-xs text-gray-500">Đã giao ✅</div>
+            <div className="text-xs text-gray-500">Đã giao ✓</div>
           </div>
           <div className="bg-white rounded-xl p-4 shadow-sm">
             <div className="text-2xl font-bold text-red-600">{session.total_stops_failed}</div>
-            <div className="text-xs text-gray-500">Thất bại ❌</div>
+            <div className="text-xs text-gray-500">Thất bại ✗</div>
           </div>
         </div>
 
         {/* Cash Summary */}
         <div className="bg-white rounded-xl p-4 shadow-sm">
-          <h3 className="text-sm font-semibold text-gray-700 mb-3">💰 Tiền cần nộp</h3>
+          <h3 className="text-sm font-semibold text-gray-700 mb-3"> Tiền cần nộp</h3>
           <div className="space-y-2 text-sm font-mono">
             <div className="flex justify-between">
               <span className="text-gray-600">Tiền mặt thu:</span>
@@ -335,12 +335,12 @@ export default function DriverEODPage() {
                     </div>
                     <div className="text-xs text-gray-500">
                       {cp.status === 'confirmed' && cp.confirmed_at
-                        ? `✅ Xong lúc ${new Date(cp.confirmed_at).toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' })} · ${cp.receiver_name}`
+                        ? `✓ Xong lúc ${new Date(cp.confirmed_at).toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' })} · ${cp.receiver_name}`
                         : cp.status === 'submitted'
                         ? '📤 Đã gửi — chờ xác nhận...'
                         : cp.status === 'rejected'
-                        ? `❌ Bị từ chối: ${cp.reject_reason || ''}`
-                        : canStart ? '⏳ Sẵn sàng' : '🔒 Chờ trạm trước'
+                        ? `✗ Bị từ chối: ${cp.reject_reason || ''}`
+                        : canStart ? ' Sẵn sàng' : ' Chờ trạm trước'
                       }
                     </div>
                   </div>
@@ -478,7 +478,7 @@ function ContainerReturnForm({
           </div>
           {item.actual_qty !== item.epod_qty && (
             <div className="mt-2 text-xs text-red-600 font-medium">
-              ⚠️ Sai lệch: {item.actual_qty - item.epod_qty > 0 ? '+' : ''}{item.actual_qty - item.epod_qty}
+               Sai lệch: {item.actual_qty - item.epod_qty > 0 ? '+' : ''}{item.actual_qty - item.epod_qty}
             </div>
           )}
         </div>
@@ -529,7 +529,7 @@ function CashHandoverForm({
       {transferTotal > 0 && (
         <div className="bg-blue-50 rounded-lg p-3 text-sm">
           <div className="text-gray-600">Chuyển khoản (đã đối chiếu): <span className="font-bold">{formatVND(transferTotal)}</span></div>
-          <div className="text-xs text-gray-500 mt-1">✅ Đã xác nhận trên app ngân hàng</div>
+          <div className="text-xs text-gray-500 mt-1">✓ Đã xác nhận trên app ngân hàng</div>
         </div>
       )}
       <button
@@ -537,7 +537,7 @@ function CashHandoverForm({
         disabled={submitting}
         className="w-full h-14 bg-[#F68634] text-white rounded-xl text-base font-bold hover:bg-[#e5752a] disabled:opacity-50 transition-colors"
       >
-        {submitting ? 'Đang gửi...' : '💰 Gửi cho Kế toán xác nhận'}
+        {submitting ? 'Đang gửi...' : ' Gửi cho Kế toán xác nhận'}
       </button>
     </div>
   )
@@ -644,7 +644,7 @@ function VehicleReturnForm({
         disabled={submitting}
         className="w-full h-14 bg-[#F68634] text-white rounded-xl text-base font-bold hover:bg-[#e5752a] disabled:opacity-50 transition-colors"
       >
-        {submitting ? 'Đang gửi...' : '🚛 Gửi cho Đội trưởng xác nhận'}
+        {submitting ? 'Đang gửi...' : ' Gửi cho Đội trưởng xác nhận'}
       </button>
     </div>
   )

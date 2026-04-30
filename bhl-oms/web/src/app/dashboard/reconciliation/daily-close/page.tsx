@@ -1,9 +1,11 @@
-'use client'
+﻿'use client'
 
 import { useEffect, useState } from 'react'
 import { apiFetch } from '@/lib/api'
 import { toast } from '@/lib/useToast'
 import { formatVND } from '@/lib/status-config'
+import { PageHeader, Button } from '@/components/ui'
+import { BarChart3, AlertTriangle } from 'lucide-react'
 
 interface DailyCloseRecord {
   id: string; close_date: string; warehouse_id: string; warehouse_name: string
@@ -74,8 +76,7 @@ export default function DailyClosePage() {
 
   return (
     <div className="max-w-[1200px] mx-auto">
-      <h1 className="text-2xl font-bold text-gray-800 mb-2">📊 Đối soát cuối ngày</h1>
-      <p className="text-sm text-gray-500 mb-6">Kiểm tra và chốt sổ cuối ngày. Xử lý sai lệch.</p>
+      <PageHeader title="Đối soát cuối ngày" icon={BarChart3} iconTone="neutral" subtitle="Kiểm tra và chốt sổ cuối ngày. Xử lý sai lệch." />
 
       {/* Generate close */}
       <div className="bg-white rounded-xl shadow-sm p-5 mb-6">
@@ -92,7 +93,7 @@ export default function DailyClosePage() {
             disabled={closing}
             className="px-6 py-2 bg-brand-500 text-white rounded-lg hover:bg-brand-600 transition text-sm disabled:opacity-50"
           >
-            {closing ? 'Đang xử lý...' : '📊 Chốt sổ cuối ngày'}
+            {closing ? 'Đang xử lý...' : 'Chốt sổ cuối ngày'}
           </button>
         </div>
       </div>
@@ -100,7 +101,7 @@ export default function DailyClosePage() {
       {/* Open discrepancies */}
       {openDiscrepancies.length > 0 && (
         <div className="bg-white rounded-xl shadow-sm p-5 mb-6">
-          <h2 className="font-semibold text-red-700 mb-3">⚠️ Sai lệch chưa xử lý ({openDiscrepancies.length})</h2>
+          <h2 className="font-semibold text-red-700 mb-3 inline-flex items-center gap-1.5"><AlertTriangle className="w-4 h-4" aria-hidden="true" />Sai lệch chưa xử lý ({openDiscrepancies.length})</h2>
           <div className="space-y-3">
             {openDiscrepancies.map(d => (
               <div key={d.id} className="flex items-center justify-between p-3 rounded-lg border border-red-200 bg-red-50">
@@ -114,7 +115,7 @@ export default function DailyClosePage() {
                   disabled={resolving === d.id}
                   className="px-4 py-1.5 bg-green-600 text-white rounded-lg text-xs hover:bg-green-700 disabled:opacity-50"
                 >
-                  {resolving === d.id ? '...' : '✅ Xử lý'}
+                  {resolving === d.id ? '...' : '✓ Xử lý'}
                 </button>
               </div>
             ))}

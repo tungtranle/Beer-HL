@@ -1,4 +1,4 @@
-'use client'
+﻿'use client'
 
 import { useState, useEffect } from 'react'
 import { apiFetch } from '@/lib/api'
@@ -47,7 +47,7 @@ export default function TCOPage() {
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-bold text-gray-900">📊 Chi phí Sở hữu (TCO)</h1>
+          <h1 className="text-2xl font-bold text-gray-900">Chi phí Sở hữu (TCO)</h1>
           <p className="text-sm text-gray-500">Tổng chi phí toàn đội: <span className="font-semibold text-gray-700">{totalAll.toLocaleString('vi-VN')} ₫</span></p>
         </div>
         <select value={months} onChange={e => setMonths(+e.target.value)}

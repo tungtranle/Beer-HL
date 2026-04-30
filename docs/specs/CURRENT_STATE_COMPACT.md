@@ -5,6 +5,25 @@
 
 ---
 
+## Component System (30/04/2026)
+
+Design system đã có primitives (`Button`, `Card`, `PageHeader`, `KpiCard`, `LoadingState`, `EmptyState`, `StatusChip`, `Skeleton`, `Pagination`) nhưng adoption < 5%.
+
+**P0 Foundation DONE:** 9 component mới tạo hôm nay:
+- `Modal` — overlay + Esc + backdrop (replaces 22 `fixed inset-0` ad-hoc)
+- `ConfirmDialog` — title/message/onConfirm/danger
+- `Input` — label + error + hint + icons (replaces 24 raw `<input>`)
+- `Textarea`, `FormField`
+- `Tabs` — line variant + pill variant (replaces 21 setTab ad-hoc)
+- `Badge` — count/dot
+- `Tooltip` — hover
+- `Alert` — info/success/warning/danger inline banner
+
+Export qua single entry `import { X } from '@/components/ui'`.  
+ESLint warn tự động khi dùng `<button>/<input>/<select>/<textarea>` thô.
+
+**Pending Sprint 2:** `DataTable`, `FilterBar`, `ActionMenu`, `Drawer`, `DateRangePicker` + migrate 5 trang core.
+
 ## Hệ thống
 
 | Component | Port | Status |

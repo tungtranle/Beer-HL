@@ -179,6 +179,11 @@ func main() {
 	// API v1
 	v1 := r.Group("/v1")
 
+	// Public health shim for CI/health-checks: /v1/health
+	v1.GET("/health", func(c *gin.Context) {
+		response.OK(c, gin.H{"status": "ok", "service": "bhl-oms-tms-wms", "version": appVersion, "commit": buildCommit})
+	})
+
 	// Audit log middleware (Task 3.20) — logs POST/PUT/PATCH/DELETE
 	v1.Use(middleware.AuditLog(pool))
 

@@ -1,4 +1,4 @@
-'use client'
+﻿'use client'
 
 import { useEffect, useState, useRef, useCallback } from 'react'
 import { useParams, useRouter } from 'next/navigation'
@@ -170,7 +170,7 @@ export default function TripDetailPage() {
       // Depot marker (warehouse)
       if (trip.warehouse_lat && trip.warehouse_lng) {
         const depotIcon = L.divIcon({
-          html: '<div style="background:#d97706;color:white;width:32px;height:32px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-weight:bold;font-size:14px;border:2px solid white;box-shadow:0 2px 6px rgba(0,0,0,0.3)">🏭</div>',
+          html: '<div style="background:#d97706;color:white;width:32px;height:32px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-weight:bold;font-size:14px;border:2px solid white;box-shadow:0 2px 6px rgba(0,0,0,0.3)"></div>',
           className: '',
           iconSize: [32, 32],
           iconAnchor: [16, 16],
@@ -326,7 +326,7 @@ export default function TripDetailPage() {
         <h2 className="font-semibold mb-2">Bản đồ tuyến đường</h2>
         {osrmWarning && (
           <div className="flex items-center gap-2 text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded px-3 py-1.5 mb-2">
-            <span>⚠️</span>
+            <span></span>
             <span>OSRM chưa sẵn sàng — đang hiển thị đường thẳng tạm. Chạy <strong>START_OSRM_ONLY.bat</strong> để xem tuyến đường thực tế.</span>
           </div>
         )}

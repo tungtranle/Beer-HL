@@ -1,4 +1,4 @@
-'use client'
+﻿'use client'
 
 // WMS Phase 9 task 9.7 — Inbound: nhập kho pallet với GỢI Ý VỊ TRÍ CẤT (bin guidance).
 // World-class WMS UX: thủ kho thấy ngay "Cất vào A-03-02" trên phiếu nhập, không cần nhớ mã bin.
@@ -114,7 +114,7 @@ export default function InboundPage() {
 
   return (
     <div className="p-4 max-w-3xl mx-auto">
-      <h1 className="text-2xl font-bold mb-4 print:hidden">📦 Phiếu nhập kho — gợi ý vị trí cất</h1>
+      <h1 className="text-2xl font-bold mb-4 print:hidden"> Phiếu nhập kho — gợi ý vị trí cất</h1>
 
       <div className="bg-white rounded-lg shadow p-4 space-y-3 print:hidden">
         <div>
@@ -148,14 +148,14 @@ export default function InboundPage() {
         {/* Suggest-bin block */}
         <div className="border-t pt-3 mt-3">
           <div className="flex items-center justify-between mb-2">
-            <label className="block text-sm font-medium">🎯 Vị trí cất hàng (bin)</label>
+            <label className="block text-sm font-medium"> Vị trí cất hàng (bin)</label>
             <button
               type="button"
               onClick={fetchSuggestions}
               disabled={loadingSuggest || !productID}
               className="text-xs px-3 py-1 bg-emerald-600 text-white rounded disabled:opacity-50 hover:bg-emerald-700"
             >
-              {loadingSuggest ? 'Đang gợi ý…' : '✨ Gợi ý vị trí tốt nhất'}
+              {loadingSuggest ? 'Đang gợi ý…' : ' Gợi ý vị trí tốt nhất'}
             </button>
           </div>
 
@@ -214,7 +214,7 @@ export default function InboundPage() {
           {/* On-screen confirmation */}
           <div className="mt-4 bg-green-50 border-2 border-green-400 rounded-xl p-5 shadow-sm print:hidden">
             <div className="flex items-center gap-3 mb-3">
-              <span className="text-3xl">✅</span>
+              <span className="text-3xl">✓</span>
               <div>
                 <div className="text-xs text-green-700 font-medium uppercase tracking-wide">Nhập kho thành công</div>
                 <div className="font-mono text-2xl font-black text-green-800 tracking-wider">{created.pallet.lpn_code}</div>

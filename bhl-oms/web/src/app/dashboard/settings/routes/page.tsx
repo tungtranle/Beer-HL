@@ -1,4 +1,4 @@
-'use client'
+﻿'use client'
 
 import { useEffect, useState } from 'react'
 import { apiFetch } from '@/lib/api'
@@ -82,7 +82,7 @@ export default function RoutesPage() {
   return (
     <div className="p-6 max-w-5xl mx-auto space-y-4">
       <div className="flex items-center justify-between">
-        <h1 className="text-2xl font-bold">🛣️ Tuyến giao hàng</h1>
+        <h1 className="text-2xl font-bold"> Tuyến giao hàng</h1>
         <button onClick={openCreate}
           className="px-4 py-2 bg-brand-500 text-white rounded-lg text-sm font-medium hover:bg-brand-600">
           + Thêm tuyến

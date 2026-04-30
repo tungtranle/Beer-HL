@@ -9,7 +9,27 @@
     "@typescript-eslint/no-explicit-any": "warn",
     "@typescript-eslint/no-unused-vars": ["error", { "argsIgnorePattern": "^_", "varsIgnorePattern": "^_" }],
     "no-console": ["warn", { "allow": ["warn", "error"] }],
-    "react-hooks/exhaustive-deps": "warn"
+    "react-hooks/exhaustive-deps": "warn",
+
+    "no-restricted-syntax": [
+      "warn",
+      {
+        "selector": "JSXOpeningElement[name.name='button']",
+        "message": "⚠ Dùng <Button variant=...> từ @/components/ui thay vì <button> thô. Xem BHL_Component_System_Proposal.md."
+      },
+      {
+        "selector": "JSXOpeningElement[name.name='input']",
+        "message": "⚠ Dùng <Input> từ @/components/ui thay vì <input> thô. Xem BHL_Component_System_Proposal.md."
+      },
+      {
+        "selector": "JSXOpeningElement[name.name='select']",
+        "message": "⚠ Dùng <Select> từ @/components/ui thay vì <select> thô. Xem BHL_Component_System_Proposal.md."
+      },
+      {
+        "selector": "JSXOpeningElement[name.name='textarea']",
+        "message": "⚠ Dùng <Textarea> từ @/components/ui thay vì <textarea> thô. Xem BHL_Component_System_Proposal.md."
+      }
+    ]
   },
   "ignorePatterns": [
     "node_modules/",

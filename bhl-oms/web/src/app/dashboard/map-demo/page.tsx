@@ -1,4 +1,4 @@
-'use client'
+﻿'use client'
 
 import MapView from '@/components/map/MapView'
 import type { MapMarker, MapRoute } from '@/components/map/MapView'
@@ -19,7 +19,7 @@ const demoMarkers: MapMarker[] = [
     label: 'Kho BHL',
     popupHTML: `
       <div>
-        <div style="font-size:14px;font-weight:600;color:#202124">🏭 Kho Bia Hạ Long</div>
+        <div style="font-size:14px;font-weight:600;color:#202124"> Kho Bia Hạ Long</div>
         <div style="font-size:12px;color:#5f6368;margin-top:4px">228 Lạch Tray, Ngô Quyền, HP</div>
       </div>`,
   },
@@ -33,7 +33,7 @@ const demoMarkers: MapMarker[] = [
     label: '29C-123.45',
     popupHTML: `
       <div>
-        <div style="font-weight:600">🚚 29C-123.45</div>
+        <div style="font-weight:600"> 29C-123.45</div>
         <div style="font-size:12px;color:#5f6368">Tài xế: Nguyễn Văn A</div>
         <div style="font-size:12px;color:#16a34a">Đang giao • 42 km/h</div>
       </div>`,
@@ -48,7 +48,7 @@ const demoMarkers: MapMarker[] = [
     label: '15B-456.78',
     popupHTML: `
       <div>
-        <div style="font-weight:600">🚚 15B-456.78</div>
+        <div style="font-weight:600"> 15B-456.78</div>
         <div style="font-size:12px;color:#5f6368">Tài xế: Trần Văn B</div>
         <div style="font-size:12px;color:#d97706">Dừng nghỉ • 0 km/h</div>
       </div>`,
@@ -64,7 +64,7 @@ const demoMarkers: MapMarker[] = [
     pulseColor: 'rgba(239,68,68,.3)',
     popupHTML: `
       <div>
-        <div style="font-weight:600">🚚 30F-789.01</div>
+        <div style="font-weight:600"> 30F-789.01</div>
         <div style="font-size:12px;color:#5f6368">Tài xế: Lê Văn C</div>
         <div style="font-size:12px;color:#dc2626;font-weight:700">⚠ Lệch tuyến 1.5km</div>
       </div>`,

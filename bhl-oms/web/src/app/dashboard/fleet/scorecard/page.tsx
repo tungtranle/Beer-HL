@@ -1,4 +1,4 @@
-'use client'
+﻿'use client'
 
 import { useState } from 'react'
 import { apiFetch } from '@/lib/api'
@@ -114,7 +114,7 @@ export default function ScorecardPage() {
 
           {data.history.length > 0 && (
             <div className="bg-white rounded-xl shadow-sm border p-6">
-              <h3 className="font-semibold mb-4">📊 Xu hướng điểm (30 ngày)</h3>
+              <h3 className="font-semibold mb-4">Xu hướng điểm (30 ngày)</h3>
               {/* CSS sparkline */}
               <div className="flex items-end gap-0.5 h-16 mb-3">
                 {data.history.slice().reverse().map((h, i) => {

@@ -1,4 +1,4 @@
-'use client'
+﻿'use client'
 
 import { useEffect, useState } from 'react'
 import { useParams, useRouter } from 'next/navigation'
@@ -10,6 +10,7 @@ import { useOnlineStatus } from '@/lib/useOnlineStatus'
 import { useDataRefresh } from '@/lib/notifications'
 import { queueOfflineRequest } from '@/lib/useOfflineSync'
 import { safeParseVNDSafe } from '@/lib/safeParseVND'
+import { Wrench, Package, Truck, CheckCircle2, ClipboardList, XCircle } from 'lucide-react'
 
 interface Stop {
   id: string
@@ -576,7 +577,7 @@ export default function DriverTripDetailPage() {
   if (loadError) {
     return (
       <div className="p-6 text-center">
-        <div className="text-red-500 text-lg mb-2">⚠️ Không thể tải dữ liệu chuyến xe</div>
+        <div className="text-red-500 text-lg mb-2"> Không thể tải dữ liệu chuyến xe</div>
         <p className="text-sm text-gray-500 mb-4">{loadError}</p>
         <button
           onClick={() => { setLoading(true); loadTrip() }}
@@ -621,20 +622,20 @@ export default function DriverTripDetailPage() {
           trip.status === 'in_transit' ? 3 :
           ['returning','settling','reconciled','completed'].includes(trip.status) ? 4 : 1
 
-        const steps = [
-          { n: 1, label: 'Kiểm tra xe', icon: '🔧' },
-          { n: 2, label: 'Xuất kho', icon: '📦' },
-          { n: 3, label: 'Giao hàng', icon: '🚛' },
-          { n: 4, label: 'Kết ca', icon: '✅' },
+        const steps: { n: number; label: string; Icon: typeof Wrench }[] = [
+          { n: 1, label: 'Kiểm tra xe', Icon: Wrench },
+          { n: 2, label: 'Xuất kho', Icon: Package },
+          { n: 3, label: 'Giao hàng', Icon: Truck },
+          { n: 4, label: 'Kết ca', Icon: CheckCircle2 },
         ]
         return (
           <div className="bg-white rounded-xl shadow-sm px-4 py-3">
             <div className="flex items-center">
-              {steps.map(({ n, label, icon }, idx) => (
+              {steps.map(({ n, label, Icon }, idx) => (
                 <div key={n} className="flex items-center flex-1 last:flex-none">
                   <div className="flex flex-col items-center">
-                    <div className={`w-9 h-9 rounded-full flex items-center justify-center text-base border-2 transition ${n < tripStep ? 'bg-brand-500 border-brand-500 text-white' : n === tripStep ? 'border-brand-500 bg-brand-50 text-brand-600' : 'border-gray-200 bg-gray-50 text-gray-400'}`}>
-                      {n < tripStep ? '✓' : icon}
+                    <div className={`w-9 h-9 rounded-full flex items-center justify-center border-2 transition ${n < tripStep ? 'bg-brand-500 border-brand-500 text-white' : n === tripStep ? 'border-brand-500 bg-brand-50 text-brand-600' : 'border-gray-200 bg-gray-50 text-gray-400'}`}>
+                      {n < tripStep ? <CheckCircle2 className="w-4 h-4" /> : <Icon className="w-4 h-4" aria-hidden="true" />}
                     </div>
                     <div className={`text-[10px] mt-1 font-medium ${n === tripStep ? 'text-brand-600' : n < tripStep ? 'text-brand-400' : 'text-gray-400'}`}>
                       {label}
@@ -675,8 +676,8 @@ export default function DriverTripDetailPage() {
       {(trip.status === 'planned' || trip.status === 'assigned' || trip.status === 'ready') && !trip.checklist && (
         <div className="space-y-2">
           <button onClick={openChecklistModal} disabled={actionLoading}
-            className="w-full bg-purple-600 text-white py-3 rounded-lg font-medium hover:bg-purple-700 disabled:opacity-50">
-            📋 Kiểm tra xe trước khi xuất phát
+            className="w-full bg-purple-600 text-white py-3 rounded-lg font-medium hover:bg-purple-700 disabled:opacity-50 inline-flex items-center justify-center gap-2">
+            <ClipboardList className="w-4 h-4" aria-hidden="true" /> Kiểm tra xe trước khi xuất phát
           </button>
           <p className="text-xs text-center text-gray-500">Bắt buộc kiểm tra xe trước khi bắt đầu chuyến</p>
         </div>
@@ -690,7 +691,7 @@ export default function DriverTripDetailPage() {
         return (
           <div className="bg-blue-50 border-2 border-blue-200 rounded-xl p-4 space-y-3">
             <div className="flex items-center gap-2">
-              <span className="text-xl">📋</span>
+              <ClipboardList className="w-5 h-5 text-blue-600" aria-hidden="true" />
               <h3 className="font-bold text-blue-800">Bàn giao A — Xác nhận xuất kho</h3>
             </div>
             <p className="text-sm text-blue-600">Thủ kho đã tạo biên bản bàn giao. Vui lòng kiểm tra hàng hóa và xác nhận.</p>
@@ -708,11 +709,11 @@ export default function DriverTripDetailPage() {
               <div className="flex gap-2">
                 <button onClick={handleHandoverConfirm} disabled={handoverLoading}
                   className="flex-1 h-12 bg-green-600 text-white rounded-lg font-bold hover:bg-green-700 disabled:opacity-50">
-                  {handoverLoading ? 'Đang xử lý...' : '✅ Xác nhận bàn giao'}
+                  {handoverLoading ? 'Đang xử lý...' : <><CheckCircle2 className="w-4 h-4" aria-hidden="true" /> Xác nhận bàn giao</>}
                 </button>
                 <button onClick={() => setHandoverAction('reject')}
                   className="px-4 h-12 bg-red-100 text-red-700 rounded-lg font-medium hover:bg-red-200">
-                  ❌ Từ chối
+                  <XCircle className="w-4 h-4" aria-hidden="true" /> Từ chối
                 </button>
               </div>
             ) : (
@@ -722,7 +723,7 @@ export default function DriverTripDetailPage() {
                 <div className="flex gap-2">
                   <button onClick={handleHandoverReject} disabled={handoverLoading || !handoverRejectReason.trim()}
                     className="flex-1 h-12 bg-red-600 text-white rounded-lg font-bold hover:bg-red-700 disabled:opacity-50">
-                    {handoverLoading ? 'Đang xử lý...' : '❌ Xác nhận từ chối'}
+                    {handoverLoading ? 'Đang xử lý...' : <><XCircle className="w-4 h-4" aria-hidden="true" /> Xác nhận từ chối</>}
                   </button>
                   <button onClick={() => setHandoverAction(null)}
                     className="px-4 h-12 border rounded-lg text-gray-600 hover:bg-gray-50">Hủy</button>
@@ -736,13 +737,13 @@ export default function DriverTripDetailPage() {
       {(trip.status === 'planned' || trip.status === 'assigned' || trip.status === 'ready') && trip.checklist?.is_passed && (
         <button onClick={handleStartTrip} disabled={actionLoading}
           className="w-full bg-green-600 text-white py-3 rounded-lg font-medium hover:bg-green-700 disabled:opacity-50">
-          {actionLoading ? 'Đang xử lý...' : '🚀 Bắt đầu chuyến xe'}
+          {actionLoading ? 'Đang xử lý...' : ' Bắt đầu chuyến xe'}
         </button>
       )}
 
       {(trip.status === 'planned' || trip.status === 'assigned' || trip.status === 'ready') && trip.checklist && !trip.checklist.is_passed && (
         <div className="bg-red-50 border border-red-200 rounded-lg p-3 text-center">
-          <p className="text-red-700 font-medium">⚠️ Xe không đạt kiểm tra</p>
+          <p className="text-red-700 font-medium"> Xe không đạt kiểm tra</p>
           <p className="text-red-600 text-sm">Vui lòng báo trưởng nhóm để đổi xe</p>
         </div>
       )}
@@ -751,7 +752,7 @@ export default function DriverTripDetailPage() {
         <div className="space-y-2">
           <Link href={`/dashboard/driver/${tripId}/eod`}
             className="w-full block text-center bg-brand-500 text-white py-3 rounded-lg font-medium hover:bg-brand-600">
-            ✅ Kết ca (3 trạm xác nhận)
+            ✓ Kết ca (3 trạm xác nhận)
           </Link>
         </div>
       )}
@@ -770,10 +771,10 @@ export default function DriverTripDetailPage() {
                     </span>
                     <span className="font-medium">{stop.customer_name}</span>
                   </div>
-                  <p className="text-sm text-gray-500 mt-1 ml-8">📍 {stop.customer_address}</p>
+                  <p className="text-sm text-gray-500 mt-1 ml-8"> {stop.customer_address}</p>
                   {stop.customer_phone && (
                     <p className="text-sm text-gray-500 mt-0.5 ml-8">
-                      <a href={`tel:${stop.customer_phone}`} className="text-blue-600 hover:underline">📞 {stop.customer_phone}</a>
+                      <a href={`tel:${stop.customer_phone}`} className="text-blue-600 hover:underline"> {stop.customer_phone}</a>
                     </p>
                   )}
                   {stop.estimated_arrival && (
@@ -811,7 +812,7 @@ export default function DriverTripDetailPage() {
                   <a href={buildNavUrl(stop)}
                     target="_blank" rel="noopener noreferrer"
                     className="inline-flex items-center gap-1 px-4 h-12 bg-emerald-50 text-emerald-700 text-sm rounded-lg hover:bg-emerald-100 transition font-medium">
-                    🗺️ Chỉ đường ({(() => {
+                     Chỉ đường ({(() => {
                       const sorted = [...trip.stops].sort((a, b) => a.stop_order - b.stop_order)
                       const rem = sorted.filter(s => s.stop_order >= stop.stop_order && (s.status === 'pending' || s.status === 'arrived')).length
                       return `${rem} điểm còn lại`
@@ -824,7 +825,7 @@ export default function DriverTripDetailPage() {
                 <div className="mt-2 ml-8 flex gap-2">
                   <button onClick={() => handleUpdateStop(stop.id, 'arrive')} disabled={actionLoading}
                     className="px-4 h-12 bg-brand-500 text-white text-sm rounded-lg hover:bg-brand-600 disabled:opacity-50 font-medium">
-                    📍 Đã đến nơi
+                     Đã đến nơi
                   </button>
                 </div>
               )}
@@ -832,11 +833,11 @@ export default function DriverTripDetailPage() {
                 <div className="mt-2 ml-8 flex flex-wrap gap-2">
                   <button onClick={() => handleUpdateStop(stop.id, 'delivering')} disabled={actionLoading}
                     className="px-4 h-12 bg-brand-500 text-white text-sm rounded-lg hover:bg-brand-600 disabled:opacity-50 font-medium">
-                    📦 Bắt đầu hạ hàng
+                     Bắt đầu hạ hàng
                   </button>
                   <button onClick={() => openIncidentModal(stop)} disabled={actionLoading}
                     className="px-4 h-12 bg-orange-100 text-orange-700 text-sm rounded-lg hover:bg-orange-200 disabled:opacity-50 font-medium">
-                    ⚠️ Báo sự cố
+                     Báo sự cố
                   </button>
                 </div>
               )}
@@ -844,15 +845,15 @@ export default function DriverTripDetailPage() {
                 <div className="mt-2 ml-8 flex flex-wrap gap-2">
                   <button onClick={() => openEpodModal(stop)} disabled={actionLoading}
                     className="px-4 h-14 bg-green-600 text-white text-sm rounded-lg hover:bg-green-700 disabled:opacity-50 font-medium">
-                    📝 Xác nhận giao hàng (ePOD)
+                     Xác nhận giao hàng (ePOD)
                   </button>
                   <button onClick={() => openRejectModal(stop)} disabled={actionLoading}
                     className="px-4 h-12 bg-red-600 text-white text-sm rounded-lg hover:bg-red-700 disabled:opacity-50 font-medium">
-                    ❌ NPP từ chối nhận
+                    ✗ NPP từ chối nhận
                   </button>
                   <button onClick={() => openIncidentModal(stop)} disabled={actionLoading}
                     className="px-4 h-12 bg-orange-100 text-orange-700 text-sm rounded-lg hover:bg-orange-200 disabled:opacity-50 font-medium">
-                    ⚠️ Sự cố
+                     Sự cố
                   </button>
                 </div>
               )}
@@ -860,11 +861,11 @@ export default function DriverTripDetailPage() {
                 <div className="mt-2 ml-8 flex flex-wrap gap-2">
                   <button onClick={() => openPaymentModal(stop)} disabled={actionLoading}
                     className="px-4 h-12 bg-yellow-600 text-white text-sm rounded-lg hover:bg-yellow-700 disabled:opacity-50 font-medium">
-                    💰 Thu tiền
+                     Thu tiền
                   </button>
                   <button onClick={() => openReturnsModal(stop)} disabled={actionLoading}
                     className="px-4 h-12 bg-purple-600 text-white text-sm rounded-lg hover:bg-purple-700 disabled:opacity-50 font-medium">
-                    📦 Thu hồi vỏ
+                     Thu hồi vỏ
                   </button>
                   <button onClick={() => openEpodModal(stop)} disabled={actionLoading}
                     className="px-4 h-12 bg-gray-200 text-gray-700 text-sm rounded-lg hover:bg-gray-300 disabled:opacity-50 font-medium">
@@ -887,7 +888,7 @@ export default function DriverTripDetailPage() {
         <div className="bg-white rounded-lg shadow-sm p-4">
           <h2 className="text-lg font-semibold mb-2">Bảng kiểm tra xe</h2>
           <div className={`text-sm font-medium ${trip.checklist.is_passed ? 'text-green-600' : 'text-red-600'}`}>
-            {trip.checklist.is_passed ? '✅ Đã kiểm tra - ĐẠT' : '❌ Kiểm tra - KHÔNG ĐẠT'}
+            {trip.checklist.is_passed ? '✓ Đã kiểm tra - ĐẠT' : '✗ Kiểm tra - KHÔNG ĐẠT'}
           </div>
           <div className="grid grid-cols-2 gap-1 mt-2 text-sm text-gray-600">
             <div>{trip.checklist.tires_ok ? '✓' : '✗'} Lốp xe</div>
@@ -897,7 +898,7 @@ export default function DriverTripDetailPage() {
             <div>{trip.checklist.horn_ok ? '✓' : '✗'} Còi</div>
             <div>{trip.checklist.documents_ok ? '✓' : '✗'} Giấy tờ</div>
             <div>{trip.checklist.cargo_secured ? '✓' : '✗'} Hàng hóa</div>
-            <div>⛽ {trip.checklist.fuel_level}%</div>
+            <div> {trip.checklist.fuel_level}%</div>
           </div>
         </div>
       )}
@@ -908,7 +909,7 @@ export default function DriverTripDetailPage() {
           <div className="bg-white w-full max-w-lg rounded-t-2xl max-h-[90vh] overflow-y-auto p-4 space-y-4">
             <div className="flex items-center justify-between">
               <h2 className="text-lg font-bold">
-                {existingEpod ? '📋 Biên bản giao hàng' : '📝 Xác nhận giao hàng'}
+                {existingEpod ? ' Biên bản giao hàng' : ' Xác nhận giao hàng'}
               </h2>
               <button onClick={() => setActiveModal(null)} className="text-2xl text-gray-400 hover:text-gray-600">×</button>
             </div>
@@ -939,8 +940,8 @@ export default function DriverTripDetailPage() {
                   existingEpod.delivery_status === 'partial' ? 'bg-yellow-100 text-yellow-700' :
                   'bg-red-100 text-red-700'
                 }`}>
-                  {existingEpod.delivery_status === 'delivered' ? '✅ Giao đủ' :
-                   existingEpod.delivery_status === 'partial' ? '⚠️ Giao một phần' : '❌ Từ chối'}
+                  {existingEpod.delivery_status === 'delivered' ? '✓ Giao đủ' :
+                   existingEpod.delivery_status === 'partial' ? ' Giao một phần' : '✗ Từ chối'}
                 </div>
 
                 {/* Rejection details */}
@@ -1037,7 +1038,7 @@ export default function DriverTripDetailPage() {
                 {/* Payment info */}
                 {existingPayments.length > 0 && (
                   <div className="bg-green-50 border border-green-200 rounded-lg p-3">
-                    <h3 className="text-sm font-medium text-green-700 mb-2">💰 Thông tin thu tiền</h3>
+                    <h3 className="text-sm font-medium text-green-700 mb-2"> Thông tin thu tiền</h3>
                     {existingPayments.map((p, idx) => (
                       <div key={idx} className="flex justify-between text-sm">
                         <span>{{cash: 'Tiền mặt', transfer: 'Chuyển khoản', credit: 'Công nợ', cod: 'COD', partial: 'Thu một phần'}[p.payment_method] || p.payment_method}</span>
@@ -1050,7 +1051,7 @@ export default function DriverTripDetailPage() {
                 {/* Return collection info */}
                 {existingReturns.length > 0 && (
                   <div className="bg-purple-50 border border-purple-200 rounded-lg p-3">
-                    <h3 className="text-sm font-medium text-purple-700 mb-2">📦 Thu hồi vỏ</h3>
+                    <h3 className="text-sm font-medium text-purple-700 mb-2"> Thu hồi vỏ</h3>
                     {existingReturns.map((r, idx) => (
                       <div key={idx} className="flex justify-between text-sm">
                         <span>{assetTypeLabels[r.asset_type] || r.asset_type} ({conditionLabels[r.condition] || r.condition})</span>
@@ -1168,7 +1169,7 @@ export default function DriverTripDetailPage() {
 
                 <button onClick={handleSubmitEpod} disabled={actionLoading || !epodReceiverName || epodPhotos.length === 0}
                   className="w-full h-14 bg-green-600 text-white rounded-lg font-medium hover:bg-green-700 disabled:opacity-50">
-                  {actionLoading ? 'Đang gửi...' : '✅ Xác nhận giao hàng'}
+                  {actionLoading ? 'Đang gửi...' : '✓ Xác nhận giao hàng'}
                 </button>
                 {epodPhotos.length === 0 && (
                   <p className="text-xs text-red-500 text-center">Vui lòng chụp ít nhất 1 ảnh để xác nhận</p>
@@ -1184,7 +1185,7 @@ export default function DriverTripDetailPage() {
         <div className="fixed inset-0 bg-black/50 z-50 flex items-end justify-center">
           <div className="bg-white w-full max-w-lg rounded-t-2xl max-h-[90vh] overflow-y-auto p-4 space-y-4">
             <div className="flex items-center justify-between">
-              <h2 className="text-lg font-bold">💰 Thu tiền</h2>
+              <h2 className="text-lg font-bold"> Thu tiền</h2>
               <button onClick={() => setActiveModal(null)} className="text-2xl text-gray-400 hover:text-gray-600">×</button>
             </div>
             <p className="text-sm text-gray-500">
@@ -1199,8 +1200,8 @@ export default function DriverTripDetailPage() {
                   {([
                     { v: 'cash', l: '💵 Tiền mặt' },
                     { v: 'transfer', l: '🏦 Chuyển khoản' },
-                    { v: 'credit', l: '📝 Công nợ' },
-                    { v: 'partial', l: '💰 Thu một phần' },
+                    { v: 'credit', l: ' Công nợ' },
+                    { v: 'partial', l: ' Thu một phần' },
                   ] as const).map(m => (
                     <button key={m.v} onClick={() => setPaymentMethod(m.v as typeof paymentMethod)}
                       className={`px-3 py-2 text-sm rounded-lg border transition ${
@@ -1228,7 +1229,7 @@ export default function DriverTripDetailPage() {
               {/* Credit / Debt notice */}
               {paymentMethod === 'credit' && (
                 <div className="bg-amber-50 border border-amber-200 rounded-lg p-3">
-                  <p className="text-amber-800 text-sm font-medium">📝 Ghi công nợ</p>
+                  <p className="text-amber-800 text-sm font-medium"> Ghi công nợ</p>
                   <p className="text-amber-600 text-xs mt-1">Số tiền {selectedStop.order_amount?.toLocaleString('vi-VN')}đ sẽ được ghi vào công nợ NPP</p>
                 </div>
               )}
@@ -1246,7 +1247,7 @@ export default function DriverTripDetailPage() {
               <button onClick={handleSubmitPayment}
                 disabled={actionLoading || (paymentMethod !== 'credit' && paymentAmount <= 0)}
                 className="w-full h-12 bg-yellow-600 text-white rounded-lg font-medium hover:bg-yellow-700 disabled:opacity-50">
-                {actionLoading ? 'Đang gửi...' : paymentMethod === 'credit' ? '📝 Xác nhận ghi nợ' : '💰 Xác nhận thu tiền'}
+                {actionLoading ? 'Đang gửi...' : paymentMethod === 'credit' ? ' Xác nhận ghi nợ' : ' Xác nhận thu tiền'}
               </button>
             </div>
           </div>
@@ -1258,7 +1259,7 @@ export default function DriverTripDetailPage() {
         <div className="fixed inset-0 bg-black/50 z-50 flex items-end justify-center">
           <div className="bg-white w-full max-w-lg rounded-t-2xl max-h-[90vh] overflow-y-auto p-4 space-y-4">
             <div className="flex items-center justify-between">
-              <h2 className="text-lg font-bold">📦 Thu hồi vỏ</h2>
+              <h2 className="text-lg font-bold"> Thu hồi vỏ</h2>
               <button onClick={() => setActiveModal(null)} className="text-2xl text-gray-400 hover:text-gray-600">×</button>
             </div>
             <p className="text-sm text-gray-500">
@@ -1373,7 +1374,7 @@ export default function DriverTripDetailPage() {
 
             <button onClick={handleSubmitReturns} disabled={actionLoading || !returnItems.some(i => i.quantity > 0) || returnItems.some(i => i.quantity > 0 && (i.condition === 'damaged' || i.condition === 'lost') && !i.photo)}
               className="w-full h-12 bg-purple-600 text-white rounded-lg font-medium hover:bg-purple-700 disabled:opacity-50">
-              {actionLoading ? 'Đang gửi...' : '📦 Xác nhận thu hồi'}
+              {actionLoading ? 'Đang gửi...' : ' Xác nhận thu hồi'}
             </button>
             {returnItems.some(i => i.quantity > 0 && (i.condition === 'damaged' || i.condition === 'lost') && !i.photo) && (
               <p className="text-xs text-red-500 text-center">Vui lòng chụp ảnh cho các mục hư hỏng/mất</p>
@@ -1387,7 +1388,7 @@ export default function DriverTripDetailPage() {
         <div className="fixed inset-0 bg-black/50 z-50 flex items-end justify-center">
           <div className="bg-white w-full max-w-lg rounded-t-2xl max-h-[90vh] overflow-y-auto p-4 space-y-4">
             <div className="flex items-center justify-between">
-              <h2 className="text-lg font-bold">📋 Kiểm tra xe trước khi xuất phát</h2>
+              <h2 className="text-lg font-bold"> Kiểm tra xe trước khi xuất phát</h2>
               <button onClick={() => setActiveModal(null)} className="text-2xl text-gray-400 hover:text-gray-600">×</button>
             </div>
             <p className="text-sm text-gray-500">{trip.vehicle_plate} · {trip.trip_number}</p>
@@ -1395,8 +1396,8 @@ export default function DriverTripDetailPage() {
             <div className="space-y-3">
               {([
                 { key: 'tires_ok', label: '🛞 Lốp xe' },
-                { key: 'brakes_ok', label: '🛑 Phanh' },
-                { key: 'lights_ok', label: '💡 Đèn' },
+                { key: 'brakes_ok', label: ' Phanh' },
+                { key: 'lights_ok', label: ' Đèn' },
                 { key: 'mirrors_ok', label: '🪞 Gương' },
                 { key: 'horn_ok', label: '📯 Còi' },
                 { key: 'coolant_ok', label: '💧 Nước làm mát' },
@@ -1404,7 +1405,7 @@ export default function DriverTripDetailPage() {
                 { key: 'fire_extinguisher_ok', label: '🧯 Bình chữa cháy' },
                 { key: 'first_aid_ok', label: '🩺 Sơ cứu' },
                 { key: 'documents_ok', label: '📄 Giấy tờ xe' },
-                { key: 'cargo_secured', label: '📦 Hàng hóa cố định' },
+                { key: 'cargo_secured', label: ' Hàng hóa cố định' },
               ] as const).map(item => (
                 <div key={item.key} className="flex items-center justify-between bg-gray-50 rounded-lg px-3 py-2.5">
                   <span className="text-sm">{item.label}</span>
@@ -1424,7 +1425,7 @@ export default function DriverTripDetailPage() {
               {/* Fuel Level */}
               <div className="bg-gray-50 rounded-lg px-3 py-2.5">
                 <div className="flex items-center justify-between">
-                  <span className="text-sm">⛽ Mức nhiên liệu</span>
+                  <span className="text-sm"> Mức nhiên liệu</span>
                   <span className="text-sm font-bold text-brand-500">{checklistForm.fuel_level}%</span>
                 </div>
                 <input type="range" min={0} max={100} step={5} value={checklistForm.fuel_level}
@@ -1444,7 +1445,7 @@ export default function DriverTripDetailPage() {
               {/* Summary */}
               {Object.entries(checklistForm).some(([k, v]) => k !== 'fuel_level' && k !== 'notes' && v === false) && (
                 <div className="bg-red-50 border border-red-200 rounded-lg p-3">
-                  <p className="text-red-700 text-sm font-medium">⚠️ Có hạng mục không đạt:</p>
+                  <p className="text-red-700 text-sm font-medium"> Có hạng mục không đạt:</p>
                   <ul className="text-red-600 text-xs mt-1 list-disc list-inside">
                     {!checklistForm.tires_ok && <li>Lốp xe</li>}
                     {!checklistForm.brakes_ok && <li>Phanh</li>}
@@ -1463,7 +1464,7 @@ export default function DriverTripDetailPage() {
 
               <button onClick={handleSubmitChecklist} disabled={actionLoading}
                 className="w-full h-12 bg-purple-600 text-white rounded-lg font-medium hover:bg-purple-700 disabled:opacity-50">
-                {actionLoading ? 'Đang gửi...' : '📋 Gửi kiểm tra xe'}
+                {actionLoading ? 'Đang gửi...' : ' Gửi kiểm tra xe'}
               </button>
             </div>
           </div>
@@ -1475,7 +1476,7 @@ export default function DriverTripDetailPage() {
         <div className="fixed inset-0 bg-black/50 z-50 flex items-end justify-center">
           <div className="bg-white w-full max-w-lg rounded-t-2xl max-h-[90vh] overflow-y-auto p-4 space-y-4">
             <div className="flex items-center justify-between">
-              <h2 className="text-lg font-bold">⚠️ Báo sự cố</h2>
+              <h2 className="text-lg font-bold"> Báo sự cố</h2>
               <button onClick={() => setActiveModal(null)} className="text-2xl text-gray-400 hover:text-gray-600">×</button>
             </div>
             <p className="text-sm text-gray-500">
@@ -1487,13 +1488,13 @@ export default function DriverTripDetailPage() {
                 <label className="text-sm font-medium text-gray-700">Loại sự cố</label>
                 <div className="grid grid-cols-1 gap-2 mt-1">
                   {[
-                    { v: 'address_wrong', l: '📍 Sai địa chỉ giao hàng' },
-                    { v: 'customer_absent', l: '🚫 Khách hàng không có mặt' },
-                    { v: 'vehicle_breakdown', l: '🔧 Hư hỏng xe' },
+                    { v: 'address_wrong', l: ' Sai địa chỉ giao hàng' },
+                    { v: 'customer_absent', l: ' Khách hàng không có mặt' },
+                    { v: 'vehicle_breakdown', l: ' Hư hỏng xe' },
                     { v: 'traffic_police', l: '👮 Bị CSGT giữ' },
                     { v: 'road_blocked', l: '🚧 Đường bị chặn / ngập' },
                     { v: 'accident', l: '💥 Tai nạn giao thông' },
-                    { v: 'other', l: '📋 Khác' },
+                    { v: 'other', l: ' Khác' },
                   ].map(t => (
                     <button key={t.v} onClick={() => setIncidentType(t.v)}
                       className={`px-3 py-2 text-sm text-left rounded-lg border transition ${
@@ -1540,7 +1541,7 @@ export default function DriverTripDetailPage() {
 
               <button onClick={handleSubmitIncident} disabled={actionLoading || !incidentDesc.trim()}
                 className="w-full h-14 bg-orange-600 text-white rounded-lg font-medium hover:bg-orange-700 disabled:opacity-50">
-                {actionLoading ? 'Đang gửi...' : '⚠️ Gửi báo sự cố'}
+                {actionLoading ? 'Đang gửi...' : ' Gửi báo sự cố'}
               </button>
               <p className="text-xs text-gray-400 text-center">Điều phối viên sẽ nhận thông báo và hướng dẫn bạn</p>
             </div>
@@ -1554,7 +1555,7 @@ export default function DriverTripDetailPage() {
         <div className="fixed inset-0 bg-black/50 z-50 flex items-end justify-center">
           <div className="bg-white w-full max-w-lg rounded-t-2xl max-h-[90vh] overflow-y-auto p-4 space-y-4">
             <div className="flex items-center justify-between">
-              <h2 className="text-lg font-bold">📋 Checklist cuối chuyến</h2>
+              <h2 className="text-lg font-bold"> Checklist cuối chuyến</h2>
               <button onClick={() => setActiveModal(null)} className="text-2xl text-gray-400 hover:text-gray-600">×</button>
             </div>
             <p className="text-sm text-gray-500">Kiểm tra và xác nhận trước khi hoàn thành chuyến xe</p>
@@ -1593,14 +1594,14 @@ export default function DriverTripDetailPage() {
         <div className="fixed inset-0 bg-black/50 z-50 flex items-end justify-center">
           <div className="bg-white w-full max-w-lg rounded-t-2xl max-h-[90vh] overflow-y-auto p-4 space-y-4">
             <div className="flex items-center justify-between">
-              <h2 className="text-lg font-bold">📊 Tổng kết chuyến xe</h2>
+              <h2 className="text-lg font-bold"> Tổng kết chuyến xe</h2>
               <button onClick={() => setActiveModal(null)} className="text-2xl text-gray-400 hover:text-gray-600">×</button>
             </div>
 
             <div className="space-y-3">
               {/* Delivery stats */}
               <div className="bg-blue-50 rounded-lg p-3">
-                <h3 className="text-sm font-semibold text-blue-800 mb-2">🚚 Giao hàng</h3>
+                <h3 className="text-sm font-semibold text-blue-800 mb-2"> Giao hàng</h3>
                 <div className="grid grid-cols-3 gap-2 text-center">
                   <div>
                     <div className="text-lg font-bold text-green-600">
@@ -1636,7 +1637,7 @@ export default function DriverTripDetailPage() {
 
               {/* Financial summary */}
               <div className="bg-green-50 rounded-lg p-3">
-                <h3 className="text-sm font-semibold text-green-800 mb-2">💰 Thu tiền</h3>
+                <h3 className="text-sm font-semibold text-green-800 mb-2"> Thu tiền</h3>
                 <div className="text-sm text-gray-700">
                   <p>Tổng tiền đơn hàng: <strong>{(trip.stops?.reduce((sum, s) => sum + (s.order_amount || 0), 0) || 0).toLocaleString('vi-VN')}đ</strong></p>
                   <p className="text-xs text-gray-500 mt-1">Chi tiết thu/nợ sẽ được đối soát bởi kế toán</p>
@@ -1655,7 +1656,7 @@ export default function DriverTripDetailPage() {
 
               <button onClick={async () => { setActiveModal(null); await handleCompleteTrip() }} disabled={actionLoading}
                 className="w-full py-3 bg-brand-500 text-white rounded-lg font-bold hover:bg-brand-600 disabled:opacity-50 text-lg">
-                {actionLoading ? 'Đang xử lý...' : '✅ Xác nhận hoàn thành chuyến xe'}
+                {actionLoading ? 'Đang xử lý...' : '✓ Xác nhận hoàn thành chuyến xe'}
               </button>
             </div>
           </div>
@@ -1667,7 +1668,7 @@ export default function DriverTripDetailPage() {
         <div className="fixed inset-0 bg-black/50 z-50 flex items-end justify-center">
           <div className="bg-white w-full max-w-lg rounded-t-2xl max-h-[90vh] overflow-y-auto p-4 space-y-4">
             <div className="flex items-center justify-between">
-              <h2 className="text-lg font-bold text-red-700">❌ NPP từ chối nhận hàng</h2>
+              <h2 className="text-lg font-bold text-red-700">✗ NPP từ chối nhận hàng</h2>
               <button onClick={() => setActiveModal(null)} className="text-2xl text-gray-400 hover:text-gray-600">×</button>
             </div>
             <p className="text-sm text-gray-500">{selectedStop.customer_name} · {selectedStop.order_number}</p>
@@ -1678,12 +1679,12 @@ export default function DriverTripDetailPage() {
                 <label className="text-sm font-medium text-gray-700">Lý do từ chối <span className="text-red-500">*</span></label>
                 <div className="grid grid-cols-1 gap-2 mt-1">
                   {[
-                    { v: 'wrong_product', l: '📦 Sai sản phẩm' },
-                    { v: 'quality_issue', l: '⚠️ Hàng lỗi/hết hạn' },
+                    { v: 'wrong_product', l: ' Sai sản phẩm' },
+                    { v: 'quality_issue', l: ' Hàng lỗi/hết hạn' },
                     { v: 'wrong_quantity', l: '🔢 Sai số lượng' },
-                    { v: 'not_ordered', l: '🚫 Không đặt hàng' },
-                    { v: 'closed', l: '🔒 NPP đóng cửa/không có người nhận' },
-                    { v: 'other', l: '📋 Khác' },
+                    { v: 'not_ordered', l: ' Không đặt hàng' },
+                    { v: 'closed', l: ' NPP đóng cửa/không có người nhận' },
+                    { v: 'other', l: ' Khác' },
                   ].map(r => (
                     <button key={r.v} onClick={() => setRejectReason(r.v)}
                       className={`px-3 py-2.5 text-sm text-left rounded-lg border transition ${
@@ -1751,7 +1752,7 @@ export default function DriverTripDetailPage() {
       {activeModal === 'reject_confirm' && selectedStop && (
         <div className="fixed inset-0 bg-red-600 z-50 flex flex-col items-center justify-center p-6 text-white">
           <div className="max-w-lg w-full space-y-6 text-center">
-            <div className="text-6xl">❌</div>
+            <div className="text-6xl">✗</div>
             <h2 className="text-2xl font-bold">Xác nhận NPP từ chối nhận hàng?</h2>
             <div className="bg-red-700/50 rounded-xl p-4 space-y-3 text-left">
               <div className="text-lg font-medium">{selectedStop.customer_name}</div>
@@ -1775,7 +1776,7 @@ export default function DriverTripDetailPage() {
             <div className="space-y-3 pt-2">
               <button onClick={handleConfirmReject} disabled={actionLoading}
                 className="w-full h-14 bg-white text-red-700 rounded-xl font-bold text-lg hover:bg-red-50 disabled:opacity-50">
-                {actionLoading ? 'Đang xử lý...' : '❌ Xác nhận từ chối'}
+                {actionLoading ? 'Đang xử lý...' : '✗ Xác nhận từ chối'}
               </button>
               <button onClick={() => setActiveModal('reject')}
                 className="w-full h-14 border-2 border-white/50 text-white rounded-xl font-medium text-base hover:bg-red-700">

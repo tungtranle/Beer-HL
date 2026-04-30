@@ -4,6 +4,8 @@ import { useEffect, useState } from 'react'
 import Link from 'next/link'
 import { apiFetch } from '@/lib/api'
 import { toast } from '@/lib/useToast'
+import { PageHeader, Input, Button } from '@/components/ui'
+import { Users, Plus, Search } from 'lucide-react'
 
 interface Driver {
   id: string
@@ -109,24 +111,27 @@ export default function DriversListPage() {
 
   return (
     <div>
-      <div className="flex items-center justify-between mb-4">
-        <div>
-          <h1 className="text-2xl font-bold text-gray-900">👤 Danh sách tài xế</h1>
-          <p className="text-sm text-gray-500 mt-1">{drivers.length} tài xế · {activeCount} sẵn sàng · {onTripCount} đang chạy</p>
-        </div>
-        <div className="flex gap-3">
-          <input
-            type="text"
-            placeholder="Tìm theo tên, SĐT..."
-            value={search}
-            onChange={e => setSearch(e.target.value)}
-            className="px-4 py-2 border rounded-lg text-sm w-64 focus:ring-2 focus:ring-brand-500 focus:border-brand-500 outline-none"
-          />
-          <button onClick={openCreate} className="px-4 py-2 bg-brand-500 text-white rounded-lg text-sm font-medium hover:bg-brand-600">
-            + Thêm tài xế
-          </button>
-        </div>
-      </div>
+      <PageHeader
+        title="Danh sách tài xế"
+        subtitle={`${drivers.length} tài xế · ${activeCount} sẵn sàng · ${onTripCount} đang chạy`}
+        icon={Users}
+        iconTone="neutral"
+        actions={
+          <div className="flex gap-3">
+            <div className="relative">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" aria-hidden="true" />
+              <Input
+                type="text"
+                placeholder="Tìm theo tên, SĐT..."
+                value={search}
+                onChange={e => setSearch(e.target.value)}
+                className="pl-9 w-64"
+              />
+            </div>
+            <Button variant="primary" size="sm" leftIcon={Plus} onClick={openCreate}>Thêm tài xế</Button>
+          </div>
+        }
+      />
 
       {/* Status filter chips */}
       <div className="flex flex-wrap gap-2 mb-4">

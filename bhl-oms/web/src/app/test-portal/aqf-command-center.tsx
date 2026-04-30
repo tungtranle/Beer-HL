@@ -1,4 +1,4 @@
-'use client'
+﻿'use client'
 
 import { useCallback, useEffect, useState } from 'react'
 import { apiFetch } from '@/lib/api'
@@ -124,7 +124,7 @@ function VerdictCard({ brief, running }: { brief?: DecisionBrief; running: boole
   if (running) {
     return (
       <div className="bg-blue-50 border-2 border-blue-300 rounded-2xl p-6 flex items-center gap-4 animate-pulse">
-        <div className="text-4xl">⏳</div>
+        <div className="text-4xl"></div>
         <div>
           <div className="text-xl font-bold text-blue-700">Đang chạy QA...</div>
           <div className="text-blue-600 text-sm mt-1">Đang validate golden datasets và business health</div>
@@ -136,7 +136,7 @@ function VerdictCard({ brief, running }: { brief?: DecisionBrief; running: boole
   if (!brief) {
     return (
       <div className="bg-gray-50 border-2 border-dashed border-gray-300 rounded-2xl p-6 text-center">
-        <div className="text-3xl mb-2">🎯</div>
+        <div className="text-3xl mb-2"></div>
         <div className="text-gray-600 font-medium">Chưa có kết quả QA</div>
         <div className="text-gray-400 text-sm mt-1">Bấm &quot;Run Full QA&quot; để bắt đầu</div>
       </div>
@@ -149,7 +149,7 @@ function VerdictCard({ brief, running }: { brief?: DecisionBrief; running: boole
       border: 'border-emerald-400',
       badge: 'bg-emerald-500 text-white',
       text: 'text-emerald-700',
-      icon: '✅',
+      icon: '✓',
       bar: 'bg-emerald-500',
     },
     CAUTION: {
@@ -157,7 +157,7 @@ function VerdictCard({ brief, running }: { brief?: DecisionBrief; running: boole
       border: 'border-amber-400',
       badge: 'bg-amber-500 text-white',
       text: 'text-amber-700',
-      icon: '⚠️',
+      icon: '!',
       bar: 'bg-amber-500',
     },
     HOLD: {
@@ -165,7 +165,7 @@ function VerdictCard({ brief, running }: { brief?: DecisionBrief; running: boole
       border: 'border-red-400',
       badge: 'bg-red-600 text-white',
       text: 'text-red-700',
-      icon: '🚫',
+      icon: '',
       bar: 'bg-red-500',
     },
   }
@@ -204,7 +204,7 @@ function VerdictCard({ brief, running }: { brief?: DecisionBrief; running: boole
         <div className="mt-4 space-y-1">
           {brief.blocking_issues.map((issue, i) => (
             <div key={i} className="flex items-start gap-2 text-sm text-red-700 bg-red-100 rounded-lg px-3 py-2">
-              <span className="mt-0.5 shrink-0">🔴</span>
+              <span className="mt-0.5 shrink-0"></span>
               <span>{issue}</span>
             </div>
           ))}
@@ -216,7 +216,7 @@ function VerdictCard({ brief, running }: { brief?: DecisionBrief; running: boole
         <div className="mt-2 space-y-1">
           {brief.warnings.map((w, i) => (
             <div key={i} className="flex items-start gap-2 text-sm text-amber-700 bg-amber-100 rounded-lg px-3 py-2">
-              <span className="mt-0.5 shrink-0">🟡</span>
+              <span className="mt-0.5 shrink-0"></span>
               <span>{w}</span>
             </div>
           ))}
@@ -242,10 +242,10 @@ function GateRow({ gates }: { gates: GateStatus[] }) {
   }
   const statusIcon = (s: string) => {
     switch (s) {
-      case 'pass': return '✅'
-      case 'fail': return '❌'
-      case 'warn': return '⚠️'
-      case 'running': return '⏳'
+      case 'pass': return '✓'
+      case 'fail': return '✗'
+      case 'warn': return '!'
+      case 'running': return ''
       default: return '⏸️'
     }
   }
@@ -344,7 +344,7 @@ function GoldenTable({ results }: { results: GoldenResult[] }) {
                   {r.fail_details.map((d, i) => (
                     <div key={i} className="bg-red-50 border border-red-200 rounded-lg p-3 text-xs">
                       <div className="font-bold text-red-700 mb-1">[{d.case_id}] {d.scenario}</div>
-                      {d.message && <div className="text-red-600 mb-1">❌ {d.message}</div>}
+                      {d.message && <div className="text-red-600 mb-1">✗ {d.message}</div>}
                       {d.expected && <div className="text-gray-600">Expected: <code className="bg-red-100 px-1 rounded">{d.expected}</code></div>}
                       {d.actual && <div className="text-gray-600 mt-0.5">Actual: <code className="bg-red-100 px-1 rounded">{d.actual}</code></div>}
                     </div>
@@ -352,7 +352,7 @@ function GoldenTable({ results }: { results: GoldenResult[] }) {
                 </div>
               ) : (
                 r.status === 'pass' && (
-                  <div className="text-emerald-600 text-xs font-medium">✅ Tất cả {r.total_cases} cases pass</div>
+                  <div className="text-emerald-600 text-xs font-medium">✓ Tất cả {r.total_cases} cases pass</div>
                 )
               )}
             </div>
@@ -387,14 +387,14 @@ function HealthPanel({ health }: { health?: BusinessHealth }) {
       {/* Connectivity */}
       <div className="grid grid-cols-2 gap-3">
         <div className={`rounded-xl border p-3 flex items-center gap-2 ${health.db_conn_ok ? 'bg-emerald-50 border-emerald-300' : 'bg-red-50 border-red-300'}`}>
-          <span className="text-lg">{health.db_conn_ok ? '🟢' : '🔴'}</span>
+          <span className="text-lg">{health.db_conn_ok ? '' : ''}</span>
           <div>
             <div className="text-sm font-bold">PostgreSQL</div>
             <div className={`text-xs ${health.db_conn_ok ? 'text-emerald-600' : 'text-red-600'}`}>{health.db_conn_ok ? 'Connected' : 'DISCONNECTED'}</div>
           </div>
         </div>
         <div className={`rounded-xl border p-3 flex items-center gap-2 ${health.redis_ok ? 'bg-emerald-50 border-emerald-300' : 'bg-amber-50 border-amber-300'}`}>
-          <span className="text-lg">{health.redis_ok ? '🟢' : '🟡'}</span>
+          <span className="text-lg">{health.redis_ok ? '' : ''}</span>
           <div>
             <div className="text-sm font-bold">Redis</div>
             <div className={`text-xs ${health.redis_ok ? 'text-emerald-600' : 'text-amber-600'}`}>{health.redis_ok ? 'Connected' : 'Unavailable'}</div>
@@ -404,13 +404,13 @@ function HealthPanel({ health }: { health?: BusinessHealth }) {
 
       {/* Business metrics */}
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
-        {metric('📋', 'Đơn hàng hôm nay', health.orders_today)}
-        {metric('⏳', 'Chờ duyệt credit', health.pending_approval, health.pending_approval > 5 ? 'text-amber-600' : 'text-gray-700', health.pending_approval > 10)}
-        {metric('🚛', 'Chuyến đang chạy', health.active_trips, 'text-blue-600')}
-        {metric('📊', 'Chờ đối soát', health.pending_recon, health.pending_recon > 3 ? 'text-amber-600' : 'text-gray-700', health.pending_recon > 10)}
-        {metric('⚠️', 'Discrepancy mở', health.open_discrepancies, health.open_discrepancies > 0 ? 'text-amber-600' : 'text-gray-700', health.open_discrepancies > 5)}
-        {metric('❌', 'Integration failed', health.failed_integrations, health.failed_integrations > 0 ? 'text-red-600' : 'text-gray-700', health.failed_integrations > 0)}
-        {metric('📦', 'Cảnh báo tồn kho', health.low_stock_alerts, health.low_stock_alerts > 0 ? 'text-amber-600' : 'text-gray-700')}
+        {metric('', 'Đơn hàng hôm nay', health.orders_today)}
+        {metric('', 'Chờ duyệt credit', health.pending_approval, health.pending_approval > 5 ? 'text-amber-600' : 'text-gray-700', health.pending_approval > 10)}
+        {metric('', 'Chuyến đang chạy', health.active_trips, 'text-blue-600')}
+        {metric('', 'Chờ đối soát', health.pending_recon, health.pending_recon > 3 ? 'text-amber-600' : 'text-gray-700', health.pending_recon > 10)}
+        {metric('!', 'Discrepancy mở', health.open_discrepancies, health.open_discrepancies > 0 ? 'text-amber-600' : 'text-gray-700', health.open_discrepancies > 5)}
+        {metric('✗', 'Integration failed', health.failed_integrations, health.failed_integrations > 0 ? 'text-red-600' : 'text-gray-700', health.failed_integrations > 0)}
+        {metric('', 'Cảnh báo tồn kho', health.low_stock_alerts, health.low_stock_alerts > 0 ? 'text-amber-600' : 'text-gray-700')}
       </div>
     </div>
   )
@@ -503,9 +503,9 @@ function OpenQuestionsPanel({ questions, onAnswer }: { questions: OpenQuestion[]
           <div className="flex items-start gap-3">
             <div className="shrink-0">
               {q.answer
-                ? <span className="text-lg">✅</span>
+                ? <span className="text-lg">✓</span>
                 : q.block_ship
-                  ? <span className="text-lg">🚫</span>
+                  ? <span className="text-lg"></span>
                   : <span className="text-lg">❓</span>
               }
             </div>
@@ -617,19 +617,19 @@ export default function AQFCommandCenter() {
           evidence_log: data?.evidence_log ?? [],
           open_questions: data?.open_questions ?? [],
         }
-        showToast(`✅ QA hoàn thành — Verdict: ${runResult.brief.verdict} (${runResult.brief.confidence}/100)`)
+        showToast(`✓ QA hoàn thành — Verdict: ${runResult.brief.verdict} (${runResult.brief.confidence}/100)`)
       }
     } else if (section === 'golden') {
       const goldenResult = await apiGet<GoldenResult[]>('/golden')
       if (goldenResult && data) {
         result = { ...data, golden_results: goldenResult }
-        showToast(`✅ Golden tests done — ${goldenResult.filter(r => r.status === 'pass').length}/${goldenResult.length} pass`)
+        showToast(`✓ Golden tests done — ${goldenResult.filter(r => r.status === 'pass').length}/${goldenResult.length} pass`)
       }
     } else if (section === 'health') {
       const healthResult = await apiGet<BusinessHealth>('/health')
       if (healthResult && data) {
         result = { ...data, health: healthResult }
-        showToast(`✅ Health check done`)
+        showToast(`✓ Health check done`)
       }
     }
     if (result) setData(result)
@@ -648,10 +648,10 @@ export default function AQFCommandCenter() {
   }, [autoRefresh, loadStatus])
 
   const views: { key: View; label: string; icon: string }[] = [
-    { key: 'overview', label: 'Tổng quan', icon: '🎯' },
+    { key: 'overview', label: 'Tổng quan', icon: '' },
     { key: 'golden', label: 'Golden Tests', icon: '🔬' },
     { key: 'health', label: 'Business Health', icon: '💊' },
-    { key: 'evidence', label: 'Evidence Log', icon: '📋' },
+    { key: 'evidence', label: 'Evidence Log', icon: '' },
     { key: 'questions', label: 'Open Questions', icon: '❓' },
   ]
 
@@ -670,7 +670,7 @@ export default function AQFCommandCenter() {
       {/* Header row */}
       <div className="flex items-center justify-between flex-wrap gap-3">
         <div>
-          <h2 className="text-lg font-black text-gray-800">⚡ AQF Command Center</h2>
+          <h2 className="text-lg font-black text-gray-800"> AQF Command Center</h2>
           <p className="text-xs text-gray-500">
             {data?.last_run_at ? `Lần cuối: ${fmtDate(data.last_run_at)}` : 'Chưa chạy QA'}
             {data?.golden_results.length ? ` · ${goldenPass}/${data.golden_results.length} golden pass` : ''}
@@ -691,14 +691,14 @@ export default function AQFCommandCenter() {
             disabled={loading}
             className="px-3 py-1.5 bg-gray-100 hover:bg-gray-200 rounded-lg text-xs font-medium transition disabled:opacity-50"
           >
-            {loading ? '⏳' : '🔄'} Refresh
+            {loading ? '' : ''} Refresh
           </button>
           <button
             onClick={() => handleRun()}
             disabled={running}
             className="px-4 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-sm font-bold transition disabled:opacity-50"
           >
-            {running ? '⏳ Running...' : '▶ Run Full QA'}
+            {running ? ' Running...' : '▶ Run Full QA'}
           </button>
         </div>
       </div>
@@ -758,17 +758,17 @@ export default function AQFCommandCenter() {
             <div className="space-y-4">
               {data?.brief?.blocking_issues?.length ? (
                 <div>
-                  <h3 className="text-sm font-bold text-red-700 mb-2">🚫 Blocking Issues</h3>
+                  <h3 className="text-sm font-bold text-red-700 mb-2"> Blocking Issues</h3>
                   {data.brief.blocking_issues.map((issue, i) => (
                     <div key={i} className="text-sm text-red-700 bg-red-50 border border-red-200 rounded-lg px-3 py-2 mb-1">{issue}</div>
                   ))}
                 </div>
               ) : data?.brief && (
-                <div className="text-emerald-600 text-sm font-medium">✅ Không có blocking issues</div>
+                <div className="text-emerald-600 text-sm font-medium">✓ Không có blocking issues</div>
               )}
               {data?.brief?.warnings?.length ? (
                 <div>
-                  <h3 className="text-sm font-bold text-amber-700 mb-2">⚠️ Warnings</h3>
+                  <h3 className="text-sm font-bold text-amber-700 mb-2">! Warnings</h3>
                   {data.brief.warnings.map((w, i) => (
                     <div key={i} className="text-sm text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 mb-1">{w}</div>
                   ))}
@@ -776,7 +776,7 @@ export default function AQFCommandCenter() {
               ) : null}
               {!data && !loading && (
                 <div className="text-center py-8 text-gray-400">
-                  <div className="text-4xl mb-2">🎯</div>
+                  <div className="text-4xl mb-2"></div>
                   <div>Bấm &quot;Run Full QA&quot; để bắt đầu kiểm tra chất lượng</div>
                 </div>
               )}

@@ -1,4 +1,4 @@
-'use client'
+﻿'use client'
 
 import { useEffect, useMemo, useState } from 'react'
 import { useParams, useRouter } from 'next/navigation'
@@ -109,7 +109,7 @@ export default function CustomerVRPConstraintsPage() {
       <div className="flex items-center justify-between mb-6">
         <div>
           <button onClick={() => router.back()} className="text-sm text-gray-500 hover:text-gray-700 mb-2">← Quay lại</button>
-          <h1 className="text-2xl font-bold text-gray-900">🚚 Ràng buộc giao hàng cho VRP</h1>
+          <h1 className="text-2xl font-bold text-gray-900"> Ràng buộc giao hàng cho VRP</h1>
           <p className="text-sm text-gray-500 mt-1">{customerName}</p>
         </div>
         <button
@@ -117,7 +117,7 @@ export default function CustomerVRPConstraintsPage() {
           disabled={saving}
           className="px-5 py-2.5 bg-emerald-600 text-white rounded-lg text-sm font-semibold hover:bg-emerald-700 disabled:opacity-50"
         >
-          {saving ? 'Đang lưu...' : '💾 Lưu thay đổi'}
+          {saving ? 'Đang lưu...' : ' Lưu thay đổi'}
         </button>
       </div>
 
@@ -127,7 +127,7 @@ export default function CustomerVRPConstraintsPage() {
 
       {/* Max weight */}
       <section className="bg-white rounded-xl shadow-sm border p-6 mb-6">
-        <h2 className="text-lg font-bold text-gray-900 mb-2">⚖️ Trọng tải tối đa cho phép vào</h2>
+        <h2 className="text-lg font-bold text-gray-900 mb-2"> Trọng tải tối đa cho phép vào</h2>
         <p className="text-xs text-gray-500 mb-3">VRP sẽ chỉ chọn xe có tải ≤ giá trị này. Để 0 nếu không giới hạn.</p>
         <div className="flex items-center gap-3">
           <input
@@ -144,7 +144,7 @@ export default function CustomerVRPConstraintsPage() {
 
       {/* Delivery windows */}
       <WindowSection
-        title="🟢 Khung giờ được phép giao"
+        title=" Khung giờ được phép giao"
         description="Xe chỉ được tới NPP trong các khung này. Ưu tiên 1-2 khung sáng/chiều."
         items={data.delivery_windows}
         onAdd={() => addWindow('delivery_windows')}
@@ -157,7 +157,7 @@ export default function CustomerVRPConstraintsPage() {
 
       {/* Forbidden windows */}
       <WindowSection
-        title="🚫 Khung giờ cấm tải / cấm xe"
+        title=" Khung giờ cấm tải / cấm xe"
         description="VRP sẽ tránh các khung này. Có thể ghi lý do (cấm tải nội đô, giờ cao điểm...)."
         items={data.forbidden_windows}
         onAdd={() => addWindow('forbidden_windows')}
@@ -170,7 +170,7 @@ export default function CustomerVRPConstraintsPage() {
 
       {/* Access notes */}
       <section className="bg-white rounded-xl shadow-sm border p-6 mb-6">
-        <h2 className="text-lg font-bold text-gray-900 mb-2">📝 Ghi chú lối vào / liên hệ</h2>
+        <h2 className="text-lg font-bold text-gray-900 mb-2"> Ghi chú lối vào / liên hệ</h2>
         <p className="text-xs text-gray-500 mb-3">Hiển thị cho tài xế trên ứng dụng khi giao hàng.</p>
         <textarea
           rows={4}

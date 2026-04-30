@@ -1,4 +1,4 @@
-'use client'
+﻿'use client'
 
 import { useEffect, useState, useCallback } from 'react'
 import { apiFetch } from '@/lib/api'
@@ -67,9 +67,9 @@ type Tab = 'toll-stations' | 'expressways' | 'vehicle-defaults' | 'driver-rates'
 
 const TABS: { key: Tab; label: string; icon: string }[] = [
   { key: 'toll-stations', label: 'Trạm thu phí', icon: '🏗️' },
-  { key: 'expressways', label: 'Cao tốc', icon: '🛣️' },
-  { key: 'vehicle-defaults', label: 'Định mức xe', icon: '⛽' },
-  { key: 'driver-rates', label: 'Phụ cấp tài xế', icon: '👤' },
+  { key: 'expressways', label: 'Cao tốc', icon: '' },
+  { key: 'vehicle-defaults', label: 'Định mức xe', icon: '' },
+  { key: 'driver-rates', label: 'Phụ cấp tài xế', icon: '' },
 ]
 
 const TOLL_CLASSES = ['L1', 'L2', 'L3', 'L4', 'L5']
@@ -251,20 +251,20 @@ export default function TransportCostsPage() {
     <div className="max-w-6xl mx-auto">
       <div className="flex items-center justify-between mb-6">
         <div>
-          <h1 className="text-2xl font-bold text-gray-800">💰 Chi phí vận chuyển</h1>
+          <h1 className="text-2xl font-bold text-gray-800"> Chi phí vận chuyển</h1>
           <p className="text-sm text-gray-500 mt-1">
             Quản lý trạm thu phí, cao tốc, định mức nhiên liệu và phụ cấp tài xế.
             Dữ liệu này được dùng để tính chi phí trong lập kế hoạch giao hàng.
           </p>
         </div>
         <button onClick={loadData} className="px-3 py-2 bg-gray-100 hover:bg-gray-200 rounded-lg text-sm">
-          🔄 Tải lại
+           Tải lại
         </button>
       </div>
 
       {msg && (
         <div className="mb-4 p-3 rounded-lg bg-green-50 text-green-700 text-sm border border-green-200">
-          ✅ {msg}
+          ✓ {msg}
         </div>
       )}
 
@@ -350,7 +350,7 @@ export default function TransportCostsPage() {
                   </div>
                   <div className="flex gap-2 mt-4">
                     <button onClick={saveTollStation} disabled={saving} className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 text-sm disabled:opacity-50">
-                      {saving ? 'Đang lưu...' : '💾 Lưu'}
+                      {saving ? 'Đang lưu...' : ' Lưu'}
                     </button>
                     <button onClick={() => setEditingStation(null)} className="px-4 py-2 bg-gray-200 rounded-lg hover:bg-gray-300 text-sm">Hủy</button>
                   </div>
@@ -402,7 +402,7 @@ export default function TransportCostsPage() {
           {tab === 'expressways' && (
             <div>
               <div className="flex justify-between items-center mb-4">
-                <h2 className="text-lg font-semibold">🛣️ Tuyến cao tốc</h2>
+                <h2 className="text-lg font-semibold"> Tuyến cao tốc</h2>
                 <button onClick={() => setEditingExpressway({ expressway_name: '', rate_per_km_l1: 0, rate_per_km_l2: 0, rate_per_km_l3: 0, rate_per_km_l4: 0, rate_per_km_l5: 0, is_active: true })}
                   className="px-4 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 text-sm">
                   + Thêm tuyến
@@ -428,7 +428,7 @@ export default function TransportCostsPage() {
                   </div>
                   <div className="flex gap-2 mt-4">
                     <button onClick={saveExpressway} disabled={saving} className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 text-sm disabled:opacity-50">
-                      {saving ? 'Đang lưu...' : '💾 Lưu'}
+                      {saving ? 'Đang lưu...' : ' Lưu'}
                     </button>
                     <button onClick={() => setEditingExpressway(null)} className="px-4 py-2 bg-gray-200 rounded-lg hover:bg-gray-300 text-sm">Hủy</button>
                   </div>
@@ -456,7 +456,7 @@ export default function TransportCostsPage() {
                     {/* Gate list with management */}
                     <div className="bg-gray-50 rounded-lg p-3">
                       <div className="flex justify-between items-center mb-2">
-                        <p className="text-xs font-medium text-gray-600">🛣️ Cửa ra/vào ({ew.gates?.length || 0})</p>
+                        <p className="text-xs font-medium text-gray-600"> Cửa ra/vào ({ew.gates?.length || 0})</p>
                         <button onClick={() => { setAddingGateForId(addingGateForId === ew.id ? null : ew.id); setNewGate({ gate_name: '', km_marker: 0, latitude: 0, longitude: 0 }) }}
                           className="text-xs px-2 py-1 bg-blue-500 text-white rounded hover:bg-blue-600">
                           + Thêm cổng
@@ -491,7 +491,7 @@ export default function TransportCostsPage() {
                           <div className="flex gap-2 mt-2">
                             <button onClick={() => saveGate(ew.id)} disabled={saving || !newGate.gate_name}
                               className="px-3 py-1 bg-green-600 text-white rounded text-xs hover:bg-green-700 disabled:opacity-50">
-                              {saving ? 'Đang lưu...' : '💾 Lưu'}
+                              {saving ? 'Đang lưu...' : ' Lưu'}
                             </button>
                             <button onClick={() => setAddingGateForId(null)} className="px-3 py-1 bg-gray-200 rounded text-xs hover:bg-gray-300">Hủy</button>
                           </div>
@@ -531,7 +531,7 @@ export default function TransportCostsPage() {
           {/* TAB: Vehicle Type Defaults */}
           {tab === 'vehicle-defaults' && (
             <div>
-              <h2 className="text-lg font-semibold mb-2">⛽ Định mức nhiên liệu theo loại xe</h2>
+              <h2 className="text-lg font-semibold mb-2"> Định mức nhiên liệu theo loại xe</h2>
               <p className="text-sm text-gray-500 mb-4">
                 Cấu hình mức tiêu thụ và giá nhiên liệu mặc định cho từng loại xe. Solver sẽ dùng dữ liệu này để tính chi phí xăng/dầu.
               </p>
@@ -568,7 +568,7 @@ export default function TransportCostsPage() {
             <div>
               <div className="flex justify-between items-center mb-4">
                 <div>
-                  <h2 className="text-lg font-semibold">👤 Phụ cấp tài xế</h2>
+                  <h2 className="text-lg font-semibold"> Phụ cấp tài xế</h2>
                   <p className="text-sm text-gray-500 mt-1">Phụ cấp tính theo km di chuyển và mức tối thiểu/ngày.</p>
                 </div>
                 <button onClick={() => setEditingRate({ description: '', rate_per_km: 0, min_daily_rate: 0 })}
@@ -599,7 +599,7 @@ export default function TransportCostsPage() {
                   </div>
                   <div className="flex gap-2 mt-4">
                     <button onClick={saveDriverRate} disabled={saving} className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 text-sm disabled:opacity-50">
-                      {saving ? 'Đang lưu...' : '💾 Lưu'}
+                      {saving ? 'Đang lưu...' : ' Lưu'}
                     </button>
                     <button onClick={() => setEditingRate(null)} className="px-4 py-2 bg-gray-200 rounded-lg hover:bg-gray-300 text-sm">Hủy</button>
                   </div>
@@ -693,7 +693,7 @@ function VehicleDefaultRow({ item, fuelPerKm, onSave, saving }: {
       </td>
       <td className="py-2 px-2 text-center">
         <button onClick={() => { onSave(local); setEditing(false) }} disabled={saving}
-          className="text-green-600 hover:text-green-800 mr-1">💾</button>
+          className="text-green-600 hover:text-green-800 mr-1"></button>
         <button onClick={() => { setLocal(item); setEditing(false) }} className="text-gray-400 hover:text-gray-600">✗</button>
       </td>
     </tr>

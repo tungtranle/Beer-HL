@@ -1,4 +1,4 @@
-'use client'
+﻿'use client'
 
 /**
  * Warehouse Picking — FEFO queue redesign.
@@ -147,7 +147,7 @@ export default function PickingOrdersPage() {
           <Card variant="elevated" padding="lg">
             <EmptyState
               icon={CheckCircle2}
-              title="Hết việc rồi! 🎉"
+              title="Hết việc rồi! "
               messageByRole={{ warehouse_handler: 'Tất cả lệnh đóng hàng đã được xử lý xong. Nghỉ ngơi một chút nhé!' }}
             />
           </Card>

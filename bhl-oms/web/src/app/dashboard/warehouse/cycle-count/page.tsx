@@ -1,4 +1,4 @@
-'use client'
+﻿'use client'
 
 // WMS Phase 9 task 9.13 — Cycle Count UI.
 
@@ -150,7 +150,7 @@ export default function CycleCountPage() {
                     {t.status === 'pending' ? 'Chờ kiểm' : t.status === 'in_progress' ? 'Đang kiểm' : t.status === 'completed' ? 'Xong' : t.status}
                   </span>
                 </td>
-                <td className="py-2 pr-4">{t.variance ? <span className="text-red-600 font-medium text-xs">⚠️ Sai lệch</span> : <span className="text-gray-300">—</span>}</td>
+                <td className="py-2 pr-4">{t.variance ? <span className="text-red-600 font-medium text-xs"> Sai lệch</span> : <span className="text-gray-300">—</span>}</td>
                 <td className="py-2">
                   {t.status === 'pending' && (
                     <button onClick={() => { setActive(t); setScanned([]) }}
@@ -182,7 +182,7 @@ export default function CycleCountPage() {
                 }} />
             </div>
             <div className="border rounded p-2 max-h-40 overflow-auto text-xs font-mono mb-3">
-              {scanned.map(l => <div key={l}>✅ {l}</div>)}
+              {scanned.map(l => <div key={l}>✓ {l}</div>)}
             </div>
             <div className="flex justify-end gap-2">
               <button onClick={() => setActive(null)} className="px-3 py-1 border rounded">Hủy</button>

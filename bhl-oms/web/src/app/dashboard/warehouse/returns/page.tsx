@@ -1,4 +1,4 @@
-'use client'
+﻿'use client'
 
 import { useEffect, useState } from 'react'
 import { apiFetch } from '@/lib/api'
@@ -63,7 +63,7 @@ export default function WarehouseReturnsPage() {
                   <div className="flex items-center gap-2 flex-wrap">
                     <span className="font-bold text-gray-800 text-base">{item.trip_number}</span>
                     <span className="text-base text-gray-500">· {item.driver_name}</span>
-                    {hasShortage && <span className="px-2 py-0.5 rounded-full bg-red-100 text-red-700 text-xs font-medium">⚠️ Thiếu hàng</span>}
+                    {hasShortage && <span className="px-2 py-0.5 rounded-full bg-red-100 text-red-700 text-xs font-medium">Thiếu hàng</span>}
                     {hasDamaged && <span className="px-2 py-0.5 rounded-full bg-amber-100 text-amber-700 text-xs font-medium">🔶 Có hư hỏng</span>}
                     {!hasShortage && !hasDamaged && <span className="px-2 py-0.5 rounded-full bg-green-100 text-green-700 text-xs font-medium">✓ Đủ hàng</span>}
                   </div>

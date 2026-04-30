@@ -1,4 +1,4 @@
-'use client'
+﻿'use client'
 
 import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
@@ -137,7 +137,7 @@ export default function CreditLimitsPage() {
     <div className="max-w-[1200px] mx-auto">
       <div className="flex items-center justify-between mb-6">
         <div>
-          <h1 className="text-2xl font-bold text-gray-800">💰 Hạn mức tín dụng</h1>
+          <h1 className="text-2xl font-bold text-gray-800"> Hạn mức tín dụng</h1>
           <p className="text-sm text-gray-500">Quản lý hạn mức công nợ cho từng khách hàng</p>
         </div>
         <div className="flex gap-2">

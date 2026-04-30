@@ -1,5 +1,7 @@
 'use client'
 
+import { DollarSign } from 'lucide-react'
+
 /**
  * CreditAgingChip — §20 UX Spec v5
  * Đơn on_credit quá T+7 → hiện chip đỏ.
@@ -18,8 +20,9 @@ export function CreditAgingChip({ deliveredAt }: { deliveredAt?: string }) {
   const tier = AGING_TIERS.find(t => days >= t.min)
   if (!tier) return null
   return (
-    <span className={`px-2 py-0.5 rounded-full text-xs font-bold ${tier.color}`}>
-      💰 Nợ {tier.label}
+    <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-bold ${tier.color}`}>
+      <DollarSign className="h-3 w-3" aria-hidden="true" />
+      Nợ {tier.label}
     </span>
   )
 }

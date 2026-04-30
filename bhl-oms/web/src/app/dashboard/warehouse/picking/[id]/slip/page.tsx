@@ -1,4 +1,4 @@
-'use client'
+﻿'use client'
 
 // WMS — Phiếu soạn hàng (Picking Slip) tối ưu thủ kho:
 //  • Liệt kê chi tiết từng dòng theo BIN walk path (zone → bin → expiry FEFO)
@@ -109,7 +109,7 @@ export default function PickingSlipPage() {
 
         {/* Walk-path hint */}
         <div className="text-xs text-emerald-700 bg-emerald-50 border border-emerald-200 rounded px-3 py-2 mb-3 print:bg-white print:border-slate-300">
-          💡 Các dòng được sắp xếp theo <b>đường đi tối ưu</b> (zone → bin → HSD gần nhất). Đi lần lượt từ trên xuống.
+           Các dòng được sắp xếp theo <b>đường đi tối ưu</b> (zone → bin → HSD gần nhất). Đi lần lượt từ trên xuống.
         </div>
 
         {/* Lines */}

@@ -17,7 +17,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import {
   ClipboardList, Package, Truck, Beer, Store, ClockArrowDown, AlertTriangle,
-  CircleDollarSign, BarChart3, ArrowRight, Sparkles, type LucideIcon,
+  CircleDollarSign, BarChart3, ArrowRight, Sparkles, Sun, Cloud, Sunset, Moon, type LucideIcon,
 } from 'lucide-react'
 import { apiFetch, getUser } from '@/lib/api'
 import { formatVND, formatCount } from '@/lib/status-config'
@@ -58,10 +58,10 @@ type CardCfg = {
 
 function greeting() {
   const h = new Date().getHours()
-  if (h < 11) return { period: 'sáng', emoji: '☀️' }
-  if (h < 14) return { period: 'trưa', emoji: '🌤️' }
-  if (h < 18) return { period: 'chiều', emoji: '🌅' }
-  return { period: 'tối', emoji: '🌙' }
+  if (h < 11) return { period: 'sáng', Icon: Sun }
+  if (h < 14) return { period: 'trưa', Icon: Cloud }
+  if (h < 18) return { period: 'chiều', Icon: Sunset }
+  return { period: 'tối', Icon: Moon }
 }
 
 const ROLE_LABEL: Record<string, string> = {
@@ -95,7 +95,7 @@ export default function DashboardPage() {
   }, [router])
 
   const role = user?.role || ''
-  const { period, emoji } = greeting()
+  const { period, Icon: GreetingIcon } = greeting()
 
   const cards: CardCfg[] = useMemo(() => {
     const base: CardCfg = {
@@ -160,7 +160,8 @@ export default function DashboardPage() {
   return (
     <div className="max-w-[1400px] mx-auto">
       <PageHeader
-        title={`Chào buổi ${period} ${emoji}, ${user?.full_name?.split(' ').slice(-1)[0] || 'bạn'}`}
+        title={`Chào buổi ${period}, ${user?.full_name?.split(' ').slice(-1)[0] || 'bạn'}`}
+        icon={GreetingIcon}
         subtitle={role ? `Bảng điều khiển — ${ROLE_LABEL[role] ?? role} · ${stats?.scope_label || 'Tháng hiện tại'}` : 'Bảng điều khiển'}
       />
 

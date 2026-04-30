@@ -1,4 +1,4 @@
-'use client'
+﻿'use client'
 
 // WMS Phase 9 task 9.10 — Loading: scan biển số → scan từng LPN → load.
 
@@ -69,7 +69,7 @@ export default function LoadingPage() {
 
   return (
     <div className="p-4 max-w-3xl mx-auto">
-      <h1 className="text-2xl font-bold mb-4">🚚 Load hàng lên xe</h1>
+      <h1 className="text-2xl font-bold mb-4"> Load hàng lên xe</h1>
 
       {!session && (
         <div className="bg-white rounded shadow p-4 space-y-3">
@@ -102,7 +102,7 @@ export default function LoadingPage() {
               <div className={`h-3 rounded-full transition-all ${session.loaded_lpns.length === session.expected_lpns.length ? 'bg-green-500' : 'bg-brand-500'}`}
                 style={{ width: `${session.expected_lpns.length > 0 ? (session.loaded_lpns.length / session.expected_lpns.length) * 100 : 0}%` }} />
             </div>
-            {remaining.length === 0 && <div className="mt-2 text-green-600 text-sm font-medium">✅ Đã load đủ tất cả pallet!</div>}
+            {remaining.length === 0 && <div className="mt-2 text-green-600 text-sm font-medium">✓ Đã load đủ tất cả pallet!</div>}
           </div>
           <div className="bg-white rounded shadow p-4 flex gap-2">
             <input autoFocus className="flex-1 border rounded px-3 py-2 font-mono"
@@ -115,13 +115,13 @@ export default function LoadingPage() {
             <div className="bg-white rounded shadow p-3">
               <h3 className="font-semibold text-green-700">Đã load ({session.loaded_lpns.length})</h3>
               <ul className="text-xs font-mono max-h-64 overflow-auto">
-                {session.loaded_lpns.map(l => <li key={l}>✅ {l}</li>)}
+                {session.loaded_lpns.map(l => <li key={l}>✓ {l}</li>)}
               </ul>
             </div>
             <div className="bg-white rounded shadow p-3">
               <h3 className="font-semibold text-orange-700">Còn lại ({remaining.length})</h3>
               <ul className="text-xs font-mono max-h-64 overflow-auto">
-                {remaining.map(l => <li key={l}>⏳ {l}</li>)}
+                {remaining.map(l => <li key={l}> {l}</li>)}
               </ul>
             </div>
           </div>

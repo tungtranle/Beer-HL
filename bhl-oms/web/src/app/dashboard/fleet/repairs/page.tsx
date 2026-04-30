@@ -1,4 +1,4 @@
-'use client'
+﻿'use client'
 
 import { useState, useEffect } from 'react'
 import { apiFetch } from '@/lib/api'
@@ -95,7 +95,7 @@ export default function RepairsPage() {
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-bold text-gray-900">🔧 Lệnh sửa chữa (Work Orders)</h1>
+          <h1 className="text-2xl font-bold text-gray-900"> Lệnh sửa chữa (Work Orders)</h1>
           <p className="text-sm text-gray-500 mt-1">Tổng: {total} lệnh</p>
         </div>
         <button onClick={() => setShowCreate(true)} className="px-4 py-2 bg-brand-500 text-white rounded-lg hover:bg-brand-600">

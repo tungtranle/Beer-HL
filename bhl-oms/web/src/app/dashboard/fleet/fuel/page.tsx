@@ -1,4 +1,4 @@
-'use client'
+﻿'use client'
 
 import { useState, useEffect } from 'react'
 import { apiFetch } from '@/lib/api'
@@ -75,16 +75,16 @@ export default function FuelPage() {
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
-        <h1 className="text-2xl font-bold text-gray-900">⛽ Quản lý Nhiên liệu</h1>
+        <h1 className="text-2xl font-bold text-gray-900"> Quản lý Nhiên liệu</h1>
       </div>
 
       {/* Summary stats */}
       <div className="grid grid-cols-4 gap-4">
         {[
-          { label: 'Tổng nhật ký', value: total.toLocaleString('vi-VN'), icon: '📋', color: 'bg-gray-50 border-gray-200' },
-          { label: 'Tổng lít đã đổ', value: logs.reduce((s, l) => s + parseFloat(l.liters_filled || '0'), 0).toLocaleString('vi-VN', {maximumFractionDigits:0}) + ' L', icon: '⛽', color: 'bg-blue-50 border-blue-200' },
-          { label: 'Tổng chi phí', value: logs.reduce((s, l) => s + parseFloat(l.amount_vnd || '0'), 0).toLocaleString('vi-VN') + ' ₫', icon: '💰', color: 'bg-green-50 border-green-200' },
-          { label: 'Bất thường', value: logs.filter(l => l.anomaly_flag).length.toString(), icon: '⚠️', color: anomalies.length > 0 ? 'bg-red-50 border-red-200' : 'bg-gray-50 border-gray-200' },
+          { label: 'Tổng nhật ký', value: total.toLocaleString('vi-VN'), icon: '', color: 'bg-gray-50 border-gray-200' },
+          { label: 'Tổng lít đã đổ', value: logs.reduce((s, l) => s + parseFloat(l.liters_filled || '0'), 0).toLocaleString('vi-VN', {maximumFractionDigits:0}) + ' L', icon: '', color: 'bg-blue-50 border-blue-200' },
+          { label: 'Tổng chi phí', value: logs.reduce((s, l) => s + parseFloat(l.amount_vnd || '0'), 0).toLocaleString('vi-VN') + ' ₫', icon: '', color: 'bg-green-50 border-green-200' },
+          { label: 'Bất thường', value: logs.filter(l => l.anomaly_flag).length.toString(), icon: '', color: anomalies.length > 0 ? 'bg-red-50 border-red-200' : 'bg-gray-50 border-gray-200' },
         ].map(s => (
           <div key={s.label} className={`border rounded-xl p-4 flex items-center gap-3 ${s.color}`}>
             <span className="text-2xl">{s.icon}</span>
@@ -126,7 +126,7 @@ export default function FuelPage() {
                 <th className="px-4 py-3 text-right font-medium text-gray-500">Kỳ vọng</th>
                 <th className="px-4 py-3 text-right font-medium text-gray-500">Tiền (₫)</th>
                 <th className="px-4 py-3 text-left font-medium text-gray-500">Kênh</th>
-                <th className="px-4 py-3 text-center font-medium text-gray-500">⚠️</th>
+                <th className="px-4 py-3 text-center font-medium text-gray-500"></th>
               </tr>
             </thead>
             <tbody className="divide-y">
@@ -144,7 +144,7 @@ export default function FuelPage() {
                   <td className="px-4 py-3 text-right">{fmt(l.expected_liters)}</td>
                   <td className="px-4 py-3 text-right">{fmt(l.amount_vnd)}</td>
                   <td className="px-4 py-3">{channelLabels[l.channel] || l.channel}</td>
-                  <td className="px-4 py-3 text-center">{l.anomaly_flag ? '🔴' : '✅'}</td>
+                  <td className="px-4 py-3 text-center">{l.anomaly_flag ? '' : '✓'}</td>
                 </tr>
               ))}
             </tbody>

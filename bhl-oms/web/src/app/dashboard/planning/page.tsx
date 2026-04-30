@@ -7,6 +7,12 @@ import SearchableSelect from '@/lib/SearchableSelect'
 import { useNotifications } from '@/lib/notifications'
 import { handleError } from '@/lib/handleError'
 import { AIContextStrip } from '@/components/ai'
+import {
+  BarChart3, Truck, Package, Map, CheckSquare2, Check, RefreshCw, AlertTriangle,
+  MapPin, Scale, Save, ClipboardList,
+  CheckCircle2, XCircle, Navigation2, Target, BarChart2, PartyPopper,
+  type LucideIcon,
+} from 'lucide-react'
 
 // ─── OSRM routing helper ─────────────────────────────
 async function fetchOSRMRoute(points: [number, number][]): Promise<{ geometry: [number, number][]; legs: { distance_km: number; duration_min: number }[]; total_km: number; total_min: number } | null> {
@@ -48,7 +54,7 @@ function VRPConstraintChips({ c }: { c: CustomerVRPConstraints | undefined }) {
     const w0 = c.delivery_windows[0]
     const more = c.delivery_windows.length > 1 ? ` +${c.delivery_windows.length - 1}` : ''
     chips.push({
-      key: 'dw', label: `🟢 ${w0.start}-${w0.end}${more}`,
+      key: 'dw', label: `▸ ${w0.start}-${w0.end}${more}`,
       cls: 'bg-emerald-100 text-emerald-800 border-emerald-300',
       title: c.delivery_windows.map(w => `${w.start}-${w.end}`).join(', '),
     })
@@ -56,14 +62,14 @@ function VRPConstraintChips({ c }: { c: CustomerVRPConstraints | undefined }) {
   if (c.forbidden_windows.length > 0) {
     const w0 = c.forbidden_windows[0]
     chips.push({
-      key: 'fw', label: `🚫 ${w0.start}-${w0.end}`,
+      key: 'fw', label: `⊘ ${w0.start}-${w0.end}`,
       cls: 'bg-red-100 text-red-800 border-red-300',
       title: c.forbidden_windows.map(w => `${w.start}-${w.end}${w.reason ? ' — ' + w.reason : ''}`).join('; '),
     })
   }
   if (c.access_notes) {
     chips.push({
-      key: 'an', label: `📝`,
+      key: 'an', label: 'Ghi chú',
       cls: 'bg-slate-100 text-slate-700 border-slate-300',
       title: c.access_notes,
     })
@@ -152,7 +158,7 @@ function TripDetailModal({ trip, tripIdx, vehicles, warehouse, vrpConstraintsMap
       // Depot as first waypoint
       if (warehouse) {
         const depotIcon = L.divIcon({
-          html: `<div style="background:#1e40af;color:white;width:28px;height:28px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:14px;border:2px solid white;box-shadow:0 2px 6px rgba(0,0,0,.3)">🏭</div>`,
+          html: `<div style="background:#1e40af;color:white;width:28px;height:28px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:700;border:2px solid white;box-shadow:0 2px 6px rgba(0,0,0,.3)">KHO</div>`,
           className: '', iconSize: [28, 28], iconAnchor: [14, 14]
         })
         L.marker([warehouse.lat, warehouse.lng], { icon: depotIcon })
@@ -168,14 +174,14 @@ function TripDetailModal({ trip, tripIdx, vehicles, warehouse, vrpConstraintsMap
         })
         L.marker([stop.latitude, stop.longitude], { icon })
           .addTo(map)
-          .bindPopup(`<b>#${i + 1} ${stop.customer_name}</b>${(stop.consolidated_ids?.length ?? 0) > 1 ? ` <span style="background:#f3e8ff;color:#7e22ce;padding:1px 4px;border-radius:3px;font-size:10px">📦×${stop.consolidated_ids!.length}</span>` : ''}${stop.is_split ? ` <span style="background:#fff7ed;color:#c2410c;padding:1px 4px;border-radius:3px;font-size:10px">✂️${stop.split_part}/${stop.split_total}</span>` : ''}<br/>${stop.customer_address || ''}<br/>${stop.weight_kg ? `⚖️ ${stop.weight_kg.toFixed(1)} kg` : ''} Tích lũy: ${stop.cumulative_load_kg?.toFixed(0)} kg`)
+          .bindPopup(`<b>#${i + 1} ${stop.customer_name}</b>${(stop.consolidated_ids?.length ?? 0) > 1 ? ` <span style="background:#f3e8ff;color:#7e22ce;padding:1px 4px;border-radius:3px;font-size:10px">×${stop.consolidated_ids!.length}</span>` : ''}${stop.is_split ? ` <span style="background:#fff7ed;color:#c2410c;padding:1px 4px;border-radius:3px;font-size:10px">P${stop.split_part}/${stop.split_total}</span>` : ''}<br/>${stop.customer_address || ''}<br/>${stop.weight_kg ? `KL: ${stop.weight_kg.toFixed(1)} kg` : ''} Tích lũy: ${stop.cumulative_load_kg?.toFixed(0)} kg`)
         waypoints.push([stop.latitude, stop.longitude])
       })
 
       // Return to depot
       if (warehouse) waypoints.push([warehouse.lat, warehouse.lng])
 
-      // Toll station markers — phân biệt trạm hở (🟠) và cao tốc kín (🔵)
+          // Toll station markers
       if (trip.tolls_passed?.length) {
         const seen = new Set<string>()
         trip.tolls_passed.forEach((tp: any) => {
@@ -185,16 +191,16 @@ function TripDetailModal({ trip, tripIdx, vehicles, warehouse, vrpConstraintsMap
           seen.add(key)
           const isExpressway = tp.toll_type === 'expressway'
           const bgColor = isExpressway ? '#3b82f6' : '#f97316'
-          const emoji = isExpressway ? '🛣️' : '🚏'
+          const markerLabel = isExpressway ? 'CT' : 'TT'
           const tollIcon = L.divIcon({
-            html: `<div style="background:${bgColor};color:white;width:22px;height:22px;border-radius:4px;transform:rotate(45deg);display:flex;align-items:center;justify-content:center;font-size:11px;border:2px solid white;box-shadow:0 2px 6px rgba(0,0,0,.3)"><span style="transform:rotate(-45deg)">${emoji}</span></div>`,
+            html: `<div style="background:${bgColor};color:white;width:22px;height:22px;border-radius:4px;transform:rotate(45deg);display:flex;align-items:center;justify-content:center;font-size:8px;font-weight:700;border:2px solid white;box-shadow:0 2px 6px rgba(0,0,0,.3)"><span style="transform:rotate(-45deg)">${markerLabel}</span></div>`,
             className: '', iconSize: [22, 22], iconAnchor: [11, 11]
           })
           const distInfo = tp.distance_km ? `<br/>Đoạn: ${tp.distance_km.toFixed(1)}km` : ''
           const typeLabel = isExpressway ? 'Cao tốc kín' : 'Trạm hở'
           L.marker([tp.latitude, tp.longitude], { icon: tollIcon })
             .addTo(map)
-            .bindPopup(`<b>${emoji} ${tp.station_name}</b><br/>Phí: ${(tp.fee_vnd / 1000).toFixed(0)}K VND${distInfo}<br/><i style="color:#888">${typeLabel}</i>`)
+            .bindPopup(`<b>${tp.station_name}</b><br/>Phí: ${(tp.fee_vnd / 1000).toFixed(0)}K VND${distInfo}<br/><i style="color:#888">${typeLabel}</i>`)
         })
       }
 
@@ -275,13 +281,13 @@ function TripDetailModal({ trip, tripIdx, vehicles, warehouse, vrpConstraintsMap
       const bgColor = isPassed ? '#f97316' : '#9ca3af'
       const opacity = isPassed ? 1 : 0.6
       const icon = L.divIcon({
-        html: `<div style="background:${bgColor};opacity:${opacity};color:white;width:18px;height:18px;border-radius:3px;transform:rotate(45deg);display:flex;align-items:center;justify-content:center;font-size:9px;border:1.5px solid white;box-shadow:0 1px 4px rgba(0,0,0,.2)"><span style="transform:rotate(-45deg)">🚏</span></div>`,
+        html: `<div style="background:${bgColor};opacity:${opacity};color:white;width:18px;height:18px;border-radius:3px;transform:rotate(45deg);display:flex;align-items:center;justify-content:center;font-size:8px;font-weight:700;border:1.5px solid white;box-shadow:0 1px 4px rgba(0,0,0,.2)"><span style="transform:rotate(-45deg)">TT</span></div>`,
         className: '', iconSize: [18, 18], iconAnchor: [9, 9]
       })
       const feeLine = `L2: ${((ts.fee_l2 || 0)/1000).toFixed(0)}K | L3: ${((ts.fee_l3 || 0)/1000).toFixed(0)}K | L4: ${((ts.fee_l4 || 0)/1000).toFixed(0)}K`
       L.marker([ts.latitude, ts.longitude], { icon })
         .addTo(layerGroup)
-        .bindPopup(`<b>🚏 ${ts.station_name}</b><br/>${ts.road_name || ''}<br/>${feeLine}<br/><i style="color:#888">Trạm hở${isPassed ? ' — ✅ Đi qua' : ''}</i>`)
+        .bindPopup(`<b>${ts.station_name}</b><br/>${ts.road_name || ''}<br/>${feeLine}<br/><i style="color:#888">Trạm hở${isPassed ? ' — Đi qua' : ''}</i>`)
     })
 
     // Cổng cao tốc
@@ -289,13 +295,13 @@ function TripDetailModal({ trip, tripIdx, vehicles, warehouse, vrpConstraintsMap
       (ew.gates || []).forEach((g: any) => {
         if (!g.latitude || !g.longitude) return
         const icon = L.divIcon({
-          html: `<div style="background:#3b82f6;opacity:0.6;color:white;width:18px;height:18px;border-radius:3px;transform:rotate(45deg);display:flex;align-items:center;justify-content:center;font-size:9px;border:1.5px solid white;box-shadow:0 1px 4px rgba(0,0,0,.2)"><span style="transform:rotate(-45deg)">🛣️</span></div>`,
+          html: `<div style="background:#3b82f6;opacity:0.6;color:white;width:18px;height:18px;border-radius:3px;transform:rotate(45deg);display:flex;align-items:center;justify-content:center;font-size:8px;font-weight:700;border:1.5px solid white;box-shadow:0 1px 4px rgba(0,0,0,.2)"><span style="transform:rotate(-45deg)">CT</span></div>`,
           className: '', iconSize: [18, 18], iconAnchor: [9, 9]
         })
         const rateLine = `L2: ${((ew.rate_per_km_l2 || 0)).toFixed(0)}đ/km | L3: ${((ew.rate_per_km_l3 || 0)).toFixed(0)}đ/km`
         L.marker([g.latitude, g.longitude], { icon })
           .addTo(layerGroup)
-          .bindPopup(`<b>🛣️ ${g.gate_name}</b><br/>${ew.expressway_name}<br/>Km: ${g.km_marker}<br/>${rateLine}<br/><i style="color:#888">Cao tốc kín</i>`)
+          .bindPopup(`<b>${g.gate_name}</b><br/>${ew.expressway_name}<br/>Km: ${g.km_marker}<br/>${rateLine}<br/><i style="color:#888">Cao tốc kín</i>`)
       })
     })
 
@@ -325,22 +331,22 @@ function TripDetailModal({ trip, tripIdx, vehicles, warehouse, vrpConstraintsMap
               {vehicle?.vehicle_type && <span className="opacity-75 ml-2 text-sm">({vehicle.vehicle_type})</span>}
             </h2>
             <div className="flex gap-4 text-sm opacity-90 mt-1">
-              <span>📦 {trip.stops.length} điểm giao</span>
+              <span><Package className="w-3.5 h-3.5 inline mr-0.5" /> {trip.stops.length} điểm</span>
               <span>📏 {routeTotals ? `${routeTotals.total_km} km` : `${trip.total_distance_km?.toFixed(1)} km`}</span>
-              <span>⚖️ {trip.total_weight_kg?.toFixed(0)}/{cap} kg ({pct}%)</span>
+              <span>KL: {trip.total_weight_kg?.toFixed(0)}/{cap} kg ({pct}%)</span>
               {routeTotals && <span>⏱ ~{routeTotals.total_min} phút</span>}
             </div>
           </div>
           <div className="flex items-center gap-2">
             <button onClick={() => setShowAllTolls(!showAllTolls)} title={showAllTolls ? 'Ẩn trạm thu phí' : 'Hiện tất cả trạm thu phí'}
-              className={`w-8 h-8 rounded-full flex items-center justify-center text-lg ${showAllTolls ? 'bg-orange-400/80 hover:bg-orange-500/80' : 'bg-white/20 hover:bg-white/30'}`}>
-              🚏
+              className={`w-8 h-8 rounded-full flex items-center justify-center ${showAllTolls ? 'bg-orange-400/80 hover:bg-orange-500/80' : 'bg-white/20 hover:bg-white/30'}`}>
+              <MapPin className="w-4 h-4" />
             </button>
             <button onClick={() => setIsFullscreen(!isFullscreen)} title={isFullscreen ? 'Thu nhỏ' : 'Phóng to'}
               className="w-8 h-8 rounded-full bg-white/20 hover:bg-white/30 flex items-center justify-center text-lg">
-              {isFullscreen ? '⊡' : '⊞'}
+              {isFullscreen ? <CheckSquare2 className='w-4 h-4' /> : <Map className='w-4 h-4' />}
             </button>
-            <button onClick={onClose} className="w-8 h-8 rounded-full bg-white/20 hover:bg-white/30 flex items-center justify-center text-lg">✕</button>
+            <button onClick={onClose} className="w-8 h-8 rounded-full bg-white/20 hover:bg-white/30 flex items-center justify-center"><XCircle className="w-5 h-5" /></button>
           </div>
         </div>
 
@@ -351,7 +357,7 @@ function TripDetailModal({ trip, tripIdx, vehicles, warehouse, vrpConstraintsMap
             <div ref={mapElRef} className="absolute inset-0" />
             {routeLoading && (
               <div className="absolute inset-0 flex items-center justify-center bg-white/60 z-10">
-                <div className="text-sm text-gray-600 animate-pulse">🗺️ Đang tải lộ trình...</div>
+                <div className="text-sm text-gray-600 animate-pulse">Đang tải lộ trình...</div>
               </div>
             )}
             {!routeLoading && osrmFailed && (
@@ -386,17 +392,17 @@ function TripDetailModal({ trip, tripIdx, vehicles, warehouse, vrpConstraintsMap
                         <div className="font-medium text-sm flex items-center gap-1.5 flex-wrap">
                           {stop.customer_name}
                           {stop.consolidated_ids && stop.consolidated_ids.length > 1 && (
-                            <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-semibold bg-purple-100 text-purple-700" title={`Ghép ${stop.consolidated_ids.length} đơn cùng NPP`}>📦×{stop.consolidated_ids.length}</span>
+                            <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-semibold bg-purple-100 text-purple-700" title={`Ghép ${stop.consolidated_ids.length} đơn cùng NPP`}>×{stop.consolidated_ids.length}</span>
                           )}
                           {stop.is_split && (
-                            <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-semibold bg-orange-100 text-orange-700" title={`Tách đơn: phần ${stop.split_part}/${stop.split_total}`}>✂️ {stop.split_part}/{stop.split_total}</span>
+                            <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-semibold bg-orange-100 text-orange-700" title={`Tách đơn: phần ${stop.split_part}/${stop.split_total}`}>P{stop.split_part}/{stop.split_total}</span>
                           )}
                           <VRPConstraintChips c={vrpConstraintsMap?.[stop.customer_id]} />
                         </div>
                         <div className="text-xs text-gray-500 mt-0.5">{stop.customer_address || 'Chưa có địa chỉ'}</div>
                         <div className="flex flex-wrap gap-x-4 gap-y-1 mt-2 text-xs">
                           <span className="text-gray-600">
-                            ⚖️ <strong>{stop.weight_kg?.toFixed(1) || '—'} kg</strong>
+                            KL: <strong>{stop.weight_kg?.toFixed(1) || '—'} kg</strong>
                             {stop.is_split && stop.original_weight_kg ? <span className="text-gray-400 ml-1">(gốc: {stop.original_weight_kg.toFixed(0)} kg)</span> : null}
                           </span>
                           <span className="text-gray-400">
@@ -444,15 +450,15 @@ function TripDetailModal({ trip, tripIdx, vehicles, warehouse, vrpConstraintsMap
                 <div className="grid grid-cols-4 gap-2 text-center text-xs mt-2 pt-2 border-t border-gray-200">
                   <div>
                     <div className="font-bold text-green-700">{((trip.total_cost_vnd || 0) / 1000).toFixed(0)}K</div>
-                    <div className="text-gray-400">💰 Tổng CP</div>
+                    <div className="text-gray-400">Tổng CP</div>
                   </div>
                   <div>
                     <div className="font-bold text-orange-600">{((trip.fuel_cost_vnd || 0) / 1000).toFixed(0)}K</div>
-                    <div className="text-gray-400">⛽ Xăng/dầu</div>
+                    <div className="text-gray-400">Xăng/dầu</div>
                   </div>
                   <div>
                     <div className="font-bold text-red-600">{((trip.toll_cost_vnd || 0) / 1000).toFixed(0)}K</div>
-                    <div className="text-gray-400">🚏 Cầu đường</div>
+                    <div className="text-gray-400">Cầu đường</div>
                   </div>
                   <div>
                     <div className="font-bold text-blue-600">{((trip.cost_per_ton_vnd || 0) / 1000).toFixed(0)}K</div>
@@ -463,10 +469,10 @@ function TripDetailModal({ trip, tripIdx, vehicles, warehouse, vrpConstraintsMap
               {/* Tolls passed detail */}
               {trip.tolls_passed && trip.tolls_passed.length > 0 && (
                 <div className="mt-2 pt-2 border-t border-gray-200">
-                  <div className="text-[10px] text-gray-500 mb-1">🚏 Trạm đi qua:</div>
+                  <div className="text-[10px] text-gray-500 mb-1">Trạm đi qua:</div>
                   {trip.tolls_passed.map((tp: any, i: number) => (
                     <div key={i} className="flex justify-between text-[10px] text-gray-600">
-                      <span>{tp.toll_type === 'expressway' ? '🛣️' : '🚏'} {tp.station_name}</span>
+                      <span>{tp.toll_type === 'expressway' ? '[CT]' : '[TT]'} {tp.station_name}</span>
                       <span className="font-medium">{(tp.fee_vnd / 1000).toFixed(0)}K</span>
                     </div>
                   ))}
@@ -482,11 +488,11 @@ function TripDetailModal({ trip, tripIdx, vehicles, warehouse, vrpConstraintsMap
 
 // ─── Vehicle Status Modal ───────────────────────────
 function VehicleStatusModal({ vehicles, onClose }: { vehicles: Vehicle[]; onClose: () => void }) {
-  const statusGroups: Record<string, { label: string; color: string; icon: string }> = {
-    active: { label: 'Hoạt động', color: 'bg-green-100 text-green-800', icon: '🟢' },
-    maintenance: { label: 'Bảo trì', color: 'bg-yellow-100 text-yellow-800', icon: '🟡' },
-    broken: { label: 'Hỏng', color: 'bg-red-100 text-red-800', icon: '🔴' },
-    impounded: { label: 'Tạm giữ', color: 'bg-gray-100 text-gray-800', icon: '⚫' },
+  const statusGroups: Record<string, { label: string; color: string; dot: string }> = {
+    active: { label: 'Hoạt động', color: 'bg-green-100 text-green-800', dot: 'bg-green-500' },
+    maintenance: { label: 'Bảo trì', color: 'bg-yellow-100 text-yellow-800', dot: 'bg-yellow-400' },
+    broken: { label: 'Hỏng', color: 'bg-red-100 text-red-800', dot: 'bg-red-500' },
+    impounded: { label: 'Tạm giữ', color: 'bg-gray-100 text-gray-800', dot: 'bg-gray-500' },
   }
   const grouped = vehicles.reduce<Record<string, Vehicle[]>>((acc, v) => {
     const key = v.status || 'active'
@@ -499,16 +505,16 @@ function VehicleStatusModal({ vehicles, onClose }: { vehicles: Vehicle[]; onClos
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4" onClick={onClose}>
       <div className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl max-h-[80vh] overflow-hidden flex flex-col" onClick={e => e.stopPropagation()}>
         <div className="bg-gradient-to-r from-brand-500 to-brand-600 text-white px-6 py-4 flex items-center justify-between">
-          <h2 className="text-lg font-bold">🚛 Trạng thái xe ({vehicles.length} xe)</h2>
-          <button onClick={onClose} className="w-8 h-8 rounded-full bg-white/20 hover:bg-white/30 flex items-center justify-center text-lg">✕</button>
+          <h2 className="text-lg font-bold flex items-center gap-2"><Truck className="w-5 h-5" /> Trạng thái xe ({vehicles.length} xe)</h2>
+          <button onClick={onClose} className="w-8 h-8 rounded-full bg-white/20 hover:bg-white/30 flex items-center justify-center"><XCircle className="w-5 h-5" /></button>
         </div>
         <div className="flex-1 overflow-y-auto p-4 space-y-4">
           {Object.entries(grouped).map(([status, vs]) => {
-            const info = statusGroups[status] || { label: status, color: 'bg-gray-100 text-gray-700', icon: '⚪' }
+            const info = statusGroups[status] || { label: status, color: 'bg-gray-100 text-gray-700', dot: 'bg-gray-400' }
             return (
               <div key={status}>
                 <div className="flex items-center gap-2 mb-2">
-                  <span>{info.icon}</span>
+                  <span className={`w-2.5 h-2.5 rounded-full ${info.dot}`} />
                   <span className={`text-sm font-semibold px-2 py-0.5 rounded ${info.color}`}>{info.label} ({vs.length})</span>
                 </div>
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
@@ -533,11 +539,11 @@ function DriverStatusModal({ drivers, checkins, onClose }: { drivers: Driver[]; 
   const [selectedDriver, setSelectedDriver] = useState<Driver | null>(null)
   const checkinMap = new Map(checkins.map(c => [c.driver_id || c.id, c]))
 
-  const statusGroups: Record<string, { label: string; color: string; icon: string }> = {
-    available: { label: 'Sẵn sàng', color: 'bg-green-100 text-green-800', icon: '🟢' },
-    on_trip: { label: 'Đang chạy', color: 'bg-blue-100 text-blue-800', icon: '🔵' },
-    off_duty: { label: 'Nghỉ', color: 'bg-red-100 text-red-800', icon: '🔴' },
-    not_checked_in: { label: 'Chưa check-in', color: 'bg-yellow-100 text-yellow-800', icon: '🟡' },
+  const statusGroups: Record<string, { label: string; color: string; dot: string }> = {
+    available: { label: 'Sẵn sàng', color: 'bg-green-100 text-green-800', dot: 'bg-green-500' },
+    on_trip: { label: 'Đang chạy', color: 'bg-blue-100 text-blue-800', dot: 'bg-blue-500' },
+    off_duty: { label: 'Nghỉ', color: 'bg-red-100 text-red-800', dot: 'bg-red-500' },
+    not_checked_in: { label: 'Chưa check-in', color: 'bg-yellow-100 text-yellow-800', dot: 'bg-yellow-400' },
   }
 
   // Use checkins as primary data source (already filtered by warehouse)
@@ -571,12 +577,14 @@ function DriverStatusModal({ drivers, checkins, onClose }: { drivers: Driver[]; 
       <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4" onClick={onClose}>
         <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md overflow-hidden" onClick={e => e.stopPropagation()}>
           <div className="bg-gradient-to-r from-green-600 to-green-700 text-white px-6 py-4 flex items-center justify-between">
-            <h2 className="text-lg font-bold">👤 {selectedDriver.full_name}</h2>
+            <h2 className="text-lg font-bold">{selectedDriver.full_name}</h2>
             <button onClick={() => setSelectedDriver(null)} className="w-8 h-8 rounded-full bg-white/20 hover:bg-white/30 flex items-center justify-center text-lg">←</button>
           </div>
           <div className="p-6 space-y-4">
             <div className="flex items-center gap-4">
-              <div className="w-16 h-16 rounded-full bg-green-100 flex items-center justify-center text-2xl">👤</div>
+              <div className="w-16 h-16 rounded-full bg-green-100 flex items-center justify-center">
+                  <Navigation2 className="w-7 h-7 text-green-600" />
+                </div>
               <div>
                 <div className="text-lg font-bold">{selectedDriver.full_name}</div>
                 <div className="text-sm text-gray-500">{selectedDriver.license_number || 'Chưa có GPLX'}</div>
@@ -585,7 +593,7 @@ function DriverStatusModal({ drivers, checkins, onClose }: { drivers: Driver[]; 
             <div className="space-y-2">
               <div className="flex justify-between text-sm border-b py-2">
                 <span className="text-gray-500">Điện thoại</span>
-                <a href={`tel:${selectedDriver.phone}`} className="text-blue-600 font-medium hover:underline">📞 {selectedDriver.phone}</a>
+                <a href={`tel:${selectedDriver.phone}`} className="text-blue-600 font-medium hover:underline">{selectedDriver.phone}</a>
               </div>
               <div className="flex justify-between text-sm border-b py-2">
                 <span className="text-gray-500">GPLX</span>
@@ -612,7 +620,7 @@ function DriverStatusModal({ drivers, checkins, onClose }: { drivers: Driver[]; 
             </div>
             <a href={`tel:${selectedDriver.phone}`}
               className="block w-full text-center py-3 bg-green-600 text-white rounded-xl hover:bg-green-700 font-medium">
-              📞 Gọi điện cho tài xế
+              Gọi điện cho tài xế
             </a>
           </div>
         </div>
@@ -624,16 +632,16 @@ function DriverStatusModal({ drivers, checkins, onClose }: { drivers: Driver[]; 
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4" onClick={onClose}>
       <div className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl max-h-[80vh] overflow-hidden flex flex-col" onClick={e => e.stopPropagation()}>
         <div className="bg-gradient-to-r from-green-600 to-green-700 text-white px-6 py-4 flex items-center justify-between">
-          <h2 className="text-lg font-bold">👥 Tài xế ({drivers.length} người)</h2>
-          <button onClick={onClose} className="w-8 h-8 rounded-full bg-white/20 hover:bg-white/30 flex items-center justify-center text-lg">✕</button>
+          <h2 className="text-lg font-bold flex items-center gap-2"><Navigation2 className="w-5 h-5" /> Tài xế ({drivers.length} người)</h2>
+          <button onClick={onClose} className="w-8 h-8 rounded-full bg-white/20 hover:bg-white/30 flex items-center justify-center"><XCircle className="w-5 h-5" /></button>
         </div>
         <div className="flex-1 overflow-y-auto p-4 space-y-4">
           {Object.entries(grouped).map(([status, ds]) => {
-            const info = statusGroups[status] || { label: status, color: 'bg-gray-100 text-gray-700', icon: '⚪' }
+            const info = statusGroups[status] || { label: status, color: 'bg-gray-100 text-gray-700', dot: 'bg-gray-400' }
             return (
               <div key={status}>
                 <div className="flex items-center gap-2 mb-2">
-                  <span>{info.icon}</span>
+                  <span className={`w-2.5 h-2.5 rounded-full ${info.dot}`} />
                   <span className={`text-sm font-semibold px-2 py-0.5 rounded ${info.color}`}>{info.label} ({ds.length})</span>
                 </div>
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
@@ -643,7 +651,7 @@ function DriverStatusModal({ drivers, checkins, onClose }: { drivers: Driver[]; 
                       <div className="flex items-center justify-between">
                         <div>
                           <div className="font-medium">{d.full_name}</div>
-                          <div className="text-xs text-gray-500">📞 {d.phone}</div>
+                          <div className="text-xs text-gray-500">{d.phone}</div>
                         </div>
                         <span className="text-gray-400 text-xs">▸</span>
                       </div>
@@ -745,14 +753,14 @@ function buildVRPReviewHighlights(result: VRPResult, vehicles: Vehicle[]) {
 }
 
 const STEPS = ['Tổng quan', 'Chọn xe', 'Xem đơn hàng', 'Tạo kế hoạch giao hàng', 'Duyệt & Tạo chuyến']
-const STEP_ICONS = ['📊', '🚛', '📦', '🗺️', '✅']
+const STEP_ICON_COMPONENTS: LucideIcon[] = [BarChart3, Truck, Package, Map, CheckSquare2]
 
 export default function PlanningPage() {
   const user = getUser()
   const router = useRouter()
   const searchParams = useSearchParams()
   // URL params from test portal deep-link: /dashboard/planning?date=2026-04-30&warehouse=WH-HL
-  const urlDate = searchParams?.get('date') || ''
+  const _urlDate = searchParams?.get('date') || ''
   const urlWarehouse = searchParams?.get('warehouse') || ''
 
   // Role check — only admin and dispatcher can access planning
@@ -822,12 +830,12 @@ export default function PlanningPage() {
 
   // Real-time VRP progress (from WebSocket vrp_progress messages)
   const VRP_STAGES = [
-    { key: 'matrix',      icon: '📍', label: 'Tính ma trận khoảng cách' },
-    { key: 'toll',        icon: '🛣️', label: 'Phân tích trạm BOT' },
-    { key: 'toll_matrix', icon: '🚫', label: 'Ma trận tránh BOT' },
+    { key: 'matrix',      icon: '●', label: 'Tính ma trận khoảng cách' },
+    { key: 'toll',        icon: '→', label: 'Phân tích trạm BOT' },
+    { key: 'toll_matrix', icon: '⊘', label: 'Ma trận tránh BOT' },
     { key: 'solving',     icon: '⚙️', label: 'Phân bổ xe & điểm giao' },
-    { key: 'routes',      icon: '🗺️', label: 'Tính lộ trình chi tiết' },
-    { key: 'done',        icon: '✅', label: 'Hoàn tất' },
+    { key: 'routes',      icon: '▸', label: 'Tính lộ trình chi tiết' },
+    { key: 'done',        icon: '✓', label: 'Hoàn tất' },
   ]
   const STAGE_ORDER: Record<string, number> = { '': -1, matrix: 0, toll: 1, toll_matrix: 2, solving: 3, routes: 4, done: 5, error: 6 }
   const [singleProgress, setSingleProgress] = useState({ pct: 0, stage: '', detail: '' })
@@ -860,9 +868,9 @@ export default function PlanningPage() {
 
   // VRP criteria with priority ordering (index = priority, lower = higher priority)
   const [criteriaOrder, setCriteriaOrder] = useState([
-    { key: 'max_capacity', icon: '⚖️', color: 'text-blue-500', label: 'Tải trọng tối đa', desc: 'Không vượt capacity xe', enabled: true },
-    { key: 'min_vehicles', icon: '🚛', color: 'text-red-500', label: 'Tối thiểu số xe', desc: 'Dùng ít xe nhất có thể', enabled: true },
-    { key: 'cluster_region', icon: '📍', color: 'text-teal-500', label: 'Gom nhóm theo vùng', desc: 'Gom điểm gần nhau cùng xe', enabled: true },
+    { key: 'max_capacity', icon: '=', color: 'text-blue-500', label: 'Tải trọng tối đa', desc: 'Không vượt capacity xe', enabled: true },
+    { key: 'min_vehicles', icon: '▶', color: 'text-red-500', label: 'Tối thiểu số xe', desc: 'Dùng ít xe nhất có thể', enabled: true },
+    { key: 'cluster_region', icon: '●', color: 'text-teal-500', label: 'Gom nhóm theo vùng', desc: 'Gom điểm gần nhau cùng xe', enabled: true },
     { key: 'time_limit', icon: '⏱', color: 'text-green-500', label: 'Giới hạn thời gian/chuyến', desc: 'Thời gian lái + giao hàng', enabled: true },
   ])
   const [maxTripHours, setMaxTripHours] = useState(8)
@@ -1601,7 +1609,7 @@ export default function PlanningPage() {
           </div>
         )}
         <button onClick={loadData} className="px-4 py-2 bg-gray-100 text-gray-600 rounded-lg hover:bg-gray-200 text-sm">
-          🔄 Tải lại dữ liệu
+          <RefreshCw className="w-4 h-4 inline mr-1" /> Tải lại dữ liệu
         </button>
       </div>
 
@@ -1620,7 +1628,7 @@ export default function PlanningPage() {
                 <span className={`w-7 h-7 rounded-full flex items-center justify-center text-sm
                   ${i === step ? 'bg-amber-500 text-white' :
                     i < step ? 'bg-green-500 text-white' : 'bg-gray-200 text-gray-500'}`}>
-                  {i < step ? '✓' : STEP_ICONS[i]}
+                  {i < step ? <Check className="w-4 h-4" /> : React.createElement(STEP_ICON_COMPONENTS[i], { className: 'w-4 h-4' })}
                 </span>
                 <span className="hidden lg:inline">{label}</span>
               </button>
@@ -1635,8 +1643,8 @@ export default function PlanningPage() {
       {/* ─── ERROR ─── */}
       {error && (
         <div className="bg-red-50 border border-red-200 text-red-700 text-sm px-4 py-3 rounded-lg mb-6 flex items-center justify-between">
-          <span>⚠️ {error}</span>
-          <button onClick={() => setError('')} className="text-red-400 hover:text-red-600">✕</button>
+          <span><AlertTriangle className="w-4 h-4 shrink-0" /> {error}</span>
+          <button onClick={() => setError('')} className="text-red-400 hover:text-red-600"><XCircle className="w-4 h-4" /></button>
         </div>
       )}
 
@@ -1674,8 +1682,8 @@ export default function PlanningPage() {
               <div className="text-3xl font-bold text-green-700">{drivers.length}</div>
               <div className="text-sm text-gray-500 mt-1">
                 {drivers.length >= vehicles.length
-                  ? <span className="text-green-600">✓ Đủ tài xế cho tất cả xe</span>
-                  : <span className="text-red-600">⚠ Thiếu {vehicles.length - drivers.length} tài xế</span>}
+                  ? <span className="text-green-600">Đủ tài xế cho tất cả xe</span>
+                  : <span className="text-red-600">Thiếu {vehicles.length - drivers.length} tài xế</span>}
               </div>
               {driverCheckins.length > 0 && (() => {
                 const available = driverCheckins.filter((d: any) => d.checkin_status === 'available').length
@@ -1684,10 +1692,10 @@ export default function PlanningPage() {
                 const notCheckedIn = driverCheckins.filter((d: any) => d.checkin_status === 'not_checked_in').length
                 return (
                   <div className="flex flex-wrap gap-1 mt-2">
-                    {available > 0 && <span className="text-xs bg-green-100 text-green-700 px-1.5 py-0.5 rounded">🟢 Sẵn sàng: {available}</span>}
-                    {onTrip > 0 && <span className="text-xs bg-blue-100 text-blue-700 px-1.5 py-0.5 rounded">🔵 Đang chạy: {onTrip}</span>}
-                    {offDuty > 0 && <span className="text-xs bg-red-100 text-red-700 px-1.5 py-0.5 rounded">🔴 Nghỉ: {offDuty}</span>}
-                    {notCheckedIn > 0 && <span className="text-xs bg-yellow-100 text-yellow-700 px-1.5 py-0.5 rounded">🟡 Chưa check-in: {notCheckedIn}</span>}
+                    {available > 0 && <span className="text-xs bg-green-100 text-green-700 px-1.5 py-0.5 rounded"><span className="w-2 h-2 rounded-full bg-green-500 inline-block mr-1" /> Sẵn sàng: {available}</span>}
+                    {onTrip > 0 && <span className="text-xs bg-blue-100 text-blue-700 px-1.5 py-0.5 rounded"><span className="w-2 h-2 rounded-full bg-blue-500 inline-block mr-1" /> Đang chạy: {onTrip}</span>}
+                    {offDuty > 0 && <span className="text-xs bg-red-100 text-red-700 px-1.5 py-0.5 rounded"><span className="w-2 h-2 rounded-full bg-red-500 inline-block mr-1" /> Nghỉ: {offDuty}</span>}
+                    {notCheckedIn > 0 && <span className="text-xs bg-yellow-100 text-yellow-700 px-1.5 py-0.5 rounded"><span className="w-2 h-2 rounded-full bg-yellow-400 inline-block mr-1" /> Chưa check-in: {notCheckedIn}</span>}
                   </div>
                 )
               })()}
@@ -1733,7 +1741,7 @@ export default function PlanningPage() {
               </div>
               <div className="bg-gray-50 rounded-lg p-3 text-center">
                 <div className={`text-lg font-bold ${capacityRatio > 100 ? 'text-red-600' : capacityRatio > 80 ? 'text-amber-600' : 'text-green-600'}`}>
-                  {capacityRatio > 100 ? '⚠ Quá tải' : capacityRatio > 80 ? '⚡ Gần đầy' : '✓ OK'}
+                  {capacityRatio > 100 ? '⚠ Quá tải' : capacityRatio > 80 ? ' Gần đầy' : '✓ OK'}
                 </div>
                 <div className="text-xs text-gray-500">Trạng thái tải</div>
               </div>
@@ -1746,12 +1754,12 @@ export default function PlanningPage() {
             {/* Warnings */}
             {shipments.length === 0 && (
               <div className="mt-4 bg-yellow-50 border border-yellow-200 text-yellow-800 px-4 py-3 rounded-lg text-sm">
-                ⚠️ Không có đơn hàng nào chờ giao cho ngày {deliveryDate}. Kiểm tra lại kho xuất và ngày giao.
+                Không có đơn hàng nào chờ giao cho ngày {deliveryDate}. Kiểm tra lại kho xuất và ngày giao.
               </div>
             )}
             {capacityRatio > 100 && (
               <div className="mt-4 bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-lg text-sm">
-                ⚠️ Tổng hàng ({(totalDemandKg / 1000).toFixed(1)}T) vượt quá tổng tải xe ({(totalCapacityKg / 1000).toFixed(1)}T).
+                Tổng hàng ({(totalDemandKg / 1000).toFixed(1)}T) vượt quá tổng tải xe ({(totalCapacityKg / 1000).toFixed(1)}T).
                 Một số đơn sẽ không được xếp. Hãy thêm xe ở bước tiếp theo hoặc loại bớt đơn hàng.
               </div>
             )}
@@ -1761,11 +1769,11 @@ export default function PlanningPage() {
               const showWarning = vehicles.length > 0 && checkedInAvailable < vehicles.length && notCheckedIn > 0
               return showWarning ? (
                 <div className="mt-4 bg-orange-50 border border-orange-300 text-orange-800 px-4 py-3 rounded-lg text-sm">
-                  <div className="font-semibold mb-1">⚠️ Chênh lệch xe — tài xế sẵn sàng</div>
+                  <div className="font-semibold mb-1">Chênh lệch xe — tài xế sẵn sàng</div>
                   <div>Có <strong>{vehicles.length} xe</strong> khả dụng nhưng chỉ <strong>{checkedInAvailable} tài xế</strong> đã check-in sẵn sàng.
                   Còn <strong>{notCheckedIn} tài xế chưa check-in</strong>.</div>
                   <div className="mt-2 text-xs text-orange-600">
-                    💡 Hãy nhắc tài xế check-in trước khi lập kế hoạch để hệ thống phân bổ hiệu quả hơn.
+                     Hãy nhắc tài xế check-in trước khi lập kế hoạch để hệ thống phân bổ hiệu quả hơn.
                     Nếu không đủ tài xế sẵn sàng, hệ thống sẽ bị giới hạn số xe sử dụng.
                   </div>
                 </div>
@@ -1798,11 +1806,11 @@ export default function PlanningPage() {
           {/* Driver availability warning */}
           {selectedVehicleIds.size > drivers.length && (
             <div className="bg-yellow-50 border border-yellow-200 text-yellow-800 px-4 py-3 rounded-xl text-sm">
-              ⚠️ Bạn chọn <strong>{selectedVehicleIds.size} xe</strong> nhưng chỉ có <strong>{drivers.length} tài xế</strong> khả dụng.
+              Lưu ý: Bạn chọn <strong>{selectedVehicleIds.size} xe</strong> nhưng chỉ có <strong>{drivers.length} tài xế</strong> khả dụng.
               Hệ thống sẽ tối ưu với tất cả xe đã chọn, nhưng ở bước gán tài xế sẽ có {selectedVehicleIds.size - drivers.length} chuyến chưa có tài xế.
               <br />
               <span className="text-xs text-yellow-600 mt-1 block">
-                💡 Gợi ý: Chọn tối đa {drivers.length} xe để đảm bảo đủ tài xế cho mỗi chuyến.
+                 Gợi ý: Chọn tối đa {drivers.length} xe để đảm bảo đủ tài xế cho mỗi chuyến.
               </span>
             </div>
           )}
@@ -1822,7 +1830,7 @@ export default function PlanningPage() {
                       ref={el => { if (el) el.indeterminate = someTypeSelected && !allTypeSelected }}
                       onChange={() => toggleAllVehiclesOfType(type)} />
                     <span className="font-semibold text-gray-700">
-                      🚛 {type}
+                      <Truck className="w-3.5 h-3.5 inline mr-0.5" /> {type}
                       <span className="ml-2 text-sm font-normal text-gray-500">
                         ({typeVehicles.length} xe — Tổng tải: {(typeCapacity / 1000).toFixed(1)}T)
                       </span>
@@ -1857,7 +1865,7 @@ export default function PlanningPage() {
               {capacityRatio > 100
                 ? `⚠ Tổng hàng (${(totalDemandKg / 1000).toFixed(1)}T) > Tổng tải xe đã chọn (${(totalCapacityKg / 1000).toFixed(1)}T). Cần thêm xe hoặc bớt đơn ở bước 3.`
                 : capacityRatio > 80
-                ? `⚡ Sử dụng ${capacityRatio.toFixed(0)}% tải trọng. Hệ thống sẽ tối ưu phân bổ ở bước 4.`
+                ? ` Sử dụng ${capacityRatio.toFixed(0)}% tải trọng. Hệ thống sẽ tối ưu phân bổ ở bước 4.`
                 : `✓ Tải trọng đủ. Dư ${(100 - capacityRatio).toFixed(0)}% — hệ thống sẽ tối ưu số xe cần dùng.`}
             </div>
           )}
@@ -1877,7 +1885,7 @@ export default function PlanningPage() {
               )}
               — Tổng tải: <strong>{(activeShipments.reduce((s, x) => s + (x.total_weight_kg || 0), 0) / 1000).toFixed(1)}T</strong>
               {shipments.filter(s => s.is_urgent).length > 0 && (
-                <span className="ml-2 text-red-600 font-semibold">⚡ {shipments.filter(s => s.is_urgent).length} đơn gấp</span>
+                <span className="ml-2 text-red-600 font-semibold"> {shipments.filter(s => s.is_urgent).length} đơn gấp</span>
               )}
             </div>
             {excludedShipmentIds.size > 0 && (
@@ -1893,7 +1901,7 @@ export default function PlanningPage() {
               <thead className="bg-gray-50 sticky top-0 z-10">
                 <tr>
                   <th className="w-10 py-2.5 px-2 text-center">#</th>
-                  <th className="w-10 py-2.5 px-2 text-center">⚡</th>
+                  <th className="w-10 py-2.5 px-2 text-center"></th>
                   <th className="py-2.5 px-2 text-left">Mã đơn</th>
                   <th className="py-2.5 px-2 text-left">Khách hàng</th>
                   <th className="py-2.5 px-2 text-right">Tải (kg)</th>
@@ -1912,7 +1920,7 @@ export default function PlanningPage() {
                         <button onClick={() => toggleUrgent(s.id, s.is_urgent)}
                           title={s.is_urgent ? 'Bỏ ưu tiên gấp' : 'Đánh dấu giao gấp'}
                           className={`text-lg leading-none ${s.is_urgent ? 'grayscale-0' : 'grayscale opacity-30 hover:opacity-60'}`}>
-                          ⚡
+                          
                         </button>
                       </td>
                       <td className="py-1.5 px-2 font-mono text-xs">{s.shipment_number}</td>
@@ -1947,7 +1955,7 @@ export default function PlanningPage() {
               <div className="flex bg-gray-100 rounded-lg p-1">
                 <button onClick={() => setPlanMode('vrp')}
                   className={`px-4 py-2 rounded-lg text-sm font-medium transition ${planMode === 'vrp' ? 'bg-white shadow text-brand-600' : 'text-gray-500 hover:text-gray-700'}`}>
-                  🤖 VRP Tự động
+                   VRP Tự động
                 </button>
                 <button onClick={() => setPlanMode('manual')}
                   className={`px-4 py-2 rounded-lg text-sm font-medium transition ${planMode === 'manual' ? 'bg-white shadow text-brand-600' : 'text-gray-500 hover:text-gray-700'}`}>
@@ -1974,7 +1982,7 @@ export default function PlanningPage() {
                 <div className="flex gap-2">
                   <button onClick={autoDistribute}
                     className="px-3 py-1.5 bg-blue-50 text-blue-700 rounded-lg text-xs font-medium hover:bg-blue-100 transition">
-                    ⚡ Tự gán đều
+                     Tự gán đều
                   </button>
                   <button onClick={() => setManualAssign({})}
                     className="px-3 py-1.5 bg-gray-50 text-gray-600 rounded-lg text-xs font-medium hover:bg-gray-100 transition">
@@ -1987,17 +1995,17 @@ export default function PlanningPage() {
                 {/* LEFT: Shipment pool */}
                 <div className="lg:col-span-1 bg-white rounded-xl shadow-sm p-4 overflow-y-auto" style={{ maxHeight: '70vh' }}>
                   <h3 className="font-semibold text-gray-700 mb-3 sticky top-0 bg-white pb-2 border-b text-sm">
-                    📦 Đơn hàng chưa xếp ({manualUnassigned.length})
+                    <Package className="w-4 h-4 inline mr-1" /> Đơn hàng chưa xếp ({manualUnassigned.length})
                   </h3>
                   {/* Sort tools */}
                   <div className="flex flex-wrap gap-1 mb-3 sticky top-8 bg-white pb-2 z-10">
                     {([
                       ['default', 'Mặc định'],
-                      ['region', '🗺️ Khu vực'],
+                      ['region', 'Khu vực'],
                       ['weight-desc', '⬇️ Nặng trước'],
                       ['weight-asc', '⬆️ Nhẹ trước'],
-                      ['urgent', '⚡ Gấp trước'],
-                      ['customer', '👤 Khách hàng'],
+                      ['urgent', ' Gấp trước'],
+                      ['customer', 'Khách hàng'],
                     ] as const).map(([key, label]) => (
                       <button key={key} onClick={() => setPoolSort(key as typeof poolSort)}
                         className={`px-2 py-1 rounded text-xs font-medium transition ${poolSort === key ? 'bg-[#F68634] text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}>
@@ -2007,7 +2015,7 @@ export default function PlanningPage() {
                   </div>
                   {manualUnassigned.length === 0 ? (
                     <div className="text-center py-8 text-gray-400 text-sm">
-                      ✅ Tất cả đơn đã được xếp vào xe
+                      Tất cả đơn đã được xếp vào xe
                     </div>
                   ) : (
                     <div className="space-y-2">
@@ -2019,7 +2027,7 @@ export default function PlanningPage() {
                           <React.Fragment key={s.id}>
                             {showRegionHeader && (
                               <div className="bg-blue-50 text-blue-700 text-xs font-semibold px-2 py-1.5 rounded mt-1">
-                                🗺️ {extractDistrict(s.customer_address)}
+                                <MapPin className="w-3.5 h-3.5 inline mr-0.5" /> {extractDistrict(s.customer_address)}
                               </div>
                             )}
                             <div
@@ -2036,9 +2044,9 @@ export default function PlanningPage() {
                               </div>
                               <div className="text-xs text-gray-500 truncate mt-1">{s.customer_name}</div>
                               {poolSort === 'region' && s.customer_address && (
-                                <div className="text-xs text-blue-500 truncate mt-0.5">📍 {s.customer_address}</div>
+                                <div className="text-xs text-blue-500 truncate mt-0.5"><MapPin className="w-3.5 h-3.5 inline mr-0.5" /> {s.customer_address}</div>
                               )}
-                              {s.is_urgent && <span className="text-xs text-red-600 font-semibold">⚡ Gấp</span>}
+                              {s.is_urgent && <span className="text-xs text-red-600 font-semibold"> Gấp</span>}
                             </div>
                           </React.Fragment>
                         )
@@ -2072,7 +2080,7 @@ export default function PlanningPage() {
                       >
                         <div className="flex items-center justify-between mb-3">
                           <h4 className="font-semibold text-sm">
-                            🚛 {vehicle?.plate_number || vehicleId.slice(0, 8)}
+                            <Truck className="w-3.5 h-3.5 inline mr-0.5" /> {vehicle?.plate_number || vehicleId.slice(0, 8)}
                             {vehicle?.vehicle_type && <span className="text-gray-400 ml-1">({vehicle.vehicle_type})</span>}
                             {overloaded && <span className="ml-2 text-xs bg-red-100 text-red-600 px-2 py-0.5 rounded-full">⚠ Quá tải!</span>}
                           </h4>
@@ -2117,7 +2125,7 @@ export default function PlanningPage() {
                                     className="w-5 h-5 text-xs bg-gray-200 rounded hover:bg-gray-300 disabled:opacity-30">↓</button>
                                   <button title="Bỏ ra"
                                     onClick={() => handleManualRemove(vehicleId, s.id)}
-                                    className="w-5 h-5 text-xs bg-red-100 text-red-600 rounded hover:bg-red-200">✕</button>
+                                    className="w-5 h-5 text-xs bg-red-100 text-red-600 rounded hover:bg-red-200"><XCircle className="w-4 h-4" /></button>
                                 </div>
                               </div>
                             ))}
@@ -2134,10 +2142,10 @@ export default function PlanningPage() {
                 <div className="bg-green-50 border border-green-200 rounded-xl p-4 text-sm">
                   <div className="flex items-center justify-between">
                     <span className="font-semibold text-green-800">
-                      ✅ Đã xếp {Object.values(manualAssign).flat().length}/{activeShipments.length} đơn vào {Object.values(manualAssign).filter(ids => ids.length > 0).length} chuyến
+                      Đã xếp {Object.values(manualAssign).flat().length}/{activeShipments.length} đơn vào {Object.values(manualAssign).filter(ids => ids.length > 0).length} chuyến
                     </span>
                     {manualUnassigned.length > 0 && (
-                      <span className="text-amber-700 text-xs">⚠️ Còn {manualUnassigned.length} đơn chưa xếp</span>
+                      <span className="text-amber-700 text-xs"><AlertTriangle className="w-4 h-4 inline mr-1" /> Còn {manualUnassigned.length} đơn chưa xếp</span>
                     )}
                   </div>
                 </div>
@@ -2150,7 +2158,7 @@ export default function PlanningPage() {
           {/* Pre-run info */}
           {!vrpResult && !running && (
             <div className="bg-white rounded-xl shadow-sm p-6 text-center">
-              <div className="text-5xl mb-4">{costReadiness?.ready ? '💰' : '🗺️'}</div>
+              <div className="flex items-center justify-center mb-4">{costReadiness?.ready ? <CheckCircle2 className="w-12 h-12 text-green-500" /> : <Map className="w-12 h-12 text-gray-400" />}</div>
               <h2 className="text-xl font-bold text-gray-800 mb-2">
                 {costReadiness?.ready ? 'Sẵn sàng tối ưu chi phí vận chuyển' : 'Sẵn sàng tối ưu tuyến đường'}
               </h2>
@@ -2219,7 +2227,7 @@ export default function PlanningPage() {
                 {/* Optimization Mode Selector */}
                 <div className="mt-3 bg-orange-50 border border-orange-200 rounded-lg p-3">
                   <div className="flex items-center gap-2 mb-2">
-                    <span className="text-sm">🎯</span>
+                    <Target className="w-4 h-4 text-amber-500" />
                     <span className="text-xs font-semibold text-orange-800">Phương thức tối ưu</span>
                   </div>
                   <div className="grid grid-cols-2 gap-2">
@@ -2230,7 +2238,7 @@ export default function PlanningPage() {
                           ? 'border-green-500 bg-green-50 ring-2 ring-green-200'
                           : 'border-gray-200 bg-white hover:border-green-300'
                       }`}>
-                      <div className="text-xs font-bold text-green-700">💰 Tối ưu chi phí</div>
+                      <div className="text-xs font-bold text-green-700">Tối ưu chi phí</div>
                       <div className="text-[10px] text-gray-500 mt-0.5">Tránh BOT · Tối ưu xăng + phí</div>
                     </button>
                     <button type="button"
@@ -2240,7 +2248,7 @@ export default function PlanningPage() {
                           ? 'border-blue-500 bg-blue-50 ring-2 ring-blue-200'
                           : 'border-gray-200 bg-white hover:border-blue-300'
                       }`}>
-                      <div className="text-xs font-bold text-blue-700">⚡ Giao nhanh</div>
+                      <div className="text-xs font-bold text-blue-700"> Giao nhanh</div>
                       <div className="text-[10px] text-gray-500 mt-0.5">Đường nhanh nhất · Có thể qua BOT</div>
                     </button>
                   </div>
@@ -2251,7 +2259,7 @@ export default function PlanningPage() {
                   const effectiveVehicles = Math.min(selectedVehicleIds.size, availDrivers > 0 ? availDrivers : selectedVehicleIds.size)
                   return selectedVehicleIds.size > availDrivers && availDrivers > 0 ? (
                     <div className="mt-3 bg-amber-50 border border-amber-200 rounded-lg p-2 text-xs text-amber-700">
-                      ⚠️ Đã chọn {selectedVehicleIds.size} xe nhưng chỉ có {availDrivers} tài xế sẵn sàng.
+                      Lưu ý: Đã chọn {selectedVehicleIds.size} xe nhưng chỉ có {availDrivers} tài xế sẵn sàng.
                       Hệ thống sẽ chỉ sử dụng <strong>{effectiveVehicles} xe</strong> (= số tài xế khả dụng).
                     </div>
                   ) : null
@@ -2269,7 +2277,7 @@ export default function PlanningPage() {
                     <h3 className={`font-semibold text-sm flex items-center gap-1.5 ${
                       costReadiness?.ready ? 'text-green-800' : 'text-amber-800'
                     }`}>
-                      {costReadiness?.ready ? '✅ Dữ liệu chi phí đầy đủ' : '⚠️ Chưa có dữ liệu chi phí'}
+                      {costReadiness?.ready ? 'Dữ liệu chi phí đầy đủ' : 'Chưa có dữ liệu chi phí'}
                     </h3>
                     <p className={`text-[11px] mt-0.5 ${costReadiness?.ready ? 'text-green-600' : 'text-amber-600'}`}>
                       {costReadiness?.ready
@@ -2279,7 +2287,7 @@ export default function PlanningPage() {
                     </p>
                   </div>
                   <span className={`text-2xl ${costReadiness?.ready ? '' : 'opacity-50'}`}>
-                    {costReadiness?.ready ? '💰' : '📏'}
+                    {costReadiness?.ready ? <CheckCircle2 className='w-5 h-5 text-green-500' /> : <Scale className='w-5 h-5 text-gray-400' />}
                   </span>
                 </div>
                 {costReadiness && (
@@ -2288,13 +2296,13 @@ export default function PlanningPage() {
                       🚏 {costReadiness.toll_station_count} trạm BOT
                     </span>
                     <span className={`px-2 py-0.5 rounded-full ${costReadiness.expressway_count > 0 ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-400'}`}>
-                      🛣️ {costReadiness.expressway_count} tuyến thu phí
+                      [CT] {costReadiness.expressway_count} tuyến thu phí
                     </span>
                     <span className={`px-2 py-0.5 rounded-full ${costReadiness.vehicle_default_count > 0 ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-400'}`}>
-                      🚛 {costReadiness.vehicle_default_count} loại xe
+                      <Truck className="w-3.5 h-3.5 inline mr-0.5" /> {costReadiness.vehicle_default_count} loại xe
                     </span>
                     <span className={`px-2 py-0.5 rounded-full ${costReadiness.driver_rate_count > 0 ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-400'}`}>
-                      👤 {costReadiness.driver_rate_count} bảng lương
+                      {costReadiness.driver_rate_count} bảng lương
                     </span>
                     {!costReadiness.ready && (
                       <a href="/dashboard/settings/transport-costs" className="px-2 py-0.5 rounded-full bg-blue-100 text-blue-700 hover:bg-blue-200 transition">
@@ -2325,12 +2333,12 @@ export default function PlanningPage() {
               <div className="flex gap-3 items-center justify-center">
                 <button onClick={runVRP}
                   className="px-8 py-3 bg-brand-500 text-white rounded-xl hover:bg-brand-600 transition font-medium text-lg shadow-lg shadow-brand-200">
-                  {optimizeFor === 'cost' ? '💰 Tạo kế hoạch tối ưu chi phí' : '⚡ Tạo kế hoạch giao nhanh'}
+                  {optimizeFor === 'cost' ? 'Tạo kế hoạch tối ưu chi phí' : 'Tạo kế hoạch giao nhanh'}
                 </button>
                 {costReadiness?.ready && (
                   <button onClick={compareStrategies}
                     className="px-6 py-3 bg-white text-orange-600 border-2 border-orange-300 rounded-xl hover:bg-orange-50 transition font-medium text-sm shadow">
-                    ⚖️ So sánh 2 phương án
+                    <Scale className="w-4 h-4 inline mr-1" /> So sánh 2 phương án
                   </button>
                 )}
               </div>
@@ -2348,7 +2356,7 @@ export default function PlanningPage() {
               <div className="text-center mb-6">
                 <div className="text-4xl mb-3">⚙️</div>
                 <h2 className="text-xl font-bold text-gray-800">
-                  {optimizeFor === 'cost' ? '💰 Đang tối ưu chi phí vận chuyển...' : '⚡ Đang tính toán giao nhanh nhất...'}
+                  {optimizeFor === 'cost' ? 'Đang tối ưu chi phí vận chuyển...' : 'Đang tính toán giao nhanh nhất...'}
                 </h2>
                 <p className="text-sm text-gray-400">{activeShipments.length} shipments · {selectedVehicles.length} xe</p>
               </div>
@@ -2360,7 +2368,7 @@ export default function PlanningPage() {
                     <div key={s.key} className={`flex items-center gap-3 px-4 py-2 rounded-lg text-sm transition-all ${
                       done ? 'text-gray-400' : active ? 'bg-amber-50 text-amber-800 font-medium' : 'text-gray-300'
                     }`}>
-                      <span className="w-6 text-center">{done ? '✅' : active ? s.icon : '○'}</span>
+                      <span className="w-6 text-center">{done ? <Check className='w-4 h-4' /> : active ? <span className='text-xs'>{s.icon}</span> : '○'}</span>
                       <span>{s.label}</span>
                       {active && singleProgress.detail && <span className="text-xs text-amber-600 ml-auto">{singleProgress.detail}</span>}
                     </div>
@@ -2381,13 +2389,13 @@ export default function PlanningPage() {
           {comparing && (
             <div className="bg-white rounded-xl shadow-sm p-6">
               <div className="text-center mb-5">
-                <h2 className="text-xl font-bold text-gray-800">⚖️ Đang so sánh 2 phương án song song...</h2>
+                <h2 className="text-xl font-bold text-gray-800">Đang so sánh 2 phương án song song...</h2>
                 <p className="text-sm text-gray-400 mt-1">{activeShipments.length} đơn × 2 lần giải — VRP chạy đồng thời</p>
               </div>
               <div className="grid grid-cols-2 gap-4">
                 {([
-                  { key: 'cost'     as const, icon: '💰', label: 'Tối ưu chi phí', border: 'border-green-200',  activeCls: 'bg-green-50 text-green-800',  bar: 'bg-green-500' },
-                  { key: 'time'     as const, icon: '⚡', label: 'Giao nhanh',      border: 'border-blue-200',   activeCls: 'bg-blue-50 text-blue-800',    bar: 'bg-blue-500' },
+                  { key: 'cost'     as const, icon: '$', label: 'Tối ưu chi phí', border: 'border-green-200',  activeCls: 'bg-green-50 text-green-800',  bar: 'bg-green-500' },
+                  { key: 'time'     as const, icon: '', label: 'Giao nhanh',      border: 'border-blue-200',   activeCls: 'bg-blue-50 text-blue-800',    bar: 'bg-blue-500' },
                 ]).map(mode => {
                   const prog = compareProgress[mode.key]
                   const isDone = prog.stage === 'done'
@@ -2396,7 +2404,7 @@ export default function PlanningPage() {
                       <div className="font-semibold text-sm mb-3 flex items-center gap-2">
                         <span>{mode.icon}</span>
                         <span>{mode.label}</span>
-                        {isDone && <span className="ml-auto text-green-600 text-xs">✅ Xong</span>}
+                        {isDone && <span className="ml-auto text-green-600 text-xs">Xong</span>}
                       </div>
                       <div className="space-y-1.5">
                         {VRP_STAGES.map(s => {
@@ -2406,7 +2414,7 @@ export default function PlanningPage() {
                             <div key={s.key} className={`flex items-center gap-2 px-2 py-1 rounded text-xs ${
                               done ? 'text-gray-400' : active ? `${mode.activeCls} font-medium` : 'text-gray-300'
                             }`}>
-                              <span>{done ? '✅' : active ? s.icon : '○'}</span>
+                              <span>{done ? <Check className='w-4 h-4' /> : active ? <span className='text-xs'>{s.icon}</span> : '○'}</span>
                               <span>{s.label}</span>
                             </div>
                           )
@@ -2434,7 +2442,7 @@ export default function PlanningPage() {
           {compareResult && !comparing && (
             <div className="bg-white rounded-xl shadow-sm p-6 mb-6">
               <div className="flex items-center justify-between mb-4">
-                <h2 className="text-lg font-bold text-gray-800">⚖️ So sánh 2 phương án tối ưu</h2>
+                <h2 className="text-lg font-bold text-gray-800"><Scale className="w-4 h-4 inline mr-1" /> So sánh 2 phương án tối ưu</h2>
                 <button onClick={() => setCompareResult(null)}
                   className="text-gray-400 hover:text-gray-600 text-sm">✕ Đóng</button>
               </div>
@@ -2444,8 +2452,8 @@ export default function PlanningPage() {
                   time: 'Ưu tiên đường nhanh nhất, cân bằng thời gian các xe',
                 }
                 const modes = [
-                  { key: 'cost' as const, label: '💰 Tối ưu chi phí', color: 'green', result: compareResult.cost },
-                  { key: 'time' as const, label: '⚡ Giao nhanh', color: 'blue', result: compareResult.time },
+                  { key: 'cost' as const, label: 'Tối ưu chi phí', color: 'green', result: compareResult.cost },
+                  { key: 'time' as const, label: ' Giao nhanh', color: 'blue', result: compareResult.time },
                 ]
                 const validModes = modes.filter(m => m.result?.summary)
                 if (validModes.length === 0) return <p className="text-red-500">Không thể so sánh — tất cả phương án đều lỗi</p>
@@ -2475,17 +2483,17 @@ export default function PlanningPage() {
                             <div className="space-y-2 text-sm">
                               <div className="flex justify-between"><span className="text-gray-600">Đơn giao</span><span className="font-bold">{s.total_shipments_assigned}/{s.total_shipments_assigned + (s.total_unassigned || 0)}</span></div>
                               {(s.total_unassigned || 0) > 0 && (
-                                <div className="flex justify-between"><span className="text-red-500">⚠️ Chưa giao</span><span className="font-bold text-red-600">{s.total_unassigned}</span></div>
+                                <div className="flex justify-between"><span className="text-red-500">Chưa giao</span><span className="font-bold text-red-600">{s.total_unassigned}</span></div>
                               )}
                               <div className="flex justify-between"><span className="text-gray-600">Khối lượng</span><span>{((s.total_weight_kg || 0) / 1000).toFixed(1)} tấn</span></div>
                               <div className="flex justify-between"><span className="text-gray-600">Số chuyến</span><span>{s.total_trips}</span></div>
                               <div className="flex justify-between"><span className="text-gray-600">TB tải trọng</span><span>{(s.avg_capacity_util_pct || 0).toFixed(0)}%</span></div>
-                              <div className="flex justify-between border-t pt-1"><span className="text-gray-600">Tổng chi phí</span><span className={`font-bold ${isBestCost ? 'text-green-600' : ''}`}>{((s.total_cost_vnd || 0) / 1_000_000).toFixed(1)}M đ {isBestCost ? '⭐' : ''}</span></div>
+                              <div className="flex justify-between border-t pt-1"><span className="text-gray-600">Tổng chi phí</span><span className={`font-bold ${isBestCost ? 'text-green-600' : ''}`}>{((s.total_cost_vnd || 0) / 1_000_000).toFixed(1)}M đ {isBestCost ? '' : ''}</span></div>
                               <div className="flex justify-between"><span className="text-gray-600">┗ Xăng/dầu</span><span className="text-orange-600">{((s.total_fuel_cost_vnd || 0) / 1_000_000).toFixed(1)}M</span></div>
                               <div className="flex justify-between"><span className="text-gray-600">┗ Cầu đường</span><span className="text-red-600">{((s.total_toll_cost_vnd || 0) / 1_000_000).toFixed(1)}M</span></div>
-                              <div className="flex justify-between border-t pt-1"><span className="text-gray-600">Tổng thời gian</span><span className={`font-bold ${isBestTime ? 'text-blue-600' : ''}`}>{Math.round((s.total_duration_min || 0) / 60)}h{(s.total_duration_min || 0) % 60}p {isBestTime ? '⭐' : ''}</span></div>
-                              <div className="flex justify-between"><span className="text-gray-600">Chuyến dài nhất</span><span className={`${isBestMaxTrip ? 'text-blue-600 font-bold' : ''}`}>{Math.floor(maxTrip / 60)}h{maxTrip % 60}p {isBestMaxTrip ? '⭐' : ''}</span></div>
-                              <div className="flex justify-between"><span className="text-gray-600">Quãng đường</span><span className={isBestDist ? 'text-purple-600 font-bold' : ''}>{(s.total_distance_km || 0).toFixed(0)} km {isBestDist ? '⭐' : ''}</span></div>
+                              <div className="flex justify-between border-t pt-1"><span className="text-gray-600">Tổng thời gian</span><span className={`font-bold ${isBestTime ? 'text-blue-600' : ''}`}>{Math.round((s.total_duration_min || 0) / 60)}h{(s.total_duration_min || 0) % 60}p {isBestTime ? '' : ''}</span></div>
+                              <div className="flex justify-between"><span className="text-gray-600">Chuyến dài nhất</span><span className={`${isBestMaxTrip ? 'text-blue-600 font-bold' : ''}`}>{Math.floor(maxTrip / 60)}h{maxTrip % 60}p {isBestMaxTrip ? '' : ''}</span></div>
+                              <div className="flex justify-between"><span className="text-gray-600">Quãng đường</span><span className={isBestDist ? 'text-purple-600 font-bold' : ''}>{(s.total_distance_km || 0).toFixed(0)} km {isBestDist ? '' : ''}</span></div>
                               <div className="flex justify-between"><span className="text-gray-600">VND/tấn</span><span>{((s.avg_cost_per_ton_vnd || 0) / 1000).toFixed(0)}K</span></div>
                             </div>
                           </div>
@@ -2500,7 +2508,7 @@ export default function PlanningPage() {
                           setOptimizeFor(m.key)
                           setCompareResult(null)
                         }} className={`px-5 py-2 ${btnColorMap[m.color]} text-white rounded-lg text-sm font-medium`}>
-                          ✅ Chọn {m.label}
+                          Chọn {m.label}
                         </button>
                       ))}
                     </div>
@@ -2513,10 +2521,10 @@ export default function PlanningPage() {
           {/* VRP Failed */}
           {vrpResult && (!vrpResult.trips || vrpResult.trips.length === 0) && !running && (
             <div className="bg-red-50 border border-red-200 rounded-xl p-5 text-center">
-              <p className="text-red-700 font-medium text-lg mb-2">❌ Không tạo được kế hoạch</p>
+              <p className="text-red-700 font-medium text-lg mb-2">Không tạo được kế hoạch</p>
               <p className="text-red-600 text-sm mb-4">{vrpResult.error || 'VRP solver không tìm được phương án phù hợp. Hãy thử điều chỉnh xe hoặc đơn hàng.'}</p>
               {vrpResult.distance_source === 'mock' && (
-                <p className="text-amber-600 text-xs mb-3">⚠️ VRP solver không khả dụng — đang dùng kết quả mock</p>
+                <p className="text-amber-600 text-xs mb-3">VRP solver không khả dụng — đang dùng kết quả mock</p>
               )}
               <button onClick={() => { setVrpResult(null); setJobId(''); }}
                 className="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 text-sm">
@@ -2550,7 +2558,7 @@ export default function PlanningPage() {
               {/* Summary KPI */}
               <div className="bg-gradient-to-r from-green-50 to-emerald-50 border border-green-200 rounded-xl p-5">
                 <div className="flex items-center justify-between mb-4">
-                  <h2 className="font-bold text-green-800 text-lg">✅ Kết quả tối ưu</h2>
+                  <h2 className="font-bold text-green-800 text-lg">Kết quả tối ưu</h2>
                   <span className="text-xs bg-green-200 text-green-800 px-2 py-1 rounded-full">
                     Giải trong {vrpResult.summary?.solve_time_ms || vrpResult.solve_time_ms}ms
                   </span>
@@ -2564,8 +2572,8 @@ export default function PlanningPage() {
                       <span className="font-bold">{i+1}</span> {c.icon} {c.label}
                     </span>
                   ))}
-                  {costReadiness?.ready && <span className="inline-flex items-center gap-1 px-2 py-1 rounded-full bg-green-50 border border-green-200 text-xs text-green-700">💰 Tối ưu chi phí (fuel+toll)</span>}
-                  <span className="inline-flex items-center gap-1 px-2 py-1 rounded-full bg-blue-50 border border-blue-200 text-xs text-blue-700">🔄 Chuyến về kho</span>
+                  {costReadiness?.ready && <span className="inline-flex items-center gap-1 px-2 py-1 rounded-full bg-green-50 border border-green-200 text-xs text-green-700">Tối ưu chi phí (fuel+toll)</span>}
+                  <span className="inline-flex items-center gap-1 px-2 py-1 rounded-full bg-blue-50 border border-blue-200 text-xs text-blue-700">Chuyến về kho</span>
                   {criteriaOrder.find(c => c.key === 'time_limit' && c.enabled) && (
                     <span className="inline-flex items-center gap-1 px-2 py-1 rounded-full bg-green-50 border border-green-200 text-xs text-green-700">⏱ Tối đa {maxTripHours}h/chuyến</span>
                   )}
@@ -2579,11 +2587,11 @@ export default function PlanningPage() {
                     ) : (
                       <div className="text-xl font-bold text-gray-400">Chưa tính</div>
                     )}
-                    <div className="text-xs text-green-600 font-medium">💰 Tổng chi phí (VND)</div>
+                    <div className="text-xs text-green-600 font-medium">Tổng chi phí (VND)</div>
                   </div>
                   <div className="bg-orange-50 rounded-lg p-3 text-center shadow-sm border border-orange-200">
                     <div className="text-xl font-bold text-orange-700">{(vrpResult.summary?.total_fuel_cost_vnd || 0) > 0 ? `${((vrpResult.summary?.total_fuel_cost_vnd || 0) / 1000000).toFixed(1)}M` : '—'}</div>
-                    <div className="text-xs text-orange-600">⛽ Xăng/dầu</div>
+                    <div className="text-xs text-orange-600">Xăng/dầu</div>
                   </div>
                   <div className="bg-red-50 rounded-lg p-3 text-center shadow-sm border border-red-200">
                     <div className="text-xl font-bold text-red-700">{(vrpResult.summary?.total_toll_cost_vnd || 0) > 0 ? `${((vrpResult.summary?.total_toll_cost_vnd || 0) / 1000000).toFixed(1)}M` : '—'}</div>
@@ -2591,19 +2599,19 @@ export default function PlanningPage() {
                   </div>
                   <div className="bg-violet-50 rounded-lg p-3 text-center shadow-sm border border-violet-200">
                     <div className="text-xl font-bold text-violet-700">{(vrpResult.summary?.total_driver_cost_vnd || 0) > 0 ? `${((vrpResult.summary?.total_driver_cost_vnd || 0) / 1000000).toFixed(1)}M` : '—'}</div>
-                    <div className="text-xs text-violet-600">👤 Tài xế</div>
+                    <div className="text-xs text-violet-600">Tài xế</div>
                   </div>
                   <div className="bg-blue-50 rounded-lg p-3 text-center shadow-sm border border-blue-200">
                     <div className="text-xl font-bold text-blue-700">{(vrpResult.summary?.avg_cost_per_ton_vnd || 0) > 0 ? `${((vrpResult.summary?.avg_cost_per_ton_vnd || 0) / 1000).toFixed(0)}K` : '—'}</div>
-                    <div className="text-xs text-blue-600">📊 VND/tấn</div>
+                    <div className="text-xs text-blue-600">VND/tấn</div>
                   </div>
                   <div className="bg-cyan-50 rounded-lg p-3 text-center shadow-sm border border-cyan-200">
                     <div className="text-xl font-bold text-cyan-700">{(vrpResult.summary?.avg_cost_per_km_vnd || 0) > 0 ? (vrpResult.summary?.avg_cost_per_km_vnd || 0).toFixed(0) : '—'}</div>
-                    <div className="text-xs text-cyan-600">🛣️ VND/km</div>
+                    <div className="text-xs text-cyan-600">VND/km</div>
                   </div>
                   <div className="bg-amber-50 rounded-lg p-3 text-center shadow-sm border border-amber-200">
                     <div className="text-xl font-bold text-amber-700">{(vrpResult.summary?.avg_cost_per_shipment_vnd || 0) > 0 ? `${((vrpResult.summary?.avg_cost_per_shipment_vnd || 0) / 1000).toFixed(0)}K` : '—'}</div>
-                    <div className="text-xs text-amber-600">📦 VND/đơn</div>
+                    <div className="text-xs text-amber-600">VND/đơn</div>
                   </div>
                 </div>
 
@@ -2623,7 +2631,7 @@ export default function PlanningPage() {
                       <button onClick={() => {
                         const el = document.querySelector('[data-compare-btn]') as HTMLButtonElement | null
                         if (el) el.click()
-                      }} className="underline font-medium ml-1">⚖️ So sánh 2 phương án</button>
+                      }} className="underline font-medium ml-1"><Scale className="w-4 h-4 inline mr-1" /> So sánh 2 phương án</button>
                     </div>
                   )
                 })()}
@@ -2682,7 +2690,7 @@ export default function PlanningPage() {
                           {(trip.total_cost_vnd ?? 0) > 0 && (
                             <span className="w-16 text-right text-green-600 font-medium">{((trip.total_cost_vnd ?? 0)/1000).toFixed(0)}K</span>
                           )}
-                          <span className="text-blue-500 hover:text-blue-700">🗺️ ▸</span>
+                          <span className="text-blue-500 hover:text-blue-700">▸</span>
                         </div>
                       )
                     })}
@@ -2692,7 +2700,7 @@ export default function PlanningPage() {
                 {/* VRP Quality Assessment */}
                 <details className="mt-4 bg-white rounded-xl shadow-sm border border-blue-200" open>
                   <summary className="text-sm font-bold text-blue-700 bg-blue-50 rounded-t-xl px-4 py-3 cursor-pointer hover:bg-blue-100 transition list-none flex items-center gap-2">
-                    <span>📊</span> Đánh giá chất lượng VRP
+                    <BarChart2 className="w-4 h-4 inline mr-1" /> Đánh giá chất lượng VRP
                   </summary>
                   <div className="p-4 space-y-3 text-sm">
                     {(() => {
@@ -2806,7 +2814,7 @@ export default function PlanningPage() {
                           const tollPct = vrpResult.summary?.toll_cost_ratio_pct || 0
                           return (
                             <div className="mt-3">
-                              <div className="text-xs font-semibold text-gray-600 mb-2">💰 Phân tích chi phí</div>
+                              <div className="text-xs font-semibold text-gray-600 mb-2">Phân tích chi phí</div>
                               <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3">
                                 <div className="bg-green-50 rounded-lg p-2.5 border border-green-200">
                                   <div className="text-xs text-gray-500 mb-1">Tổng chi phí</div>
@@ -2848,7 +2856,7 @@ export default function PlanningPage() {
                           <div className="flex gap-3">
                             {(vrpResult.summary?.consolidated_stops || 0) > 0 && (
                               <div className="flex items-center gap-2 bg-purple-50 border border-purple-200 rounded-lg px-3 py-2">
-                                <span className="text-lg">📦</span>
+                                <Package className="w-5 h-5 text-gray-400" />
                                 <div>
                                   <div className="text-xs font-semibold text-purple-700">Ghép đơn: {vrpResult.summary.consolidated_stops} điểm</div>
                                   <div className="text-[10px] text-purple-500">Cùng NPP nhiều đơn → gộp 1 điểm giao</div>
@@ -2857,7 +2865,7 @@ export default function PlanningPage() {
                             )}
                             {(vrpResult.summary?.split_deliveries || 0) > 0 && (
                               <div className="flex items-center gap-2 bg-orange-50 border border-orange-200 rounded-lg px-3 py-2">
-                                <span className="text-lg">✂️</span>
+                                <span className="text-sm font-bold text-orange-600">✄</span>
                                 <div>
                                   <div className="text-xs font-semibold text-orange-700">Tách đơn: {vrpResult.summary.split_deliveries} lần tách</div>
                                   <div className="text-[10px] text-orange-500">Đơn quá nặng → chia giao nhiều xe</div>
@@ -2904,7 +2912,7 @@ export default function PlanningPage() {
                         {/* Improvement suggestions */}
                         {(overloadedTrips > 0 || underutilTrips > 2 || totalUnassigned > 0 || avgUtil < 50 || tripsOver8h > 0 || maxDistTrip > 300) && (
                           <div className="bg-amber-50 border border-amber-200 rounded-lg p-3">
-                            <div className="text-xs font-semibold text-amber-800 mb-1.5">💡 Gợi ý cải thiện</div>
+                            <div className="text-xs font-semibold text-amber-800 mb-1.5"> Gợi ý cải thiện</div>
                             <ul className="text-xs text-amber-700 space-y-1">
                               {overloadedTrips > 0 && <li>• {overloadedTrips} chuyến quá tải — thêm xe lớn hơn hoặc giảm đơn nặng</li>}
                               {totalUnassigned > 0 && <li>• {totalUnassigned} đơn không xếp được — cần thêm xe hoặc chia nhỏ đơn</li>}
@@ -2924,7 +2932,7 @@ export default function PlanningPage() {
                   <div className="mt-3 bg-red-50 border border-red-200 rounded-xl p-4">
                     <div className="flex items-center justify-between mb-2">
                       <div className="text-sm font-bold text-red-700">
-                        ⚠️ Không xếp được: {vrpResult.unassigned_shipments.length} đơn hàng
+                        <AlertTriangle className="w-4 h-4 inline mr-1" /> Không xếp được: {vrpResult.unassigned_shipments.length} đơn hàng
                       </div>
                     </div>
                     {/* Explainer — why are there unassigned shipments? */}
@@ -2959,15 +2967,15 @@ export default function PlanningPage() {
                     <div className="flex flex-wrap gap-2 mb-3">
                       <button onClick={() => { setStep(1); }}
                         className="px-3 py-1.5 bg-blue-100 text-blue-700 rounded-lg text-xs font-medium hover:bg-blue-200 transition">
-                        🚛 Quay bước 2 — Thêm xe
+                        <Truck className="w-4 h-4 inline mr-1" /> Quay bước 2 — Thêm xe
                       </button>
                       <button onClick={() => { setStep(2); }}
                         className="px-3 py-1.5 bg-amber-100 text-amber-700 rounded-lg text-xs font-medium hover:bg-amber-200 transition">
-                        📦 Quay bước 3 — Bớt đơn hàng
+                        <Package className="w-4 h-4 inline mr-1" /> Quay bước 3 — Bớt đơn hàng
                       </button>
                       <button onClick={() => { setVrpResult(null); setJobId(''); setSavedJobId('') }}
                         className="px-3 py-1.5 bg-green-100 text-green-700 rounded-lg text-xs font-medium hover:bg-green-200 transition">
-                        🔄 Tối ưu lại
+                        <RefreshCw className="w-4 h-4 inline mr-1" /> Tối ưu lại
                       </button>
                     </div>
                     <details className="text-xs">
@@ -2995,7 +3003,7 @@ export default function PlanningPage() {
 
               {/* Adjustment guide */}
               <div className="bg-blue-50 border border-blue-200 rounded-xl p-4">
-                <h3 className="font-semibold text-blue-800 text-sm mb-2">🔧 Hướng dẫn điều chỉnh</h3>
+                <h3 className="font-semibold text-blue-800 text-sm mb-2"> Hướng dẫn điều chỉnh</h3>
                 <ul className="text-xs text-blue-700 space-y-1">
                   <li>• <strong>Kéo thả</strong> điểm giao giữa các chuyến xe để di chuyển shipment</li>
                   <li>• Dùng nút <strong>↑ ↓</strong> để thay đổi thứ tự giao trong chuyến</li>
@@ -3008,10 +3016,10 @@ export default function PlanningPage() {
               {/* ─── Save Scenario + Scenario History ─── */}
               <div className="bg-white rounded-xl shadow-sm border p-4">
                 <div className="flex items-center justify-between mb-3">
-                  <h3 className="font-semibold text-gray-800 text-sm">💾 Lưu & So sánh phương án</h3>
+                  <h3 className="font-semibold text-gray-800 text-sm"><Save className="w-4 h-4 inline mr-1" /> Lưu & So sánh phương án</h3>
                   <button onClick={() => setShowScenarios(!showScenarios)}
                     className="text-xs text-blue-600 hover:text-blue-800">
-                    {showScenarios ? 'Ẩn lịch sử' : `📋 Xem lịch sử (${savedScenarios.length})`}
+                    {showScenarios ? 'Ẩn lịch sử' : `Xem lịch sử (${savedScenarios.length})`}
                   </button>
                 </div>
 
@@ -3024,7 +3032,7 @@ export default function PlanningPage() {
                     className={`px-4 py-2 rounded-lg disabled:opacity-50 text-sm font-medium whitespace-nowrap transition ${
                       savedJobId === jobId ? 'bg-green-100 text-green-700 border border-green-300' : 'bg-brand-500 text-white hover:bg-brand-600'
                     }`}>
-                    {savingScenario ? '⏳ Đang lưu...' : savedJobId === jobId ? '✅ Đã lưu' : '💾 Lưu phương án'}
+                    {savingScenario ? 'Đang lưu...' : savedJobId === jobId ? 'Đã lưu' : '<Save className="w-4 h-4 inline mr-1" /> Lưu phương án'}
                   </button>
                 </div>
 
@@ -3092,7 +3100,7 @@ export default function PlanningPage() {
                     {/* Pareto Chart (2-axis: Cost vs Service Level) */}
                     {savedScenarios.length >= 2 && savedScenarios.some(s => s.total_cost_vnd > 0) && (
                       <div className="mt-4 bg-gray-50 rounded-xl p-4">
-                        <h4 className="text-xs font-semibold text-gray-600 mb-3">📊 Biểu đồ Pareto: Chi phí ↔ Mức phục vụ</h4>
+                        <h4 className="text-xs font-semibold text-gray-600 mb-3">Biểu đồ Pareto: Chi phí ↔ Mức phục vụ</h4>
                         <div className="relative h-48 border border-gray-200 bg-white rounded-lg p-2">
                           {/* Y axis label */}
                           <div className="absolute -left-1 top-1/2 -translate-y-1/2 -rotate-90 text-[10px] text-gray-400 whitespace-nowrap">
@@ -3155,7 +3163,7 @@ export default function PlanningPage() {
                       const bestService = pareto.reduce((a, b) => a.service_level_pct > b.service_level_pct ? a : b)
                       return (
                         <div className="mt-3 bg-blue-50 border border-blue-200 rounded-lg p-3 text-xs text-blue-800">
-                          <strong>💡 Gợi ý:</strong>
+                          <strong> Gợi ý:</strong>
                           {cheapest.id === bestService.id
                             ? <> Phương án &quot;{cheapest.scenario_name}&quot; tối ưu nhất cả chi phí lẫn mức phục vụ.</>
                             : <> Nếu ưu tiên <strong>tiết kiệm</strong> → &quot;{cheapest.scenario_name}&quot; ({(cheapest.total_cost_vnd / 1000000).toFixed(1)}M).
@@ -3199,15 +3207,15 @@ export default function PlanningPage() {
                         {trip.total_duration_min > 0 && <span>~{trip.total_duration_min} phút</span>}
                         {(trip.total_cost_vnd ?? 0) > 0 && (
                           <span className="inline-flex items-center gap-1 text-green-700 font-medium bg-green-50 px-2 py-0.5 rounded-full border border-green-200">
-                            💰 {((trip.total_cost_vnd ?? 0) / 1000).toFixed(0)}K
+                            {((trip.total_cost_vnd ?? 0) / 1000).toFixed(0)}K
                             <span className="text-[10px] text-green-500 font-normal">
-                              (⛽{((trip.fuel_cost_vnd ?? 0)/1000).toFixed(0)}K + 🚏{((trip.toll_cost_vnd ?? 0)/1000).toFixed(0)}K)
+                              (fuel: ${((trip.fuel_cost_vnd ?? 0)/1000).toFixed(0)}K + BOT: ${((trip.toll_cost_vnd ?? 0)/1000).toFixed(0)}K)
                             </span>
                           </span>
                         )}
                         <button onClick={() => setSelectedTripIdx(tripIdx)}
                           className="px-3 py-1 bg-blue-50 text-blue-700 rounded-lg hover:bg-blue-100 transition text-xs font-medium">
-                          🗺️ Xem bản đồ
+                          <Map className="w-4 h-4 inline mr-1" /> Xem bản đồ
                         </button>
                       </div>
                     </div>
@@ -3246,10 +3254,10 @@ export default function PlanningPage() {
                               <span className="flex items-center gap-1 flex-wrap">
                                 {stop.customer_name}
                                 {stop.consolidated_ids && stop.consolidated_ids.length > 1 && (
-                                  <span className="inline-flex items-center px-1 py-0.5 rounded text-[9px] font-semibold bg-purple-100 text-purple-700">📦×{stop.consolidated_ids.length}</span>
+                                  <span className="inline-flex items-center px-1 py-0.5 rounded text-[9px] font-semibold bg-purple-100 text-purple-700">×{stop.consolidated_ids.length}</span>
                                 )}
                                 {stop.is_split && (
-                                  <span className="inline-flex items-center px-1 py-0.5 rounded text-[9px] font-semibold bg-orange-100 text-orange-700">✂️{stop.split_part}/{stop.split_total}</span>
+                                  <span className="inline-flex items-center px-1 py-0.5 rounded text-[9px] font-semibold bg-orange-100 text-orange-700">P{stop.split_part}/{stop.split_total}</span>
                                 )}
                                 <VRPConstraintChips c={vrpConstraintsMap[stop.customer_id]} />
                               </span>
@@ -3278,7 +3286,7 @@ export default function PlanningPage() {
               <div className="flex justify-center">
                 <button onClick={() => { setVrpResult(null); setJobId(''); setSavedJobId('') }}
                   className="px-6 py-2.5 bg-amber-100 text-amber-700 rounded-lg hover:bg-amber-200 transition font-medium">
-                  🔄 Tối ưu lại từ đầu
+                  <RefreshCw className="w-4 h-4 inline mr-1" /> Tối ưu lại từ đầu
                 </button>
               </div>
             </>
@@ -3294,13 +3302,13 @@ export default function PlanningPage() {
         <div className="space-y-6">
           {approved ? (
             <div className="bg-green-50 border border-green-200 rounded-xl p-8 text-center">
-              <div className="text-5xl mb-4">🎉</div>
+              <div className="flex items-center justify-center mb-4"><PartyPopper className="w-12 h-12 text-amber-500" /></div>
               <h2 className="text-xl font-bold text-green-800 mb-2">Kế hoạch đã được duyệt!</h2>
               <p className="text-green-600 mb-4">
                 Đã tạo thành công <strong>{vrpResult.trips.length} chuyến xe</strong> cho ngày {deliveryDate}.
               </p>
               <a href="/dashboard/trips" className="inline-block px-6 py-3 bg-green-600 text-white rounded-lg hover:bg-green-700 transition font-medium">
-                📋 Xem danh sách chuyến xe
+                <ClipboardList className="w-4 h-4 inline mr-1" /> Xem danh sách chuyến xe
               </a>
             </div>
           ) : (
@@ -3320,7 +3328,7 @@ export default function PlanningPage() {
                       </p>
                       {notCheckedIn > 0 && (
                         <div className="bg-yellow-50 border border-yellow-200 text-yellow-700 text-xs px-3 py-2 rounded-lg mb-4">
-                          ⚠️ Còn {notCheckedIn} tài xế chưa check-in. Tài xế đã check-in sẽ hiện ưu tiên đầu danh sách.
+                          <AlertTriangle className="w-4 h-4 inline mr-1" /> Còn {notCheckedIn} tài xế chưa check-in. Tài xế đã check-in sẽ hiện ưu tiên đầu danh sách.
                         </div>
                       )}
                     </>
@@ -3361,13 +3369,13 @@ export default function PlanningPage() {
                               })
                               .map(d => ({
                                 value: d.id,
-                                label: checkedInIds.has(d.id) ? `✅ ${d.full_name}` : d.full_name,
+                                label: checkedInIds.has(d.id) ? `${d.full_name}` : d.full_name,
                                 sublabel: d.phone || ''
                               }))
                           })()}
                           value={assignedDriverId || ''}
                           onChange={val => setDriverAssign({ ...driverAssign, [trip.vehicle_id]: val })}
-                          placeholder="🔍 Chọn tài xế..."
+                          placeholder=" Chọn tài xế..."
                         />
                         </div>
                         {assignedDriver && (
@@ -3403,7 +3411,7 @@ export default function PlanningPage() {
 
                 {Object.values(driverAssign).filter(Boolean).length < vrpResult.trips.length && (
                   <div className="bg-yellow-50 border border-yellow-200 text-yellow-700 text-sm px-4 py-3 rounded-lg mb-4">
-                    ⚠️ Còn {vrpResult.trips.length - Object.values(driverAssign).filter(Boolean).length} chuyến chưa gán tài xế. Bạn vẫn có thể duyệt và gán sau.
+                    <AlertTriangle className="w-4 h-4 inline mr-1" /> Còn {vrpResult.trips.length - Object.values(driverAssign).filter(Boolean).length} chuyến chưa gán tài xế. Bạn vẫn có thể duyệt và gán sau.
                   </div>
                 )}
 
@@ -3415,7 +3423,7 @@ export default function PlanningPage() {
                         <span className="animate-spin inline-block w-4 h-4 border-2 border-white border-t-transparent rounded-full" />
                         Đang tạo chuyến...
                       </span>
-                    ) : '✅ Duyệt kế hoạch & Tạo chuyến xe'}
+                    ) : 'Duyệt kế hoạch & Tạo chuyến xe'}
                   </button>
                   <button onClick={() => setStep(3)}
                     className="px-6 py-3 bg-gray-100 text-gray-600 rounded-xl hover:bg-gray-200 transition font-medium">

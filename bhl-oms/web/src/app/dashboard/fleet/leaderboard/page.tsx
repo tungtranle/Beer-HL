@@ -1,4 +1,4 @@
-'use client'
+﻿'use client'
 
 import { useState, useEffect } from 'react'
 import { apiFetch } from '@/lib/api'
@@ -43,7 +43,7 @@ export default function LeaderboardPage() {
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
-        <h1 className="text-2xl font-bold text-gray-900">🏆 Bảng xếp hạng Tài xế</h1>
+        <h1 className="text-2xl font-bold text-gray-900"> Bảng xếp hạng Tài xế</h1>
         <div className="flex gap-2">
           {[{ key: 'week', label: 'Tuần' }, { key: 'month', label: 'Tháng' }, { key: 'quarter', label: 'Quý' }].map(p => (
             <button key={p.key} onClick={() => setPeriod(p.key)}
@@ -58,7 +58,7 @@ export default function LeaderboardPage() {
         <div className="space-y-3">{Array.from({length:5}).map((_,i)=><div key={i} className="h-12 bg-gray-100 animate-pulse rounded-xl"/>)}</div>
       ) : entries.length === 0 ? (
         <div className="text-center py-16 text-gray-400">
-          <div className="text-5xl mb-2">🏆</div>
+          <div className="text-5xl mb-2"></div>
           <p>Chưa có dữ liệu xếp hạng</p>
         </div>
       ) : (

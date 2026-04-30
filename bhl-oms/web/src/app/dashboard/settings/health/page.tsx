@@ -1,4 +1,4 @@
-'use client'
+﻿'use client'
 
 import { useEffect, useState } from 'react'
 import { apiFetch } from '@/lib/api'
@@ -39,7 +39,7 @@ interface SlowQuery {
   query: string; calls: number; mean_time_ms: number; max_time_ms: number; total_time_ms: number
 }
 
-const statusIcon: Record<string, string> = { ok: '🟢', degraded: '🟡', down: '🔴' }
+const statusIcon: Record<string, string> = { ok: '', degraded: '', down: '' }
 const statusLabel: Record<string, string> = { ok: 'Hoạt động', degraded: 'Chậm', down: 'Ngừng' }
 const countLabels: Record<string, string> = {
   users: 'Người dùng', customers: 'Khách hàng', orders: 'Đơn hàng',
@@ -99,7 +99,7 @@ export default function HealthDashboard() {
 
       {buildInfo && (
         <div className="bg-white rounded-lg p-4 shadow-sm">
-          <h2 className="font-bold mb-3">🏷️ Build đang chạy</h2>
+          <h2 className="font-bold mb-3"> Build đang chạy</h2>
           <div className="grid grid-cols-1 md:grid-cols-4 gap-3 text-sm">
             <div className="bg-gray-50 rounded-lg p-3">
               <div className="text-xs text-gray-500 mb-1">Service version</div>
@@ -160,7 +160,7 @@ export default function HealthDashboard() {
 
         {health?.recent_ops && (
           <div className="bg-white rounded-lg p-4 shadow-sm">
-            <h2 className="font-bold mb-3">📋 Hoạt động gần đây</h2>
+            <h2 className="font-bold mb-3"> Hoạt động gần đây</h2>
             <div className="grid grid-cols-2 gap-3">
               <div className="bg-blue-50 rounded-lg p-3 text-center">
                 <div className="text-xl font-bold text-blue-700">{health.recent_ops.orders_today}</div>
@@ -210,7 +210,7 @@ export default function HealthDashboard() {
 
       {/* Entity Counts */}
       <div className="bg-white rounded-lg p-4 shadow-sm">
-        <h2 className="font-bold mb-3">📊 Entity Counts</h2>
+        <h2 className="font-bold mb-3"> Entity Counts</h2>
         <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3">
           {Object.entries(health?.counts || {}).map(([key, val]) => (
             <div key={key} className="bg-gray-50 rounded-lg p-3 text-center">
@@ -223,7 +223,7 @@ export default function HealthDashboard() {
 
       {/* Monitoring Links */}
       <div className="bg-white rounded-lg p-4 shadow-sm">
-        <h2 className="font-bold mb-3">🔍 Công cụ Monitoring</h2>
+        <h2 className="font-bold mb-3"> Công cụ Monitoring</h2>
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
           <div className="bg-gray-50 rounded-lg p-4">
             <h3 className="font-semibold text-sm mb-1">Prometheus</h3>
@@ -247,7 +247,7 @@ export default function HealthDashboard() {
       <div className="bg-white rounded-lg p-4 shadow-sm">
         <h2 className="font-bold mb-3">🐌 Slow Queries (Top 10)</h2>
         {slowQueries.length === 0 ? (
-          <p className="text-sm text-gray-400">Không có slow query nào 🎉</p>
+          <p className="text-sm text-gray-400">Không có slow query nào </p>
         ) : (
           <div className="overflow-x-auto">
             <table className="w-full text-sm">

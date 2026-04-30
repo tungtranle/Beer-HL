@@ -143,7 +143,7 @@ export default function WarehouseDashboardPage() {
     } catch { /* ignore */ } finally { setResolvingId(null) }
   }
 
-  const pendingPick = pickingOrders.filter(p => p.status === 'pending' || p.status === 'in_progress')
+  const _pendingPick = pickingOrders.filter(p => p.status === 'pending' || p.status === 'in_progress')
   const totalStock = stock.reduce((s, i) => s + i.quantity, 0)
   const totalReserved = stock.reduce((s, i) => s + (i.reserved_qty || 0), 0)
   const urgentExpiry = expiryAlerts.filter(a => daysUntilExpiry(a.expiry_date) <= 7)
@@ -162,7 +162,7 @@ export default function WarehouseDashboardPage() {
       {/* ── PAGE HEADER ─────────────────────────────────────────────────────── */}
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-bold text-gray-900">🏭 Trung tâm điều hành kho</h1>
+          <h1 className="text-2xl font-bold text-gray-900"> Trung tâm điều hành kho</h1>
           <p className="text-sm text-gray-500 mt-0.5">Kho Hạ Long · cập nhật mỗi lần tải trang</p>
         </div>
         <button onClick={loadOps}
@@ -222,7 +222,7 @@ export default function WarehouseDashboardPage() {
             </div>
           ) : exceptions.length === 0 ? (
             <div className="flex flex-col items-center justify-center py-12 text-gray-400">
-              <div className="text-4xl mb-2">✅</div>
+              <div className="text-4xl mb-2">✓</div>
               <div className="text-sm font-medium">Không có sự cố nào đang mở</div>
             </div>
           ) : (
@@ -322,7 +322,7 @@ export default function WarehouseDashboardPage() {
               {pickerStats.map(p => (
                 p.in_progress > 0 ? (
                   <div key={p.user_id + '_prog'} className="text-xs text-amber-600 bg-amber-50 rounded px-2 py-1 border border-amber-100">
-                    ⚡ {p.full_name.split(' ').pop()} đang soạn {p.in_progress} lệnh
+                     {p.full_name.split(' ').pop()} đang soạn {p.in_progress} lệnh
                   </div>
                 ) : null
               ))}
@@ -342,11 +342,11 @@ export default function WarehouseDashboardPage() {
         <div className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Quy trình chính</div>
         <div className="grid grid-cols-2 md:grid-cols-5 gap-3 mb-4">
           <Link href="/dashboard/warehouse/picking-by-vehicle" className="bg-white rounded-lg shadow-sm p-4 hover:shadow-md transition text-center flex flex-col items-center justify-center min-h-[72px] border-2 border-[#F68634]">
-            <div className="text-2xl mb-1">🚛</div>
+            <div className="text-2xl mb-1"></div>
             <div className="text-sm font-semibold text-[#F68634]">Soạn theo xe</div>
           </Link>
           <Link href="/dashboard/warehouse/picking" className="bg-white rounded-lg shadow-sm p-4 hover:shadow-md transition text-center flex flex-col items-center justify-center min-h-[72px]">
-            <div className="text-2xl mb-1">📋</div>
+            <div className="text-2xl mb-1"></div>
             <div className="text-sm font-medium">Lệnh đóng hàng</div>
           </Link>
           <Link href="/dashboard/gate-check" className="bg-white rounded-lg shadow-sm p-4 hover:shadow-md transition text-center flex flex-col items-center justify-center min-h-[72px]">
@@ -358,7 +358,7 @@ export default function WarehouseDashboardPage() {
             <div className="text-sm font-medium">Nhập vỏ</div>
           </Link>
           <Link href="/dashboard/pda-scanner" className="bg-white rounded-lg shadow-sm p-4 hover:shadow-md transition text-center flex flex-col items-center justify-center min-h-[72px]">
-            <div className="text-2xl mb-1">📱</div>
+            <div className="text-2xl mb-1"></div>
             <div className="text-sm font-medium">Quét barcode</div>
           </Link>
         </div>
@@ -369,19 +369,19 @@ export default function WarehouseDashboardPage() {
             <div className="text-xl">📷</div><div className="text-sm font-medium">Scan QR</div>
           </Link>
           <Link href="/dashboard/warehouse/inbound" className="bg-blue-50 rounded-lg shadow-sm p-3 hover:shadow-md text-center min-h-[64px] flex flex-col items-center justify-center">
-            <div className="text-xl">📦</div><div className="text-sm font-medium">Nhập kho</div>
+            <div className="text-xl"></div><div className="text-sm font-medium">Nhập kho</div>
           </Link>
           <Link href="/dashboard/warehouse/putaway" className="bg-blue-50 rounded-lg shadow-sm p-3 hover:shadow-md text-center min-h-[64px] flex flex-col items-center justify-center">
             <div className="text-xl">🏷</div><div className="text-sm font-medium">Putaway</div>
           </Link>
           <Link href="/dashboard/warehouse/loading" className="bg-blue-50 rounded-lg shadow-sm p-3 hover:shadow-md text-center min-h-[64px] flex flex-col items-center justify-center">
-            <div className="text-xl">🚚</div><div className="text-sm font-medium">Load lên xe</div>
+            <div className="text-xl"></div><div className="text-sm font-medium">Load lên xe</div>
           </Link>
           <Link href="/dashboard/warehouse/cycle-count" className="bg-blue-50 rounded-lg shadow-sm p-3 hover:shadow-md text-center min-h-[64px] flex flex-col items-center justify-center">
             <div className="text-xl">🔢</div><div className="text-sm font-medium">Kiểm kê</div>
           </Link>
           <Link href="/dashboard/warehouse/dashboard" className="bg-blue-50 rounded-lg shadow-sm p-3 hover:shadow-md text-center min-h-[64px] flex flex-col items-center justify-center">
-            <div className="text-xl">📊</div><div className="text-sm font-medium">Cảnh báo</div>
+            <div className="text-xl"></div><div className="text-sm font-medium">Cảnh báo</div>
           </Link>
           <Link href="/dashboard/warehouse/bin-map" className="bg-blue-50 rounded-lg shadow-sm p-3 hover:shadow-md text-center min-h-[64px] flex flex-col items-center justify-center md:col-span-2">
             <div className="text-xl">🗺</div><div className="text-sm font-medium">Bản đồ kho</div>
@@ -449,7 +449,7 @@ export default function WarehouseDashboardPage() {
       {/* ── EXPIRY ALERTS ───────────────────────────────────────────────────── */}
       {expiryAlerts.length > 0 && (
         <div className="bg-white rounded-xl shadow-sm p-5">
-          <h2 className="font-semibold text-gray-700 mb-3 text-base">⚠️ Cảnh báo hết hạn</h2>
+          <h2 className="font-semibold text-gray-700 mb-3 text-base"> Cảnh báo hết hạn</h2>
           <div className="space-y-2">
             {expiryAlerts.map((a, i) => {
               const days = daysUntilExpiry(a.expiry_date)
@@ -465,7 +465,7 @@ export default function WarehouseDashboardPage() {
                     <div className="text-xs text-gray-500">Lô: {a.batch_number} · SL: {a.quantity}</div>
                   </div>
                   <div className={`text-sm font-bold ${days <= 7 ? 'text-red-600' : 'text-yellow-600'}`}>
-                    {days <= 0 ? '❌ Đã hết hạn' : `⏰ Còn ${days} ngày`}
+                    {days <= 0 ? '✗ Đã hết hạn' : ` Còn ${days} ngày`}
                   </div>
                 </div>
               )

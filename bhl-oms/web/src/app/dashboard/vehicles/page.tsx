@@ -1,4 +1,4 @@
-'use client'
+﻿'use client'
 
 import { useEffect, useState } from 'react'
 import Link from 'next/link'
@@ -159,7 +159,7 @@ export default function VehiclesPage() {
     <div>
       <div className="flex items-center justify-between mb-6">
         <div>
-          <h1 className="text-2xl font-bold text-gray-900">🚗 Danh sách phương tiện</h1>
+          <h1 className="text-2xl font-bold text-gray-900"> Danh sách phương tiện</h1>
           <p className="text-sm text-gray-500 mt-1">{vehicles.length} phương tiện ({activeCount} đang hoạt động)</p>
         </div>
         <div className="flex gap-3">

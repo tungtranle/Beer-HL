@@ -5,6 +5,8 @@ import { apiFetch, getUser } from '@/lib/api'
 import { toast } from '@/lib/useToast'
 import { handleError } from '@/lib/handleError'
 import { useRouter } from 'next/navigation'
+import { PageHeader, Button } from '@/components/ui'
+import { Factory, Package, Sparkles, AlertTriangle, CheckCircle2, Search } from 'lucide-react'
 
 interface BottleClassification {
   id: string; trip_id: string; trip_number: string
@@ -137,18 +139,20 @@ export default function WorkshopPage() {
     <div className="max-w-[1200px] mx-auto">
       {/* Tab navigation */}
       <div className="flex items-center justify-between mb-6">
-        <div>
-          <h1 className="text-2xl font-bold text-gray-800">🏭 Phân xưởng</h1>
-          <p className="text-sm text-gray-500 mt-0.5">Phân loại vỏ chai & Kế hoạch sản xuất</p>
-        </div>
+      <PageHeader
+        title="Phân xưởng"
+        subtitle="Phân loại vỏ chai & Kế hoạch sản xuất"
+        icon={Factory}
+        iconTone="neutral"
+      />
         <div className="flex gap-1 bg-gray-100 rounded-xl p-1">
           <button
             onClick={() => setActiveTab('classify')}
-            className={`px-4 py-2 rounded-lg text-sm font-medium transition ${
+            className={`px-4 py-2 rounded-lg text-sm font-medium transition inline-flex items-center gap-1.5 ${
               activeTab === 'classify' ? 'bg-white shadow-sm text-gray-800' : 'text-gray-500 hover:text-gray-700'
             }`}
           >
-            📦 Phân loại vỏ
+            <Package className="w-3.5 h-3.5" aria-hidden="true" /> Phân loại vỏ
           </button>
           <button
             onClick={() => setActiveTab('planning')}
@@ -156,7 +160,7 @@ export default function WorkshopPage() {
               activeTab === 'planning' ? 'bg-white shadow-sm text-gray-800' : 'text-gray-500 hover:text-gray-700'
             }`}
           >
-            🔮 Kế hoạch SX
+            <Sparkles className="w-3.5 h-3.5" aria-hidden="true" /> Kế hoạch SX
             {planningData?.alert_count ? (
               <span className="w-4 h-4 rounded-full bg-red-500 text-white text-[10px] font-bold flex items-center justify-center">{planningData.alert_count}</span>
             ) : (
@@ -231,8 +235,8 @@ export default function WorkshopPage() {
             placeholder="Nhập mã chuyến (VD: TR-20260316-001)"
             className="flex-1 px-4 py-2 border rounded-lg text-sm"
           />
-          <button onClick={searchTrip} className="px-6 py-2 bg-[#F68634] text-white rounded-lg hover:bg-[#e5752a] transition text-sm">
-            🔍 Tìm
+          <button onClick={searchTrip} className="px-6 py-2 bg-[#F68634] text-white rounded-lg hover:bg-[#e5752a] transition text-sm inline-flex items-center gap-1.5">
+            <Search className="w-4 h-4" aria-hidden="true" /> Tìm
           </button>
         </div>
       </div>
@@ -327,7 +331,7 @@ export default function WorkshopPage() {
                 disabled={!productId || submitting}
                 className="ml-auto px-6 py-2 bg-[#F68634] text-white rounded-lg hover:bg-[#e5752a] transition text-sm disabled:opacity-50"
               >
-                {submitting ? 'Đang lưu...' : '✅ Phân loại'}
+                {submitting ? 'Đang lưu...' : 'Phân loại'}
               </button>
             </div>
           </div>
@@ -353,7 +357,7 @@ export default function WorkshopPage() {
                 </div>
                 {planningData.alert_count > 0 && (
                   <div className="flex items-center gap-1.5 bg-red-100 text-red-700 text-xs font-semibold px-3 py-1.5 rounded-lg">
-                    <span>⚠️</span> {planningData.alert_count} cảnh báo tồn kho
+                    <AlertTriangle className="w-3.5 h-3.5" aria-hidden="true" /> {planningData.alert_count} cảnh báo tồn kho
                   </div>
                 )}
               </div>
@@ -371,7 +375,7 @@ export default function WorkshopPage() {
                       <div key={sku.sku_id} className="px-4 py-3 flex items-center gap-4">
                         {/* Priority badge */}
                         {sku.safety_stock_alert && (
-                          <span className="shrink-0 text-[10px] font-bold uppercase bg-red-100 text-red-700 px-1.5 py-0.5 rounded">⚠️ Ưu tiên</span>
+                          <span className="shrink-0 text-[10px] font-bold uppercase bg-red-100 text-red-700 px-1.5 py-0.5 rounded inline-flex items-center gap-0.5"><AlertTriangle className="w-2.5 h-2.5" aria-hidden="true" /> Ư u tiên</span>
                         )}
                         {/* SKU name + bar */}
                         <div className="flex-1 min-w-0">

@@ -1,4 +1,4 @@
-'use client'
+﻿'use client'
 
 import { useState, useEffect } from 'react'
 import { apiFetch } from '@/lib/api'
@@ -45,12 +45,12 @@ export default function GaragesPage() {
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
-        <h1 className="text-2xl font-bold text-gray-900">🏭 Quản lý Garage</h1>
+        <h1 className="text-2xl font-bold text-gray-900"> Quản lý Garage</h1>
         {garages.length > 0 && (
           <div className="flex gap-3 text-sm">
-            <span className="px-3 py-1.5 bg-green-100 text-green-700 rounded-full font-medium">⭐ {preferredCount} Ưu tiên</span>
-            {blacklistCount > 0 && <span className="px-3 py-1.5 bg-red-100 text-red-700 rounded-full font-medium">🚫 {blacklistCount} Blacklist</span>}
-            {bestGarage && <span className="px-3 py-1.5 bg-brand-50 text-brand-700 rounded-full font-medium">🥇 {bestGarage.name} ({parseFloat(bestGarage.avg_rating).toFixed(1)}⭐)</span>}
+            <span className="px-3 py-1.5 bg-green-100 text-green-700 rounded-full font-medium"> {preferredCount} Ưu tiên</span>
+            {blacklistCount > 0 && <span className="px-3 py-1.5 bg-red-100 text-red-700 rounded-full font-medium"> {blacklistCount} Blacklist</span>}
+            {bestGarage && <span className="px-3 py-1.5 bg-brand-50 text-brand-700 rounded-full font-medium">🥇 {bestGarage.name} ({parseFloat(bestGarage.avg_rating).toFixed(1)})</span>}
           </div>
         )}
       </div>

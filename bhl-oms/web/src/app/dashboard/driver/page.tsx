@@ -1,4 +1,4 @@
-'use client'
+﻿'use client'
 
 import { useEffect, useMemo, useState } from 'react'
 import Link from 'next/link'
@@ -504,7 +504,7 @@ function MonthlyPerfCard({
             {/* Streak */}
             {stats.streak_days > 0 && (
               <div className="mb-3 flex items-center gap-2 bg-orange-50 border border-orange-100 rounded-xl px-3 py-2">
-                <span className="text-lg">🔥</span>
+                <span className="text-lg"></span>
                 <p className="text-xs text-orange-700 font-semibold">{stats.streak_days} ngày liên tiếp hoàn thành đúng giờ!</p>
               </div>
             )}
@@ -546,7 +546,7 @@ function MonthlyPerfCard({
           </>
         ) : (
           <div className="py-6 text-center text-gray-400">
-            <div className="text-3xl mb-2">📊</div>
+            <div className="text-3xl mb-2"></div>
             <p className="text-xs font-medium text-gray-500">Đang tổng hợp dữ liệu tháng này</p>
             <p className="text-[11px] text-gray-400 mt-1">Sẽ hiển thị sau khi hệ thống live</p>
           </div>

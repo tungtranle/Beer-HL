@@ -1,4 +1,4 @@
-'use client'
+﻿'use client'
 
 import { useEffect, useState } from 'react'
 import { apiFetch, getUser } from '@/lib/api'
@@ -228,7 +228,7 @@ export default function AdminSettingsPage() {
       <div className="flex gap-2 mb-6 flex-wrap">
         <button onClick={() => setTab('users')}
           className={`px-4 py-2 rounded-lg text-sm font-medium transition ${tab === 'users' ? 'bg-brand-500 text-white' : 'bg-white text-gray-600 hover:bg-gray-100'}`}>
-          👤 Người dùng ({users.length})
+           Người dùng ({users.length})
         </button>
         <button onClick={() => setTab('roles')}
           className={`px-4 py-2 rounded-lg text-sm font-medium transition ${tab === 'roles' ? 'bg-brand-500 text-white' : 'bg-white text-gray-600 hover:bg-gray-100'}`}>
@@ -432,9 +432,9 @@ export default function AdminSettingsPage() {
                         <td className="py-3 px-4 text-center">
                           <div className="flex justify-center gap-2">
                             <button onClick={() => handleRevokeSession(s.id)}
-                              className="text-red-600 hover:text-red-800 text-xs">🔒 Thu hồi</button>
+                              className="text-red-600 hover:text-red-800 text-xs"> Thu hồi</button>
                             <button onClick={() => handleRevokeAllSessions(s.user_id, s.user_name)}
-                              className="text-orange-600 hover:text-orange-800 text-xs">⚡ Tất cả</button>
+                              className="text-orange-600 hover:text-orange-800 text-xs"> Tất cả</button>
                           </div>
                         </td>
                       </tr>
@@ -497,7 +497,7 @@ export default function AdminSettingsPage() {
                 </div>
                 {seasonalMode.enabled && (
                   <div className="bg-amber-50 border border-amber-200 rounded-lg p-3 text-sm text-amber-800">
-                    <strong>⚠️ Chế độ {seasonalMode.label} đang bật.</strong> Tất cả người dùng sẽ thấy banner cảnh báo. VRP buffer: -{seasonalMode.vrp_buffer_pct}% tải trọng.
+                    <strong> Chế độ {seasonalMode.label} đang bật.</strong> Tất cả người dùng sẽ thấy banner cảnh báo. VRP buffer: -{seasonalMode.vrp_buffer_pct}% tải trọng.
                   </div>
                 )}
                 <button

@@ -1,4 +1,4 @@
-// Cấu hình trạng thái tập trung — SINGLE SOURCE OF TRUTH
+﻿// Cấu hình trạng thái tập trung — SINGLE SOURCE OF TRUTH
 // Tất cả các trang frontend import từ đây, KHÔNG định nghĩa local
 
 // ==================== V4 STATUS CONFIG ====================
@@ -238,49 +238,49 @@ export const orderProgressSteps: OrderStep[] = [
     key: 'created',
     label: 'Tạo đơn',
     description: 'Đơn hàng được lập bởi DVKH',
-    icon: '📝',
+    icon: '',
     matchStatuses: ['draft'],
   },
   {
     key: 'customer_confirmed',
     label: 'Xác nhận',
     description: 'NPP xác nhận đơn hàng',
-    icon: '✅',
+    icon: '✓',
     matchStatuses: ['pending_customer_confirm', 'confirmed', 'pending_approval', 'approved'],
   },
   {
     key: 'warehouse_processing',
     label: 'Kho xử lý',
     description: 'Soạn hàng, đóng gói, xếp xe',
-    icon: '🏭',
+    icon: '',
     matchStatuses: ['processing', 'ready_to_ship', 'planned', 'picking', 'loaded'],
   },
   {
     key: 'shipping',
     label: 'Vận chuyển',
     description: 'Tài xế đang giao hàng',
-    icon: '🚚',
+    icon: '',
     matchStatuses: ['shipped', 'shipment_created', 'in_transit', 'delivering'],
   },
   {
     key: 'completed',
     label: 'Hoàn thành',
     description: 'Đã giao hàng thành công',
-    icon: '🎉',
+    icon: '',
     matchStatuses: ['delivered', 'completed'],
   },
 ]
 
 // Trạng thái đặc biệt (nhánh phụ, không nằm trên thanh tiến trình chính)
 export const orderSpecialStatuses: Record<string, { label: string; icon: string; color: string; description: string }> = {
-  partially_delivered: { label: 'Giao một phần', icon: '⚠️', color: 'text-orange-600 bg-orange-50 border-orange-200', description: 'Chỉ giao được một phần sản phẩm' },
-  partial_delivered: { label: 'Giao một phần', icon: '⚠️', color: 'text-orange-600 bg-orange-50 border-orange-200', description: 'Chỉ giao được một phần sản phẩm' },
-  rejected: { label: 'NPP từ chối', icon: '❌', color: 'text-red-600 bg-red-50 border-red-200', description: 'NPP từ chối nhận hàng' },
-  failed: { label: 'Giao thất bại', icon: '❌', color: 'text-red-600 bg-red-50 border-red-200', description: 'Không giao được hàng' },
-  cancelled: { label: 'Đã hủy', icon: '🚫', color: 'text-gray-600 bg-gray-50 border-gray-200', description: 'Đơn hàng đã bị hủy' },
+  partially_delivered: { label: 'Giao một phần', icon: '', color: 'text-orange-600 bg-orange-50 border-orange-200', description: 'Chỉ giao được một phần sản phẩm' },
+  partial_delivered: { label: 'Giao một phần', icon: '', color: 'text-orange-600 bg-orange-50 border-orange-200', description: 'Chỉ giao được một phần sản phẩm' },
+  rejected: { label: 'NPP từ chối', icon: '✗', color: 'text-red-600 bg-red-50 border-red-200', description: 'NPP từ chối nhận hàng' },
+  failed: { label: 'Giao thất bại', icon: '✗', color: 'text-red-600 bg-red-50 border-red-200', description: 'Không giao được hàng' },
+  cancelled: { label: 'Đã hủy', icon: '', color: 'text-gray-600 bg-gray-50 border-gray-200', description: 'Đơn hàng đã bị hủy' },
   returned: { label: 'Đã trả hàng', icon: '↩️', color: 'text-rose-600 bg-rose-50 border-rose-200', description: 'Hàng đã được trả lại' },
   on_credit: { label: 'Ghi nợ', icon: '💳', color: 'text-cyan-600 bg-cyan-50 border-cyan-200', description: 'Đơn hàng ghi nợ cho NPP' },
-  re_delivery: { label: 'Giao lại', icon: '🔄', color: 'text-rose-600 bg-rose-50 border-rose-200', description: 'Đang lên kế hoạch giao lại' },
+  re_delivery: { label: 'Giao lại', icon: '', color: 'text-rose-600 bg-rose-50 border-rose-200', description: 'Đang lên kế hoạch giao lại' },
   on_hold: { label: 'Tạm giữ', icon: '⏸️', color: 'text-yellow-600 bg-yellow-50 border-yellow-200', description: 'Đơn hàng tạm giữ' },
 }
 

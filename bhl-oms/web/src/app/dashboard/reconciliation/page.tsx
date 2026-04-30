@@ -1,4 +1,4 @@
-'use client'
+﻿'use client'
 
 import { useCallback, useEffect, useState } from 'react'
 import { apiFetch, getToken } from '@/lib/api'
@@ -6,6 +6,7 @@ import { formatVND } from '@/lib/status-config'
 import { toast } from '@/lib/useToast'
 import { Pagination } from '@/components/ui/Pagination'
 import { handleError } from '@/lib/handleError'
+import { BarChart3, AlertTriangle, CalendarDays, DollarSign, Package, Tag, CheckCircle2 } from 'lucide-react'
 
 // â”€â”€ Interfaces â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
@@ -96,22 +97,22 @@ const discStatusLabels: Record<string, string> = {
 }
 
 const typeLabels: Record<string, string> = {
-  goods: '📦 Hàng hóa',
-  payment: '💰 Thanh toán',
-  asset: '🏷️ Vỏ/Két',
+  goods: 'Hàng hóa',
+  payment: 'Thanh toán',
+  asset: 'Vỏ/Két',
 }
 
 const tabs = [
-  { key: 'recon', label: '📊 Đối soát' },
-  { key: 'disc', label: '⚠️ Sai lệch' },
-  { key: 'close', label: '📅 Chốt ngày' },
+  { key: 'recon', label: 'Đối soát', Icon: BarChart3 },
+  { key: 'disc', label: 'Sai lệch', Icon: AlertTriangle },
+  { key: 'close', label: 'Chốt ngày', Icon: CalendarDays },
 ]
 
 const discSubTabs = [
   { key: 'all', label: 'Tất cả' },
-  { key: 'payment', label: '💰 Tiền' },
-  { key: 'goods', label: '📦 Hàng' },
-  { key: 'asset', label: '🏷️ Vỏ' },
+  { key: 'payment', label: 'Tiền' },
+  { key: 'goods', label: 'Hàng' },
+  { key: 'asset', label: 'Vỏ' },
 ]
 
 type DateRangePreset = 'today' | 'mtd' | 'last30' | 'history' | 'custom'
@@ -333,7 +334,7 @@ export default function ReconciliationPage() {
             <div className="text-xs font-semibold text-red-600 uppercase mb-1">Sai lệch cần xử lý</div>
             <div className="text-3xl font-bold text-red-700">{openCount}</div>
             <div className="text-xs text-red-500 mt-1">
-              {urgentCount > 0 ? `⚠️ ${urgentCount} sắp quá hạn T+1` : 'Không có gấp'}
+              {urgentCount > 0 ? `${urgentCount} sắp quá hạn T+1` : 'Không có gấp'}
             </div>
           </div>
           <div className="bg-amber-50 border border-amber-200 rounded-xl p-4">
@@ -387,7 +388,7 @@ export default function ReconciliationPage() {
             </span>
             {urgentCount > 0 && (
               <span className="px-3 py-1 rounded-full text-xs font-bold bg-red-600 text-white animate-pulse">
-                ⏰ {urgentCount} sắp quá hạn T+1
+                 {urgentCount} sắp quá hạn T+1
               </span>
             )}
           </div>
@@ -461,12 +462,13 @@ export default function ReconciliationPage() {
           <button
             key={t.key}
             onClick={() => setActiveTab(t.key)}
-            className={`px-4 py-2 rounded-lg text-sm font-medium transition ${
+            className={`px-4 py-2 rounded-lg text-sm font-medium transition inline-flex items-center gap-1.5 ${
               activeTab === t.key
                 ? 'bg-white text-brand-600 shadow-sm'
                 : 'text-gray-500 hover:text-gray-700'
             }`}
           >
+            <t.Icon className="w-3.5 h-3.5" aria-hidden="true" />
             {t.label}
           </button>
         ))}
@@ -509,7 +511,7 @@ export default function ReconciliationPage() {
                   <tr><td colSpan={7} className="py-8 text-center text-gray-400">Đang tải...</td></tr>
                 ) : recons.length === 0 ? (
                   <tr><td colSpan={7} className="py-12 text-center">
-                    <div className="text-4xl mb-3">📊</div>
+                    <BarChart3 className="w-10 h-10 text-slate-300 mx-auto mb-3" aria-hidden="true" />
                     <p className="text-gray-500 font-medium mb-2">Chưa có dữ liệu đối soát</p>
                     <div className="text-xs text-gray-400 max-w-md mx-auto space-y-1">
                       <p>Đối soát tự động tạo khi tài xế hoàn thành chuyến xe.</p>
@@ -632,7 +634,7 @@ export default function ReconciliationPage() {
                         <td className="py-3 px-4 text-center">
                           {['open', 'investigating'].includes(d.status) ? (
                             <span className={`text-xs ${countdown.color}`}>
-                              {countdown.urgent && '🔴 '}{countdown.text}
+                              {countdown.urgent && <AlertTriangle className="w-3 h-3 text-red-500 mr-0.5 inline" aria-hidden="true" />}{countdown.text}
                             </span>
                           ) : (
                             <span className="text-xs text-gray-400">—</span>
@@ -667,7 +669,7 @@ export default function ReconciliationPage() {
                               )
                             )}
                             {d.status === 'resolved' && (
-                              <span className="text-xs text-gray-400" title={d.resolution || ''}>✅</span>
+                              <CheckCircle2 className="w-4 h-4 text-green-500" aria-label={d.resolution || 'Resolved'} aria-hidden="true" />
                             )}
                             {/* Task 6.3: Action history button */}
                             <button
@@ -701,7 +703,7 @@ export default function ReconciliationPage() {
               onClick={handleGenerateDailyClose}
               className="px-4 py-2 bg-brand-500 text-white rounded-lg hover:bg-brand-600 transition text-sm"
             >
-              📅 Chốt sổ hôm nay
+              Chốt sổ hôm nay
             </button>
           </div>
 
@@ -724,7 +726,7 @@ export default function ReconciliationPage() {
                   <tr><td colSpan={8} className="py-8 text-center text-gray-400">Đang tải...</td></tr>
                 ) : closes.length === 0 ? (
                   <tr><td colSpan={8} className="py-12 text-center">
-                    <div className="text-4xl mb-3">📅</div>
+                    <CalendarDays className="w-10 h-10 text-slate-300 mx-auto mb-3" aria-hidden="true" />
                     <p className="text-gray-500 font-medium mb-2">Chưa có phiên chốt sổ nào</p>
                     <p className="text-xs text-gray-400">Nhấn &quot;Chốt sổ hôm nay&quot; để tạo báo cáo tổng hợp cuối ngày.</p>
                   </td></tr>
