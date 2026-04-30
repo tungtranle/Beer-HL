@@ -141,6 +141,9 @@ func main() {
 
 	r := gin.Default()
 
+	// Gzip compression — reduces JSON response size ~70%
+	r.Use(middleware.GzipMiddleware())
+
 	// CORS
 	r.Use(corsMiddleware())
 
@@ -364,6 +367,15 @@ func main() {
 		scopeTo := now.Format("2006-01-02")
 		scopeLabel := "Tháng " + now.Format("01/2006")
 
+		// Redis cache — key granular to the current minute to keep data fresh
+		// while eliminating DB scans on every dashboard refresh/navigation.
+		cacheKey := "stats:v1:" + now.Format("2006-01-02T15:04")
+		if cached, err := rdb.Get(ctx, cacheKey).Bytes(); err == nil {
+			c.Header("X-Cache", "HIT")
+			c.Data(http.StatusOK, "application/json; charset=utf-8", cached)
+			return
+		}
+
 		// Widget 1: Orders intake (CREATED) in current month + today's intake.
 		// Note: "Đơn trong tháng" = orders created this month — matches the
 		// "X mới hôm nay" sub-text which counts orders created today.
@@ -412,7 +424,7 @@ func main() {
 		var pendingApprovals int64
 		pool.QueryRow(ctx, `SELECT COUNT(*) FROM sales_orders WHERE status = 'pending_approval'`).Scan(&pendingApprovals)
 
-		response.OK(c, gin.H{
+		payload := gin.H{
 			"total_orders":          totalOrders,
 			"scope_from":            scopeFrom,
 			"scope_to":              scopeTo,
@@ -430,7 +442,15 @@ func main() {
 			"pending_shipments":     pendingShipments,
 			"total_products":        productCount,
 			"total_customers":       customerCount,
-		})
+		}
+
+		// Store in Redis for 30 s (same-minute key means max staleness = 30s)
+		if raw, err := json.Marshal(map[string]interface{}{"success": true, "data": payload}); err == nil {
+			rdb.SetEx(ctx, cacheKey, raw, 30*time.Second)
+		}
+
+		c.Header("X-Cache", "MISS")
+		response.OK(c, payload)
 	})
 
 	// Warehouses endpoint

@@ -3,6 +3,7 @@ package db
 import (
 	"context"
 	"fmt"
+	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 )
@@ -13,8 +14,11 @@ func NewPool(ctx context.Context, dbURL string) (*pgxpool.Pool, error) {
 		return nil, fmt.Errorf("parse db config: %w", err)
 	}
 
-	config.MaxConns = 20
+	config.MaxConns = 30
 	config.MinConns = 5
+	config.MaxConnIdleTime = 5 * time.Minute
+	config.MaxConnLifetime = 1 * time.Hour
+	config.HealthCheckPeriod = 30 * time.Second
 
 	pool, err := pgxpool.NewWithConfig(ctx, config)
 	if err != nil {

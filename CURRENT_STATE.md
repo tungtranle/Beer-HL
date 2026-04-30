@@ -15,7 +15,7 @@
 | Database | PostgreSQL 16 | :5434 | ✅ migrations tới 043 (`ai_feature_flags`, AI audit/inbox/simulation/feedback) |
 | Cache/PubSub | Redis | :6379 | ✅ GPS + pub/sub |
 | VRP Solver | Python + OR-Tools | :8090 | ✅ Hoạt động |
-| OSRM Routing | Docker (Vietnam data) | :5000 | ⚠️ Cần setup data (`./setup-osrm.ps1`), hỗ trợ refresh lại extract mới bằng `-ForceRefresh` |
+| OSRM Routing | Docker (Vietnam data) | :5000 | ✅ (Production: auto-restart via healthcheck + cron monitor) — Local: cần setup data (`./setup-osrm.ps1`) |
 | Mock Server | Go (Bravo/DMS/Zalo) | :9001-9003 | ✅ Optional — `go run cmd/mock_server/main.go` |
 | Prometheus | Docker | :9090 | ✅ Configured (profile: monitoring) |
 | Grafana | Docker | :3030 | ✅ Configured (profile: monitoring) |
@@ -38,6 +38,26 @@
 - Nếu danh sách users được sửa trực tiếp trong DB đang dùng làm chuẩn, chạy `bash bhl-oms/scripts/export-users-seed.sh` để export ngược DB đó ra `seed_master.sql`, rồi commit/push lên GitHub.
 - Đồng bộ users dùng `ON CONFLICT (username) DO UPDATE`, có chủ ý **không** ghi đè `password_hash`, nên người dùng đã đổi mật khẩu trên server sẽ không bị reset khi deploy.
 - Điều kiện ổn định cho Mac mini production: cần tắt system sleep khi cắm điện, bật auto-restart sau mất điện, và bật auto-login cho user chạy Docker Desktop/runner; nếu không `bhl.symper.us` có thể down dù code/container vẫn đúng.
+
+### Production Configuration — ✅ OSRM Auto-Recovery + Frontend Domain Fix (30/04/2026)
+- **docker-compose.prod.yml:** 
+  - API service: `OSRM_URL=http://osrm:5000` (nên có sẵn, mới được add lại để confirm)
+  - Frontend build args: `NEXT_PUBLIC_API_URL=${PUBLIC_API_URL:-https://bhl.symper.us}` (default fallback, thay vì hardcode localhost)
+  - OSRM service: healthcheck `curl -f http://localhost:5000/status` mỗi 30s (start_period 60s) → tự auto-restart nếu fail
+- **Monitoring scripts:**
+  - `scripts/osrm-monitor.sh` — Cron job mỗi 5 phút, check OSRM health và auto-restart nếu cần
+  - `scripts/preflight-check.sh` — Pre-flight checks trước startup (Docker, .env, SSL certs, OSRM data, migrations)
+- **Setup server Mac mini:**
+  1. SSH vào server: `ssh user@bhl.symper.us`
+  2. Chạy preflight: `bash /opt/bhl/scripts/preflight-check.sh`
+  3. Thêm cron job: `crontab -e` → `*/5 * * * * /opt/bhl/scripts/osrm-monitor.sh >> /var/log/osrm-monitor-cron.log 2>&1`
+  4. Verify: `tail -f /var/log/osrm-monitor.log` → "OK: OSRM is healthy"
+  5. Xác minh frontend API URL: `curl https://bhl.symper.us/ | grep -i localhost` (should NOT see localhost)
+- **Kết quả:**
+  - OSRM sẽ tự restart nếu crash (Docker health check + cron monitor redundancy)
+  - Frontend client browser sẽ truy cập API qua `https://bhl.symper.us`, không localhost
+  - Công cụ monitoring (Prometheus/Grafana) sẽ trỏ đúng domain qua nginx proxy
+- **Documentation:** `bhl-oms/OSRM_SERVER_SETUP.md` (full guide mới)
 
 ---
 

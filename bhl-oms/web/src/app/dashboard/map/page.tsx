@@ -3,6 +3,8 @@
 import { useEffect, useRef, useState, useCallback } from 'react'
 import Link from 'next/link'
 import { getToken } from '@/lib/api'
+// Self-hosted leaflet CSS — bundled locally (no cross-origin round-trip)
+import 'leaflet/dist/leaflet.css'
 
 interface VehiclePosition {
   vehicle_id: string
@@ -183,7 +185,7 @@ export default function DispatcherMapPage() {
   useEffect(() => {
     const fetchPositions = async () => {
       try {
-        const res: any = await (await fetch('/api/gps/latest', {
+        const res: any = await (await fetch('/v1/gps/latest', {
           headers: { Authorization: `Bearer ${getToken()}` }
         })).json()
         if (res.data) {

@@ -65,7 +65,7 @@ export default function HealthDashboard() {
       setSlowQueries(sqRes.data || [])
 
       try {
-        const versionRes = await fetch('/api/app/version')
+        const versionRes = await fetch('/v1/app/version')
         const versionJson = await versionRes.json()
         if (versionRes.ok && versionJson.success) {
           setBuildInfo(versionJson.data)

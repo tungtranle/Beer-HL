@@ -3,6 +3,8 @@
 import React, { useEffect, useState, useRef, useCallback, useMemo } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { apiFetch, getUser } from '@/lib/api'
+// Self-hosted leaflet CSS — bundled locally (no cross-origin round-trip)
+import 'leaflet/dist/leaflet.css'
 import SearchableSelect from '@/lib/SearchableSelect'
 import { useNotifications } from '@/lib/notifications'
 import { handleError } from '@/lib/handleError'

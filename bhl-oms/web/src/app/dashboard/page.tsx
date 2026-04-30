@@ -15,6 +15,7 @@
 
 import { useEffect, useMemo, useState } from 'react'
 import { useRouter } from 'next/navigation'
+import dynamic from 'next/dynamic'
 import {
   ClipboardList, Package, Truck, Beer, Store, ClockArrowDown, AlertTriangle,
   CircleDollarSign, BarChart3, ArrowRight, Sparkles, Sun, Cloud, Sunset, Moon, type LucideIcon,
@@ -26,7 +27,20 @@ import { PageHeader } from '@/components/ui/PageHeader'
 import { KpiCard } from '@/components/ui/KpiCard'
 import { Card, CardHeader } from '@/components/ui/Card'
 import { SkeletonGrid } from '@/components/ui/Skeleton'
-import { AIInboxPanel, DispatchBriefCard, OutreachQueueWidget } from '@/components/ai'
+
+// AI widgets: lazy-load after page is interactive (CLAUDE.md §8 — AI is progressive enhancement)
+const AIInboxPanel = dynamic(
+  () => import('@/components/ai').then(m => ({ default: m.AIInboxPanel })),
+  { ssr: false, loading: () => null }
+)
+const DispatchBriefCard = dynamic(
+  () => import('@/components/ai').then(m => ({ default: m.DispatchBriefCard })),
+  { ssr: false, loading: () => null }
+)
+const OutreachQueueWidget = dynamic(
+  () => import('@/components/ai').then(m => ({ default: m.OutreachQueueWidget })),
+  { ssr: false, loading: () => null }
+)
 
 interface Stats {
   total_orders: number

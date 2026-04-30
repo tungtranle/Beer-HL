@@ -5,7 +5,124 @@
 
 ---
 
-## [Unreleased] — Phase 6 + UX Overhaul + Phase 8 Fleet & Driver + **Phase 9 WMS Pallet/QR/Bin/Cycle Count COMPLETE (15/15)** + **Sprint 1 World-Class (F2/F3/F7/H4/TD-020) GO LIVE** + **Sprint UX-1 World-Class Design System** + **Sprint UX-2 Dashboard Pages Redesign (ALL DONE)** + **Sprint UX-3 Pagination & Filter Audit (in progress)** + **AQF Roadmap ALL COMPLETE** + **Session 28/04 Historical Data Completeness Audit** + **Sprint Component System (30/04) COMPLETE**
+## [Unreleased] — Phase 6 + UX Overhaul + Phase 8 Fleet & Driver + **Phase 9 WMS Pallet/QR/Bin/Cycle Count COMPLETE (15/15)** + **Sprint 1 World-Class (F2/F3/F7/H4/TD-020) GO LIVE** + **Sprint UX-1 World-Class Design System** + **Sprint UX-2 Dashboard Pages Redesign (ALL DONE)** + **Sprint UX-3 Pagination & Filter Audit (in progress)** + **AQF Roadmap ALL COMPLETE** + **Session 28/04 Historical Data Completeness Audit** + **Sprint Component System (30/04) COMPLETE** + **Performance Sprint 1-2-3 (30/04) COMPLETE**
+
+### 2026-04-30 — World-Class Performance: Sprint 1 + 2 + 3
+
+#### Problem
+`bhl.symper.us` First Load LCP ≈ 6–12s (4G VN). Repeat visit ≈ 4–8s. Root causes documented in `PERFORMANCE_AUDIT_2026_04_30.md`.
+
+#### Sprint 1 — Critical path (no business logic changes)
+
+1. **Cache-Control headers** ([next.config.js](bhl-oms/web/next.config.js))
+   - Before: `no-cache, no-store` for ALL paths (including `/_next/static/*`)
+   - After: `/_next/static/*` → `immutable 1 year`; HTML pages → `no-cache, must-revalidate`; SW → `no-cache`
+   - Removed `/api → /v1` rewrite (eliminated one Node proxy hop per API call)
+   - Added `compress: true` and `experimental.optimizePackageImports` for lucide-react, react-leaflet
+
+2. **Nginx** ([nginx/nginx.conf](bhl-oms/nginx/nginx.conf))
+   - Added: `gzip on` (comp level 6, all text/json/wasm types), HTTP/2 (`listen 443 ssl http2`)
+   - Added: `proxy_cache_path` + `/_next/static/` location with 365d cache
+   - Added: `keepalive_timeout 65`, `keepalive_requests 1000`, `sendfile on`, `tcp_nopush`, `tcp_nodelay`
+   - Added: upstream keepalive (api: 32, web: 16), HSTS, OCSP stapling, SSL session cache
+   - Removed: dev-only `_next/webpack-hmr` location
+
+3. **Root layout** ([layout.tsx](bhl-oms/web/src/app/layout.tsx))
+   - Removed: 2 render-blocking cross-origin CSS links (`unpkg.com/leaflet`, `unpkg.com/maplibre-gl`)
+   - Added: `next/font/google` (Inter) — self-hosted, auto-subset (latin+vietnamese), `font-display: swap`
+   - Map CSS now imported locally in `map/page.tsx` and `planning/page.tsx`
+
+4. **Sentry** ([sentry.client.config.ts](bhl-oms/web/sentry.client.config.ts))
+   - `tracesSampleRate`: 0.30 → 0.05
+   - `replaysSessionSampleRate`: 0.10 → 0 (removed eager ~70 KB worker)
+   - Replay integration lazy-added via `requestIdleCallback` after 3–5s idle (onError still 100%)
+
+5. **API base URL** ([api.ts](bhl-oms/web/src/lib/api.ts))
+   - `API_BASE = '/api'` → `'/v1'` — calls go directly to nginx `/v1/*` → Go API (no Next.js proxy hop)
+   - Fixed 6 hardcoded `/api/` references in: ai-feedback.ts, ExplainabilityModal.tsx, map/page.tsx, orders/page.tsx (×2), settings/health/page.tsx
+
+6. **Go gzip middleware** ([middleware/gzip.go](bhl-oms/internal/middleware/gzip.go) NEW)
+   - Custom stdlib `compress/gzip` middleware with `sync.Pool` reuse
+   - Registered as first middleware in [main.go](bhl-oms/cmd/server/main.go) — compresses all JSON API responses ~70%
+
+#### Sprint 2 — Backend caching + frontend lazy
+
+7. **Redis cache for `/dashboard/stats`** ([main.go](bhl-oms/cmd/server/main.go))
+   - 30s TTL, key: `stats:v1:YYYY-MM-DDTHH:MM`; 11 DB COUNT queries → 0 on cache hit
+   - Added `X-Cache: HIT/MISS` header for observability
+
+8. **Dynamic import AI widgets** ([dashboard/page.tsx](bhl-oms/web/src/app/dashboard/page.tsx))
+   - `AIInboxPanel`, `DispatchBriefCard`, `OutreachQueueWidget` → `dynamic()` with `ssr: false`
+   - Baseline KPI tiles render before AI widgets load (CLAUDE.md §8: AI is progressive enhancement)
+
+9. **Postgres tuning** ([docker-compose.prod.yml](bhl-oms/docker-compose.prod.yml))
+   - `shared_buffers`: 256 MB → 1 GB; `effective_cache_size`: 768 MB → 6 GB
+   - `work_mem`: 4 MB → 16 MB; `maintenance_work_mem`: 64 MB → 256 MB
+   - Added: `random_page_cost=1.1` (SSD), `effective_io_concurrency=200`, `wal_compression=on`
+   - Added: `checkpoint_completion_target=0.9`, `wal_buffers=64MB`, `default_statistics_target=250`, `synchronous_commit=off`
+   - `log_min_duration_statement`: 500ms → 200ms (better slow query coverage)
+
+10. **DB connection pool** ([pkg/db/db.go](bhl-oms/pkg/db/db.go))
+    - `MaxConns`: 20 → 30; added `MaxConnIdleTime=5m`, `MaxConnLifetime=1h`, `HealthCheckPeriod=30s`
+
+#### Sprint 3 — Architecture + font + SW
+
+11. **UserMenu extracted** ([components/dashboard/UserMenu.tsx](bhl-oms/web/src/components/dashboard/UserMenu.tsx) NEW)
+    - Isolated `'use client'` dropdown so open/close state does not re-render full DashboardLayout tree
+    - Removed `userMenuOpen` state from layout; removed one `useEffect` event listener
+
+12. **Service Worker versioning** ([public/sw.js](bhl-oms/web/public/sw.js))
+    - Cache name: `'bhl-v1'` → `'bhl-' + (self.__BUILD_ID__ || Date.now())` — busts stale SW on deploy
+    - Cache-first for `/_next/static/` (now that cache headers are fixed)
+    - Fixed SW to skip `/v1/` API calls (was `/api/`)
+
+#### Expected Impact (after deploy)
+| Metric | Before | After Sprint 1 | After Sprint 2 |
+|--------|--------|----------------|----------------|
+| LCP login (4G VN) | ~6–8s | ~2.0–2.5s | ~1.5–2.0s |
+| Repeat visit TTI | ~4–8s | ~0.6–1.0s | ~0.4–0.7s |
+| API /dashboard/stats | ~800–1500ms | ~600ms | ~5–30ms (cache) |
+| Total JS (gzipped) | ~700–900 KB | ~400–500 KB | ~350–400 KB |
+
+#### Docs Updated
+- `PERFORMANCE_AUDIT_2026_04_30.md` — bản phân tích gốc, còn dùng để theo dõi tiến độ đo lường
+- `CURRENT_STATE.md` — cập nhật config section
+- `CHANGELOG.md` — entry này
+- `TASK_TRACKER.md` — đánh dấu performance sprint
+
+#### AQF Gate
+- G0: Go build clean ✅, TS errors pre-existing (not introduced by this change) ✅
+- G1: No new lint errors introduced
+- G2: Verify after deploy: `curl -I https://bhl.symper.us/_next/static/chunks/main*.js` → expect `cache-control: immutable`; `curl -H "Accept-Encoding: gzip" -I https://bhl.symper.us/v1/health` → expect `content-encoding: gzip`
+- Không có migration/data change → `historical_rows_touched = 0` ✅
+
+### 2026-04-30 — Decision: Lucide React Icons ONLY (no emoji in any UI component)
+
+#### Decision
+**DEC-FE-01** — Removed ALL emoji from frontend codebase; migrated to Lucide React (v0.577+) for all UI indicators.
+
+#### Changed
+1. **Removed 200+ emoji** across entire `web/src/`:
+   - Status indicators: `✅` → `<CheckCircle2>`, `❌` → `<XCircle>`, `⚠️` → `<AlertTriangle>`
+   - Delivery icons: `📦` → `<Package>`, `🚛` → `<Truck>`, `📍` → `<MapPin>`, `🗺️` → `<Map>`
+   - Status dots: `🟢🔵🔴🟡` → CSS `<span className="w-2 h-2 rounded-full bg-green-500" />`
+   - Leaflet maps: `🏭` → `KHO`, `🚏` → `TT`, `🛣️` → `CT`, `×N` → `×N`
+   - Config objects: emoji string fields → `LucideIcon` typed fields
+
+2. **Files affected (no functional changes, UX identical):**
+   - `planning/page.tsx` — VRP wizard, trip cards, solver steps
+   - `control-tower/page.tsx` — Map markers, deviation alerts
+   - `anomalies/page.tsx`, `eod/page.tsx`, `kpi/page.tsx`, `fleet/*`, `warehouse/*`, `pda-scanner/page.tsx`, `test-portal/aqf-command-center.tsx`
+   - Shared components: `OrderStatusStepper`, `OrderTimeline`, `StatusBadge`, `NotificationBell`, `NotificationToast`, etc.
+
+#### Docs Updated
+- `CLAUDE.md` — Added rule #9 (Lucide icons only, no emoji)
+- `DECISIONS.md` — New entry DEC-FE-01 with rationale & patterns
+- `UIX_BHL_OMS_TMS_WMS.md` — Section 14.4 (Icon Library: common icons, implementation patterns, color combos, avoid list)
+
+#### Deployment
+- Committed to `origin/master` as: `fix: remove all emoji across entire frontend codebase`
+- GitHub Actions workflow `Auto Deploy to Production` auto-triggered → Mac Mini server updating
 
 ### 2026-04-30 — Component System Sprint 2: P1 Components + Migration + Catalog
 

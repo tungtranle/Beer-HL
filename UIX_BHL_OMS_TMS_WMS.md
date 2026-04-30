@@ -862,6 +862,98 @@ WEB-OMS-03 (Create) → WEB-OMS-01 (List, status=new)
 | `QuantityInput` | Stepper +/- for item quantities |
 | `SignaturePad` | Customer signature capture (if needed) |
 
+## 14.4 Icon Library (Lucide React v0.577+)
+
+**Rule:** ALL UI indicators (status, action, warning, info) MUST use Lucide React icons — NEVER use emoji.
+
+### Common Icons by Category
+
+| Category | Icons | Usage |
+|----------|-------|-------|
+| **Status** | `CheckCircle2`, `XCircle`, `AlertTriangle`, `AlertCircle`, `Clock` | Order/trip status indicators |
+| **Action** | `Edit2`, `Trash2`, `Copy`, `Download`, `Upload`, `Settings` | CRUD buttons |
+| **Navigation** | `ChevronRight`, `ChevronDown`, `ArrowLeft`, `ArrowRight`, `Home` | Navigation arrows, breadcrumbs |
+| **Delivery** | `Package`, `Truck`, `MapPin`, `Navigation2`, `Map` | TMS/OMS workflow |
+| **Warehouse** | `Package`, `Grid`, `BarChart2`, `Scale`, `Archive` | WMS sections |
+| **Warning** | `AlertTriangle`, `AlertCircle` | Error/warning states |
+| **Info** | `Info`, `HelpCircle`, `FileText`, `MessageCircle` | Help/docs links |
+| **Data** | `BarChart2`, `LineChart`, `PieChart`, `Zap`, `Filter` | Reports/KPI |
+| **Account** | `User`, `Users`, `LogOut`, `Bell`, `Settings` | User menu |
+
+### Implementation Patterns
+
+#### 1. **Inline Icon + Text**
+```tsx
+import { AlertTriangle, CheckCircle2, Truck } from 'lucide-react'
+
+// Status message
+<div className="flex items-center gap-2">
+  <AlertTriangle className="w-4 h-4 text-red-500" />
+  <span>Lệch tuyến 2.5km</span>
+</div>
+
+// Button with icon
+<button className="flex items-center gap-2">
+  <Truck className="w-4 h-4" />
+  Gán xe
+</button>
+```
+
+#### 2. **Icon-only (Buttons, Toggles)**
+```tsx
+// Icon button
+<button className="p-2 hover:bg-gray-100 rounded">
+  <Edit2 className="w-4 h-4" />
+</button>
+
+// Status dot (no icon component — use CSS)
+<span className="w-2 h-2 rounded-full bg-green-500 inline-block mr-1" />
+```
+
+#### 3. **Config Objects (Type-Safe)**
+```tsx
+import type { LucideIcon } from 'lucide-react'
+import { AlertTriangle, AlertCircle, CheckCircle2 } from 'lucide-react'
+
+const severityConfig: Record<string, { icon: LucideIcon; color: string }> = {
+  high: { icon: AlertTriangle, color: 'text-red-500' },
+  medium: { icon: AlertCircle, color: 'text-yellow-500' },
+  low: { icon: CheckCircle2, color: 'text-green-500' },
+}
+
+// Usage
+const { icon: IconComponent, color } = severityConfig[severity]
+return <IconComponent className={`w-4 h-4 ${color}`} />
+```
+
+#### 4. **Leaflet Map Popups (Plain Text Only)**
+```tsx
+// ❌ WRONG — emoji or JSX won't render in Leaflet HTML
+L.popup().setContent('<span>🏭 Kho</span>')
+
+// ✅ CORRECT — plain text or ASCII
+L.popup().setContent('<div>KHO</div>')
+L.popup().setContent('<div style="font-weight:bold">×3 điểm</div>')
+L.popup().setContent('<div>[CT] Cầu Thanh</div>') // toll gate abbreviation
+```
+
+### Color Combinations
+
+| Severity | Icon | Color Class |
+|----------|------|------------|
+| Error | AlertTriangle | `text-red-500` |
+| Warning | AlertCircle | `text-yellow-500` |
+| Success | CheckCircle2 | `text-green-500` |
+| Info | Info | `text-blue-500` |
+| Disabled | Circle (outline) | `text-gray-300` |
+
+### Avoid
+
+- ❌ Emoji strings: `"⚠️ Không có tài xế"` → `<AlertTriangle className="..." /> Không có tài xế`
+- ❌ Mixed icon sources: don't use different icon libraries
+- ❌ Untyped icon fields: always use `LucideIcon` type in config objects
+- ❌ Icons in Leaflet HTML: use plain text abbreviations instead
+
 ---
 
 # 15. RESPONSIVE & ACCESSIBILITY

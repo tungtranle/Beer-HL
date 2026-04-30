@@ -1,4 +1,5 @@
-const API_BASE = '/api';
+// Call the Go backend directly at /v1/* — same origin, no Next.js proxy hop
+const API_BASE = '/v1';
 
 const AUTH_KEYS = {
   token: 'bhl_token',

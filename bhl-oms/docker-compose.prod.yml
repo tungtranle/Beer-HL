@@ -23,6 +23,7 @@ services:
       - JWT_ACCESS_TTL=15m
       - JWT_REFRESH_TTL=168h
       - VRP_SOLVER_URL=http://vrp:8090
+      - OSRM_URL=http://osrm:5000
       - BRAVO_URL=${BRAVO_URL}
       - BRAVO_API_KEY=${BRAVO_API_KEY}
       - DMS_URL=${DMS_URL}
@@ -59,13 +60,13 @@ services:
       dockerfile: Dockerfile
       args:
         - NEXT_PUBLIC_CLARITY_ID=wgqlli4s7j
-        - NEXT_PUBLIC_API_URL=http://api:8080
+        - NEXT_PUBLIC_API_URL=${PUBLIC_API_URL:-https://bhl.symper.us}
         - INTERNAL_API_ORIGIN=http://api:8080
         - INTERNAL_OSRM_ORIGIN=http://osrm:5000
     ports:
       - "3000:3000"
     environment:
-      - NEXT_PUBLIC_API_URL=http://api:8080
+      - NEXT_PUBLIC_API_URL=${PUBLIC_API_URL:-https://bhl.symper.us}
       - INTERNAL_API_ORIGIN=http://api:8080
       - INTERNAL_OSRM_ORIGIN=http://osrm:5000
     depends_on:
@@ -91,12 +92,19 @@ services:
       postgres
         -c shared_preload_libraries=pg_stat_statements
         -c pg_stat_statements.track=all
-        -c log_min_duration_statement=500
+        -c log_min_duration_statement=200
         -c max_connections=200
-        -c shared_buffers=256MB
-        -c effective_cache_size=768MB
-        -c work_mem=4MB
-        -c maintenance_work_mem=64MB
+        -c shared_buffers=1GB
+        -c effective_cache_size=6GB
+        -c work_mem=16MB
+        -c maintenance_work_mem=256MB
+        -c random_page_cost=1.1
+        -c effective_io_concurrency=200
+        -c wal_compression=on
+        -c checkpoint_completion_target=0.9
+        -c wal_buffers=64MB
+        -c default_statistics_target=250
+        -c synchronous_commit=off
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U bhl"]
       interval: 5s
@@ -139,6 +147,12 @@ services:
       - ./osrm-data:/data
     command: osrm-routed --algorithm mld /data/vietnam-latest.osrm
     restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:5000/status || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
 
   # ===== MONITORING =====
   prometheus:

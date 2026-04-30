@@ -18,7 +18,7 @@ export function sendAIFeedback(input: AIFeedbackInput) {
     metadata: input.metadata || {},
   })
 
-  fetch('/api/ml/feedback', {
+  fetch('/v1/ml/feedback', {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',

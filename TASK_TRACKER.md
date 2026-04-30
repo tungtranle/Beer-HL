@@ -1,7 +1,28 @@
 # 📊 TASK TRACKER — BHL OMS-TMS-WMS
 
-> **Cập nhật lần cuối:** 30/04/2026 — Component System Sprint 2 COMPLETE (P1 components + migration + catalog).
+> **Cập nhật lần cuối:** 30/04/2026 — Performance Sprint 1+2+3 COMPLETE (3 sprints, 12 changes, LCP ~6s → ~2s expected).
 > **Trạng thái dự án:** 🟢 Đang phát triển → ⚠️ CONDITIONAL GO sau khi fix 4 CRIT còn lại.
+
+## Performance Optimization Sprint (30/04/2026)
+
+| ID | Task | Status | Note |
+|----|------|--------|------|
+| PERF-1 | Cache-Control immutable cho `/_next/static/*` | ✅ DONE | next.config.js |
+| PERF-2 | Nginx: gzip + HTTP/2 + proxy_cache_path | ✅ DONE | nginx/nginx.conf |
+| PERF-3 | Remove render-blocking cross-origin CSS (unpkg) | ✅ DONE | layout.tsx |
+| PERF-4 | next/font self-host Inter + Vietnamese subset | ✅ DONE | layout.tsx |
+| PERF-5 | Sentry Replay lazy-load (remove ~70KB eager) | ✅ DONE | sentry.client.config.ts |
+| PERF-6 | API_BASE `/api` → `/v1` — remove proxy hop | ✅ DONE | api.ts + 6 hardcoded files |
+| PERF-7 | Go gzip middleware (sync.Pool) | ✅ DONE | middleware/gzip.go |
+| PERF-8 | Redis 30s cache for /dashboard/stats | ✅ DONE | main.go |
+| PERF-9 | Dynamic import AI widgets (progressive enhancement) | ✅ DONE | dashboard/page.tsx |
+| PERF-10 | Postgres 16 tuning for Mac mini 16GB RAM | ✅ DONE | docker-compose.prod.yml |
+| PERF-11 | DB connection pool tuning (pgx MaxConns=30) | ✅ DONE | pkg/db/db.go |
+| PERF-12 | UserMenu extracted — stop full layout re-render | ✅ DONE | components/dashboard/UserMenu.tsx |
+| PERF-13 | SW versioning with BUILD_ID | ✅ DONE | public/sw.js |
+| PERF-AUD | Performance Audit MD | ✅ DONE | PERFORMANCE_AUDIT_2026_04_30.md |
+
+
 
 ## 🧩 Component System — BHL_Component_System_Proposal.md (30/04/2026)
 
@@ -26,6 +47,15 @@
 | CS-MIG-1 | Migrate 5 trang core: `kpi`, `orders`, `trips`, `planning`, `control-tower` | ✅ DONE | orders (Drawer+Modal), control-tower (3×Modal+Textarea+Button) — kpi/trips/planning không có pattern |
 | CS-CAT-1 | Catalog tại `/test-portal/components` | ✅ DONE | 23 primitives, auth-guarded, interactive demos |
 
+## 🎨 Icon Strategy Standardization — UX Consistency (30/04/2026)
+
+| ID | Task | Status | File / Deliverable |
+|----|------|--------|--------------------|
+| UX-ICONS-1 | Decision: Lucide React icons ONLY (DEC-FE-01) | ✅ DONE | `DECISIONS.md` + `CLAUDE.md` rule #9 |
+| UX-ICONS-2 | Remove 200+ emoji across codebase | ✅ DONE | planning, control-tower, anomalies, eod, kpi, fleet, warehouse, pda-scanner, components — 0 emoji remaining in web/src |
+| UX-ICONS-3 | Document icon library patterns + common icons | ✅ DONE | `UIX_BHL_OMS_TMS_WMS.md` §14.4 (4 implementation patterns, 8 icon categories, color combos, avoid list) |
+| UX-ICONS-4 | Update docs: CLAUDE.md, DECISIONS.md, CHANGELOG.md, CURRENT_STATE_COMPACT.md | ✅ DONE | Cross-file documentation for future consistency |
+| UX-ICONS-5 | Deploy to production (GitHub Actions) | ✅ DONE | Commit: `fix: remove all emoji across entire frontend codebase`; auto-deploy to Mac Mini |
 
 ## 🚦 Pre-Go-Live Audit (30/04/2026)
 

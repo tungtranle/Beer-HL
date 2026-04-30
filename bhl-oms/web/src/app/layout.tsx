@@ -1,7 +1,15 @@
 import type { Metadata } from 'next'
+import { Inter } from 'next/font/google'
 import './globals.css'
 import ClarityClient from '../components/ClarityClient'
 import CookieConsent from '../components/CookieConsent'
+
+// Self-hosted via next/font — no external CDN round-trip, auto-subset, font-display:swap
+const inter = Inter({
+  subsets: ['latin', 'vietnamese'],
+  display: 'swap',
+  variable: '--font-inter',
+})
 
 export const metadata: Metadata = {
   title: 'BHL - Quản lý Đơn hàng, Vận chuyển & Kho',
@@ -10,20 +18,12 @@ export const metadata: Metadata = {
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
-    <html lang="vi">
+    <html lang="vi" className={inter.variable}>
       <head>
         <meta charSet="utf-8" />
         <link rel="manifest" href="/manifest.json" />
         <meta name="theme-color" content="#d97706" />
-        <link
-          rel="stylesheet"
-          href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
-          crossOrigin=""
-        />
-        <link
-          rel="stylesheet"
-          href="https://unpkg.com/maplibre-gl@5.23.0/dist/maplibre-gl.css"
-        />
+        {/* Map CSS is imported directly in map pages — no render-blocking cross-origin link here */}
         <script dangerouslySetInnerHTML={{ __html: `
           if ('serviceWorker' in navigator) {
             window.addEventListener('load', () => {
@@ -32,7 +32,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
           }
         ` }} />
       </head>
-      <body className="bg-gray-50">
+      <body className={`bg-gray-50 ${inter.className}`}>
         {children}
         {/* Microsoft Clarity — chỉ load trên bhl.symper.us sau khi có consent */}
         <ClarityClient />

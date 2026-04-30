@@ -24,6 +24,20 @@ ESLint warn tự động khi dùng `<button>/<input>/<select>/<textarea>` thô.
 
 **Pending Sprint 2:** `DataTable`, `FilterBar`, `ActionMenu`, `Drawer`, `DateRangePicker` + migrate 5 trang core.
 
+### Icon Strategy (Lucide React v0.577+)
+
+**Decision DEC-FE-01** — Emoji REMOVED entirely from codebase (30/04/2026). All UI indicators now use Lucide React icons exclusively.
+
+**Pattern (see UIX_BHL_OMS_TMS_WMS.md §14.4 for full guide):**
+- Inline: `<CheckCircle2 className="w-4 h-4 inline mr-1" /> Label`
+- Config: `const icons: Record<string, LucideIcon> = { success: CheckCircle2, error: XCircle }; return React.createElement(icons[status], { className: 'w-4 h-4' })`
+- Leaflet: plain text only (e.g., `KHO`, `×3`, `[CT]`, `[TT]`), no emoji or JSX
+- Status dots: CSS `<span className="w-2 h-2 rounded-full bg-green-500" />`
+
+**Impact:**
+- 200+ emoji removed across `planning`, `control-tower`, `anomalies`, `eod`, `kpi`, `fleet`, `warehouse`, `pda-scanner`, components.
+- Consistent rendering cross-platform, accessible, type-safe, easy refactor.
+
 ## Hệ thống
 
 | Component | Port | Status |

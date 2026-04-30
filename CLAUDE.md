@@ -52,6 +52,13 @@ Pattern: `Handler → Service → Repository` (luôn 3 tầng, không bỏ, khô
 6. **TEST TỪNG FEATURE NGAY SAU KHI CODE** — viết xong → compile → chạy → gọi API/load page → confirm OK → rồi mới làm tiếp. KHÔNG batch nhiều features rồi test 1 lần. Chi tiết: xem `.github/instructions/test-after-code.instructions.md`
 7. **AQF là gate bắt buộc khi vibe code:** mọi code mới phải có kiểm chứng tương ứng (unit/API/page/golden/evidence), không dùng destructive test data, không chạm dữ liệu lịch sử, và phải ghi rõ gate đã pass/skip trong báo cáo cuối.
 8. **AI là progressive enhancement:** core workflow phải chạy khi AI flag OFF. Default AI flags = OFF, baseline UX luôn render trước, AI không được block page.
+9. **KHÔNG emoji, CHỈ dùng Lucide React icons:** Mọi UI indicator (status, action, warning, info) dùng `lucide-react` components, KHÔNG emoji string (❌, ✅, 📦, 🚛, ⚠️, v.v.). Pattern:
+   - Import: `import { CheckCircle2, AlertTriangle, Package, Truck, AlertTriangle } from 'lucide-react'`
+   - Render icon: `<CheckCircle2 className="w-4 h-4" />`
+   - JSX text với icon: `<CheckCircle2 className="w-4 h-4 inline mr-1" /> Label`
+   - Leaflet HTML strings: dùng plain text hoặc ASCII (e.g., `KHO`, `×N`, `CT`, `TT`, chứ không `🏭`, `📦`, `🚏`)
+   - Config object `icon` field: dùng `LucideIcon` type hoặc text, KHÔNG emoji string
+   - Lý do: emoji không consistent trên mobile/browser, khó maintain, không accessible, não refactor — icons vector giải quyết tất cả
 
 ---
 

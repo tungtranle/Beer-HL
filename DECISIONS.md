@@ -6,6 +6,48 @@
 
 ---
 
+## DEC-FE-01: Lucide React icons ONLY — no emoji in any UI component
+**Date:** 2026-04-30  **Status:** Implemented (removed 200+ emoji across web/src)
+
+**Context:** Frontend historically used emoji (❌, ✅, 📦, 🚛, ⚠️, 🏭, etc.) in JSX, Tailwind classes, Leaflet popups, and config objects. This caused:
+- Inconsistent rendering across browsers/OS (emoji width/baseline vary).
+- Accessibility issues — screen readers can't interpret emoji semantically.
+- Maintenance nightmare — hard to refactor/replace emoji en masse.
+- No type safety — icon fields in config objects are untyped strings.
+
+**Decision:** Use Lucide React (v0.577+) icons exclusively for all UI indicators (status, action, warning, info, etc.). Remove ALL emoji from codebase.
+
+**Pattern:**
+```tsx
+// JSX: inline icon with text
+<AlertTriangle className="w-4 h-4 inline mr-1" /> {errorMessage}
+
+// Config: LucideIcon type
+const severityIcons: Record<string, LucideIcon> = {
+  high: AlertTriangle,
+  medium: AlertCircle,
+  low: CheckCircle2,
+}; 
+// Render: React.createElement(severityIcons[severity], { className: 'w-4 h-4' })
+
+// Leaflet HTML: plain text only
+`<div>KHO</div>` instead of `<div>🏭</div>`
+
+// Status dots: CSS instead of emoji
+<span className="w-2 h-2 rounded-full bg-green-500 inline-block" />
+```
+
+**Consequences:**
+- ✅ Consistent across all platforms/browsers — vector rendering guaranteed.
+- ✅ Full type safety — `LucideIcon` type ensures only valid icons used.
+- ✅ Accessible — Lucide icons have proper ARIA labels when needed.
+- ✅ Easy refactor — 1 import change affects whole codebase.
+- ⚠️ Leaflet map popups can't use React components — must use plain text/SVG inline HTML (workaround: generate SVG string at runtime if needed).
+
+**Docs Impact:** CLAUDE.md (rule #9), UIX_BHL_OMS_TMS_WMS.md (component library), CURRENT_STATE_COMPACT.md (frontend stack), CHANGELOG.md.
+
+---
+
 ## DEC-WMS-05: Reuse Phase 9 bin_locations rather than introduce a separate "suggested_bins" table
 **Date:** 2026-04-28  **Status:** Implemented
 

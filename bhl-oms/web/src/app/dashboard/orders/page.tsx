@@ -135,7 +135,7 @@ export default function OrdersPage() {
 
   const handleDownloadTemplate = async () => {
     try {
-      const res = await fetch('/api/orders/import/template', {
+      const res = await fetch('/v1/orders/import/template', {
         headers: { 'Authorization': `Bearer ${localStorage.getItem('bhl_token')}` },
       })
       if (!res.ok) throw new Error('Download failed')
@@ -158,7 +158,7 @@ export default function OrdersPage() {
     try {
       const formData = new FormData()
       formData.append('file', importFile)
-      const res = await fetch('/api/orders/import', {
+      const res = await fetch('/v1/orders/import', {
         method: 'POST',
         headers: { 'Authorization': `Bearer ${localStorage.getItem('bhl_token')}` },
         body: formData,

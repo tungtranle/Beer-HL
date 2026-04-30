@@ -82,7 +82,7 @@ function ExplainabilityModal({
   const handleFeedback = async () => {
     try {
       // Best-effort POST; backend endpoint will be wired in Sprint 2 ML service.
-      await fetch('/api/v1/ml/feedback', {
+      await fetch('/v1/ml/feedback', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ feature_id: featureId, recommendation_id: recommendationId, reason: 'incorrect' }),
