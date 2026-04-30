@@ -27,7 +27,7 @@ export function DispatchBriefCard() {
   const load = useCallback((refresh = false) => {
     if (!allowed || !enabled) return
     setLoading(true)
-    apiFetch<DispatchBrief>(`/ai/dispatch-brief${refresh ? '?refresh=1' : ''}`)
+    apiFetch<{data: DispatchBrief | null}>(`/ai/dispatch-brief${refresh ? '?refresh=1' : ''}`)
       .then((res) => setBrief(res.data || null))
       .catch(() => setBrief(null))
       .finally(() => setLoading(false))
