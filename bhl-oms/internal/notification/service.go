@@ -3,7 +3,9 @@ package notification
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"sync"
+	"time"
 
 	"bhl-oms/internal/domain"
 	"bhl-oms/pkg/logger"
@@ -118,7 +120,7 @@ func (s *Service) GetNotifications(ctx context.Context, userID uuid.UUID, unread
 	return s.repo.GetByUser(ctx, userID, unreadOnly, limit)
 }
 
-func (s *Service) GetNotificationsPaginated(ctx context.Context, userID uuid.UUID, unreadOnly bool, page, limit int) ([]domain.Notification, int64, error) {
+func (s *Service) GetNotificationsPaginated(ctx context.Context, userID uuid.UUID, unreadOnly bool, category string, page, limit int) ([]domain.Notification, int64, error) {
 	if page < 1 {
 		page = 1
 	}
@@ -126,7 +128,7 @@ func (s *Service) GetNotificationsPaginated(ctx context.Context, userID uuid.UUI
 		limit = 50
 	}
 	offset := (page - 1) * limit
-	return s.repo.GetByUserPaginated(ctx, userID, unreadOnly, limit, offset)
+	return s.repo.GetByUserPaginated(ctx, userID, unreadOnly, category, limit, offset)
 }
 
 func (s *Service) MarkRead(ctx context.Context, id, userID uuid.UUID) error {
@@ -153,6 +155,110 @@ func (s *Service) GetByCategory(ctx context.Context, userID uuid.UUID, category 
 		limit = 50
 	}
 	return s.repo.GetByCategory(ctx, userID, category, limit)
+}
+
+// Acknowledge marks a notification as acknowledged (P0 action taken) and removes it from urgent toasts.
+func (s *Service) Acknowledge(ctx context.Context, id, userID uuid.UUID) error {
+	return s.repo.Acknowledge(ctx, id, userID)
+}
+
+// MarkResolved marks all notifications in a group as resolved (underlying issue fixed).
+func (s *Service) MarkResolved(ctx context.Context, groupKey string) error {
+	return s.repo.MarkResolvedByGroupKey(ctx, groupKey)
+}
+
+// SendIdempotent creates a notification only once per idempotency key per user.
+// If the key was already used, the call is a silent no-op.
+func (s *Service) SendIdempotent(ctx context.Context, userID uuid.UUID, title, body, category, priority string, link *string, entityType *string, entityID *uuid.UUID, actions json.RawMessage, groupKey *string, idempotencyKey string) error {
+	n := &domain.Notification{
+		UserID:         userID,
+		Title:          title,
+		Body:           body,
+		Category:       category,
+		Priority:       priority,
+		Link:           link,
+		EntityType:     entityType,
+		EntityID:       entityID,
+		Actions:        actions,
+		GroupKey:       groupKey,
+		IdempotencyKey: &idempotencyKey,
+	}
+	wasNew, err := s.repo.CreateWithIdempotency(ctx, n)
+	if err != nil {
+		return err
+	}
+	if wasNew {
+		s.hub.SendToUser(userID, n)
+	}
+	return nil
+}
+
+// StartEscalationCron runs every minute to escalate P0 notifications not ACK'd within 5 minutes.
+// Escalation chain: original recipient → all management + admin users.
+func (s *Service) StartEscalationCron() {
+	go func() {
+		ticker := time.NewTicker(1 * time.Minute)
+		defer ticker.Stop()
+		for range ticker.C {
+			ctx := context.Background()
+			s.runEscalation(ctx)
+		}
+	}()
+}
+
+// StartCleanupCron runs every hour to hard-delete notifications past their expires_at.
+func (s *Service) StartCleanupCron() {
+	go func() {
+		ticker := time.NewTicker(1 * time.Hour)
+		defer ticker.Stop()
+		for range ticker.C {
+			ctx := context.Background()
+			deleted, err := s.repo.DeleteExpired(ctx)
+			if err != nil {
+				s.log.Error(ctx, "notification_cleanup_failed", err)
+			} else if deleted > 0 {
+				s.log.Info(ctx, "notification_cleanup_done", logger.F("deleted", deleted))
+			}
+		}
+	}()
+}
+
+func (s *Service) runEscalation(ctx context.Context) {
+	unacked, err := s.repo.GetUnacknowledgedUrgent(ctx, 5*time.Minute)
+	if err != nil {
+		s.log.Error(ctx, "escalation_query_failed", err)
+		return
+	}
+	if len(unacked) == 0 {
+		return
+	}
+
+	// Collect escalation targets: management + admin roles
+	managerIDs, _ := s.repo.GetUserIDsByRole(ctx, "management")
+	adminIDs, _ := s.repo.GetUserIDsByRole(ctx, "admin")
+	escalateToIDs := append(managerIDs, adminIDs...)
+	if len(escalateToIDs) == 0 {
+		return
+	}
+
+	for _, n := range unacked {
+		escalationTitle := fmt.Sprintf("[Escalation P0] %s", n.Title)
+		escalationBody := "P0 chưa được xử lý sau 5 phút. Người nhận gốc chưa phản hồi."
+		firstManagerID := escalateToIDs[0]
+
+		for _, mgrID := range escalateToIDs {
+			if mgrID == n.UserID {
+				continue // không escalate về chính người đó
+			}
+			_ = s.Send(ctx, mgrID, escalationTitle, escalationBody, n.Category, n.Link)
+		}
+		_ = s.repo.MarkEscalated(ctx, n.ID, firstManagerID)
+		s.log.Info(ctx, "notification_escalated",
+			logger.F("notification_id", n.ID),
+			logger.F("original_user", n.UserID),
+			logger.F("escalated_to_count", len(escalateToIDs)),
+		)
+	}
 }
 
 // ── WebSocket Hub for Notifications ─────────────────

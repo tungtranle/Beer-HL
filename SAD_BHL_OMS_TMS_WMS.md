@@ -27,6 +27,7 @@
 | 8 | WebSocket đổi sang **gorilla/websocket** + Redis pub/sub | Go-native |
 | 9 | Section Observability đã đúng Go stack | Aligned với backend |
 | 10 | **Timeline rút từ 14 tuần → 8 tuần** (4 Phase thay 7 Sprint). Go-live ~15/05/2026 | Vibe coding acceleration — bottleneck là external dependencies, không phải code |
+| 11 | **AI-Native UX v3** thêm progressive enhancement + feature flags | AI có thể bật/tắt từng feature; baseline UX không phụ thuộc AI |
 
 ---D
 
@@ -65,6 +66,19 @@
 | Debugging | ❌ Distributed tracing phức tạp | ✅ Log tập trung, dễ debug |
 | Module isolation | ✅ Hoàn toàn độc lập | ✅ Go package boundaries + interfaces |
 | Mở rộng tương lai | ✅ Scale từng service | ✅ Extract module → service sau |
+
+## 1.1b AI-Native extension — Progressive Enhancement
+
+AI layer chạy trong modular monolith hiện tại, không tách microservice ở Phase 1-6 foundation. `internal/ai` quản lý provider/rules/flags/privacy/audit/inbox/intent/voice/simulation/trust; frontend dùng `/dashboard/settings/ai`, `/dashboard/ai/transparency`, `/dashboard/ai/simulations` và hooks `useFeatureFlags`/`useAIFeature` để render AI enhancement có điều kiện.
+
+| Component | Quyết định |
+|---|---|
+| Feature flags | PostgreSQL `ai_feature_flags`, scope org/role/user, default OFF |
+| Async jobs | Asynq/Redis-first theo stack hiện tại; không thêm pgboss khi chưa có DEC mới |
+| Provider routing | Gemini/Groq/Ollama/local rules sau Privacy Router |
+| Failure mode | Fail-closed: flag lookup lỗi hoặc provider lỗi không block baseline workflow |
+| Privacy audit | `ai_audit_log` lưu hash/redaction/provider/route, không lưu raw prompt |
+| Simulation | `ai_simulations` là dry-run snapshot; apply yêu cầu human approval và không mutate core tables ở Phase 6 foundation |
 
 ## 1.2. Tech Stack Decision
 

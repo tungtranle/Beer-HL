@@ -1,18 +1,19 @@
 ﻿'use client'
 
 import React, { useEffect, useState, useRef, useCallback, useMemo } from 'react'
-import { useRouter } from 'next/navigation'
+import { useRouter, useSearchParams } from 'next/navigation'
 import { apiFetch, getUser } from '@/lib/api'
 import SearchableSelect from '@/lib/SearchableSelect'
 import { useNotifications } from '@/lib/notifications'
 import { handleError } from '@/lib/handleError'
+import { AIContextStrip } from '@/components/ai'
 
 // ─── OSRM routing helper ─────────────────────────────
 async function fetchOSRMRoute(points: [number, number][]): Promise<{ geometry: [number, number][]; legs: { distance_km: number; duration_min: number }[]; total_km: number; total_min: number } | null> {
   if (points.length < 2) return null
   const coords = points.map(p => `${p[1]},${p[0]}`).join(';')
   try {
-    const res = await fetch(`https://router.project-osrm.org/route/v1/driving/${coords}?overview=full&geometries=geojson&steps=false`)
+    const res = await fetch(`/osrm/route/v1/driving/${coords}?overview=full&geometries=geojson&steps=false`)
     if (!res.ok) return null
     const data = await res.json()
     if (data.code !== 'Ok' || !data.routes?.[0]) return null
@@ -26,15 +27,72 @@ async function fetchOSRMRoute(points: [number, number][]): Promise<{ geometry: [
   } catch { return null }
 }
 
+// Phase B — render small chips for VRP constraints next to a stop
+type CustomerVRPConstraints = {
+  max_vehicle_weight_kg: number
+  delivery_windows: { start: string; end: string }[]
+  forbidden_windows: { start: string; end: string; reason?: string }[]
+  access_notes: string | null
+}
+function VRPConstraintChips({ c }: { c: CustomerVRPConstraints | undefined }) {
+  if (!c) return null
+  const chips: { key: string; label: string; cls: string; title?: string }[] = []
+  if (c.max_vehicle_weight_kg > 0) {
+    chips.push({
+      key: 'wt', label: `≤${(c.max_vehicle_weight_kg / 1000).toFixed(1)}T`,
+      cls: 'bg-amber-100 text-amber-800 border-amber-300',
+      title: `Chỉ xe ≤ ${c.max_vehicle_weight_kg.toLocaleString('vi-VN')} kg được vào`,
+    })
+  }
+  if (c.delivery_windows.length > 0) {
+    const w0 = c.delivery_windows[0]
+    const more = c.delivery_windows.length > 1 ? ` +${c.delivery_windows.length - 1}` : ''
+    chips.push({
+      key: 'dw', label: `🟢 ${w0.start}-${w0.end}${more}`,
+      cls: 'bg-emerald-100 text-emerald-800 border-emerald-300',
+      title: c.delivery_windows.map(w => `${w.start}-${w.end}`).join(', '),
+    })
+  }
+  if (c.forbidden_windows.length > 0) {
+    const w0 = c.forbidden_windows[0]
+    chips.push({
+      key: 'fw', label: `🚫 ${w0.start}-${w0.end}`,
+      cls: 'bg-red-100 text-red-800 border-red-300',
+      title: c.forbidden_windows.map(w => `${w.start}-${w.end}${w.reason ? ' — ' + w.reason : ''}`).join('; '),
+    })
+  }
+  if (c.access_notes) {
+    chips.push({
+      key: 'an', label: `📝`,
+      cls: 'bg-slate-100 text-slate-700 border-slate-300',
+      title: c.access_notes,
+    })
+  }
+  if (chips.length === 0) return null
+  return (
+    <span className="inline-flex flex-wrap gap-1 ml-1">
+      {chips.map(ch => (
+        <span key={ch.key} title={ch.title}
+          className={`inline-flex items-center px-1.5 py-0.5 rounded border text-[10px] font-semibold ${ch.cls}`}>
+          {ch.label}
+        </span>
+      ))}
+    </span>
+  )
+}
+
 // ─── Trip Detail Modal with Map ──────────────────────
-function TripDetailModal({ trip, tripIdx, vehicles, warehouse, onClose }: {
-  trip: VRPTrip; tripIdx: number; vehicles: Vehicle[]; warehouse: { lat: number; lng: number; name: string } | null; onClose: () => void
+function TripDetailModal({ trip, tripIdx, vehicles, warehouse, vrpConstraintsMap, onClose }: {
+  trip: VRPTrip; tripIdx: number; vehicles: Vehicle[]; warehouse: { lat: number; lng: number; name: string } | null;
+  vrpConstraintsMap?: Record<string, CustomerVRPConstraints>;
+  onClose: () => void
 }) {
   const mapRef = useRef<any>(null)
   const mapElRef = useRef<HTMLDivElement>(null)
   const [legDistances, setLegDistances] = useState<{ distance_km: number; duration_min: number }[]>([])
   const [routeTotals, setRouteTotals] = useState<{ total_km: number; total_min: number; return_km: number } | null>(null)
   const [routeLoading, setRouteLoading] = useState(true)
+  const [osrmFailed, setOsrmFailed] = useState(false)
   const [isFullscreen, setIsFullscreen] = useState(false)
   const [showAllTolls, setShowAllTolls] = useState(false)
   const [allTollStations, setAllTollStations] = useState<any[]>([])
@@ -165,10 +223,13 @@ function TripDetailModal({ trip, tripIdx, vehicles, warehouse, onClose }: {
           map.fitBounds(L.latLngBounds(osrm.geometry.map(p => L.latLng(p[0], p[1]))), { padding: [40, 40] })
         }
       } else {
-        // Fallback: straight lines if OSRM fails
-        if (waypoints.length > 1) {
-          L.polyline(waypoints, { color: '#dc2626', weight: 3, opacity: 0.7, dashArray: '8 4' }).addTo(map)
+        // OSRM unavailable — draw dashed straight-line fallback
+        if (waypoints.length >= 2) {
+          L.polyline(waypoints, { color: '#9ca3af', weight: 2, opacity: 0.7, dashArray: '8 5' }).addTo(map)
         }
+        setOsrmFailed(true)
+        setLegDistances([])
+        setRouteTotals(null)
         if (waypoints.length > 0) {
           map.fitBounds(L.latLngBounds(waypoints.map(p => L.latLng(p[0], p[1]))), { padding: [40, 40] })
         }
@@ -293,6 +354,11 @@ function TripDetailModal({ trip, tripIdx, vehicles, warehouse, onClose }: {
                 <div className="text-sm text-gray-600 animate-pulse">🗺️ Đang tải lộ trình...</div>
               </div>
             )}
+            {!routeLoading && osrmFailed && (
+              <div className="absolute bottom-2 left-1/2 -translate-x-1/2 z-[900] flex items-center gap-1.5 bg-amber-50 border border-amber-300 text-amber-800 text-xs font-medium px-3 py-1.5 rounded-full shadow pointer-events-none whitespace-nowrap">
+                <span>⚠</span><span>OSRM chưa chạy — đường nét đứt là tạm thời. Chạy <strong>START_OSRM_ONLY.bat</strong>.</span>
+              </div>
+            )}
           </div>
 
           {/* Shipment details + leg distances */}
@@ -317,7 +383,7 @@ function TripDetailModal({ trip, tripIdx, vehicles, warehouse, onClose }: {
                         {i + 1}
                       </div>
                       <div className="flex-1 min-w-0">
-                        <div className="font-medium text-sm flex items-center gap-1.5">
+                        <div className="font-medium text-sm flex items-center gap-1.5 flex-wrap">
                           {stop.customer_name}
                           {stop.consolidated_ids && stop.consolidated_ids.length > 1 && (
                             <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-semibold bg-purple-100 text-purple-700" title={`Ghép ${stop.consolidated_ids.length} đơn cùng NPP`}>📦×{stop.consolidated_ids.length}</span>
@@ -325,6 +391,7 @@ function TripDetailModal({ trip, tripIdx, vehicles, warehouse, onClose }: {
                           {stop.is_split && (
                             <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-semibold bg-orange-100 text-orange-700" title={`Tách đơn: phần ${stop.split_part}/${stop.split_total}`}>✂️ {stop.split_part}/{stop.split_total}</span>
                           )}
+                          <VRPConstraintChips c={vrpConstraintsMap?.[stop.customer_id]} />
                         </div>
                         <div className="text-xs text-gray-500 mt-0.5">{stop.customer_address || 'Chưa có địa chỉ'}</div>
                         <div className="flex flex-wrap gap-x-4 gap-y-1 mt-2 text-xs">
@@ -639,12 +706,54 @@ interface VRPResult {
   distance_source?: string; optimize_for?: string
 }
 
+function buildVRPReviewHighlights(result: VRPResult, vehicles: Vehicle[]) {
+  const highlights: { label: string; value: string; impact: 'positive' | 'neutral' | 'negative' | 'warning'; reason: string }[] = []
+  const unassignedCount = result.unassigned_shipments?.length || result.summary?.total_unassigned || 0
+  if (unassignedCount > 0) {
+    highlights.push({ label: 'Đơn chưa xếp được', value: `${unassignedCount}`, impact: 'negative', reason: `${unassignedCount} shipment chưa vào chuyến; cần thêm xe hoặc tách đơn trước khi duyệt.` })
+  }
+
+  const highLoadTrips = result.trips.filter((trip) => {
+    const vehicle = vehicles.find((entry) => entry.id === trip.vehicle_id)
+    const capacity = vehicle?.capacity_kg || 15000
+    return capacity > 0 && trip.total_weight_kg / capacity >= 0.9
+  })
+  if (highLoadTrips.length > 0) {
+    highlights.push({ label: 'Xe tải cao', value: `${highLoadTrips.length} chuyến`, impact: 'warning', reason: `${highLoadTrips.length} chuyến đạt từ 90% tải trọng; kiểm tra bốc dỡ và không thêm stop vào các chuyến này.` })
+  }
+
+  const longTrips = result.trips.filter((trip) => (trip.total_duration_min || 0) > 480)
+  if (longTrips.length > 0) {
+    highlights.push({ label: 'Chuyến dài quá 8h', value: `${longTrips.length}`, impact: 'warning', reason: `${longTrips.length} chuyến vượt 8 giờ; cân nhắc tách tuyến hoặc đổi objective.` })
+  }
+
+  const tollRatio = result.summary?.toll_cost_ratio_pct || 0
+  if (tollRatio >= 35) {
+    highlights.push({ label: 'Cầu đường cao', value: `${tollRatio.toFixed(0)}%`, impact: 'warning', reason: `Chi phí cầu đường chiếm ${tollRatio.toFixed(0)}% tổng chi phí; nên so lại phương án tránh BOT nếu còn thời gian.` })
+  }
+
+  const missingDrivers = result.trips.filter((trip) => !trip.vehicle_id).length
+  if (missingDrivers > 0) {
+    highlights.push({ label: 'Thiếu xe/tài xế', value: `${missingDrivers}`, impact: 'negative', reason: `${missingDrivers} chuyến thiếu thông tin xe; không nên duyệt khi chưa bổ sung.` })
+  }
+
+  if (highlights.length === 0) {
+    highlights.push({ label: 'Không có điểm chặn lớn', value: 'OK', impact: 'positive', reason: 'Kế hoạch không có shipment chưa xếp, chuyến quá tải hoặc chuyến vượt 8 giờ theo rule hiện tại.' })
+  }
+
+  return highlights.slice(0, 5)
+}
+
 const STEPS = ['Tổng quan', 'Chọn xe', 'Xem đơn hàng', 'Tạo kế hoạch giao hàng', 'Duyệt & Tạo chuyến']
 const STEP_ICONS = ['📊', '🚛', '📦', '🗺️', '✅']
 
 export default function PlanningPage() {
   const user = getUser()
   const router = useRouter()
+  const searchParams = useSearchParams()
+  // URL params from test portal deep-link: /dashboard/planning?date=2026-04-30&warehouse=WH-HL
+  const urlDate = searchParams?.get('date') || ''
+  const urlWarehouse = searchParams?.get('warehouse') || ''
 
   // Role check — only admin and dispatcher can access planning
   useEffect(() => {
@@ -679,6 +788,37 @@ export default function PlanningPage() {
   const [vrpResult, setVrpResult] = useState<VRPResult | null>(null)
   const [running, setRunning] = useState(false)
   const [solveProgress, setSolveProgress] = useState(0)
+
+  // Phase B — VRP customer constraints (chips on stop cards)
+  const [vrpConstraintsMap, setVrpConstraintsMap] = useState<Record<string, {
+    max_vehicle_weight_kg: number
+    delivery_windows: { start: string; end: string }[]
+    forbidden_windows: { start: string; end: string; reason?: string }[]
+    access_notes: string | null
+  }>>({})
+
+  useEffect(() => {
+    if (!vrpResult?.trips) return
+    const ids = new Set<string>()
+    vrpResult.trips.forEach(t => t.stops.forEach(s => { if (s.customer_id) ids.add(s.customer_id) }))
+    const missing = Array.from(ids).filter(id => !(id in vrpConstraintsMap))
+    if (missing.length === 0) return
+    Promise.all(missing.map(id =>
+      apiFetch<any>(`/customers/${id}/vrp-constraints`).then(r => ({ id, data: r.data })).catch(() => null)
+    )).then(results => {
+      const next = { ...vrpConstraintsMap }
+      for (const r of results) {
+        if (r && r.data) next[r.id] = {
+          max_vehicle_weight_kg: r.data.max_vehicle_weight_kg ?? 0,
+          delivery_windows: Array.isArray(r.data.delivery_windows) ? r.data.delivery_windows : [],
+          forbidden_windows: Array.isArray(r.data.forbidden_windows) ? r.data.forbidden_windows : [],
+          access_notes: r.data.access_notes ?? null,
+        }
+      }
+      setVrpConstraintsMap(next)
+    })
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [vrpResult])
 
   // Real-time VRP progress (from WebSocket vrp_progress messages)
   const VRP_STAGES = [
@@ -745,7 +885,15 @@ export default function PlanningPage() {
 
   // ─── Init ──────────────────────────────────────────
   useEffect(() => {
-    apiFetch<any>('/warehouses').then(r => setWarehouses(r.data || [])).catch(err => handleError(err))
+    apiFetch<any>('/warehouses').then(r => {
+      const ws = r.data || []
+      setWarehouses(ws)
+      // Áp dụng warehouse từ URL param (e.g. "WH-HL") nếu có
+      if (urlWarehouse) {
+        const match = ws.find((w: any) => w.code === urlWarehouse || w.name?.includes(urlWarehouse))
+        if (match) setWarehouseId(match.id)
+      }
+    }).catch(err => handleError(err))
     apiFetch<any>('/planning/cost-readiness').then(r => {
       setCostReadiness(r.data || null)
       if (r.data?.ready) setCostOptimize(true)
@@ -2380,6 +2528,25 @@ export default function PlanningPage() {
           {/* VRP Results */}
           {vrpResult?.trips && !running && (
             <>
+              {(() => {
+                const highlights = buildVRPReviewHighlights(vrpResult, vehicles)
+                const hasBlockingIssue = highlights.some((item) => item.impact === 'negative')
+                const hasWarning = highlights.some((item) => item.impact === 'warning')
+                return (
+                  <AIContextStrip
+                    title="Điểm cần xem trước khi duyệt"
+                    tone={hasBlockingIssue ? 'danger' : hasWarning ? 'warning' : 'success'}
+                    message={highlights.map((item) => item.reason).join(' ')}
+                    confidence={0.86}
+                    source="rules + VRP result"
+                    sampleSize={vrpResult.trips.length}
+                    factors={highlights.map((item) => ({ label: item.label, value: item.value, impact: item.impact, source: 'VRP snapshot' }))}
+                    reasons={highlights.map((item) => item.reason)}
+                    dismissKey={`vrp-review:${vrpResult.job_id || 'manual'}`}
+                  />
+                )
+              })()}
+
               {/* Summary KPI */}
               <div className="bg-gradient-to-r from-green-50 to-emerald-50 border border-green-200 rounded-xl p-5">
                 <div className="flex items-center justify-between mb-4">
@@ -2439,6 +2606,27 @@ export default function PlanningPage() {
                     <div className="text-xs text-amber-600">📦 VND/đơn</div>
                   </div>
                 </div>
+
+                {/* Toll road impact explainer */}
+                {(vrpResult.summary?.total_toll_cost_vnd || 0) > 0 && (() => {
+                  const tollVnd = vrpResult.summary?.total_toll_cost_vnd || 0
+                  const totalVnd = vrpResult.summary?.total_cost_vnd || 0
+                  const tollPct = totalVnd > 0 ? (tollVnd / totalVnd * 100) : 0
+                  return (
+                    <div className={`mb-3 rounded-lg border px-4 py-3 text-xs ${tollPct >= 35 ? 'bg-amber-50 border-amber-300 text-amber-800' : 'bg-slate-50 border-slate-200 text-slate-600'}`}>
+                      <span className="font-semibold">🚏 Chi phí cầu đường:</span>{' '}
+                      {((tollVnd)/1000).toFixed(0)}K đ ({tollPct.toFixed(0)}% tổng chi phí).{' '}
+                      {tollPct >= 35
+                        ? 'Tỷ lệ cầu đường cao — dùng phương án "Tối ưu chi phí" để VRP tránh BOT và tiết kiệm thêm.'
+                        : 'Hệ thống đã chọn tuyến cân bằng tốc độ và phí BOT.'}
+                      {' '}
+                      <button onClick={() => {
+                        const el = document.querySelector('[data-compare-btn]') as HTMLButtonElement | null
+                        if (el) el.click()
+                      }} className="underline font-medium ml-1">⚖️ So sánh 2 phương án</button>
+                    </div>
+                  )
+                })()}
 
                 {/* Operational metrics — always visible */}
                 <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3 mb-4">
@@ -2739,6 +2927,32 @@ export default function PlanningPage() {
                         ⚠️ Không xếp được: {vrpResult.unassigned_shipments.length} đơn hàng
                       </div>
                     </div>
+                    {/* Explainer — why are there unassigned shipments? */}
+                    {(() => {
+                      const assignedKg = vrpResult.trips.reduce((s, t) => s + (t.total_weight_kg || 0), 0)
+                      const unassignedKg = vrpResult.unassigned_shipments.reduce((s: number, sh: any) => {
+                        const sid = typeof sh === 'string' ? sh : (sh.shipment_id || sh.id)
+                        const found = shipments.find(x => x.id === sid)
+                        return s + (found?.total_weight_kg || 0)
+                      }, 0)
+                      const fleetCapKg = selectedVehicles.reduce((s, v) => s + (v.capacity_kg || 0), 0)
+                      const shortfallKg = Math.max(0, (assignedKg + unassignedKg) - fleetCapKg)
+                      const reasons: string[] = []
+                      if (shortfallKg > 0) reasons.push(`Tải đội xe (${(fleetCapKg/1000).toFixed(1)}T) < tổng đơn (${((assignedKg+unassignedKg)/1000).toFixed(1)}T) — thiếu ~${(shortfallKg/1000).toFixed(1)}T`)
+                      reasons.push('Ràng buộc thời gian giao (time window) khiến không xếp thêm được vào chuyến đang chạy')
+                      reasons.push('Một số đơn có khối lượng đơn lẻ vượt tải tối đa 1 xe')
+                      return (
+                        <div className="mb-3 bg-white border border-red-100 rounded-lg p-3">
+                          <div className="text-xs font-semibold text-red-700 mb-1.5">❓ Tại sao có đơn chưa giao được?</div>
+                          <ul className="text-xs text-red-600 space-y-1">
+                            {reasons.map((r, i) => <li key={i}>• {r}</li>)}
+                          </ul>
+                          <div className="mt-2 text-xs text-gray-500">
+                            👉 <strong>Giải pháp:</strong> Thêm xe ở Bước 2, bớt/tách đơn ở Bước 3, hoặc dời sang ngày khác.
+                          </div>
+                        </div>
+                      )
+                    })()}
                     <div className="text-xs text-red-600 mb-3">
                       Các đơn hàng này không thể xếp vào xe do vượt tải trọng hoặc giới hạn thời gian.
                     </div>
@@ -3029,7 +3243,7 @@ export default function PlanningPage() {
                           >
                             <td className="py-1 px-2 text-center text-gray-400">{stop.stop_order}</td>
                             <td className="py-1 px-2">
-                              <span className="flex items-center gap-1">
+                              <span className="flex items-center gap-1 flex-wrap">
                                 {stop.customer_name}
                                 {stop.consolidated_ids && stop.consolidated_ids.length > 1 && (
                                   <span className="inline-flex items-center px-1 py-0.5 rounded text-[9px] font-semibold bg-purple-100 text-purple-700">📦×{stop.consolidated_ids.length}</span>
@@ -3037,6 +3251,7 @@ export default function PlanningPage() {
                                 {stop.is_split && (
                                   <span className="inline-flex items-center px-1 py-0.5 rounded text-[9px] font-semibold bg-orange-100 text-orange-700">✂️{stop.split_part}/{stop.split_total}</span>
                                 )}
+                                <VRPConstraintChips c={vrpConstraintsMap[stop.customer_id]} />
                               </span>
                             </td>
                             <td className="py-1 px-2 text-gray-500 text-xs truncate max-w-[200px]">{stop.customer_address || '—'}</td>
@@ -3220,6 +3435,7 @@ export default function PlanningPage() {
           tripIdx={selectedTripIdx}
           vehicles={vehicles}
           warehouse={warehouseMapInfo}
+          vrpConstraintsMap={vrpConstraintsMap}
           onClose={() => setSelectedTripIdx(null)}
         />
       )}

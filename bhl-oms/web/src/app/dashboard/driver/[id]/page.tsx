@@ -147,6 +147,7 @@ export default function DriverTripDetailPage() {
   const tripId = params.id as string
   const [trip, setTrip] = useState<TripDetail | null>(null)
   const [loading, setLoading] = useState(true)
+  const [loadError, setLoadError] = useState<string | null>(null)
   const [actionLoading, setActionLoading] = useState(false)
   const _user = getUser()
 
@@ -214,7 +215,11 @@ export default function DriverTripDetailPage() {
     try {
       const res: any = await apiFetch(`/trips/${tripId}`)
       setTrip(res.data)
-    } catch { /* empty */ } finally {
+      setLoadError(null)
+    } catch (err: any) {
+      setLoadError(err?.message || 'Không thể tải dữ liệu chuyến xe')
+      toast.error('Không thể tải dữ liệu chuyến xe')
+    } finally {
       setLoading(false)
     }
   }
@@ -224,7 +229,7 @@ export default function DriverTripDetailPage() {
       const res: any = await apiFetch(`/warehouse/handovers/trip/${tripId}`)
       const handovers = (res.data || []).filter((h: any) => h.handover_type === 'A')
       if (handovers.length > 0) setHandoverA(handovers[handovers.length - 1])
-    } catch { /* empty */ }
+    } catch { /* handover absence is non-blocking */ }
   }
 
   const handleHandoverConfirm = async () => {
@@ -566,6 +571,21 @@ export default function DriverTripDetailPage() {
 
   if (loading) {
     return <div className="flex justify-center items-center min-h-screen"><div className="animate-spin rounded-full h-12 w-12 border-b-2 border-brand-500"></div></div>
+  }
+
+  if (loadError) {
+    return (
+      <div className="p-6 text-center">
+        <div className="text-red-500 text-lg mb-2">⚠️ Không thể tải dữ liệu chuyến xe</div>
+        <p className="text-sm text-gray-500 mb-4">{loadError}</p>
+        <button
+          onClick={() => { setLoading(true); loadTrip() }}
+          className="px-4 py-2 bg-brand-600 text-white rounded-lg text-sm"
+        >
+          Thử lại
+        </button>
+      </div>
+    )
   }
 
   if (!trip) {

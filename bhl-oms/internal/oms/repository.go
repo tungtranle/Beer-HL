@@ -372,17 +372,23 @@ func (r *Repository) CreateOrderItem(ctx context.Context, tx pgx.Tx, item *domai
 	).Scan(&item.ID)
 }
 
-func (r *Repository) ListOrders(ctx context.Context, warehouseID *uuid.UUID, status, deliveryDate, cutoffGroup string, limit, offset int) ([]domain.SalesOrder, int64, error) {
+func (r *Repository) ListOrders(ctx context.Context, warehouseID *uuid.UUID, status, customerID, deliveryDate, fromDate, toDate, cutoffGroup string, limit, offset int) ([]domain.SalesOrder, int64, error) {
 	query := fmt.Sprintf(`
-		SELECT so.id, so.order_number, so.customer_id, c.name, so.warehouse_id, so.status::text,
+		SELECT DISTINCT ON (so.id, so.created_at)
+		       so.id, so.order_number, so.customer_id, c.name, so.warehouse_id, so.status::text,
 		       COALESCE(so.cutoff_group, '')::text, so.delivery_date::text, so.total_amount, so.deposit_amount, so.total_weight_kg,
-		       so.atp_status, so.credit_status, so.created_at, oc.reject_reason,
-		       oc2.status::text, lt.trip_id, COALESCE(lt.plate_number, ''), COALESCE(lt.driver_name, ''),
+		       COALESCE(so.atp_status, 'pending'), COALESCE(so.credit_status, 'pending'), so.created_at, oc.reject_reason,
+		       oc.status::text, lt.trip_id, COALESCE(lt.plate_number, ''), COALESCE(lt.driver_name, ''),
 		       COALESCE(c.phone, ''), %s AS is_urgent
 		FROM sales_orders so
 		JOIN customers c ON c.id = so.customer_id
-		LEFT JOIN order_confirmations oc ON oc.order_id = so.id
-		LEFT JOIN order_confirmations oc2 ON oc2.order_id = so.id
+		LEFT JOIN LATERAL (
+			SELECT oc_inner.reject_reason, oc_inner.status
+			FROM order_confirmations oc_inner
+			WHERE oc_inner.order_id = so.id
+			ORDER BY oc_inner.created_at DESC
+			LIMIT 1
+		) oc ON true
 		LEFT JOIN LATERAL (
 			SELECT t.id as trip_id, v.plate_number, d.full_name as driver_name
 			FROM shipments sh
@@ -412,11 +418,30 @@ func (r *Repository) ListOrders(ctx context.Context, warehouseID *uuid.UUID, sta
 		args = append(args, status)
 		argIdx++
 	}
+	if customerID != "" {
+		query += fmt.Sprintf(" AND so.customer_id = $%d", argIdx)
+		countQuery += fmt.Sprintf(" AND so.customer_id = $%d", argIdx)
+		args = append(args, customerID)
+		argIdx++
+	}
 	if deliveryDate != "" {
 		query += fmt.Sprintf(" AND so.delivery_date = $%d", argIdx)
 		countQuery += fmt.Sprintf(" AND so.delivery_date = $%d", argIdx)
 		args = append(args, deliveryDate)
 		argIdx++
+	} else {
+		if fromDate != "" {
+			query += fmt.Sprintf(" AND so.delivery_date >= $%d", argIdx)
+			countQuery += fmt.Sprintf(" AND so.delivery_date >= $%d", argIdx)
+			args = append(args, fromDate)
+			argIdx++
+		}
+		if toDate != "" {
+			query += fmt.Sprintf(" AND so.delivery_date <= $%d", argIdx)
+			countQuery += fmt.Sprintf(" AND so.delivery_date <= $%d", argIdx)
+			args = append(args, toDate)
+			argIdx++
+		}
 	}
 	if cutoffGroup != "" {
 		query += fmt.Sprintf(" AND so.cutoff_group = $%d", argIdx)
@@ -919,16 +944,28 @@ func (r *Repository) GetLastStopForOrder(ctx context.Context, orderID uuid.UUID)
 // ===== CONTROL DESK (Task 5.9, 5.10, 5.11) =====
 
 // GetControlDeskStats returns order counts grouped by status
-func (r *Repository) GetControlDeskStats(ctx context.Context, warehouseID *uuid.UUID) (*domain.ControlDeskStats, error) {
+func (r *Repository) GetControlDeskStats(ctx context.Context, warehouseID *uuid.UUID, fromDate, toDate string) (*domain.ControlDeskStats, error) {
 	query := `
 		SELECT so.status::text, COUNT(*) as cnt
 		FROM sales_orders so
 		WHERE 1=1
 	`
 	args := []interface{}{}
+	argIdx := 1
 	if warehouseID != nil {
-		query += " AND so.warehouse_id = $1"
+		query += fmt.Sprintf(" AND so.warehouse_id = $%d", argIdx)
 		args = append(args, *warehouseID)
+		argIdx++
+	}
+	if fromDate != "" {
+		query += fmt.Sprintf(" AND so.delivery_date >= $%d", argIdx)
+		args = append(args, fromDate)
+		argIdx++
+	}
+	if toDate != "" {
+		query += fmt.Sprintf(" AND so.delivery_date <= $%d", argIdx)
+		args = append(args, toDate)
+		argIdx++
 	}
 	query += " GROUP BY so.status"
 
@@ -938,7 +975,7 @@ func (r *Repository) GetControlDeskStats(ctx context.Context, warehouseID *uuid.
 	}
 	defer rows.Close()
 
-	stats := &domain.ControlDeskStats{}
+	stats := &domain.ControlDeskStats{ScopeFrom: fromDate, ScopeTo: toDate}
 	for rows.Next() {
 		var status string
 		var count int

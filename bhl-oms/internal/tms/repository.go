@@ -522,7 +522,7 @@ func (r *Repository) UpdateShipmentStatus(ctx context.Context, tx pgx.Tx, shipme
 	return err
 }
 
-func (r *Repository) ListTrips(ctx context.Context, warehouseID *uuid.UUID, plannedDate, status string, limit, offset int) ([]domain.Trip, int64, error) {
+func (r *Repository) ListTrips(ctx context.Context, warehouseID *uuid.UUID, plannedDate, status string, activeOnly bool, limit, offset int) ([]domain.Trip, int64, error) {
 	query := `
 		SELECT t.id, t.trip_number, t.warehouse_id, t.vehicle_id, t.driver_id,
 		       COALESCE(v.plate_number, '') as vehicle_plate,
@@ -555,6 +555,9 @@ func (r *Repository) ListTrips(ctx context.Context, warehouseID *uuid.UUID, plan
 		countQuery += fmt.Sprintf(" AND t.status = $%d", argIdx)
 		args = append(args, status)
 		argIdx++
+	} else if activeOnly {
+		query += " AND t.status NOT IN ('completed','cancelled','closed')"
+		countQuery += " AND t.status NOT IN ('completed','cancelled','closed')"
 	}
 
 	var total int64

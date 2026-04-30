@@ -60,9 +60,10 @@ async function tryRefreshToken(): Promise<boolean> {
       body: JSON.stringify({ refresh_token: refreshToken }),
     });
     const json = await res.json();
-    if (res.ok && json.success) {
-      localStorage.setItem(AUTH_KEYS.token, json.data.access_token);
-      localStorage.setItem(AUTH_KEYS.refreshToken, json.data.refresh_token);
+    const tokens = json.data?.tokens || json.data;
+    if (res.ok && json.success && tokens?.access_token && tokens?.refresh_token) {
+      localStorage.setItem(AUTH_KEYS.token, tokens.access_token);
+      localStorage.setItem(AUTH_KEYS.refreshToken, tokens.refresh_token);
       return true;
     }
   } catch { /* ignore */ }

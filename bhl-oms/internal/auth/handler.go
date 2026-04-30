@@ -20,6 +20,7 @@ func (h *Handler) RegisterRoutes(r *gin.RouterGroup) {
 	auth := r.Group("/auth")
 	auth.POST("/login", h.Login)
 	auth.POST("/refresh", h.Refresh)
+	auth.POST("/logout", h.Logout)
 }
 
 type loginRequest struct {
@@ -34,8 +35,14 @@ func (h *Handler) Login(c *gin.Context) {
 		return
 	}
 
-	user, tokens, err := h.svc.Login(c.Request.Context(), req.Username, req.Password)
+	// HIGH-004: pass client IP for rate-limit
+	clientIP := c.ClientIP()
+	user, tokens, err := h.svc.Login(c.Request.Context(), req.Username, req.Password, clientIP)
 	if err != nil {
+		if err.Error() == "too many failed attempts, account temporarily locked" {
+			response.Err(c, http.StatusTooManyRequests, "LOGIN_LOCKED", "Quá nhiều lần đăng nhập sai. Vui lòng thử lại sau 15 phút")
+			return
+		}
 		response.Err(c, http.StatusUnauthorized, "AUTH_FAILED", "Sai tên đăng nhập hoặc mật khẩu")
 		return
 	}
@@ -51,6 +58,28 @@ func (h *Handler) Login(c *gin.Context) {
 			"warehouse_ids": user.WarehouseIDs,
 		},
 	})
+}
+
+// Logout invalidates the caller's access token by adding its JTI to Redis denylist.
+// HIGH-006: client must send the access token in Authorization: Bearer <token>.
+func (h *Handler) Logout(c *gin.Context) {
+	token := extractBearerToken(c)
+	if token == "" {
+		response.BadRequest(c, "Missing Authorization header")
+		return
+	}
+	if err := h.svc.Logout(c.Request.Context(), token); err != nil {
+		// Treat invalid token as success (idempotent logout)
+	}
+	response.OK(c, gin.H{"message": "Đăng xuất thành công"})
+}
+
+func extractBearerToken(c *gin.Context) string {
+	header := c.GetHeader("Authorization")
+	if len(header) > 7 && header[:7] == "Bearer " {
+		return header[7:]
+	}
+	return ""
 }
 
 type refreshRequest struct {

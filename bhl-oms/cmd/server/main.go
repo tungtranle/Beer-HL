@@ -2,11 +2,15 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"net/http"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 	"time"
+
+	"github.com/google/uuid"
 
 	"bhl-oms/internal/admin"
 	"bhl-oms/internal/auth"
@@ -78,14 +82,7 @@ func main() {
 	defer pool.Close()
 	appLog.Info(ctx, "db_connected", logger.F("driver", "pgx"))
 
-	// Auth Service
-	authSvc, err := auth.NewService(pool, cfg.JWTPrivKeyPath, cfg.JWTPubKeyPath, cfg.JWTAccessTTL, cfg.JWTRefreshTTL)
-	if err != nil {
-		appLog.Fatal(ctx, "auth_init_failed", err)
-	}
-	appLog.Info(ctx, "auth_initialized", logger.F("algorithm", "RS256"))
-
-	// Redis
+	// Redis (init early so auth.Service can use it for rate-limiting and denylist)
 	rdb := bhlredis.NewClient(cfg.RedisURL)
 	if err := bhlredis.Ping(ctx, rdb); err != nil {
 		appLog.Warn(ctx, "redis_unavailable", logger.F("error", err.Error()))
@@ -94,8 +91,24 @@ func main() {
 	}
 	defer rdb.Close()
 
+	// Auth Service
+	authSvc, err := auth.NewService(pool, rdb, cfg.JWTPrivKeyPath, cfg.JWTPubKeyPath, cfg.JWTAccessTTL, cfg.JWTRefreshTTL)
+	if err != nil {
+		appLog.Fatal(ctx, "auth_init_failed", err)
+	}
+	appLog.Info(ctx, "auth_initialized", logger.F("algorithm", "RS256"))
+
 	// GPS Hub (WebSocket + Redis pub/sub)
-	gpsHub := gps.NewHub(rdb, authSvc, appLog)
+	// HIGH-007: split AllowedOrigins env var into slice
+	var allowedOrigins []string
+	if cfg.AllowedOrigins != "" {
+		for _, o := range strings.Split(cfg.AllowedOrigins, ",") {
+			if trimmed := strings.TrimSpace(o); trimmed != "" {
+				allowedOrigins = append(allowedOrigins, trimmed)
+			}
+		}
+	}
+	gpsHub := gps.NewHub(rdb, authSvc, appLog, pool, allowedOrigins)
 	appCtx, appCancel := context.WithCancel(context.Background())
 	defer appCancel()
 	go gpsHub.Run(appCtx)
@@ -203,6 +216,8 @@ func main() {
 	notifHandler := notification.NewHandler(notifSvc, notifHub, authSvc, appLog)
 	notifHandler.RegisterRoutes(protected)
 	notifHandler.RegisterWebSocket(r)
+	notifSvc.StartEscalationCron()
+	notifSvc.StartCleanupCron()
 	appLog.Info(ctx, "notification_initialized")
 	_ = notifSvc // available for integration hooks
 
@@ -211,6 +226,9 @@ func main() {
 
 	// Wire notification service into OMS
 	omsSvc.SetNotificationService(notifSvc)
+
+	// Wire notification service into reconciliation (discrepancy_open notifications)
+	reconSvc.SetNotificationService(notifSvc)
 
 	// Event Timeline + Order Notes
 	eventsHandler := events.NewHandler(eventRecorder, appLog)
@@ -318,11 +336,13 @@ func main() {
 
 	appLog.Info(ctx, "admin_initialized")
 
-	// Test Portal — QA/testing module (no auth, guarded by ENABLE_TEST_PORTAL env)
+	// Test Portal — QA/testing module (auth required, guarded by ENABLE_TEST_PORTAL env)
 	if cfg.EnableTestPortal {
 		testPortalHandler := testportal.NewHandler(pool, rdb, appLog, cfg.OSRMURL)
-		testPortalHandler.RegisterRoutes(v1)
-		appLog.Info(ctx, "test_portal_initialized")
+		testPortalProtected := protected.Group("")
+		testPortalProtected.Use(middleware.RequireRole("admin", "management"))
+		testPortalHandler.RegisterRoutes(testPortalProtected)
+		appLog.Info(ctx, "test_portal_initialized", logger.F("auth", "admin,management"))
 	} else {
 		appLog.Info(ctx, "test_portal_disabled")
 	}
@@ -333,9 +353,18 @@ func main() {
 	// Dashboard stats (Task 3.15 — 5 widgets)
 	protected.GET("/dashboard/stats", func(c *gin.Context) {
 		ctx := context.Background()
+		now := time.Now()
+		monthStart := time.Date(now.Year(), now.Month(), 1, 0, 0, 0, 0, now.Location())
+		scopeFrom := monthStart.Format("2006-01-02")
+		scopeTo := now.Format("2006-01-02")
+		scopeLabel := "Tháng " + now.Format("01/2006")
 
-		// Widget 1: Orders today
-		var ordersToday, ordersConfirmed int64
+		// Widget 1: Orders intake (CREATED) in current month + today's intake.
+		// Note: "Đơn trong tháng" = orders created this month — matches the
+		// "X mới hôm nay" sub-text which counts orders created today.
+		// Cast ::date to be explicit about pgx parameter typing (see AI_LESSONS).
+		var totalOrders, ordersToday, ordersConfirmed int64
+		pool.QueryRow(ctx, `SELECT COUNT(*) FROM sales_orders WHERE created_at >= $1::date AND created_at < ($2::date + INTERVAL '1 day')`, scopeFrom, scopeTo).Scan(&totalOrders)
 		pool.QueryRow(ctx, `SELECT COUNT(*) FROM sales_orders WHERE created_at::date = CURRENT_DATE`).Scan(&ordersToday)
 		pool.QueryRow(ctx, `SELECT COUNT(*) FROM sales_orders WHERE created_at::date = CURRENT_DATE AND status = 'confirmed'`).Scan(&ordersConfirmed)
 
@@ -373,16 +402,16 @@ func main() {
 		pool.QueryRow(ctx, `SELECT COUNT(*) FROM customers WHERE is_active = true`).Scan(&customerCount)
 
 		var pendingShipments int64
-		pool.QueryRow(ctx, `SELECT COUNT(*) FROM sales_orders WHERE status = 'confirmed'`).Scan(&pendingShipments)
+		pool.QueryRow(ctx, `SELECT COUNT(*) FROM sales_orders WHERE status IN ('confirmed','shipment_created','planned','picking','loaded')`).Scan(&pendingShipments)
 
 		var pendingApprovals int64
 		pool.QueryRow(ctx, `SELECT COUNT(*) FROM sales_orders WHERE status = 'pending_approval'`).Scan(&pendingApprovals)
 
-		var totalOrders int64
-		pool.QueryRow(ctx, `SELECT COUNT(*) FROM sales_orders`).Scan(&totalOrders)
-
 		response.OK(c, gin.H{
 			"total_orders":          totalOrders,
+			"scope_from":            scopeFrom,
+			"scope_to":              scopeTo,
+			"scope_label":           scopeLabel,
 			"orders_today":          ordersToday,
 			"orders_confirmed":      ordersConfirmed,
 			"active_trips":          activeTrips,
@@ -426,6 +455,443 @@ func main() {
 			warehouses = append(warehouses, w)
 		}
 		response.OK(c, warehouses)
+	})
+
+	// VRP delivery constraints per customer (Phase B — Task 3)
+	// GET  /v1/customers/:id/vrp-constraints — read constraints
+	// PUT  /v1/customers/:id/vrp-constraints — update (admin/dispatcher only)
+	protected.GET("/customers/:id/vrp-constraints", func(c *gin.Context) {
+		id, err := uuid.Parse(c.Param("id"))
+		if err != nil {
+			response.BadRequest(c, "invalid id")
+			return
+		}
+		var maxKg int
+		var dw, fw []byte
+		var notes *string
+		err = pool.QueryRow(context.Background(),
+			`SELECT max_vehicle_weight_kg, delivery_windows, forbidden_windows, access_notes
+			 FROM customers WHERE id = $1`, id,
+		).Scan(&maxKg, &dw, &fw, &notes)
+		if err != nil {
+			response.NotFound(c, "customer not found")
+			return
+		}
+		response.OK(c, gin.H{
+			"max_vehicle_weight_kg": maxKg,
+			"delivery_windows":      json.RawMessage(dw),
+			"forbidden_windows":     json.RawMessage(fw),
+			"access_notes":          notes,
+		})
+	})
+
+	protected.PUT("/customers/:id/vrp-constraints",
+		middleware.RequireRole("admin", "dispatcher"),
+		func(c *gin.Context) {
+			id, err := uuid.Parse(c.Param("id"))
+			if err != nil {
+				response.BadRequest(c, "invalid id")
+				return
+			}
+			var req struct {
+				MaxVehicleWeightKg int             `json:"max_vehicle_weight_kg"`
+				DeliveryWindows    json.RawMessage `json:"delivery_windows"`
+				ForbiddenWindows   json.RawMessage `json:"forbidden_windows"`
+				AccessNotes        *string         `json:"access_notes"`
+			}
+			if err := c.ShouldBindJSON(&req); err != nil {
+				response.BadRequest(c, err.Error())
+				return
+			}
+			if len(req.DeliveryWindows) == 0 {
+				req.DeliveryWindows = json.RawMessage("[]")
+			}
+			if len(req.ForbiddenWindows) == 0 {
+				req.ForbiddenWindows = json.RawMessage("[]")
+			}
+			tag, err := pool.Exec(context.Background(),
+				`UPDATE customers SET
+				   max_vehicle_weight_kg = $2,
+				   delivery_windows      = $3::jsonb,
+				   forbidden_windows     = $4::jsonb,
+				   access_notes          = $5,
+				   updated_at            = now()
+				 WHERE id = $1`,
+				id, req.MaxVehicleWeightKg, string(req.DeliveryWindows), string(req.ForbiddenWindows), req.AccessNotes,
+			)
+			if err != nil {
+				appLog.Error(c, "update vrp constraints failed", err)
+				response.InternalError(c)
+				return
+			}
+			if tag.RowsAffected() == 0 {
+				response.NotFound(c, "customer not found")
+				return
+			}
+			response.OK(c, gin.H{"updated": true})
+		})
+
+	// Phase C — Asset Passport (vehicle + driver timeline & stats)
+	// GET /v1/vehicles/:id/timeline       — chronological events (workorders, fuel, accidents, doc renewals)
+	// GET /v1/vehicles/:id/utilization    — total km, active days, avg km/day, last service
+	// GET /v1/drivers/:id/timeline        — trips, scores, leaves, badges (chronological)
+	// GET /v1/drivers/:id/career-stats    — career aggregates: years_active, total_trips, total_km, badges, score
+	protected.GET("/vehicles/:id/timeline", func(c *gin.Context) {
+		id, err := uuid.Parse(c.Param("id"))
+		if err != nil {
+			response.BadRequest(c, "invalid id")
+			return
+		}
+		type Event struct {
+			At       time.Time              `json:"at"`
+			Kind     string                 `json:"kind"`
+			Title    string                 `json:"title"`
+			Subtitle string                 `json:"subtitle,omitempty"`
+			Amount   *float64               `json:"amount_vnd,omitempty"`
+			Meta     map[string]interface{} `json:"meta,omitempty"`
+		}
+		events := make([]Event, 0, 64)
+
+		// Work orders
+		if rows, err := pool.Query(c, `
+			SELECT created_at, COALESCE(category::text,'maintenance'), COALESCE(description,''),
+			       COALESCE(actual_amount, quoted_amount, 0)::float8, COALESCE(status::text,'')
+			FROM work_orders WHERE vehicle_id = $1 ORDER BY created_at DESC LIMIT 200`, id); err == nil {
+			for rows.Next() {
+				var at time.Time
+				var kind, desc, status string
+				var cost float64
+				if err := rows.Scan(&at, &kind, &desc, &cost, &status); err == nil {
+					amt := cost
+					events = append(events, Event{
+						At: at, Kind: "workorder",
+						Title:    "Work order: " + kind,
+						Subtitle: desc,
+						Amount:   &amt,
+						Meta:     map[string]interface{}{"status": status},
+					})
+				}
+			}
+			rows.Close()
+		}
+
+		// Fuel logs
+		if rows, err := pool.Query(c, `
+			SELECT log_date, COALESCE(liters_filled,0)::float8, COALESCE(amount_vnd,0)::float8, COALESCE(km_odometer,0)::int
+			FROM fuel_logs WHERE vehicle_id = $1 ORDER BY log_date DESC LIMIT 200`, id); err == nil {
+			for rows.Next() {
+				var at time.Time
+				var liters, cost float64
+				var km int
+				if err := rows.Scan(&at, &liters, &cost, &km); err == nil {
+					amt := cost
+					events = append(events, Event{
+						At: at, Kind: "fuel",
+						Title:    "Đổ dầu",
+						Subtitle: "lít / km tổng",
+						Amount:   &amt,
+						Meta:     map[string]interface{}{"liters": liters, "odometer_km": km},
+					})
+				}
+			}
+			rows.Close()
+		}
+
+		// Trips (start/completion events)
+		if rows, err := pool.Query(c, `
+			SELECT t.started_at, t.completed_at, COALESCE(t.trip_number,''), COALESCE(d.full_name,''), COALESCE(t.total_distance_km,0)::float8
+			FROM trips t LEFT JOIN drivers d ON d.id = t.driver_id
+			WHERE t.vehicle_id = $1 ORDER BY GREATEST(COALESCE(t.completed_at, 'epoch'::timestamptz), COALESCE(t.started_at, 'epoch'::timestamptz)) DESC LIMIT 200`, id); err == nil {
+			for rows.Next() {
+				var started, completed *time.Time
+				var tripNum, driverName string
+				var km float64
+				if err := rows.Scan(&started, &completed, &tripNum, &driverName, &km); err == nil {
+					if completed != nil {
+						events = append(events, Event{
+							At: *completed, Kind: "trip_complete",
+							Title:    "Chuyến hoàn tất: " + tripNum,
+							Subtitle: driverName,
+							Meta:     map[string]interface{}{"distance_km": km},
+						})
+					}
+					if started != nil {
+						events = append(events, Event{
+							At: *started, Kind: "trip_start",
+							Title:    "Bắt đầu chuyến: " + tripNum,
+							Subtitle: driverName,
+							Meta:     map[string]interface{}{"distance_km": km},
+						})
+					}
+				}
+			}
+			rows.Close()
+		}
+
+		// Vehicle maintenance records (completed events)
+		if rows, err := pool.Query(c, `
+			SELECT COALESCE(completed_at, last_maintenance_date), maintenance_type, COALESCE(notes,''), COALESCE(last_maintenance_km,0)
+			FROM vehicle_maintenance_records WHERE vehicle_id = $1 ORDER BY COALESCE(completed_at, last_maintenance_date) DESC LIMIT 100`, id); err == nil {
+			for rows.Next() {
+				var at *time.Time
+				var mtype, notes string
+				var km int
+				if err := rows.Scan(&at, &mtype, &notes, &km); err == nil && at != nil {
+					events = append(events, Event{
+						At: *at, Kind: "maintenance",
+						Title:    "Bảo dưỡng: " + mtype,
+						Subtitle: notes,
+						Meta:     map[string]interface{}{"odometer_km": km},
+					})
+				}
+			}
+			rows.Close()
+		}
+
+		// Vehicle documents (issued / expiry events)
+		if rows, err := pool.Query(c, `
+			SELECT issued_date, expiry_date, doc_type, COALESCE(doc_number,'')
+			FROM vehicle_documents WHERE vehicle_id = $1 ORDER BY GREATEST(COALESCE(expiry_date, 'epoch'::date), COALESCE(issued_date, 'epoch'::date)) DESC LIMIT 100`, id); err == nil {
+			for rows.Next() {
+				var issued, expiry *time.Time
+				var dtype, number string
+				if err := rows.Scan(&issued, &expiry, &dtype, &number); err == nil {
+					if expiry != nil {
+						// expiry event
+						events = append(events, Event{
+							At: *expiry, Kind: "doc_expiry",
+							Title:    "Hết hạn giấy tờ: " + dtype,
+							Subtitle: number,
+						})
+					}
+					if issued != nil {
+						events = append(events, Event{
+							At: *issued, Kind: "doc_issued",
+							Title:    "Cấp giấy tờ: " + dtype,
+							Subtitle: number,
+						})
+					}
+				}
+			}
+			rows.Close()
+		}
+
+		// Sort newest-first
+		// (already roughly sorted but combined)
+		// simple insertion-ish sort by At desc
+		for i := 1; i < len(events); i++ {
+			for j := i; j > 0 && events[j].At.After(events[j-1].At); j-- {
+				events[j], events[j-1] = events[j-1], events[j]
+			}
+		}
+		response.OK(c, events)
+	})
+
+	protected.GET("/vehicles/:id/utilization", func(c *gin.Context) {
+		id, err := uuid.Parse(c.Param("id"))
+		if err != nil {
+			response.BadRequest(c, "invalid id")
+			return
+		}
+		var totalKm float64
+		var activeDays int
+		var totalTrips int
+		var firstSeen, lastSeen *time.Time
+		_ = pool.QueryRow(c, `
+			SELECT
+			  COALESCE(SUM(total_distance_km),0)::float8,
+			  COUNT(DISTINCT planned_date),
+			  COUNT(*),
+			  MIN(started_at),
+			  MAX(started_at)
+			FROM trips
+			WHERE vehicle_id = $1 AND status = 'completed'`,
+			id,
+		).Scan(&totalKm, &activeDays, &totalTrips, &firstSeen, &lastSeen)
+
+		avgKmPerDay := 0.0
+		if activeDays > 0 {
+			avgKmPerDay = totalKm / float64(activeDays)
+		}
+
+		// Last service (most recent completed work order)
+		var lastService *time.Time
+		_ = pool.QueryRow(c, `
+			SELECT MAX(actual_completion) FROM work_orders WHERE vehicle_id = $1 AND status = 'completed'`, id,
+		).Scan(&lastService)
+
+		response.OK(c, gin.H{
+			"total_km":        totalKm,
+			"active_days":     activeDays,
+			"total_trips":     totalTrips,
+			"avg_km_per_day":  avgKmPerDay,
+			"first_trip_at":   firstSeen,
+			"last_trip_at":    lastSeen,
+			"last_service_at": lastService,
+		})
+	})
+
+	protected.GET("/drivers/:id/timeline", func(c *gin.Context) {
+		id, err := uuid.Parse(c.Param("id"))
+		if err != nil {
+			response.BadRequest(c, "invalid id")
+			return
+		}
+		type Event struct {
+			At       time.Time              `json:"at"`
+			Kind     string                 `json:"kind"`
+			Title    string                 `json:"title"`
+			Subtitle string                 `json:"subtitle,omitempty"`
+			Score    *float64               `json:"score,omitempty"`
+			Meta     map[string]interface{} `json:"meta,omitempty"`
+		}
+		events := make([]Event, 0, 64)
+
+		// Recent trips
+		if rows, err := pool.Query(c, `
+			SELECT t.started_at, COALESCE(t.status::text,''), COALESCE(t.total_distance_km,0)::float8,
+			       COALESCE(v.plate_number,'')
+			FROM trips t LEFT JOIN vehicles v ON v.id = t.vehicle_id
+			WHERE t.driver_id = $1 AND t.started_at IS NOT NULL ORDER BY t.started_at DESC LIMIT 100`, id); err == nil {
+			for rows.Next() {
+				var at time.Time
+				var status, plate string
+				var km float64
+				if err := rows.Scan(&at, &status, &km, &plate); err == nil {
+					events = append(events, Event{
+						At: at, Kind: "trip",
+						Title:    "Chuyến: " + plate,
+						Subtitle: status,
+						Meta:     map[string]interface{}{"distance_km": km},
+					})
+				}
+			}
+			rows.Close()
+		}
+
+		// Score history
+		if rows, err := pool.Query(c, `
+			SELECT score_date, COALESCE(total_score,0)::float8
+			FROM driver_scores WHERE driver_id = $1 ORDER BY score_date DESC LIMIT 60`, id); err == nil {
+			for rows.Next() {
+				var at time.Time
+				var score float64
+				if err := rows.Scan(&at, &score); err == nil {
+					s := score
+					events = append(events, Event{
+						At: at, Kind: "score",
+						Title: "Điểm thi đua",
+						Score: &s,
+					})
+				}
+			}
+			rows.Close()
+		}
+
+		// Leave requests
+		if rows, err := pool.Query(c, `
+			SELECT created_at, COALESCE(leave_type::text,''), COALESCE(status::text,''), COALESCE(reason,''),
+			       COALESCE((end_date - start_date) + 1, 0) AS days
+			FROM leave_requests WHERE driver_id = $1 ORDER BY created_at DESC LIMIT 30`, id); err == nil {
+			for rows.Next() {
+				var at time.Time
+				var lt, status, reason string
+				var days int
+				if err := rows.Scan(&at, &lt, &status, &reason, &days); err == nil {
+					events = append(events, Event{
+						At: at, Kind: "leave",
+						Title:    "Nghỉ phép: " + lt,
+						Subtitle: reason,
+						Meta:     map[string]interface{}{"status": status, "days": days},
+					})
+				}
+			}
+			rows.Close()
+		}
+
+		// Badge awards
+		if rows, err := pool.Query(c, `
+			SELECT ba.awarded_at, COALESCE(b.name, ba.badge_id::text), COALESCE(b.description,''), COALESCE(ba.bonus_vnd,0)::float8
+			FROM badge_awards ba LEFT JOIN gamification_badges b ON b.id = ba.badge_id
+			WHERE ba.driver_id = $1 ORDER BY ba.awarded_at DESC LIMIT 30`, id); err == nil {
+			for rows.Next() {
+				var at time.Time
+				var name, desc string
+				var bonus float64
+				if err := rows.Scan(&at, &name, &desc, &bonus); err == nil {
+					b := bonus
+					events = append(events, Event{
+						At: at, Kind: "badge",
+						Title:    "🏅 " + name,
+						Subtitle: desc,
+						Meta:     map[string]interface{}{"bonus_vnd": b},
+					})
+				}
+			}
+			rows.Close()
+		}
+
+		// Sort newest-first
+		for i := 1; i < len(events); i++ {
+			for j := i; j > 0 && events[j].At.After(events[j-1].At); j-- {
+				events[j], events[j-1] = events[j-1], events[j]
+			}
+		}
+		response.OK(c, events)
+	})
+
+	protected.GET("/drivers/:id/career-stats", func(c *gin.Context) {
+		id, err := uuid.Parse(c.Param("id"))
+		if err != nil {
+			response.BadRequest(c, "invalid id")
+			return
+		}
+		var totalTrips int
+		var totalKm float64
+		var firstTrip, lastTrip *time.Time
+		_ = pool.QueryRow(c, `
+			SELECT COUNT(*), COALESCE(SUM(total_distance_km),0)::float8, MIN(started_at), MAX(started_at)
+			FROM trips WHERE driver_id = $1 AND status = 'completed'`, id,
+		).Scan(&totalTrips, &totalKm, &firstTrip, &lastTrip)
+
+		var currentScore float64
+		var fullName string
+		var hireDate *time.Time
+		_ = pool.QueryRow(c, `
+			SELECT COALESCE(current_score,0)::float8, COALESCE(full_name,''), created_at
+			FROM drivers WHERE id = $1`, id,
+		).Scan(&currentScore, &fullName, &hireDate)
+
+		yearsActive := 0.0
+		if firstTrip != nil {
+			yearsActive = time.Since(*firstTrip).Hours() / (24.0 * 365.25)
+		}
+
+		// Badges count
+		var badgeCount int
+		_ = pool.QueryRow(c,
+			`SELECT COUNT(*) FROM badge_awards WHERE driver_id = $1`, id,
+		).Scan(&badgeCount)
+
+		// Avg score last 90 days
+		var avgScore90 float64
+		_ = pool.QueryRow(c, `
+			SELECT COALESCE(AVG(total_score),0)::float8 FROM driver_scores
+			WHERE driver_id = $1 AND score_date >= now() - interval '90 days'`, id,
+		).Scan(&avgScore90)
+
+		response.OK(c, gin.H{
+			"full_name":     fullName,
+			"hire_date":     hireDate,
+			"years_active":  yearsActive,
+			"total_trips":   totalTrips,
+			"total_km":      totalKm,
+			"current_score": currentScore,
+			"avg_score_90d": avgScore90,
+			"badge_count":   badgeCount,
+			"first_trip_at": firstTrip,
+			"last_trip_at":  lastTrip,
+		})
 	})
 
 	// Start server

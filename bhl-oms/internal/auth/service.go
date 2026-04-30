@@ -14,11 +14,13 @@ import (
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/redis/go-redis/v9"
 	"golang.org/x/crypto/bcrypt"
 )
 
 type Service struct {
 	db         *pgxpool.Pool
+	rdb        *redis.Client
 	privateKey *rsa.PrivateKey
 	publicKey  *rsa.PublicKey
 	accessTTL  time.Duration
@@ -40,9 +42,10 @@ type Claims struct {
 	Permissions  []string    `json:"permissions"`
 	WarehouseIDs []uuid.UUID `json:"warehouse_ids"`
 	TokenType    string      `json:"token_type,omitempty"` // "access" or "refresh"
+	JTI          string      `json:"jti,omitempty"`        // HIGH-006: JWT ID for denylist
 }
 
-func NewService(db *pgxpool.Pool, privKeyPath, pubKeyPath string, accessTTL, refreshTTL time.Duration) (*Service, error) {
+func NewService(db *pgxpool.Pool, rdb *redis.Client, privKeyPath, pubKeyPath string, accessTTL, refreshTTL time.Duration) (*Service, error) {
 	privKeyData, err := os.ReadFile(privKeyPath)
 	if err != nil {
 		return nil, fmt.Errorf("read private key: %w", err)
@@ -89,6 +92,7 @@ func NewService(db *pgxpool.Pool, privKeyPath, pubKeyPath string, accessTTL, ref
 
 	return &Service{
 		db:         db,
+		rdb:        rdb,
 		privateKey: privKey,
 		publicKey:  pubKey,
 		accessTTL:  accessTTL,
@@ -100,7 +104,16 @@ func (s *Service) GetPublicKey() *rsa.PublicKey {
 	return s.publicKey
 }
 
-func (s *Service) Login(ctx context.Context, username, password string) (*domain.User, *TokenPair, error) {
+func (s *Service) Login(ctx context.Context, username, password, clientIP string) (*domain.User, *TokenPair, error) {
+	// HIGH-004: rate-limit login — 10 failures per IP+username in 15 minutes = lockout
+	if s.rdb != nil {
+		rateKey := fmt.Sprintf("login_attempt:%s:%s", clientIP, username)
+		count, _ := s.rdb.Get(ctx, rateKey).Int()
+		if count >= 10 {
+			return nil, nil, fmt.Errorf("too many failed attempts, account temporarily locked")
+		}
+	}
+
 	var user domain.User
 	err := s.db.QueryRow(ctx, `
 		SELECT id, username, email, password_hash, full_name, role, permissions, warehouse_ids, is_active
@@ -110,6 +123,7 @@ func (s *Service) Login(ctx context.Context, username, password string) (*domain
 		&user.FullName, &user.Role, &user.Permissions, &user.WarehouseIDs, &user.IsActive,
 	)
 	if err != nil {
+		s.incrementLoginFailure(ctx, clientIP, username)
 		return nil, nil, fmt.Errorf("user not found")
 	}
 
@@ -118,7 +132,14 @@ func (s *Service) Login(ctx context.Context, username, password string) (*domain
 	}
 
 	if err := bcrypt.CompareHashAndPassword([]byte(user.PasswordHash), []byte(password)); err != nil {
+		s.incrementLoginFailure(ctx, clientIP, username)
 		return nil, nil, fmt.Errorf("invalid password")
+	}
+
+	// Success — reset failure counter
+	if s.rdb != nil {
+		rateKey := fmt.Sprintf("login_attempt:%s:%s", clientIP, username)
+		_ = s.rdb.Del(ctx, rateKey).Err()
 	}
 
 	tokens, err := s.generateTokenPair(&user)
@@ -130,6 +151,47 @@ func (s *Service) Login(ctx context.Context, username, password string) (*domain
 	_, _ = s.db.Exec(ctx, `UPDATE users SET last_login_at = now() WHERE id = $1`, user.ID)
 
 	return &user, tokens, nil
+}
+
+// incrementLoginFailure increments and TTLs the login failure counter for rate-limiting.
+func (s *Service) incrementLoginFailure(ctx context.Context, clientIP, username string) {
+	if s.rdb == nil {
+		return
+	}
+	rateKey := fmt.Sprintf("login_attempt:%s:%s", clientIP, username)
+	p := s.rdb.Pipeline()
+	p.Incr(ctx, rateKey)
+	p.Expire(ctx, rateKey, 15*time.Minute)
+	_, _ = p.Exec(ctx)
+}
+
+// Logout adds the token JTI to the denylist in Redis until the token expires.
+// HIGH-006: any request after logout using the same access token is rejected by JWTAuth middleware.
+func (s *Service) Logout(ctx context.Context, tokenStr string) error {
+	if s.rdb == nil {
+		return nil // Redis not configured — silent no-op
+	}
+	claims, err := s.ValidateToken(tokenStr)
+	if err != nil {
+		return fmt.Errorf("invalid token")
+	}
+	if claims.JTI == "" {
+		return nil // old token without JTI — nothing to denylist
+	}
+	ttl := time.Until(claims.ExpiresAt.Time)
+	if ttl <= 0 {
+		return nil // already expired
+	}
+	return s.rdb.Set(ctx, "jti_denylist:"+claims.JTI, "1", ttl).Err()
+}
+
+// IsJTIDenylisted returns true if the JTI has been invalidated via Logout.
+func (s *Service) IsJTIDenylisted(ctx context.Context, jti string) bool {
+	if s.rdb == nil || jti == "" {
+		return false
+	}
+	val, err := s.rdb.Exists(ctx, "jti_denylist:"+jti).Result()
+	return err == nil && val > 0
 }
 
 func (s *Service) RefreshToken(ctx context.Context, refreshToken string) (*TokenPair, error) {
@@ -180,12 +242,16 @@ func (s *Service) ValidateToken(tokenStr string) (*Claims, error) {
 func (s *Service) generateTokenPair(user *domain.User) (*TokenPair, error) {
 	now := time.Now()
 
+	// HIGH-006: generate unique JTI per access token for denylist support
+	jti := uuid.New().String()
+
 	accessClaims := &Claims{
 		RegisteredClaims: jwt.RegisteredClaims{
 			Subject:   user.ID.String(),
 			IssuedAt:  jwt.NewNumericDate(now),
 			ExpiresAt: jwt.NewNumericDate(now.Add(s.accessTTL)),
 			Issuer:    "bhl-oms",
+			ID:        jti, // JWTID in standard claims
 		},
 		UserID:       user.ID,
 		FullName:     user.FullName,
@@ -193,6 +259,7 @@ func (s *Service) generateTokenPair(user *domain.User) (*TokenPair, error) {
 		Permissions:  user.Permissions,
 		WarehouseIDs: user.WarehouseIDs,
 		TokenType:    "access",
+		JTI:          jti,
 	}
 
 	accessToken, err := jwt.NewWithClaims(jwt.SigningMethodRS256, accessClaims).SignedString(s.privateKey)

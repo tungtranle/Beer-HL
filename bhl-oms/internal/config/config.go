@@ -38,13 +38,16 @@ type Config struct {
 	GeminiAPIKey string
 	// Groq free fallback: 14,400 req/day — get key at https://console.groq.com
 	GroqAPIKey string
+
+	// HIGH-007: allowed WebSocket/CORS origins (comma-separated)
+	AllowedOrigins string
 }
 
 func Load() *Config {
 	return &Config{
 		Env:            getEnv("ENV", "development"),
 		ServerPort:     getEnv("SERVER_PORT", "8080"),
-		DBURL:          getEnv("DB_URL", "postgres://bhl:bhl_dev@localhost:5434/bhl_dev?sslmode=disable"),
+		DBURL:          getEnv("DB_URL", "postgres://bhl:bhl_dev@localhost:5433/bhl_dev?sslmode=disable"),
 		RedisURL:       getEnv("REDIS_URL", "redis://localhost:6379/0"),
 		JWTPrivKeyPath: getEnv("JWT_PRIVATE_KEY_PATH", "./keys/private.pem"),
 		JWTPubKeyPath:  getEnv("JWT_PUBLIC_KEY_PATH", "./keys/public.pem"),
@@ -67,6 +70,9 @@ func Load() *Config {
 
 		GeminiAPIKey: getEnv("GEMINI_API_KEY", ""),
 		GroqAPIKey:   getEnv("GROQ_API_KEY", ""),
+
+		// HIGH-007: default to localhost:3000 for dev; set ALLOWED_ORIGINS in prod
+		AllowedOrigins: getEnv("ALLOWED_ORIGINS", "http://localhost:3000"),
 	}
 }
 

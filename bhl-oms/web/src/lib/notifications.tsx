@@ -22,6 +22,11 @@ export interface Notification {
   actions?: NotificationAction[]
   group_key?: string
   is_read: boolean
+  is_acknowledged: boolean
+  acknowledged_at?: string
+  resolved_at?: string
+  expires_at?: string
+  escalated_at?: string
   created_at: string
 }
 
@@ -61,6 +66,7 @@ interface NotificationContextType {
   dismissToast: () => void
   markRead: (id: string) => void
   markAllRead: () => void
+  acknowledge: (id: string) => void
   refresh: () => void
   // Order update subscriptions
   subscribeOrderUpdates: (listener: OrderUpdateListener) => () => void
@@ -82,6 +88,7 @@ const NotificationContext = createContext<NotificationContextType>({
   dismissToast: () => {},
   markRead: () => {},
   markAllRead: () => {},
+  acknowledge: () => {},
   refresh: () => {},
   subscribeOrderUpdates: () => () => {},
   subscribeEntityUpdates: () => () => {},
@@ -126,7 +133,7 @@ export function NotificationProvider({ children }: { children: React.ReactNode }
   // Fetch notifications from API
   const refresh = useCallback(async () => {
     try {
-      const res = await apiFetch<any>('/notifications?limit=10')
+      const res = await apiFetch<any>('/notifications?limit=50')
       if (res.data) setNotifications(res.data)
     } catch { /* ignore */ }
     try {
@@ -150,6 +157,18 @@ export function NotificationProvider({ children }: { children: React.ReactNode }
       await apiFetch('/notifications/read-all', { method: 'POST' })
       setNotifications(prev => prev.map(n => ({ ...n, is_read: true })))
       setUnreadCount(0)
+    } catch { /* ignore */ }
+  }, [])
+
+  // Acknowledge a P0 notification — marks read + acknowledged, removes from urgent toasts
+  const acknowledge = useCallback(async (id: string) => {
+    try {
+      await apiFetch(`/notifications/${id}/acknowledge`, { method: 'POST' })
+      setNotifications(prev => prev.map(n =>
+        n.id === id ? { ...n, is_read: true, is_acknowledged: true, acknowledged_at: new Date().toISOString() } : n
+      ))
+      setUnreadCount(prev => Math.max(0, prev - 1))
+      setUrgentToasts(prev => prev.filter(n => n.id !== id))
     } catch { /* ignore */ }
   }, [])
 
@@ -193,6 +212,11 @@ export function NotificationProvider({ children }: { children: React.ReactNode }
     }
     // normal/low → only bell + panel (no toast)
   }, [])
+
+  // Initial load on mount
+  useEffect(() => {
+    refresh()
+  }, [refresh])
 
   // WebSocket connection
   useEffect(() => {
@@ -278,7 +302,7 @@ export function NotificationProvider({ children }: { children: React.ReactNode }
       notifications, unreadCount,
       urgentToasts, autoToast, autoToastQueueCount, dismissUrgentToast, dismissAutoToast,
       toast, dismissToast,
-      markRead, markAllRead, refresh,
+      markRead, markAllRead, acknowledge, refresh,
       subscribeOrderUpdates,
       subscribeEntityUpdates, subscribeVRPProgress,
     }}>

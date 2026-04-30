@@ -2,9 +2,9 @@
 
 | Thông tin | Giá trị |
 |-----------|---------|
-| Phiên bản | **v1.2** |
-| Cập nhật | 20/03/2026 (session 18) |
-| Dựa trên | SAD v2.1, BRD v2.3, DBS v1.0 |
+| Phiên bản | **v1.4** |
+| Cập nhật | 26/04/2026 — AI-native Phase 2-6 + AI-R/G/M endpoints |
+| Dựa trên | SAD v2.1, BRD v3.8, DBS v1.2 |
 | Base URL | `https://api.bhl-ops.vn/v1` |
 | Auth | Bearer JWT RS256 |
 | Content-Type | `application/json` |
@@ -30,9 +30,10 @@
 12. [Integration Webhooks](#12-integration-webhooks)
 13. [KPI Endpoints](#13-kpi-endpoints)
 14. [GPS Endpoints](#14-gps-endpoints)
-15. [Error Codes](#15-error-codes)
-16. [Appendix A — Endpoints mới (Session 15-18)](#appendix-a--endpoints-mới-session-15-18-new)
-17. [Appendix B — Spec-only Endpoints (chưa implement)](#appendix-b--spec-only-endpoints-chưa-implement)
+15. [AI Endpoints](#15-ai-endpoints)
+16. [Error Codes](#16-error-codes)
+17. [Appendix A — Endpoints mới (Session 15-18)](#appendix-a--endpoints-mới-session-15-18-new)
+18. [Appendix B — Spec-only Endpoints (chưa implement)](#appendix-b--spec-only-endpoints-chưa-implement)
 
 ---
 
@@ -88,7 +89,7 @@ GET /v1/orders?page=1&limit=20&sort=created_at&order=desc
 ## 1.4 Filtering
 
 ```
-GET /v1/orders?status=confirmed&customer_id=xxx&from_date=2026-03-01&to_date=2026-03-31
+GET /v1/orders?status=confirmed&customer_id=xxx&from=2026-03-01&to=2026-03-31
 ```
 
 ## 1.5 HTTP Status Codes
@@ -241,7 +242,9 @@ Invalidate refresh token trong DB.
 |-|---|
 | Roles | `admin`, `dvkh`, `dispatcher`, `accountant`, `management` |
 
-**Query params:** `status`, `customer_id`, `warehouse_id`, `from_date`, `to_date`, `cutoff_group`, `page`, `limit`
+**Query params:** `status`, `customer_id`, `warehouse_id`, `from`, `to`, `delivery_date`, `cutoff_group`, `page`, `limit`
+
+**Scope default:** frontend `/dashboard/orders` mặc định truyền `from/to` theo tháng hiện tại. Không truyền `from/to/delivery_date` nghĩa là người dùng hoặc integration đang yêu cầu lịch sử explicit.
 
 ### GET /v1/orders/:id
 **Chi tiết đơn hàng** — Bao gồm items, shipment, delivery attempts, payments
@@ -500,7 +503,9 @@ Invalidate refresh token trong DB.
 ### GET /v1/trips
 **Danh sách trip**
 
-**Query params:** `status`, `planned_date`, `vehicle_id`, `driver_id`, `warehouse_id`
+**Query params:** `status`, `planned_date`, `active`, `vehicle_id`, `driver_id`, `warehouse_id`
+
+`active=true` trả các chuyến chưa đóng (`completed/cancelled/closed` bị loại), dùng cho Control Tower và bàn giao vận hành để tránh quét lịch sử.
 
 ### GET /v1/trips/:id
 **Chi tiết trip** — stops, delivery attempts, payments, checklists
@@ -1005,6 +1010,26 @@ Invalidate refresh token trong DB.
 }
 ```
 
+### GET /v1/reconciliation
+**Danh sách đối soát** — mặc định frontend gọi theo tháng hiện tại, không quét toàn bộ lịch sử.
+
+**Query:** `status=pending|matched|discrepancy|resolved|closed`, `from=YYYY-MM-DD`, `to=YYYY-MM-DD`, `page`, `limit`
+
+### GET /v1/reconciliation/discrepancies
+**Danh sách sai lệch** — lọc theo trạng thái/chuyến/khoảng ngày vận hành.
+
+**Query:** `status=open|investigating|resolved|escalated|closed`, `trip_id`, `from=YYYY-MM-DD`, `to=YYYY-MM-DD`, `page`, `limit`
+
+### GET /v1/reconciliation/daily-close
+**Danh sách chốt ngày** — lọc theo kho và ngày chốt.
+
+**Query:** `warehouse_id`, `from=YYYY-MM-DD`, `to=YYYY-MM-DD`, `limit`
+
+### GET /v1/reconciliation/export
+**Xuất Excel đối soát** — dùng cùng scope với danh sách.
+
+**Query:** `status`, `from=YYYY-MM-DD`, `to=YYYY-MM-DD`
+
 ### POST /v1/reconciliation/open-discrepancy
 **Mở hồ sơ sai lệch** (US-REC-02, R06)
 
@@ -1367,8 +1392,16 @@ Invalidate refresh token trong DB.
 
 **Response 200:**
 ```json
-{ "data": { "message": "Simulation started", "vehicles": 4 } }
+{
+  "data": {
+    "message": "Simulation started",
+    "vehicles": 4,
+    "routes": [{ "plate": "30A-12345", "geometry_source": "osrm_local", "waypoint_count": 128 }]
+  }
+}
 ```
+
+**Response 503:** `ROUTE_GEOMETRY_UNAVAILABLE` khi OSRM local/route geometry không khả dụng. Simulator không fallback sang đường chim bay hoặc public OSRM cho route-real demo/test.
 
 ### POST /v1/gps/simulate/stop
 **Dừng giả lập GPS**
@@ -1624,7 +1657,145 @@ Auth: ?token=<jwt>
 
 ---
 
-# 13. ERROR CODES
+# 15. AI ENDPOINTS
+
+## 15.1 Effective AI Flags
+
+### GET /v1/ai/features
+
+Lấy trạng thái AI flags effective cho user hiện tại. Missing flag hoặc master OFF = false.
+
+| | |
+|-|---|
+| Auth | Bearer JWT |
+| Roles | Tất cả user đã đăng nhập |
+
+**Response 200:**
+```json
+{
+  "success": true,
+  "data": {
+    "flags": {
+      "ai.master": false,
+      "ai.copilot": false,
+      "ai.briefing": false
+    }
+  }
+}
+```
+
+## 15.2 Admin AI Flag Management
+
+### GET /v1/admin/ai-flags
+
+Danh sách flag definitions và trạng thái org/role/user đã cấu hình.
+
+| | |
+|-|---|
+| Auth | Bearer JWT |
+| Roles | `admin` |
+
+### PUT /v1/admin/ai-flags
+
+Upsert một flag theo scope.
+
+| | |
+|-|---|
+| Auth | Bearer JWT |
+| Roles | `admin` |
+
+**Request:**
+```json
+{
+  "flag_key": "ai.master",
+  "scope_type": "org",
+  "scope_id": "bhl",
+  "enabled": true,
+  "config": {}
+}
+```
+
+Unknown flag hoặc scope sai trả `400 AI_FLAG_INVALID`.
+
+## 15.3 AI-native Phase 2-6 APIs
+
+| Method | Endpoint | Mục đích | Flag |
+|---|---|---|---|
+| `POST` | `/v1/ai/privacy/route` | Classify prompt/context nhạy cảm, trả route cloud/local/rules/blocked; không trả raw prompt | always on |
+| `GET` | `/v1/ai/transparency` | Provider status, effective flags, guardrails | `ai.transparency` UI flag |
+| `GET` | `/v1/ai/inbox` | AI Inbox items; fallback rules nếu chưa có DB item | baseline rules |
+| `GET` | `/v1/ai/intents?q=` | Intent registry MVP cho Cmd+K; nếu `ai.intent` OFF chỉ trả baseline/manual intent | `ai.intent` |
+| `POST` | `/v1/ai/voice/parse` | Parse 6 voice command whitelist; luôn `confirm_required=true` | `ai.voice` |
+| `POST` | `/v1/ai/simulations` | Tạo dry-run simulation snapshot TTL 5 phút; không mutate bảng nghiệp vụ | `ai.simulation` |
+| `GET` | `/v1/ai/simulations/:id` | Lấy snapshot simulation | `ai.simulation` |
+| `POST` | `/v1/ai/simulations/:id/apply` | Đánh dấu snapshot applied và trả `approval_required=true`; core tables chưa mutate | `ai.simulation` |
+| `GET` | `/v1/ai/trust-suggestions` | Trust Loop suggestions từ `ai_audit_log`; chỉ admin/management | `ai.trust_loop` |
+
+**Privacy request:**
+```json
+{ "input": "Gọi NPP HD-53 qua 0901234567" }
+```
+
+**Privacy response:**
+```json
+{
+  "route": "local",
+  "sensitivity": "high",
+  "confidence": 0.9,
+  "redacted": true,
+  "reasons": ["phone", "npp_code"],
+  "request_hash": "sha256..."
+}
+```
+
+**Simulation create request:**
+```json
+{ "type": "vrp_what_if", "context": { "vehicles_delta": 1 } }
+```
+
+**Simulation apply response:**
+```json
+{
+  "simulation": { "status": "applied" },
+  "approval_required": true,
+  "undo_ttl_seconds": 30,
+  "core_tables_mutated": false
+}
+```
+
+## 15.4 AI-R/G/M Operational AI APIs
+
+| Method | Endpoint | Mục đích | Role |
+|---|---|---|---|
+| `GET` | `/v1/ai/vehicle-score?plate=&speed=&stop_min=&deviation_km=` | Tính anomaly score realtime bằng rules | admin, dispatcher, management |
+| `GET` | `/v1/ai/seasonal-alert?sku=&warehouse=&qty=&avg_qty=` | Cảnh báo nhu cầu mùa vụ inline trong OMS order form | admin, dvkh, dispatcher |
+| `GET` | `/v1/ai/dispatch-brief` | Daily dispatch brief, Gemini/Groq/mock chain | admin, dispatcher, management |
+| `GET` | `/v1/ai/anomaly/:id/explain` | Giải thích anomaly và gợi ý 2 hành động | admin, dispatcher, management |
+| `GET` | `/v1/ai/customers/:id/risk-score` | Credit risk score cho NPP | admin, accountant, management |
+| `POST` | `/v1/ai/npp-zalo-draft` | Tạo nháp Zalo thủ công cho DVKH copy/gửi | admin, dvkh, dispatcher |
+| `GET` | `/v1/ai/demand-forecast?customer_id=&product_id=&warehouse_id=&horizon_weeks=4` | Dự báo 4 tuần NPP×SKU×kho qua Python solver; fallback rules nếu solver unavailable | admin, dvkh, dispatcher, management |
+| `GET` | `/v1/ai/outreach-queue?limit=3` | Top NPP cần liên hệ hôm nay từ `ml_features.npp_health_scores` | admin, dvkh, management |
+
+**Demand forecast response excerpt:**
+```json
+{
+  "customer_code": "HD-53",
+  "sku": "BHL-450",
+  "warehouse_code": "HD",
+  "horizon_weeks": 4,
+  "model_method": "prophet-compatible-rules",
+  "provider": "vrp-solver",
+  "forecast": [
+    { "week_start": "2026-04-27", "qty_pred": 120, "qty_lower": 96, "qty_upper": 144 }
+  ]
+}
+```
+
+Nếu Python solver không sẵn sàng, response vẫn HTTP 200 với `model_method="rules-fallback"`, `provider="rules"`; core OMS flow không bị block.
+
+---
+
+# 16. ERROR CODES
 
 | Code | HTTP | Mô tả |
 |------|------|-------|
@@ -1648,7 +1819,7 @@ Auth: ?token=<jwt>
 
 ---
 
-**=== HẾT TÀI LIỆU API v1.2 ===**
+**=== HẾT TÀI LIỆU API v1.4 ===**
 
 *API Contract Specification v1.2 — 140+ endpoints, RESTful JSON, JWT RS256.*
 
@@ -1778,9 +1949,83 @@ Auth: ?token=<jwt>
 |-|---|
 | Roles | `admin` |
 
-## A.10 Test Portal [NEW — Session 16] (No auth — QA only)
+## A.10 QA Demo Portal / AQF Command Center [UPDATED — 26/04b] (JWT required)
 
-> Development/QA endpoints. Không nên expose trong production.
+> Development/QA endpoints. Khi `ENABLE_TEST_PORTAL=true`, toàn bộ `/v1/test-portal/*` yêu cầu Bearer JWT và role `admin` hoặc `management`. Tài khoản demo được seed: `qa.demo` / `demo123`.
+
+### Safe demo scenario endpoints
+
+### GET /v1/test-portal/demo-scenarios
+**List customer-demo scenarios** — trả danh sách scenario demo, steps, preview data, credential hint và safety invariant.
+
+**Response data:**
+```json
+{
+  "scenarios": [
+    {
+      "id": "DEMO-01",
+      "title": "DVKH tạo đơn → NPP xác nhận Zalo",
+      "category": "OMS/ZALO",
+      "data_summary": "2 sales_orders + 2 order_confirmations + timeline events",
+      "steps": []
+    }
+  ],
+  "credentials": { "username": "qa.demo", "password": "demo123", "role": "management" },
+  "safety": { "mode": "scenario_run_scope_only", "historical_rows_touched": 0 }
+}
+```
+
+### GET /v1/test-portal/demo-runs?limit=20
+**List recent demo runs** — xem run history, created count, cleanup count, historical rows touched.
+
+### POST /v1/test-portal/demo-scenarios/:id/load
+**Load scoped demo data** — cleanup run cũ của chính scenario bằng `qa_owned_entities`, seed data mới trong transaction, trả kết quả safety.
+
+Supported IDs: `DEMO-01`, `DEMO-02`, `DEMO-03`, `DEMO-04`.
+
+**Response data:**
+```json
+{
+  "run_id": "uuid",
+  "scenario_id": "DEMO-03",
+  "status": "completed",
+  "created_count": 16,
+  "cleanup_deleted_count": 0,
+  "historical_rows_touched": 0,
+  "assertions": ["Không TRUNCATE bảng nghiệp vụ", "Không DELETE dữ liệu ngoài qa_owned_entities"]
+}
+```
+
+### POST /v1/test-portal/demo-scenarios/:id/cleanup
+**Cleanup scoped demo data** — chỉ xóa entity_id có ownership registry của scenario đó; không chạm dữ liệu lịch sử.
+
+### AQF endpoints đang dùng
+
+### GET /v1/test-portal/aqf/status
+**Full QA snapshot** — Decision Brief, gate status, golden results, business health, evidence log, open questions.
+
+### POST /v1/test-portal/aqf/run
+**Run AQF suite** — chạy golden validation + business health, lưu evidence. Không seed/xóa dữ liệu nghiệp vụ.
+
+### GET /v1/test-portal/aqf/golden
+**Golden dataset validation** — credit, FEFO, state machine, RBAC, cost/recon invariants.
+
+### GET /v1/test-portal/aqf/health
+**Business health metrics** — DB/Redis, orders today, pending approval, active trips, recon, DLQ, low stock.
+
+### GET /v1/test-portal/aqf/evidence
+**Evidence log** — lịch sử Decision Brief và test evidence.
+
+### GET /v1/test-portal/aqf/questions
+**Open questions** — Human-in-the-loop blockers/warnings.
+
+### POST /v1/test-portal/aqf/answer
+**Answer open question** — body `{ "id": "Q-BHL-002", "answer": "yes|no|defer" }`.
+
+### GET /v1/test-portal/risk-monitor
+**Risk Monitor** — phân loại risk theo file/git diff rules.
+
+### Legacy read-only/debug endpoints còn tồn tại
 
 ### GET /v1/test-portal/orders
 ### GET /v1/test-portal/orders/:id
@@ -1799,12 +2044,18 @@ Auth: ?token=<jwt>
 ### GET /v1/test-portal/ops-audit
 **Ops & Audit aggregate** — tổng hợp admin smoke counters, integration DLQ, reconciliation, daily close, KPI snapshot.
 
+### Legacy destructive endpoints — DISABLED 26/04
+
 ### POST /v1/test-portal/reset-data
-### POST /v1/test-portal/create-test-order
-### POST /v1/test-portal/simulate-delivery
 ### POST /v1/test-portal/run-scenario
 ### POST /v1/test-portal/load-scenario
-**Load full regression scenario** — hiện có SC-01..SC-12; SC-10/SC-11 ưu tiên `from_active_trips`, SC-12 phục vụ tab Ops & Audit.
+### POST /v1/test-portal/run-all-smoke
+**Status:** disabled. Các endpoint này từng reset/load dữ liệu rộng và hiện trả lỗi để bảo toàn DB lịch sử. Dùng Safe demo scenario endpoints ở trên thay thế.
+
+### Legacy mutation endpoints — chỉ dùng dev khi đã hiểu rủi ro
+
+### POST /v1/test-portal/create-test-order
+### POST /v1/test-portal/simulate-delivery
 
 ### GET /v1/test-portal/scenarios
 **List scenario metadata** — trả roles, steps, `gps_scenario`, preview data.

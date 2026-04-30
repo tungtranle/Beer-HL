@@ -12,6 +12,8 @@ Chạy quality gates cho BHL OMS-TMS-WMS. Báo cáo bằng tiếng Việt với 
 
 Gate level từ argument: **$ARGUMENTS**
 
+Luôn đọc `AQF_BHL_SETUP.md` trước khi kết luận. QA Check phải báo rõ gate AQF G0/G1/G2/G3/G4 pass/skip và không được gọi legacy destructive endpoints của Test Portal.
+
 ---
 
 ## Nếu argument = `--pre-commit` (< 30 giây)
@@ -52,6 +54,17 @@ if (Test-Path "bhl-oms/web/src/lib/safeParseVND.ts") {
 
 Báo cáo: "X/3 gates pass. [Action nếu có fail]"
 
+**Gate 3b: AQF data safety guardrail**
+```powershell
+$unsafeSql = Select-String -Path "bhl-oms/internal/**/*.go","bhl-oms/migrations/*.sql" -Pattern "TRUNCATE|DELETE FROM sales_orders|DELETE FROM trips|DELETE FROM shipments|DELETE FROM stock_moves" -Recurse
+if ($unsafeSql) {
+    Write-Host "⚠️  REVIEW: Có SQL xóa dữ liệu nghiệp vụ. Phải xác nhận có ownership filter qa_owned_entities trước khi pass."
+    $unsafeSql | Select-Object Filename, LineNumber, Line
+} else {
+    Write-Host "✅ PASS: Không thấy destructive SQL phổ biến"
+}
+```
+
 ---
 
 ## Nếu argument = `--pre-merge` (< 5 phút)
@@ -59,6 +72,10 @@ Báo cáo: "X/3 gates pass. [Action nếu có fail]"
 Chạy trước khi merge PR hoặc sau khi hoàn thành 1 feature lớn.
 
 **Bao gồm tất cả pre-commit gates, plus:**
+
+**Gate 4A: AQF scoped scenario safety**
+- Nếu thay đổi đụng QA Portal/scenario/test data: gọi scoped endpoint `POST /v1/test-portal/demo-scenarios/:id/load` và cleanup tương ứng.
+- Pass criteria: response có `historical_rows_touched = 0`; không dùng `reset-data`, `load-scenario`, `run-scenario`, `run-all-smoke` legacy.
 
 **Gate 4: Go unit tests**
 ```powershell
@@ -150,6 +167,12 @@ if ($prodEnv -match "ENABLE_TEST_PORTAL=true") {
 }
 ```
 
+**AQF status production watch:**
+```powershell
+# Nếu có token/admin session hợp lệ, gọi AQF status và kiểm tra verdict/confidence/blockers.
+# Nếu không có token, báo SKIP kèm lý do, không được coi là PASS.
+```
+
 **Microsoft Clarity đã gắn:**
 ```powershell
 $clarity = Select-String -Path "bhl-oms/web/src/app/layout.tsx" -Pattern "clarity"
@@ -182,3 +205,6 @@ else { Write-Host "⚠️  WARN: TELEGRAM_BOT_TOKEN chưa set — không có ale
 ```
 
 Nếu có fail: liệt kê cụ thể từng vấn đề và đề xuất fix.
+
+Luôn thêm dòng cuối:
+`AQF Evidence: [evidence_id/artifact path/GitHub run URL hoặc SKIP + lý do]`

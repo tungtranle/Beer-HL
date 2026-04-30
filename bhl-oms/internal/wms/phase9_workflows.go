@@ -12,6 +12,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"sort"
 	"strings"
 	"time"
 
@@ -241,6 +242,84 @@ func (s *Service) SuggestBins(ctx context.Context, req SuggestBinRequest) ([]Bin
 			}
 		}
 	}
+	if len(suggestions) > 3 {
+		suggestions = suggestions[:3]
+	}
+	return suggestions, nil
+}
+
+// SuggestBinsPreview — phiên bản inbound: chưa có lot_id (lô mới sẽ được tạo).
+// Score đơn giản hơn: free slots + velocity_class match cho fast-mover product.
+// Dùng cho UX phiếu nhập: thủ kho thấy gợi ý ngay khi chọn sản phẩm.
+func (s *Service) SuggestBinsPreview(ctx context.Context, warehouseID, productID uuid.UUID) ([]BinSuggestion, error) {
+	rows, err := s.repo.db.Query(ctx, `SELECT b.id, b.warehouse_id, b.bin_code, b.zone, b.row_code, b.level_code,
+		b.bin_type::text, b.capacity_pallets, b.allowed_sku_categories, b.is_pickable,
+		b.velocity_class, b.qr_payload, b.notes, b.created_at, b.updated_at,
+		COALESCE(occ.cnt, 0) AS occupied,
+		COALESCE(sameprod.cnt, 0) AS same_product_count
+		FROM bin_locations b
+		LEFT JOIN (SELECT current_bin_id, COUNT(*) AS cnt FROM pallets
+		           WHERE status::text NOT IN ('shipped','empty')
+		           GROUP BY current_bin_id) occ ON occ.current_bin_id = b.id
+		LEFT JOIN (SELECT current_bin_id, COUNT(*) AS cnt FROM pallets
+		           WHERE product_id = $2 AND status::text NOT IN ('shipped','empty')
+		           GROUP BY current_bin_id) sameprod ON sameprod.current_bin_id = b.id
+		WHERE b.warehouse_id = $1 AND b.is_pickable = true AND b.bin_type::text = 'storage'`,
+		warehouseID, productID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	type row struct {
+		bin         domain.BinLocation
+		occupied    int
+		sameProduct int
+	}
+	var candidates []row
+	for rows.Next() {
+		var r row
+		if err := rows.Scan(&r.bin.ID, &r.bin.WarehouseID, &r.bin.BinCode, &r.bin.Zone, &r.bin.RowCode, &r.bin.LevelCode,
+			&r.bin.BinType, &r.bin.CapacityPallets, &r.bin.AllowedSKUCategories, &r.bin.IsPickable,
+			&r.bin.VelocityClass, &r.bin.QRPayload, &r.bin.Notes, &r.bin.CreatedAt, &r.bin.UpdatedAt,
+			&r.occupied, &r.sameProduct); err != nil {
+			return nil, err
+		}
+		if r.occupied < r.bin.CapacityPallets {
+			candidates = append(candidates, r)
+		}
+	}
+
+	suggestions := make([]BinSuggestion, 0, len(candidates))
+	for _, c := range candidates {
+		score := 0
+		reason := []string{}
+		if c.sameProduct > 0 {
+			score += 40
+			reason = append(reason, fmt.Sprintf("đã chứa %d pallet cùng sản phẩm", c.sameProduct))
+		}
+		if c.bin.VelocityClass != nil && *c.bin.VelocityClass == "A" {
+			score += 25
+			reason = append(reason, "vị trí A — gần dock")
+		}
+		free := c.bin.CapacityPallets - c.occupied
+		score += min(free*5, 20)
+		if free == c.bin.CapacityPallets {
+			reason = append(reason, "trống hoàn toàn")
+		}
+		suggestions = append(suggestions, BinSuggestion{
+			Bin: c.bin, OccupiedPallets: c.occupied, FreeSlots: free,
+			Score: score, Reason: strings.Join(reason, "; "),
+		})
+	}
+
+	// Sort desc by score, top 3
+	sort.SliceStable(suggestions, func(i, j int) bool {
+		if suggestions[i].Score != suggestions[j].Score {
+			return suggestions[i].Score > suggestions[j].Score
+		}
+		return suggestions[i].Bin.BinCode < suggestions[j].Bin.BinCode
+	})
 	if len(suggestions) > 3 {
 		suggestions = suggestions[:3]
 	}

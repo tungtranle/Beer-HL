@@ -7,6 +7,8 @@ import (
 	"net/http"
 	"strings"
 	"time"
+
+	"bhl-oms/pkg/logger"
 )
 
 type gpsRouteSpec struct {
@@ -30,7 +32,7 @@ func (h *Handler) realDeliveryRoutes(ctx context.Context) []GPSRoute {
 	if len(routes) > 0 {
 		return routes
 	}
-	return normalDeliveryRoutes()
+	return []GPSRoute{}
 }
 
 func (h *Handler) realRushHourRoutes(ctx context.Context) []GPSRoute {
@@ -49,8 +51,7 @@ func (h *Handler) realRushHourRoutes(ctx context.Context) []GPSRoute {
 	if len(routes) > 0 {
 		return routes
 	}
-	base := normalDeliveryRoutes()
-	return append(base, rushHourRoutes()...)
+	return []GPSRoute{}
 }
 
 func (h *Handler) realLongRoute(ctx context.Context) []GPSRoute {
@@ -66,7 +67,7 @@ func (h *Handler) realLongRoute(ctx context.Context) []GPSRoute {
 	if len(route.Waypoints) > 0 {
 		return []GPSRoute{route}
 	}
-	return longRouteRoutes()
+	return []GPSRoute{}
 }
 
 func (h *Handler) realTripsRoute(ctx context.Context) ([]simVehicle, []GPSRoute) {
@@ -104,16 +105,22 @@ func buildRealRoute(ctx context.Context, h *Handler, spec gpsRouteSpec) GPSRoute
 	stops = append(stops, customers...)
 	stops = append(stops, GPSWaypoint{Lat: warehouse.Lat, Lng: warehouse.Lng, Name: "Quay về " + warehouse.Name})
 
-	waypoints := h.fetchOSRMWaypoints(stops)
-	if len(waypoints) < 3 {
-		waypoints = stops
+	waypoints, source, distanceKm, durationMin, err := h.fetchOSRMWaypoints(stops)
+	if err != nil || len(waypoints) < 3 {
+		if err != nil {
+			h.log.Warn(ctx, "gps_route_geometry_unavailable", logger.F("route", spec.Name), logger.F("err", err.Error()))
+		}
+		return GPSRoute{}
 	}
 
 	return GPSRoute{
-		Name:      spec.Name,
-		SpeedKmh:  spec.SpeedKmh,
-		StopSec:   spec.StopSec,
-		Waypoints: waypoints,
+		Name:           spec.Name,
+		SpeedKmh:       spec.SpeedKmh,
+		StopSec:        spec.StopSec,
+		Waypoints:      waypoints,
+		GeometrySource: source,
+		DistanceKm:     distanceKm,
+		DurationMin:    durationMin,
 	}
 }
 
@@ -164,9 +171,9 @@ func (h *Handler) loadCustomerWaypoints(ctx context.Context, provinces []string,
 	return points
 }
 
-func (h *Handler) fetchOSRMWaypoints(stops []GPSWaypoint) []GPSWaypoint {
+func (h *Handler) fetchOSRMWaypoints(stops []GPSWaypoint) ([]GPSWaypoint, string, float64, int, error) {
 	if len(stops) < 2 {
-		return stops
+		return stops, "db_route_geometry", 0, 0, nil
 	}
 
 	coordParts := make([]string, len(stops))
@@ -180,47 +187,50 @@ func (h *Handler) fetchOSRMWaypoints(stops []GPSWaypoint) []GPSWaypoint {
 		baseURL = "http://localhost:5000"
 	}
 
-	urls := []string{
-		fmt.Sprintf("%s/route/v1/driving/%s?overview=full&geometries=geojson&steps=false", baseURL, coordStr),
-		fmt.Sprintf("https://router.project-osrm.org/route/v1/driving/%s?overview=full&geometries=geojson&steps=false", coordStr),
-	}
-
+	url := fmt.Sprintf("%s/route/v1/driving/%s?overview=full&geometries=geojson&steps=false", baseURL, coordStr)
 	client := &http.Client{Timeout: 10 * time.Second}
-	for _, url := range urls {
-		resp, err := client.Get(url)
-		if err != nil {
-			continue
-		}
-		var result struct {
-			Code   string `json:"code"`
-			Routes []struct {
-				Geometry struct {
-					Coordinates [][]float64 `json:"coordinates"`
-				} `json:"geometry"`
-			} `json:"routes"`
-		}
-		if resp.StatusCode == http.StatusOK && json.NewDecoder(resp.Body).Decode(&result) == nil && result.Code == "Ok" && len(result.Routes) > 0 && len(result.Routes[0].Geometry.Coordinates) >= 2 {
-			_ = resp.Body.Close()
-			coords := result.Routes[0].Geometry.Coordinates
-			step := 1
-			if len(coords) > 200 {
-				step = len(coords) / 200
-			}
-			waypoints := make([]GPSWaypoint, 0, len(coords)/step+1)
-			for i := 0; i < len(coords); i += step {
-				c := coords[i]
-				waypoints = append(waypoints, GPSWaypoint{Lat: c[1], Lng: c[0]})
-			}
-			last := coords[len(coords)-1]
-			if len(waypoints) == 0 || waypoints[len(waypoints)-1].Lat != last[1] || waypoints[len(waypoints)-1].Lng != last[0] {
-				waypoints = append(waypoints, GPSWaypoint{Lat: last[1], Lng: last[0]})
-			}
-			waypoints[0].Name = stops[0].Name
-			waypoints[len(waypoints)-1].Name = stops[len(stops)-1].Name
-			return waypoints
-		}
-		_ = resp.Body.Close()
+	resp, err := client.Get(url)
+	if err != nil {
+		return nil, "", 0, 0, fmt.Errorf("OSRM unavailable at %s: %w", baseURL, err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return nil, "", 0, 0, fmt.Errorf("OSRM returned status %d", resp.StatusCode)
+	}
+	var result struct {
+		Code   string `json:"code"`
+		Routes []struct {
+			Distance float64 `json:"distance"`
+			Duration float64 `json:"duration"`
+			Geometry struct {
+				Coordinates [][]float64 `json:"coordinates"`
+			} `json:"geometry"`
+		} `json:"routes"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return nil, "", 0, 0, fmt.Errorf("decode OSRM route: %w", err)
+	}
+	if result.Code != "Ok" || len(result.Routes) == 0 || len(result.Routes[0].Geometry.Coordinates) < 2 {
+		return nil, "", 0, 0, fmt.Errorf("OSRM returned no usable road geometry")
 	}
 
-	return stops
+	coords := result.Routes[0].Geometry.Coordinates
+	step := 1
+	if len(coords) > 200 {
+		step = len(coords) / 200
+	}
+	waypoints := make([]GPSWaypoint, 0, len(coords)/step+1)
+	for i := 0; i < len(coords); i += step {
+		c := coords[i]
+		waypoints = append(waypoints, GPSWaypoint{Lat: c[1], Lng: c[0]})
+	}
+	last := coords[len(coords)-1]
+	if len(waypoints) == 0 || waypoints[len(waypoints)-1].Lat != last[1] || waypoints[len(waypoints)-1].Lng != last[0] {
+		waypoints = append(waypoints, GPSWaypoint{Lat: last[1], Lng: last[0]})
+	}
+	waypoints[0].Name = stops[0].Name
+	waypoints[len(waypoints)-1].Name = stops[len(stops)-1].Name
+
+	return waypoints, "osrm_local", result.Routes[0].Distance / 1000, int(result.Routes[0].Duration / 60), nil
 }

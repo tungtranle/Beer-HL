@@ -1,14 +1,17 @@
 ﻿'use client'
 
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { Fragment, useCallback, useEffect, useRef, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { apiFetch, getUser } from '@/lib/api'
 import { formatVND } from '@/lib/status-config'
 import { toast } from '@/lib/useToast'
 import { handleError } from '@/lib/handleError'
+import { aiCacheFetch } from '@/lib/ai-cache'
+import { useAIFeature } from '@/hooks/useAIFeature'
 import SearchableSelect from '@/lib/SearchableSelect'
 import { NppHealthBadge, type NppHealth } from '@/components/ui/NppHealthBadge'
 import { SmartSuggestionsBox, type BasketRule } from '@/components/ui/SmartSuggestionsBox'
+import { AIContextStrip, DemandIntelligencePanel, SeasonalDemandAlert } from '@/components/ai'
 
 interface Product {
   id: string; sku: string; name: string; price: number; deposit_price: number;
@@ -28,6 +31,16 @@ interface OrderItem {
   product_name?: string; price?: number; deposit_price?: number; amount?: number
 }
 
+interface CreditRiskScore {
+  score?: number
+  level?: 'low' | 'medium' | 'high' | 'critical'
+  narrative?: string
+  payment_delay_days?: number
+  debt_trend?: string
+  order_drop_pct?: number
+  computed_at?: string
+}
+
 export default function NewOrderPage() {
   const router = useRouter()
   const [products, setProducts] = useState<Product[]>([])
@@ -44,8 +57,11 @@ export default function NewOrderPage() {
   const [atpLoading, setAtpLoading] = useState(false)
 
   const [creditInfo, setCreditInfo] = useState<any>(null)
+  const [creditRisk, setCreditRisk] = useState<CreditRiskScore | null>(null)
+  const [creditRiskLoading, setCreditRiskLoading] = useState(false)
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState('')
+  const creditScoreFeature = useAIFeature('ai.credit_score')
 
   // F2 NPP Health Score (World-Class Strategy)
   const [nppHealth, setNppHealth] = useState<NppHealth | null>(null)
@@ -90,6 +106,17 @@ export default function NewOrderPage() {
     if (!customerId) { setCreditInfo(null); return }
     apiFetch<any>(`/customers/${customerId}`).then((r) => setCreditInfo(r.data)).catch(err => handleError(err))
   }, [customerId])
+
+  useEffect(() => {
+    if (!creditScoreFeature.enabled || !customerId) { setCreditRisk(null); setCreditRiskLoading(false); return }
+    let cancelled = false
+    setCreditRiskLoading(true)
+    aiCacheFetch<CreditRiskScore | null>(`/ai/customers/${customerId}/risk-score`)
+      .then((risk) => { if (!cancelled) setCreditRisk(risk || null) })
+      .catch(() => { if (!cancelled) setCreditRisk(null) })
+      .finally(() => { if (!cancelled) setCreditRiskLoading(false) })
+    return () => { cancelled = true }
+  }, [creditScoreFeature.enabled, customerId])
 
   // F2 — fetch NPP health score by customer.code (NPP code).
   // ml_features.npp_health_scores keyed by NPP code (e.g. HD-53).
@@ -269,6 +296,11 @@ export default function NewOrderPage() {
 
   // Find selected customer
   const selectedCustomer = customers.find(c => c.id === customerId)
+  const selectedWarehouse = warehouses.find((w: any) => w.id === warehouseId)
+  const selectedWarehouseCode = selectedWarehouse?.code || selectedWarehouse?.warehouse_code || selectedWarehouse?.name || warehouseId
+  const selectedDemandItem = itemsWithProduct[0]
+  const showCreditRiskStrip = creditScoreFeature.enabled && creditRisk && creditRisk.level && creditRisk.level !== 'low'
+  const creditRiskTone = creditRisk?.level === 'critical' ? 'danger' : creditRisk?.level === 'high' ? 'warning' : 'info'
 
   // Multi-step progress indicator
   const step = !customerId ? 1 : items.every(i => !i.product_id) ? 2 : !deliveryDate ? 3 : 4
@@ -320,6 +352,30 @@ export default function NewOrderPage() {
               {customerId && (
                 <div className="mt-2">
                   <NppHealthBadge health={nppHealth} loading={nppHealthLoading} />
+                </div>
+              )}
+              {creditRiskLoading && (
+                <div className="mt-2 h-12 rounded-lg ai-shimmer" />
+              )}
+              {showCreditRiskStrip && (
+                <div className="mt-3">
+                  <AIContextStrip
+                    title="Rủi ro NPP khi tạo đơn"
+                    tone={creditRiskTone}
+                    message={creditRisk.narrative || `${selectedCustomer?.name || 'NPP'} đang có tín hiệu rủi ro ${creditRisk.level}. Kiểm tra hạn mức trước khi tạo đơn.`}
+                    confidence={0.82}
+                    source="rules + credit signals"
+                    dataFreshness={creditRisk.computed_at ? new Date(creditRisk.computed_at).toLocaleString('vi-VN') : 'vừa tính'}
+                    dismissKey={`order-risk:${customerId}`}
+                    factors={[
+                      { label: 'Dư nợ hiện tại', value: creditInfo?.current_balance !== undefined ? formatVND(creditInfo.current_balance) : '—', impact: creditExceeded ? 'negative' : 'neutral', source: 'OMS credit' },
+                      { label: 'Hạn mức khả dụng', value: creditInfo?.available_limit !== undefined ? formatVND(creditInfo.available_limit) : '—', impact: creditInfo?.available_limit > 0 ? 'positive' : 'negative', source: 'OMS credit' },
+                      { label: 'Trễ thanh toán TB', value: `${creditRisk.payment_delay_days || 0} ngày`, impact: (creditRisk.payment_delay_days || 0) > 0 ? 'warning' : 'positive', source: 'rules' },
+                      { label: 'Xu hướng công nợ', value: creditRisk.debt_trend || 'stable', impact: creditRisk.debt_trend === 'increasing' ? 'warning' : 'neutral', source: 'rules' },
+                      { label: 'Giảm lượng đặt 30 ngày', value: `${(creditRisk.order_drop_pct || 0).toFixed(0)}%`, impact: (creditRisk.order_drop_pct || 0) > 20 ? 'warning' : 'neutral', source: 'rules' },
+                    ]}
+                    reasons={[creditRisk.narrative || 'Điểm rủi ro được tính từ công nợ, hạn mức, trễ thanh toán và biến động đơn hàng.']}
+                  />
                 </div>
               )}
             </div>
@@ -488,8 +544,10 @@ export default function NewOrderPage() {
                   const atp = atpResults[item.product_id]
                   const atpOk = !atp || atp.atp >= item.quantity
                   const atpChecked = !!atp && !!item.product_id
+                  const prod = products.find((p) => p.id === item.product_id)
 
                   return (
+                    <Fragment key={idx}>
                     <tr key={idx} className={`border-t ${!atpOk ? 'bg-red-50' : ''}`}>
                       <td className="py-2 px-3">
                         <SearchableSelect
@@ -550,6 +608,19 @@ export default function NewOrderPage() {
                         </button>
                       </td>
                     </tr>
+                    {prod && selectedWarehouseCode && item.quantity > 0 && (
+                      <tr className="border-t border-dashed border-gray-100">
+                        <td colSpan={6} className="px-3 pb-2">
+                          <SeasonalDemandAlert
+                            sku={prod.sku || prod.name}
+                            warehouseCode={selectedWarehouseCode}
+                            quantity={item.quantity}
+                            historicalAvgQty={Math.max(item.quantity, 1)}
+                          />
+                        </td>
+                      </tr>
+                    )}
+                    </Fragment>
                   )
                 })}
               </tbody>
@@ -724,7 +795,12 @@ export default function NewOrderPage() {
     </div>
 
       {/* RIGHT: Zalo Preview (40%) */}
-      <div className="flex-[2] min-w-[320px] sticky top-4 self-start">
+      <div className="flex-[2] min-w-[320px] sticky top-4 self-start space-y-4">
+        <DemandIntelligencePanel
+          customerId={customerId}
+          productId={selectedDemandItem?.product_id}
+          warehouseId={warehouseId}
+        />
         <div className="bg-white rounded-xl shadow-sm p-4 space-y-4">
           <h3 className="font-semibold text-sm flex items-center gap-2">
             <span className="w-6 h-6 bg-blue-500 text-white rounded-full flex items-center justify-center text-xs">Z</span>

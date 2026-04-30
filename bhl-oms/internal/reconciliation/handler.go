@@ -4,6 +4,7 @@ import (
 	"net/http"
 	"strconv"
 
+	"bhl-oms/internal/middleware"
 	"bhl-oms/pkg/logger"
 	"bhl-oms/pkg/response"
 
@@ -22,6 +23,9 @@ func NewHandler(svc *Service, log logger.Logger) *Handler {
 
 func (h *Handler) RegisterRoutes(r *gin.RouterGroup) {
 	rg := r.Group("/reconciliation")
+	// QW-003 / CRIT-005: reconciliation là chốt kiểm soát tài chính cuối ngày,
+	// chỉ accountant/management/admin/dispatcher xem; resolve/daily-close giới hạn ở service layer.
+	rg.Use(middleware.RequireRole("admin", "accountant", "management", "dispatcher"))
 	{
 		// Auto-reconcile a specific trip (Task 3.9)
 		rg.POST("/trips/:tripId/reconcile", h.ReconcileTrip)
@@ -81,10 +85,12 @@ func (h *Handler) GetTripReconciliation(c *gin.Context) {
 // GET /v1/reconciliation
 func (h *Handler) ListReconciliations(c *gin.Context) {
 	status := c.Query("status")
+	fromDate := c.Query("from")
+	toDate := c.Query("to")
 	page, _ := strconv.Atoi(c.DefaultQuery("page", "1"))
 	limit, _ := strconv.Atoi(c.DefaultQuery("limit", "20"))
 
-	results, total, err := h.svc.ListReconciliations(c.Request.Context(), status, page, limit)
+	results, total, err := h.svc.ListReconciliations(c.Request.Context(), status, fromDate, toDate, page, limit)
 	if err != nil {
 		response.InternalError(c)
 		return
@@ -116,6 +122,8 @@ func (h *Handler) ResolveReconciliation(c *gin.Context) {
 // GET /v1/reconciliation/discrepancies
 func (h *Handler) ListDiscrepancies(c *gin.Context) {
 	status := c.Query("status")
+	fromDate := c.Query("from")
+	toDate := c.Query("to")
 	page, _ := strconv.Atoi(c.DefaultQuery("page", "1"))
 	limit, _ := strconv.Atoi(c.DefaultQuery("limit", "20"))
 
@@ -126,7 +134,7 @@ func (h *Handler) ListDiscrepancies(c *gin.Context) {
 		}
 	}
 
-	results, total, err := h.svc.ListDiscrepancies(c.Request.Context(), tripID, status, page, limit)
+	results, total, err := h.svc.ListDiscrepancies(c.Request.Context(), tripID, status, fromDate, toDate, page, limit)
 	if err != nil {
 		response.InternalError(c)
 		return
@@ -202,6 +210,8 @@ func (h *Handler) GenerateDailyClose(c *gin.Context) {
 // GET /v1/reconciliation/daily-close
 func (h *Handler) ListDailyClose(c *gin.Context) {
 	limit, _ := strconv.Atoi(c.DefaultQuery("limit", "30"))
+	fromDate := c.Query("from")
+	toDate := c.Query("to")
 
 	var warehouseID *uuid.UUID
 	if w := c.Query("warehouse_id"); w != "" {
@@ -210,7 +220,7 @@ func (h *Handler) ListDailyClose(c *gin.Context) {
 		}
 	}
 
-	results, err := h.svc.ListDailyCloseSummaries(c.Request.Context(), warehouseID, limit)
+	results, err := h.svc.ListDailyCloseSummaries(c.Request.Context(), warehouseID, fromDate, toDate, limit)
 	if err != nil {
 		response.InternalError(c)
 		return

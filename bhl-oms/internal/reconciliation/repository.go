@@ -67,27 +67,42 @@ func (r *Repository) GetReconciliationsByTrip(ctx context.Context, tripID uuid.U
 	return results, nil
 }
 
-func (r *Repository) ListReconciliations(ctx context.Context, status string, page, limit int) ([]domain.Reconciliation, int64, error) {
+func (r *Repository) ListReconciliations(ctx context.Context, status, fromDate, toDate string, page, limit int) ([]domain.Reconciliation, int64, error) {
 	offset := (page - 1) * limit
+	args := []interface{}{}
+	where := " WHERE 1=1"
+	argN := 1
 
-	countSQL := `SELECT COUNT(*) FROM reconciliations`
+	if status != "" {
+		where += fmt.Sprintf(" AND r.status::text = $%d", argN)
+		args = append(args, status)
+		argN++
+	}
+	if fromDate != "" {
+		where += fmt.Sprintf(" AND t.planned_date >= $%d::date", argN)
+		args = append(args, fromDate)
+		argN++
+	}
+	if toDate != "" {
+		where += fmt.Sprintf(" AND t.planned_date <= $%d::date", argN)
+		args = append(args, toDate)
+		argN++
+	}
+
+	countSQL := `SELECT COUNT(*) FROM reconciliations r JOIN trips t ON t.id = r.trip_id` + where
 	querySQL := `
 		SELECT r.id, r.trip_id, t.trip_number, r.recon_type::text, r.status::text,
 			r.expected_value, r.actual_value, r.variance, r.details,
 			r.reconciled_by, r.reconciled_at, r.created_at, r.updated_at
 		FROM reconciliations r
-		JOIN trips t ON t.id = r.trip_id`
-
-	if status != "" {
-		countSQL += ` WHERE status::text = '` + status + `'`
-		querySQL += ` WHERE r.status::text = '` + status + `'`
-	}
-	querySQL += ` ORDER BY r.created_at DESC LIMIT $1 OFFSET $2`
+		JOIN trips t ON t.id = r.trip_id` + where +
+		fmt.Sprintf(` ORDER BY r.created_at DESC LIMIT $%d OFFSET $%d`, argN, argN+1)
+	args = append(args, limit, offset)
 
 	var total int64
-	r.db.QueryRow(ctx, countSQL).Scan(&total)
+	r.db.QueryRow(ctx, countSQL, args[:len(args)-2]...).Scan(&total)
 
-	rows, err := r.db.Query(ctx, querySQL, limit, offset)
+	rows, err := r.db.Query(ctx, querySQL, args...)
 	if err != nil {
 		return nil, 0, err
 	}
@@ -127,7 +142,7 @@ func (r *Repository) CreateDiscrepancy(ctx context.Context, d *domain.Discrepanc
 	).Scan(&d.ID, &d.CreatedAt, &d.UpdatedAt)
 }
 
-func (r *Repository) ListDiscrepancies(ctx context.Context, tripID *uuid.UUID, status string, page, limit int) ([]domain.Discrepancy, int64, error) {
+func (r *Repository) ListDiscrepancies(ctx context.Context, tripID *uuid.UUID, status, fromDate, toDate string, page, limit int) ([]domain.Discrepancy, int64, error) {
 	offset := (page - 1) * limit
 	args := []interface{}{}
 	where := " WHERE 1=1"
@@ -143,9 +158,19 @@ func (r *Repository) ListDiscrepancies(ctx context.Context, tripID *uuid.UUID, s
 		args = append(args, status)
 		argN++
 	}
+	if fromDate != "" {
+		where += fmt.Sprintf(" AND t.planned_date >= $%d::date", argN)
+		args = append(args, fromDate)
+		argN++
+	}
+	if toDate != "" {
+		where += fmt.Sprintf(" AND t.planned_date <= $%d::date", argN)
+		args = append(args, toDate)
+		argN++
+	}
 
 	var total int64
-	r.db.QueryRow(ctx, `SELECT COUNT(*) FROM discrepancies d`+where, args...).Scan(&total)
+	r.db.QueryRow(ctx, `SELECT COUNT(*) FROM discrepancies d JOIN trips t ON t.id = d.trip_id`+where, args...).Scan(&total)
 
 	querySQL := `
 		SELECT d.id, d.recon_id, d.trip_id, t.trip_number, d.stop_id, d.disc_type::text, d.status::text,
@@ -314,7 +339,7 @@ func (r *Repository) GetDailyCloseSummary(ctx context.Context, date string, ware
 	return &s, nil
 }
 
-func (r *Repository) ListDailyCloseSummaries(ctx context.Context, warehouseID *uuid.UUID, limit int) ([]domain.DailyCloseSummary, error) {
+func (r *Repository) ListDailyCloseSummaries(ctx context.Context, warehouseID *uuid.UUID, fromDate, toDate string, limit int) ([]domain.DailyCloseSummary, error) {
 	querySQL := `
 		SELECT id, close_date::text, warehouse_id, total_trips, completed_trips,
 			total_stops, delivered_stops, failed_stops, total_revenue, total_collected,
@@ -322,13 +347,25 @@ func (r *Repository) ListDailyCloseSummaries(ctx context.Context, warehouseID *u
 			total_discrepancies, resolved_discrepancies, summary, created_at
 		FROM daily_close_summaries`
 	args := []interface{}{}
+	where := " WHERE 1=1"
+	argN := 1
 	if warehouseID != nil {
-		querySQL += ` WHERE warehouse_id = $1 ORDER BY close_date DESC LIMIT $2`
-		args = append(args, *warehouseID, limit)
-	} else {
-		querySQL += ` ORDER BY close_date DESC LIMIT $1`
-		args = append(args, limit)
+		where += fmt.Sprintf(" AND warehouse_id = $%d", argN)
+		args = append(args, *warehouseID)
+		argN++
 	}
+	if fromDate != "" {
+		where += fmt.Sprintf(" AND close_date >= $%d::date", argN)
+		args = append(args, fromDate)
+		argN++
+	}
+	if toDate != "" {
+		where += fmt.Sprintf(" AND close_date <= $%d::date", argN)
+		args = append(args, toDate)
+		argN++
+	}
+	querySQL += where + fmt.Sprintf(` ORDER BY close_date DESC LIMIT $%d`, argN)
+	args = append(args, limit)
 
 	rows, err := r.db.Query(ctx, querySQL, args...)
 	if err != nil {

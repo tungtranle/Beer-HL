@@ -343,6 +343,9 @@ type SmokeRunReport struct {
 // POST /v1/test-portal/run-all-smoke — run all scenarios with assertions
 // Executes each scenario sequentially: reset → load → assert
 func (h *Handler) RunAllSmoke(c *gin.Context) {
+	response.BadRequest(c, "Legacy run-all-smoke đã bị tắt vì reset rộng. QA Portal v2 sẽ chạy smoke bằng scoped scenario runs để không ảnh hưởng dữ liệu lịch sử.")
+	return
+
 	ctx := c.Request.Context()
 
 	// Scenarios with defined assertions (skip ones that need manual verification)

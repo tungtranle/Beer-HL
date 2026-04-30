@@ -188,3 +188,42 @@ total_amount NUMERIC(15,2) NOT NULL DEFAULT 0
 | Models | All in `internal/domain/models.go` (DEC-002) |
 | Response | Use `pkg/response/` helpers (DEC-003) |
 | DB access | Raw pgx queries (DEC-004) |
+
+---
+
+## §8 AQF / QA Portal backend rules
+
+Áp dụng khi code backend đụng QA Portal, scenario, smoke, evidence, test data hoặc bất kỳ flow tạo/xóa dữ liệu demo.
+
+### Data safety bất biến
+- Cấm `TRUNCATE` bảng nghiệp vụ.
+- Cấm `DELETE FROM sales_orders`, `trips`, `shipments`, `stock_moves`, `ledger`, hoặc transactional table khác nếu không có ownership filter từ `qa_owned_entities`.
+- Mọi dữ liệu test/demo do QA Portal tạo phải có `scenario_run_id` hoặc record trong `qa_owned_entities` ngay trong cùng transaction.
+- Cleanup chỉ được xóa entity thuộc run cũ của chính scenario đó.
+- API result cho scenario mutation phải trả data safety counters, tối thiểu `historical_rows_touched` và số row scoped đã tạo/xóa.
+
+### Layering vẫn bắt buộc
+QA Portal không được là ngoại lệ cho 3 tầng:
+```
+Handler → Service → Repository
+```
+Handler chỉ parse request/role và trả response. Service giữ transaction, safety checks, assertions. Repository giữ SQL. Code cũ `internal/testportal` còn debt TD-019; code mới không được mở rộng debt này.
+
+### Transaction pattern cho scenario runner
+```go
+tx, err := r.db.Begin(ctx)
+defer tx.Rollback(ctx)
+
+runID := createScenarioRun(tx, scenarioID)
+cleanupOwnedEntities(tx, scenarioID, runID)
+createdID := insertDemoEntity(tx, ...)
+registerOwnedEntity(tx, runID, "sales_order", createdID)
+assertHistoricalRowsTouched(tx, 0)
+
+return tx.Commit(ctx)
+```
+
+### Endpoint behavior
+- Legacy destructive endpoints phải tiếp tục trả lỗi bảo vệ history, không âm thầm fallback sang flow cũ.
+- Integration/monitoring errors trong AQF có thể trả `CAUTION`, nhưng data safety fail phải chuyển `HOLD`.
+- Nếu endpoint dùng cho evidence, response phải ổn định để CI/QA Portal parse được: `run_id`, `status`, `evidence_id`, `data_safety`, `errors`.

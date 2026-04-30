@@ -6,6 +6,30 @@
 
 ## Active Issues
 
+### KI-008 (CRIT-001): Tiền dùng `float64` toàn hệ thống — vi phạm rule #1 dự án
+- **Severity:** Critical (block go-live)
+- **Description:** Domain models, OMS/WMS service, integration hooks dùng `float64` cho `Price`, `TotalAmount`, `UnitPrice`. Recon `payVariance != 0` so float ⇒ tự sinh discrepancy giả.
+- **Affected files:** `internal/domain/models.go:33-34, 109-110, 137`; `internal/oms/service.go:387`; `internal/wms/service.go:619, 644`; `internal/integration/hooks.go:50`; `internal/reconciliation/service.go:78-86`.
+- **Fix:** chuyển sang `shopspring/decimal.Decimal` + pgx scan `pgtype.Numeric`. Đang chờ dev review (đụng schema scan toàn bộ).
+
+### KI-009 (CRIT-002): `ReserveStock` over-reserve khi product có nhiều lot
+- **Severity:** Critical
+- **Description:** `UPDATE stock_quants SET reserved_qty = reserved_qty + $3 WHERE product_id=$1 AND warehouse_id=$2` chạy trên N row lot ⇒ reserve `N × qty`.
+- **File:** `internal/oms/repository.go:324-339`
+- **Fix:** viết `ReserveStockFEFO` loop từng lot theo expiry ASC (giống `wms.SuggestPickingLots`). Cần dev review.
+
+### KI-010 (CRIT-003): Gate Check R01 luôn PASS — `ExpectedItems = "[]"` placeholder
+- **Severity:** Critical
+- **Description:** R01 (zero tolerance) hoàn toàn vô hiệu vì compare với `[]`. Thất thoát hàng tại cổng kho không bị phát hiện.
+- **File:** `internal/wms/service.go:433-445`
+- **Fix:** load expected từ `picking_orders.items`, normalize `(product_id, lot_id)`, set `result='fail'` nếu lệch.
+
+### KI-011 (CRIT-007): Driver có thể spoof GPS của xe khác
+- **Severity:** Critical
+- **Description:** `BatchGPS` và WS `readPump` nhận `vehicle_id` từ client không validate ownership.
+- **File:** `internal/gps/handler.go:44-75`; `internal/gps/hub.go:300-322`
+- **Fix:** override `point.VehicleID` bằng vehicle gắn với trip `in_transit` của driver; reject nếu không có.
+
 ### KI-001: pgx v5 enum scanning
 - **Severity:** Critical (will crash at runtime)
 - **Description:** pgx v5 cannot scan custom PostgreSQL enum types into Go strings

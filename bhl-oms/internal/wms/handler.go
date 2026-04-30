@@ -22,6 +22,9 @@ func NewHandler(svc *Service, log logger.Logger) *Handler {
 
 func (h *Handler) RegisterRoutes(r *gin.RouterGroup) {
 	wh := r.Group("/warehouse")
+	// QW-004 / CRIT-004: warehouse endpoints kiểm soát tồn kho/handover/picking/gate-check.
+	// Chỉ các role thực sự thao tác kho mới được vào; driver/security có guard riêng cho handover trong service.
+	wh.Use(middleware.RequireRole("admin", "warehouse_handler", "dispatcher", "management", "workshop"))
 	{
 		wh.GET("/stock", h.GetStock)
 		wh.POST("/inbound", h.CreateInbound)
@@ -64,6 +67,8 @@ func (h *Handler) RegisterRoutes(r *gin.RouterGroup) {
 	// WMS Phase 9 Sprint 2-5 — inbound, putaway, picking-by-pallet, loading,
 	// cycle count, dashboard alerts, traceability.
 	h.RegisterPhase9WorkflowRoutes(wh)
+	// Phase D — Operations Center: KPI dashboard, exceptions, picker stats.
+	h.RegisterOpsRoutes(wh)
 }
 
 // GET /v1/warehouse/stock

@@ -239,8 +239,9 @@ func (s *Service) RunVRP(ctx context.Context, req RunVRPRequest) (string, error)
 		return "", fmt.Errorf("không có xe khả dụng")
 	}
 
-	// Build VRP solver request — use full nanosecond precision to avoid collision with parallel jobs
-	jobID := fmt.Sprintf("vrp-%s-%d", time.Now().Format("20060102"), time.Now().UnixNano())
+	// Build VRP solver request — use UUID suffix to guarantee uniqueness even with concurrent jobs
+	// (Windows timer resolution is ~1ms; UnixNano alone can collide when two jobs start simultaneously)
+	jobID := fmt.Sprintf("vrp-%s-%s", time.Now().Format("20060102"), uuid.New().String()[:8])
 
 	// Resolve vehicle cost info (per-vehicle profile or type default)
 	costInfos, err := s.repo.ResolveVehicleCostInfo(ctx, vehicles)
@@ -250,7 +251,11 @@ func (s *Service) RunVRP(ctx context.Context, req RunVRPRequest) (string, error)
 		costInfos = nil
 	}
 
-	solverReq := buildSolverRequest(depotLat, depotLng, shipments, vehicles, jobID, costInfos)
+	// Phase B — load per-customer max vehicle weight (VRP physical-access constraint).
+	// Non-blocking: missing data → no restriction.
+	customerMaxKg := s.loadCustomerMaxVehicleWeight(ctx, shipments)
+
+	solverReq := buildSolverRequest(depotLat, depotLng, shipments, vehicles, jobID, costInfos, customerMaxKg)
 
 	// Store job as processing
 	s.jobs.Store(jobID, &domain.VRPResult{JobID: jobID, Status: "processing"})
@@ -298,10 +303,11 @@ type solverRequest struct {
 }
 
 type solverNode struct {
-	ID       string     `json:"id"`
-	Location [2]float64 `json:"location"`
-	Demand   float64    `json:"demand"`
-	Name     string     `json:"name"`
+	ID                 string     `json:"id"`
+	Location           [2]float64 `json:"location"`
+	Demand             float64    `json:"demand"`
+	Name               string     `json:"name"`
+	MaxVehicleWeightKg int        `json:"max_vehicle_weight_kg,omitempty"`
 }
 
 type solverVehicle struct {
@@ -343,7 +349,7 @@ type solverTollGate struct {
 	KmMarker float64 `json:"km_marker"`
 }
 
-func buildSolverRequest(depotLat, depotLng float64, shipments []domain.Shipment, vehicles []domain.Vehicle, jobID string, costInfos []domain.VehicleCostInfo) *solverRequest {
+func buildSolverRequest(depotLat, depotLng float64, shipments []domain.Shipment, vehicles []domain.Vehicle, jobID string, costInfos []domain.VehicleCostInfo, customerMaxKg map[uuid.UUID]int) *solverRequest {
 	req := &solverRequest{
 		JobID: jobID,
 		Depot: [2]float64{depotLat, depotLng},
@@ -358,11 +364,16 @@ func buildSolverRequest(depotLat, depotLng float64, shipments []domain.Shipment,
 		if sh.Longitude != nil {
 			lng = *sh.Longitude
 		}
+		maxKg := 0
+		if customerMaxKg != nil {
+			maxKg = customerMaxKg[sh.CustomerID]
+		}
 		req.Nodes = append(req.Nodes, solverNode{
-			ID:       sh.ID.String(),
-			Location: [2]float64{lat, lng},
-			Demand:   sh.TotalWeightKg,
-			Name:     sh.CustomerName,
+			ID:                 sh.ID.String(),
+			Location:           [2]float64{lat, lng},
+			Demand:             sh.TotalWeightKg,
+			Name:               sh.CustomerName,
+			MaxVehicleWeightKg: maxKg,
 		})
 	}
 
@@ -387,6 +398,42 @@ func buildSolverRequest(depotLat, depotLng float64, shipments []domain.Shipment,
 	}
 
 	return req
+}
+
+// loadCustomerMaxVehicleWeight returns customer_id → max_vehicle_weight_kg
+// for the unique customers in shipments. Empty map if query fails.
+func (s *Service) loadCustomerMaxVehicleWeight(ctx context.Context, shipments []domain.Shipment) map[uuid.UUID]int {
+	out := make(map[uuid.UUID]int)
+	if len(shipments) == 0 {
+		return out
+	}
+	idSet := make(map[uuid.UUID]struct{})
+	ids := make([]uuid.UUID, 0)
+	for _, sh := range shipments {
+		if _, ok := idSet[sh.CustomerID]; ok {
+			continue
+		}
+		idSet[sh.CustomerID] = struct{}{}
+		ids = append(ids, sh.CustomerID)
+	}
+	rows, err := s.repo.db.Query(ctx,
+		`SELECT id, COALESCE(max_vehicle_weight_kg, 0)
+		 FROM customers WHERE id = ANY($1) AND COALESCE(max_vehicle_weight_kg, 0) > 0`,
+		ids,
+	)
+	if err != nil {
+		s.log.Warn(ctx, "load_customer_max_weight_failed", logger.F("error", err.Error()))
+		return out
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var id uuid.UUID
+		var kg int
+		if err := rows.Scan(&id, &kg); err == nil {
+			out[id] = kg
+		}
+	}
+	return out
 }
 
 type solverResponse struct {
@@ -441,7 +488,7 @@ func (s *Service) callVRPSolver(jobID string, req *solverRequest, shipments []do
 		// Solver unreachable → fall back to mock for demo
 		s.log.Warn(context.Background(), "vrp_solver_unreachable", logger.F("error", err.Error()))
 		broadcastProgress("error", 0, "Solver không khả dụng, dùng thuật toán dự phòng")
-		result := s.buildMockResult(jobID, req.Depot, shipments, vehicles, criteria)
+		result := s.buildMockResult(jobID, req.Depot, shipments, vehicles, criteria, req)
 		result.DistanceSource = "mock"
 		s.jobs.Store(jobID, result)
 		broadcastProgress("done", 100, "Hoàn tất (dự phòng)")
@@ -556,7 +603,7 @@ func (s *Service) callVRPSolverLegacy(jobID string, req *solverRequest, shipment
 	if err != nil {
 		// Solver unreachable → fall back to mock for demo
 		s.log.Warn(context.Background(), "vrp_solver_unreachable", logger.F("error", err.Error()))
-		result := s.buildMockResult(jobID, req.Depot, shipments, vehicles, criteria)
+		result := s.buildMockResult(jobID, req.Depot, shipments, vehicles, criteria, req)
 		result.DistanceSource = "mock"
 		s.jobs.Store(jobID, result)
 		return
@@ -635,11 +682,17 @@ func haversineKm(lat1, lon1, lat2, lon2 float64) float64 {
 // Phase 1: geo-cluster into sectors.
 // Phase 2: bin-pack with best-fit + split delivery when partially fitting.
 // Phase 3: nearest-neighbor ordering; expand consolidated/split stops.
-func (s *Service) buildMockResult(jobID string, depot [2]float64, shipments []domain.Shipment, vehicles []domain.Vehicle, criteria *VRPCriteria) *domain.VRPResult {
+func (s *Service) buildMockResult(jobID string, depot [2]float64, shipments []domain.Shipment, vehicles []domain.Vehicle, criteria *VRPCriteria, solverReq *solverRequest) *domain.VRPResult {
+	optimizeFor := "cost"
+	if criteria != nil && criteria.OptimizeFor != "" {
+		optimizeFor = criteria.OptimizeFor
+	}
+
 	result := &domain.VRPResult{
-		JobID:     jobID,
-		Status:    "completed",
-		SolveTime: 500,
+		JobID:       jobID,
+		Status:      "completed",
+		SolveTime:   500,
+		OptimizeFor: optimizeFor,
 	}
 
 	const avgSpeedKmH = 40.0
@@ -653,6 +706,27 @@ func (s *Service) buildMockResult(jobID string, depot [2]float64, shipments []do
 		"truck_5t":  0.16 * 24500, // 3,920 VND/km
 		"truck_8t":  0.22 * 24500, // 5,390 VND/km
 		"truck_15t": 0.28 * 24500, // 6,860 VND/km
+	}
+
+	vehicleFuelCostByID := make(map[uuid.UUID]float64)
+	vehicleTollClassByID := make(map[uuid.UUID]string)
+	mockTollStations := make([]solverTollStation, 0)
+	mockExpressways := make([]solverTollExway, 0)
+	if solverReq != nil {
+		mockTollStations = append(mockTollStations, solverReq.TollStations...)
+		mockExpressways = append(mockExpressways, solverReq.TollExpressways...)
+		for _, v := range solverReq.Vehicles {
+			id, err := uuid.Parse(v.ID)
+			if err != nil {
+				continue
+			}
+			if v.FuelCostPerKm > 0 {
+				vehicleFuelCostByID[id] = v.FuelCostPerKm
+			}
+			if v.TollClass != "" {
+				vehicleTollClassByID[id] = v.TollClass
+			}
+		}
 	}
 
 	// ── Phase 0: Consolidate same-customer shipments ────
@@ -725,9 +799,21 @@ func (s *Service) buildMockResult(jobID string, depot [2]float64, shipments []do
 	// Assign actual vehicle when opening each bin (smallest vehicle that fits).
 	// No geographic/time constraint during packing — those are handled in trip ordering.
 
-	// Sort ALL geos by weight DESCENDING (First-Fit Decreasing for tight packing)
+	// Sort nodes by active objective so fallback result still differs across modes.
 	sort.Slice(geos, func(i, j int) bool {
-		return geos[i].assignedWeight > geos[j].assignedWeight
+		if optimizeFor == "time" {
+			if geos[i].depotKm != geos[j].depotKm {
+				return geos[i].depotKm > geos[j].depotKm
+			}
+			if geos[i].assignedWeight != geos[j].assignedWeight {
+				return geos[i].assignedWeight > geos[j].assignedWeight
+			}
+			return geos[i].bearing < geos[j].bearing
+		}
+		if geos[i].assignedWeight != geos[j].assignedWeight {
+			return geos[i].assignedWeight > geos[j].assignedWeight
+		}
+		return geos[i].depotKm > geos[j].depotKm
 	})
 
 	// Vehicle pool sorted by capacity ASC — "smallest vehicle that fits" lookup
@@ -778,10 +864,19 @@ func (s *Service) buildMockResult(jobID string, depot [2]float64, shipments []do
 			// ── Open new bin: smallest available vehicle >= remaining weight
 			if !placed {
 				newVi := -1
-				for vi := range vPool {
-					if !vPoolUsed[vi] && vPool[vi].CapacityKg >= remaining {
-						newVi = vi
-						break // ASC order → first fit = smallest
+				if optimizeFor == "time" {
+					for vi := len(vPool) - 1; vi >= 0; vi-- {
+						if !vPoolUsed[vi] && vPool[vi].CapacityKg >= remaining {
+							newVi = vi
+							break
+						}
+					}
+				} else {
+					for vi := range vPool {
+						if !vPoolUsed[vi] && vPool[vi].CapacityKg >= remaining {
+							newVi = vi
+							break // ASC order → first fit = smallest
+						}
 					}
 				}
 				if newVi >= 0 {
@@ -886,23 +981,32 @@ func (s *Service) buildMockResult(jobID string, depot [2]float64, shipments []do
 			VehicleType: b.vehicle.VehicleType,
 		}
 
-		// Nearest-neighbor from depot
 		remaining := make([]shipGeo, len(b.items))
 		copy(remaining, b.items)
 		ordered := make([]shipGeo, 0, len(remaining))
-		curLat, curLng := depot[0], depot[1]
-		for len(remaining) > 0 {
-			bestIdx, bestDist := 0, math.MaxFloat64
-			for i, g := range remaining {
-				d := haversineKm(curLat, curLng, g.lat, g.lng)
-				if d < bestDist {
-					bestDist = d
-					bestIdx = i
+		if optimizeFor == "time" {
+			sort.Slice(remaining, func(i, j int) bool {
+				if remaining[i].depotKm != remaining[j].depotKm {
+					return remaining[i].depotKm > remaining[j].depotKm
 				}
+				return remaining[i].bearing < remaining[j].bearing
+			})
+			ordered = append(ordered, remaining...)
+		} else {
+			curLat, curLng := depot[0], depot[1]
+			for len(remaining) > 0 {
+				bestIdx, bestDist := 0, math.MaxFloat64
+				for i, g := range remaining {
+					d := haversineKm(curLat, curLng, g.lat, g.lng)
+					if d < bestDist {
+						bestDist = d
+						bestIdx = i
+					}
+				}
+				ordered = append(ordered, remaining[bestIdx])
+				curLat, curLng = remaining[bestIdx].lat, remaining[bestIdx].lng
+				remaining = append(remaining[:bestIdx], remaining[bestIdx+1:]...)
 			}
-			ordered = append(ordered, remaining[bestIdx])
-			curLat, curLng = remaining[bestIdx].lat, remaining[bestIdx].lng
-			remaining = append(remaining[:bestIdx], remaining[bestIdx+1:]...)
 		}
 
 		var cumWeight float64
@@ -960,14 +1064,35 @@ func (s *Service) buildMockResult(jobID string, depot [2]float64, shipments []do
 		trip.TotalDurationMin = int(routeDist/avgSpeedKmH*60) + len(b.items)*int(serviceMin)
 		trip.TotalWeightKg = cumWeight
 
-		// Post-hoc cost calculation for mock result using vehicle type defaults
-		if fuelCostPerKm, ok := mockCostPerKm[b.vehicle.VehicleType]; ok {
-			fuelCost := fuelCostPerKm * trip.TotalDistanceKm
-			trip.FuelCostVND = math.Round(fuelCost)
-			trip.TotalCostVND = trip.FuelCostVND // toll = 0 in mock (no route geometry)
-			if trip.TotalWeightKg > 0 {
-				trip.CostPerTonVND = trip.TotalCostVND / (trip.TotalWeightKg / 1000)
-			}
+		fuelCostPerKm := mockCostPerKm[b.vehicle.VehicleType]
+		if fromProfile, ok := vehicleFuelCostByID[b.vehicle.ID]; ok && fromProfile > 0 {
+			fuelCostPerKm = fromProfile
+		}
+		if fuelCostPerKm <= 0 {
+			fuelCostPerKm = 3300 // safe default close to L2 truck profile
+		}
+
+		tollClass := "L2"
+		if cls, ok := vehicleTollClassByID[b.vehicle.ID]; ok && cls != "" {
+			tollClass = cls
+		}
+
+		waypoints := make([][2]float64, 0, len(trip.Stops)+2)
+		waypoints = append(waypoints, [2]float64{depot[0], depot[1]})
+		for _, stop := range trip.Stops {
+			waypoints = append(waypoints, [2]float64{stop.Latitude, stop.Longitude})
+		}
+		waypoints = append(waypoints, [2]float64{depot[0], depot[1]})
+
+		tollCost, tollDetails := estimateMockTollCost(waypoints, tollClass, trip.TotalDistanceKm, mockTollStations, mockExpressways)
+		fuelCost := fuelCostPerKm * trip.TotalDistanceKm
+
+		trip.FuelCostVND = math.Round(fuelCost)
+		trip.TollCostVND = math.Round(tollCost)
+		trip.TotalCostVND = trip.FuelCostVND + trip.TollCostVND
+		trip.TollsPassed = tollDetails
+		if trip.TotalWeightKg > 0 {
+			trip.CostPerTonVND = trip.TotalCostVND / (trip.TotalWeightKg / 1000)
 		}
 
 		result.Trips = append(result.Trips, trip)
@@ -978,6 +1103,145 @@ func (s *Service) buildMockResult(jobID string, depot [2]float64, shipments []do
 	result.Summary.SplitDeliveries = splitDeliveries
 
 	return result
+}
+
+func estimateMockTollCost(
+	waypoints [][2]float64,
+	tollClass string,
+	routeDistanceKm float64,
+	stations []solverTollStation,
+	expressways []solverTollExway,
+) (float64, []domain.TollPassDetail) {
+	if len(waypoints) < 2 {
+		return 0, nil
+	}
+
+	total := 0.0
+	details := make([]domain.TollPassDetail, 0)
+
+	for _, st := range stations {
+		radiusKm := float64(st.RadiusM)
+		if radiusKm <= 0 {
+			radiusKm = 300
+		}
+		radiusKm /= 1000
+
+		if !routeTouchesPoint(waypoints, st.Lat, st.Lng, radiusKm) {
+			continue
+		}
+
+		fee := tollFeeByClass(tollClass, st.FeeL1, st.FeeL2, st.FeeL3, st.FeeL4, st.FeeL5)
+		if fee <= 0 {
+			continue
+		}
+		total += fee
+		details = append(details, domain.TollPassDetail{
+			StationName: st.Name,
+			FeeVND:      fee,
+			Latitude:    st.Lat,
+			Longitude:   st.Lng,
+			TollType:    "open",
+		})
+	}
+
+	for _, ew := range expressways {
+		if len(ew.Gates) < 2 {
+			continue
+		}
+
+		passedMarkers := make([]float64, 0)
+		for _, gate := range ew.Gates {
+			radiusKm := float64(gate.RadiusM)
+			if radiusKm <= 0 {
+				radiusKm = 300
+			}
+			radiusKm /= 1000
+			if routeTouchesPoint(waypoints, gate.Lat, gate.Lng, radiusKm) {
+				passedMarkers = append(passedMarkers, gate.KmMarker)
+			}
+		}
+
+		if len(passedMarkers) < 2 {
+			continue
+		}
+
+		sort.Float64s(passedMarkers)
+		segKm := math.Abs(passedMarkers[len(passedMarkers)-1] - passedMarkers[0])
+		if segKm <= 0 {
+			segKm = routeDistanceKm * 0.35
+		}
+
+		rate := tollFeeByClass(tollClass, ew.RatePerKmL1, ew.RatePerKmL2, ew.RatePerKmL3, ew.RatePerKmL4, ew.RatePerKmL5)
+		if rate <= 0 {
+			continue
+		}
+		fee := segKm * rate
+		total += fee
+		segCopy := segKm
+		details = append(details, domain.TollPassDetail{
+			StationName: ew.Name,
+			FeeVND:      fee,
+			DistanceKm:  &segCopy,
+			TollType:    "expressway",
+		})
+	}
+
+	return total, details
+}
+
+func routeTouchesPoint(waypoints [][2]float64, lat, lng, radiusKm float64) bool {
+	for i := 0; i < len(waypoints)-1; i++ {
+		seg := pointToSegmentKm(lat, lng, waypoints[i][0], waypoints[i][1], waypoints[i+1][0], waypoints[i+1][1])
+		if seg <= radiusKm {
+			return true
+		}
+	}
+	return false
+}
+
+func pointToSegmentKm(lat, lng, lat1, lng1, lat2, lng2 float64) float64 {
+	meanLatRad := ((lat + lat1 + lat2) / 3) * math.Pi / 180
+	latScale := 111.32
+	lngScale := 111.32 * math.Cos(meanLatRad)
+
+	px := lng * lngScale
+	py := lat * latScale
+	ax := lng1 * lngScale
+	ay := lat1 * latScale
+	bx := lng2 * lngScale
+	by := lat2 * latScale
+
+	dx := bx - ax
+	dy := by - ay
+	if dx == 0 && dy == 0 {
+		return math.Sqrt((px-ax)*(px-ax) + (py-ay)*(py-ay))
+	}
+
+	t := ((px-ax)*dx + (py-ay)*dy) / (dx*dx + dy*dy)
+	if t < 0 {
+		t = 0
+	} else if t > 1 {
+		t = 1
+	}
+
+	projX := ax + t*dx
+	projY := ay + t*dy
+	return math.Sqrt((px-projX)*(px-projX) + (py-projY)*(py-projY))
+}
+
+func tollFeeByClass(tollClass string, l1, l2, l3, l4, l5 float64) float64 {
+	switch tollClass {
+	case "L1":
+		return l1
+	case "L3":
+		return l3
+	case "L4":
+		return l4
+	case "L5":
+		return l5
+	default:
+		return l2
+	}
 }
 
 func (s *Service) convertSolverResult(jobID string, resp *solverResponse, shipments []domain.Shipment, vehicles []domain.Vehicle) *domain.VRPResult {
@@ -1474,7 +1738,7 @@ func (s *Service) ApprovePlan(ctx context.Context, req ApprovePlanRequest) ([]do
 	return trips, nil
 }
 
-func (s *Service) ListTrips(ctx context.Context, warehouseID *uuid.UUID, plannedDate, status string, page, limit int) ([]domain.Trip, int64, error) {
+func (s *Service) ListTrips(ctx context.Context, warehouseID *uuid.UUID, plannedDate, status string, activeOnly bool, page, limit int) ([]domain.Trip, int64, error) {
 	if limit <= 0 {
 		limit = 20
 	}
@@ -1482,7 +1746,7 @@ func (s *Service) ListTrips(ctx context.Context, warehouseID *uuid.UUID, planned
 		page = 1
 	}
 	offset := (page - 1) * limit
-	return s.repo.ListTrips(ctx, warehouseID, plannedDate, status, limit, offset)
+	return s.repo.ListTrips(ctx, warehouseID, plannedDate, status, activeOnly, limit, offset)
 }
 
 func (s *Service) GetTrip(ctx context.Context, tripID uuid.UUID) (*domain.Trip, error) {
@@ -2339,6 +2603,13 @@ func (s *Service) RecordPayment(ctx context.Context, userID, tripID, stopID uuid
 	// If payment method is credit, record in receivable_ledger
 	if req.PaymentMethod == "credit" && orderID != nil {
 		_ = s.repo.CreateCreditLedgerEntry(ctx, stop.CustomerID, *orderID, req.Amount, driver.ID)
+	}
+
+	// Notify accountant of payment recorded
+	if s.notifSvc != nil {
+		msg := fmt.Sprintf("Tài xế %s ghi nhận thanh toán %.0f VND (%s)", driver.FullName, req.Amount, req.PaymentMethod)
+		link := "/dashboard/reconciliation"
+		_ = s.notifSvc.SendToRole(ctx, "accountant", "💰 Ghi nhận thanh toán", msg, "payment_recorded", &link)
 	}
 
 	return payment, nil

@@ -25,11 +25,13 @@ interface ToastNotification {
 interface PersistentToastProps {
   notifications: ToastNotification[]
   onDismiss: (id: string) => void
+  onAcknowledge?: (id: string) => void
 }
 
-function ToastItem({ notification, onDismiss, index }: {
+function ToastItem({ notification, onDismiss, onAcknowledge, index }: {
   notification: ToastNotification
   onDismiss: (id: string) => void
+  onAcknowledge?: (id: string) => void
   index: number
 }) {
   const [loading, setLoading] = useState<string | null>(null)
@@ -103,11 +105,38 @@ function ToastItem({ notification, onDismiss, index }: {
           ))}
         </div>
       )}
+
+      {/* ACK button — always show for urgent toasts without actions */}
+      {onAcknowledge && !notification.actions?.length && (
+        <div className="px-4 pb-3">
+          <button
+            onClick={() => onAcknowledge(notification.id)}
+            className="w-full flex items-center justify-center gap-1.5 text-xs font-semibold py-1.5 px-3 rounded-md bg-green-100 text-green-700 hover:bg-green-200 transition"
+          >
+            <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+            </svg>
+            Đã xử lý — dừng thông báo
+          </button>
+        </div>
+      )}
+
+      {/* ACK button alongside actions */}
+      {onAcknowledge && notification.actions && notification.actions.length > 0 && (
+        <div className="px-4 pb-3 pt-0">
+          <button
+            onClick={() => onAcknowledge(notification.id)}
+            className="w-full text-xs font-medium py-1 text-green-600 hover:text-green-700 hover:bg-green-50 rounded transition"
+          >
+            ✓ Đã xử lý — dừng thông báo
+          </button>
+        </div>
+      )}
     </div>
   )
 }
 
-export function PersistentToast({ notifications, onDismiss }: PersistentToastProps) {
+export function PersistentToast({ notifications, onDismiss, onAcknowledge }: PersistentToastProps) {
   const [mounted, setMounted] = useState(false)
 
   useEffect(() => {
@@ -122,7 +151,7 @@ export function PersistentToast({ notifications, onDismiss }: PersistentToastPro
   return createPortal(
     <div className="fixed top-4 right-4 z-[200] flex flex-col gap-3">
       {visibleToasts.map((n, i) => (
-        <ToastItem key={n.id} notification={n} onDismiss={onDismiss} index={i} />
+        <ToastItem key={n.id} notification={n} onDismiss={onDismiss} onAcknowledge={onAcknowledge} index={i} />
       ))}
     </div>,
     document.body

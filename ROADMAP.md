@@ -33,7 +33,7 @@
 | EC-07 | Universal Search | Tốt nhưng PostgreSQL full-text search + ILIKE đủ cho ~300 NPP |
 | EC-08 | Document Mgmt | ePOD photos lưu local/S3 đủ. Paperless-ngx là nice-to-have |
 | EC-09 | MDM Lifecycle | NPP state machine đơn giản, tự code nhanh hơn deploy DataHub |
-| EC-10 | Feature Flags | 80 users, 1 deployment target. `if/else` + env var đủ dùng |
+| EC-10 | Feature Flags | **Reclassified for AI scope on 26/04/2026.** Không cần flag toàn hệ thống, nhưng AI Toggle là bắt buộc để đảm bảo AI OFF không phá baseline UX. Xem DEC-AI-02. |
 | EC-11 | BI Platform | ClickHouse + Superset quá nặng. PostgreSQL materialized views + KPI dashboard hiện tại đủ |
 | EC-14 | ML ETA Prediction | Cần 6+ tháng data lịch sử. OSRM distance-based ETA đang dùng tốt |
 | EC-15 | Event Streaming | Redpanda cho 1000 đơn/ngày là overkill. PostgreSQL LISTEN/NOTIFY + Redis pub/sub đủ |

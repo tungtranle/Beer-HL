@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"os"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -191,13 +192,13 @@ func (m *MockProvider) Generate(_ context.Context, prompt string) (string, error
 	lower := strings.ToLower(prompt)
 	switch {
 	case strings.Contains(lower, "dispatch") || strings.Contains(lower, "điều phối"):
-		return "Hệ thống đang hoạt động bình thường. Vui lòng cấu hình GEMINI_API_KEY để kích hoạt tóm tắt AI đầy đủ.", nil
+		return "Hệ thống đang hoạt động bình thường. Vui lòng cấu hình GROQ_API_KEY hoặc GEMINI_API_KEY để kích hoạt tóm tắt AI đầy đủ.", nil
 	case strings.Contains(lower, "anomaly") || strings.Contains(lower, "bất thường"):
 		return "Phát hiện hoạt động bất thường. Khuyến nghị: liên hệ tài xế xác nhận tình trạng.", nil
 	case strings.Contains(lower, "npp") || strings.Contains(lower, "khách hàng"):
 		return "NPP có dấu hiệu giảm hoạt động. Đề xuất DVKH chủ động liên hệ chăm sóc.", nil
 	default:
-		return "AI đang ở chế độ ngoại tuyến. Cấu hình GEMINI_API_KEY để bật đầy đủ tính năng.", nil
+		return "AI đang ở chế độ ngoại tuyến. Cấu hình GROQ_API_KEY hoặc GEMINI_API_KEY để bật đầy đủ tính năng.", nil
 	}
 }
 
@@ -206,6 +207,8 @@ func (m *MockProvider) Generate(_ context.Context, prompt string) (string, error
 // ChainedProvider tries providers in order, falling back on error.
 type ChainedProvider struct {
 	providers []Provider
+	mu        sync.RWMutex
+	lastUsed  string
 }
 
 // NewDefaultProvider returns Gemini→Groq→Mock chain.
@@ -217,11 +220,29 @@ func NewDefaultProvider() Provider {
 }
 
 func (c *ChainedProvider) Name() string {
-	names := make([]string, len(c.providers))
-	for i, p := range c.providers {
-		names[i] = p.Name()
+	c.mu.RLock()
+	lastUsed := c.lastUsed
+	c.mu.RUnlock()
+	if lastUsed != "" {
+		return lastUsed
+	}
+	names := make([]string, 0, len(c.providers))
+	for _, p := range c.providers {
+		if _, isMock := p.(*MockProvider); isMock {
+			continue
+		}
+		names = append(names, p.Name())
+	}
+	if len(names) == 0 {
+		return (&MockProvider{}).Name()
 	}
 	return strings.Join(names, "→")
+}
+
+func (c *ChainedProvider) setLastUsed(name string) {
+	c.mu.Lock()
+	c.lastUsed = name
+	c.mu.Unlock()
 }
 
 func (c *ChainedProvider) Generate(ctx context.Context, prompt string) (string, error) {
@@ -231,13 +252,21 @@ func (c *ChainedProvider) Generate(ctx context.Context, prompt string) (string, 
 		if _, isMock := p.(*MockProvider); isMock {
 			continue
 		}
-		text, err := p.Generate(ctx, prompt)
-		if err == nil && text != "" {
-			return text, nil
+		for attempt := 0; attempt < 2; attempt++ {
+			text, err := p.Generate(ctx, prompt)
+			if err == nil && text != "" {
+				c.setLastUsed(p.Name())
+				return text, nil
+			}
+			lastErr = err
+			// 429 rate-limit: no point retrying immediately — skip to next provider
+			if err != nil && strings.Contains(err.Error(), "429") {
+				break
+			}
 		}
-		lastErr = err
 	}
 	// All real providers failed — use mock
 	_ = lastErr
+	c.setLastUsed((&MockProvider{}).Name())
 	return (&MockProvider{}).Generate(ctx, prompt)
 }

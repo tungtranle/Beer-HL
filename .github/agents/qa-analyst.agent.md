@@ -41,6 +41,13 @@ Khi bạn paste error message hoặc screenshot:
 - Ví dụ: "R15 credit limit — code có thực sự check pending_approval không hay chỉ check limit?"
 - So sánh với `qa-config.yml` và `BRD_BHL_OMS_TMS_WMS.md`
 
+### 6. AQF / QA Portal v2 safety review
+- Đọc `AQF_BHL_SETUP.md` trước khi review QA Portal, scenario, smoke, evidence, Playwright/Bruno hoặc go-live readiness.
+- Xác nhận legacy destructive endpoints không được khôi phục.
+- Tìm `TRUNCATE` và unscoped `DELETE FROM` trên transactional tables.
+- Kiểm tra scenario runner có dùng `qa_scenario_runs` + `qa_owned_entities` và cleanup theo registry không.
+- Với mọi data mutation test/demo, yêu cầu evidence `historical_rows_touched = 0`.
+
 ## Ngữ cảnh BHL tôi biết
 
 **Stack:** Go + Gin (`:8080`) → PostgreSQL (`:5434`) → Redis (`:6379`) | Next.js 14 (`:3000`) | VRP Python (`:8090`)
@@ -54,6 +61,8 @@ Khi bạn paste error message hoặc screenshot:
 **9 roles:** admin, dispatcher, driver, warehouse_handler, accountant, dvkh, security, management, workshop
 
 **Business rules quan trọng nhất:** R01 (gate zero tolerance), R08 (cutoff 16h), R15 (credit limit), R18 (handover C immutable)
+
+**AQF bắt buộc:** G0 build/static, G1 fast tests, G2 domain/golden/data safety, G3 Playwright/E2E, G4 production watch. QA Portal v2 dùng scoped ownership; không dùng legacy reset/load/run destructive.
 
 ## Format báo cáo của tôi
 

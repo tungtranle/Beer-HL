@@ -7,6 +7,7 @@ import (
 	"math"
 	"math/rand"
 	"net/http"
+	"os"
 	"strings"
 	"sync"
 	"time"
@@ -72,7 +73,12 @@ func (sc *SimController) StartSimulation(c *gin.Context) {
 	sc.cancel = cancel
 
 	routes, err := sc.loadRoutes(ctx, req)
-	if err != nil || len(routes) == 0 {
+	if err != nil {
+		cancel()
+		response.Err(c, http.StatusServiceUnavailable, "ROUTE_GEOMETRY_UNAVAILABLE", err.Error())
+		return
+	}
+	if len(routes) == 0 {
 		cancel()
 		response.Err(c, http.StatusBadRequest, "NO_ROUTES", "Không tìm thấy tuyến đường để giả lập. Hãy approve plan trước hoặc dùng use_demo=true.")
 		return
@@ -92,7 +98,7 @@ func (sc *SimController) StartSimulation(c *gin.Context) {
 	response.OK(c, gin.H{
 		"message":  "GPS simulation đã bắt đầu",
 		"vehicles": len(routes),
-		"routes":   routeNames(routes),
+		"routes":   routeSummaries(routes),
 	})
 }
 
@@ -133,11 +139,12 @@ func (sc *SimController) GetStatus(c *gin.Context) {
 // ─── Simulation Loop ─────────────────────────────────
 
 type simRoute struct {
-	VehicleID  string
-	Plate      string
-	DriverName string
-	TripStatus string
-	Waypoints  []simWaypoint
+	VehicleID      string
+	Plate          string
+	DriverName     string
+	TripStatus     string
+	GeometrySource string
+	Waypoints      []simWaypoint
 }
 
 type simWaypoint struct {
@@ -288,10 +295,10 @@ func updateSimVehicle(state *simVehicleState, route simRoute, dt time.Duration, 
 // ─── Route Loading ───────────────────────────────────
 
 // fetchOSRMWaypoints calls OSRM to get road-following waypoints between stop coordinates.
-// Returns densified waypoints that follow actual roads. Falls back to straight-line if OSRM unavailable.
-func fetchOSRMWaypoints(stops []simWaypoint) []simWaypoint {
+// Route-real simulation must fail closed: never fall back to straight-line geometry.
+func fetchOSRMWaypoints(stops []simWaypoint) ([]simWaypoint, string, error) {
 	if len(stops) < 2 {
-		return stops
+		return stops, "db_route_geometry", nil
 	}
 
 	// Build OSRM coordinates string: lng,lat;lng,lat;...
@@ -301,64 +308,54 @@ func fetchOSRMWaypoints(stops []simWaypoint) []simWaypoint {
 	}
 	coordStr := strings.Join(coords, ";")
 
-	// Try local OSRM first, then public
-	urls := []string{
-		fmt.Sprintf("http://localhost:5000/route/v1/driving/%s?overview=full&geometries=geojson&steps=false", coordStr),
-		fmt.Sprintf("https://router.project-osrm.org/route/v1/driving/%s?overview=full&geometries=geojson&steps=false", coordStr),
+	baseURL := strings.TrimRight(strings.TrimSpace(os.Getenv("OSRM_URL")), "/")
+	if baseURL == "" {
+		baseURL = "http://localhost:5000"
 	}
+	url := fmt.Sprintf("%s/route/v1/driving/%s?overview=full&geometries=geojson&steps=false", baseURL, coordStr)
 
 	client := &http.Client{Timeout: 10 * time.Second}
-
-	for _, url := range urls {
-		resp, err := client.Get(url)
-		if err != nil {
-			continue
-		}
-		defer resp.Body.Close()
-		if resp.StatusCode != 200 {
-			continue
-		}
-
-		var result struct {
-			Code   string `json:"code"`
-			Routes []struct {
-				Geometry struct {
-					Coordinates [][]float64 `json:"coordinates"`
-				} `json:"geometry"`
-			} `json:"routes"`
-		}
-		if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
-			continue
-		}
-		if result.Code != "Ok" || len(result.Routes) == 0 || len(result.Routes[0].Geometry.Coordinates) < 2 {
-			continue
-		}
-
-		// Convert GeoJSON [lng, lat] to simWaypoint
-		osrmCoords := result.Routes[0].Geometry.Coordinates
-		// Sample every Nth point to keep ~100-200 waypoints for smooth simulation
-		step := 1
-		if len(osrmCoords) > 200 {
-			step = len(osrmCoords) / 200
-		}
-		var waypoints []simWaypoint
-		for i := 0; i < len(osrmCoords); i += step {
-			c := osrmCoords[i]
-			waypoints = append(waypoints, simWaypoint{Lat: c[1], Lng: c[0], Name: ""})
-		}
-		// Always include the last point
-		last := osrmCoords[len(osrmCoords)-1]
-		if len(waypoints) == 0 || waypoints[len(waypoints)-1].Lat != last[1] || waypoints[len(waypoints)-1].Lng != last[0] {
-			waypoints = append(waypoints, simWaypoint{Lat: last[1], Lng: last[0], Name: ""})
-		}
-		// Preserve stop names at matching positions
-		waypoints[0].Name = stops[0].Name
-		waypoints[len(waypoints)-1].Name = stops[len(stops)-1].Name
-		return waypoints
+	resp, err := client.Get(url)
+	if err != nil {
+		return nil, "", fmt.Errorf("OSRM unavailable at %s: %w", baseURL, err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return nil, "", fmt.Errorf("OSRM returned status %d", resp.StatusCode)
 	}
 
-	// Fallback: return original stops as-is
-	return stops
+	var result struct {
+		Code   string `json:"code"`
+		Routes []struct {
+			Geometry struct {
+				Coordinates [][]float64 `json:"coordinates"`
+			} `json:"geometry"`
+		} `json:"routes"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return nil, "", fmt.Errorf("decode OSRM route: %w", err)
+	}
+	if result.Code != "Ok" || len(result.Routes) == 0 || len(result.Routes[0].Geometry.Coordinates) < 2 {
+		return nil, "", fmt.Errorf("OSRM returned no usable road geometry")
+	}
+
+	osrmCoords := result.Routes[0].Geometry.Coordinates
+	step := 1
+	if len(osrmCoords) > 200 {
+		step = len(osrmCoords) / 200
+	}
+	var waypoints []simWaypoint
+	for i := 0; i < len(osrmCoords); i += step {
+		c := osrmCoords[i]
+		waypoints = append(waypoints, simWaypoint{Lat: c[1], Lng: c[0], Name: ""})
+	}
+	last := osrmCoords[len(osrmCoords)-1]
+	if len(waypoints) == 0 || waypoints[len(waypoints)-1].Lat != last[1] || waypoints[len(waypoints)-1].Lng != last[0] {
+		waypoints = append(waypoints, simWaypoint{Lat: last[1], Lng: last[0], Name: ""})
+	}
+	waypoints[0].Name = stops[0].Name
+	waypoints[len(waypoints)-1].Name = stops[len(stops)-1].Name
+	return waypoints, "osrm_local", nil
 }
 
 // loadWarehouseCoords loads the main warehouse coordinates from DB.
@@ -385,7 +382,7 @@ func (sc *SimController) loadRoutes(ctx context.Context, req simStartRequest) ([
 	}
 
 	if len(routes) == 0 && req.UseDemo {
-		return sc.generateDemoRoutes(ctx), nil
+		return sc.generateDemoRoutes(ctx)
 	}
 
 	return routes, nil
@@ -467,21 +464,24 @@ func (sc *SimController) loadActiveTrips(ctx context.Context, tripIDs []string) 
 		wps = append(wps, simWaypoint{Lat: whLat, Lng: whLng, Name: "Quay về kho"})
 
 		if len(wps) >= 3 {
-			// Use OSRM to get road-following waypoints
-			roadWps := fetchOSRMWaypoints(wps)
+			roadWps, source, err := fetchOSRMWaypoints(wps)
+			if err != nil {
+				return nil, fmt.Errorf("không lấy được tuyến đường thực tế cho chuyến %s: %w", tripID, err)
+			}
 			result = append(result, simRoute{
-				VehicleID:  vehicleID,
-				Plate:      plate,
-				DriverName: driverName,
-				TripStatus: tripStatus,
-				Waypoints:  roadWps,
+				VehicleID:      vehicleID,
+				Plate:          plate,
+				DriverName:     driverName,
+				TripStatus:     tripStatus,
+				GeometrySource: source,
+				Waypoints:      roadWps,
 			})
 		}
 	}
 	return result, nil
 }
 
-func (sc *SimController) generateDemoRoutes(ctx context.Context) []simRoute {
+func (sc *SimController) generateDemoRoutes(ctx context.Context) ([]simRoute, error) {
 	type vInfo struct {
 		ID         string
 		Plate      string
@@ -544,16 +544,20 @@ func (sc *SimController) generateDemoRoutes(ctx context.Context) []simRoute {
 
 	var routes []simRoute
 	for i, v := range vehicles {
-		roadWps := fetchOSRMWaypoints(templates[i%len(templates)])
+		roadWps, source, err := fetchOSRMWaypoints(templates[i%len(templates)])
+		if err != nil {
+			return nil, fmt.Errorf("không lấy được tuyến đường thực tế cho demo GPS %s: %w", v.Plate, err)
+		}
 		routes = append(routes, simRoute{
-			VehicleID:  v.ID,
-			Plate:      v.Plate,
-			DriverName: v.DriverName,
-			TripStatus: v.TripStatus,
-			Waypoints:  roadWps,
+			VehicleID:      v.ID,
+			Plate:          v.Plate,
+			DriverName:     v.DriverName,
+			TripStatus:     v.TripStatus,
+			GeometrySource: source,
+			Waypoints:      roadWps,
 		})
 	}
-	return routes
+	return routes, nil
 }
 
 // ─── Helpers ─────────────────────────────────────────
@@ -569,10 +573,14 @@ func simHaversineKm(lat1, lng1, lat2, lng2 float64) float64 {
 	return R * c
 }
 
-func routeNames(routes []simRoute) []string {
-	names := make([]string, len(routes))
+func routeSummaries(routes []simRoute) []gin.H {
+	summaries := make([]gin.H, len(routes))
 	for i, r := range routes {
-		names[i] = r.Plate
+		summaries[i] = gin.H{
+			"plate":           r.Plate,
+			"geometry_source": r.GeometrySource,
+			"waypoint_count":  len(r.Waypoints),
+		}
 	}
-	return names
+	return summaries
 }

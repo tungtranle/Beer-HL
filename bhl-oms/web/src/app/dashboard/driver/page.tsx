@@ -9,6 +9,7 @@ import { toast } from '@/lib/useToast'
 import { useGpsTracker } from '@/lib/useGpsTracker'
 import { useOfflineSync } from '@/lib/useOfflineSync'
 import { useOnlineStatus } from '@/lib/useOnlineStatus'
+import { VoiceCommandFAB } from '@/components/ai'
 import {
   Truck, MapPin, Clock, ChevronRight, CheckCircle2,
   Coffee, AlertCircle, Wifi, WifiOff, Download, Navigation,
@@ -276,6 +277,7 @@ export default function DriverPage() {
           </div>
         </section>
       )}
+      <VoiceCommandFAB />
     </div>
   )
 }

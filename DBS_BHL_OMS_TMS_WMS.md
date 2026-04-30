@@ -2,9 +2,9 @@
 
 | Thông tin | Giá trị |
 |-----------|---------|
-| Phiên bản | **v1.1** |
-| Cập nhật | 20/03/2026 (session 18) |
-| Dựa trên | SAD v2.1, BRD v2.3 |
+| Phiên bản | **v1.3** |
+| Cập nhật | 26/04/2026 — AI-native Phase 2-6 foundation |
+| Dựa trên | SAD v2.1, BRD v3.8 |
 | Database | PostgreSQL 16 |
 | Encoding | UTF-8 |
 | Timezone | Tất cả `timestamptz` lưu UTC. App convert Asia/Ho_Chi_Minh |
@@ -1024,6 +1024,53 @@ CREATE INDEX idx_discrepancy_trip ON discrepancy_tickets (trip_id);
 
 # 9. SYSTEM TABLES
 
+## 9.0 ai_feature_flags — AI Toggle backbone (Migration 042)
+
+```sql
+CREATE TABLE ai_feature_flags (
+    id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    flag_key    TEXT NOT NULL,
+    scope_type  TEXT NOT NULL CHECK (scope_type IN ('org', 'role', 'user')),
+    scope_id    TEXT NOT NULL,
+    enabled     BOOLEAN NOT NULL DEFAULT false,
+    config      JSONB NOT NULL DEFAULT '{}',
+    updated_by  UUID REFERENCES users(id),
+    updated_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    UNIQUE(flag_key, scope_type, scope_id)
+);
+
+CREATE INDEX idx_ai_feature_flags_lookup
+    ON ai_feature_flags(flag_key, scope_type, scope_id);
+```
+
+**Resolution rule:** missing row = disabled; org → role → user override; `ai.master=false` ép mọi flag effective=false.
+
+## 9.0b AI-native Phase 2-6 tables — Migration 043
+
+```sql
+CREATE TABLE ai_audit_log (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    feature_key TEXT NOT NULL,
+    action_type TEXT NOT NULL,
+    provider TEXT NOT NULL,
+    route TEXT NOT NULL CHECK (route IN ('cloud','local','rules','blocked')),
+    sensitivity TEXT NOT NULL DEFAULT 'low',
+    request_hash TEXT NOT NULL,
+    redacted BOOLEAN NOT NULL DEFAULT false,
+    latency_ms INTEGER NOT NULL DEFAULT 0,
+    success BOOLEAN NOT NULL DEFAULT true,
+    user_id UUID REFERENCES users(id),
+    role TEXT,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE TABLE ai_inbox_items (...);
+CREATE TABLE ai_simulations (...);
+CREATE TABLE ai_feedback (...);
+```
+
+**Safety rule:** `ai_simulations` chỉ lưu dry-run snapshot TTL 5 phút; `apply` trả approval-required và không ghi trực tiếp vào `sales_orders`, `trips`, `shipments`, `stock` hoặc bảng nghiệp vụ chính.
+
 ## 9.1 users
 
 ```sql
@@ -1375,3 +1422,40 @@ ALTER TABLE notifications ADD COLUMN entity_id UUID;
 
 **Priority levels:** `urgent`, `high`, `normal`, `low`  
 **Entity linking:** notification → entity (order, trip, etc.) cho navigation
+
+## A.7 qa_scenario_runs (Migration 041) — QA demo run registry
+
+```sql
+CREATE TABLE qa_scenario_runs (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    scenario_id VARCHAR(40) NOT NULL,
+    scenario_title VARCHAR(200) NOT NULL,
+    status VARCHAR(20) NOT NULL DEFAULT 'running'
+        CHECK (status IN ('running', 'completed', 'failed', 'cleaned')),
+    cleanup_deleted_count INTEGER NOT NULL DEFAULT 0,
+    created_count INTEGER NOT NULL DEFAULT 0,
+    historical_rows_touched INTEGER NOT NULL DEFAULT 0,
+    error_message TEXT,
+    started_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    completed_at TIMESTAMPTZ,
+    cleaned_at TIMESTAMPTZ,
+    created_by UUID REFERENCES users(id),
+    created_by_name VARCHAR(200)
+);
+```
+
+**Mục tiêu:** ghi từng lần nạp kịch bản demo trong QA Portal v2. `historical_rows_touched` phải luôn bằng `0`.
+
+## A.8 qa_owned_entities (Migration 041) — QA-owned data registry
+
+```sql
+CREATE TABLE qa_owned_entities (
+    run_id UUID NOT NULL REFERENCES qa_scenario_runs(id) ON DELETE CASCADE,
+    entity_type VARCHAR(80) NOT NULL,
+    entity_id UUID NOT NULL,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    PRIMARY KEY (run_id, entity_type, entity_id)
+);
+```
+
+**Cleanup rule:** QA Portal chỉ được xóa dữ liệu nghiệp vụ nếu entity đó có dòng tương ứng trong `qa_owned_entities`; không `TRUNCATE`, không unscoped `DELETE`.

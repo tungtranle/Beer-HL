@@ -13,10 +13,16 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
+// NotificationSender is satisfied by notification.Service.
+type NotificationSender interface {
+	SendToRole(ctx context.Context, role, title, body, category string, link *string) error
+}
+
 type Service struct {
-	repo *Repository
-	log  logger.Logger
-	db   *pgxpool.Pool
+	repo     *Repository
+	log      logger.Logger
+	db       *pgxpool.Pool
+	notifSvc NotificationSender
 }
 
 func NewService(repo *Repository, log logger.Logger) *Service {
@@ -26,6 +32,11 @@ func NewService(repo *Repository, log logger.Logger) *Service {
 // SetDB injects the database pool (for discrepancy history queries).
 func (s *Service) SetDB(db *pgxpool.Pool) {
 	s.db = db
+}
+
+// SetNotificationService injects the notification service.
+func (s *Service) SetNotificationService(ns NotificationSender) {
+	s.notifSvc = ns
 }
 
 // ── Auto Reconcile Trip (Task 3.9) ─────────────────
@@ -151,6 +162,12 @@ func (s *Service) AutoReconcileTrip(ctx context.Context, tripID uuid.UUID) ([]do
 			}
 			if err := s.repo.CreateDiscrepancy(ctx, &disc); err != nil {
 				s.log.Error(ctx, "create_discrepancy_failed", err, logger.F("trip_id", tripID.String()), logger.F("type", rec.ReconType))
+			} else if s.notifSvc != nil {
+				// Notify accountant of new discrepancy ticket
+				msg := fmt.Sprintf("Sai lệch %s chuyến %s: chênh lệch %.2f. Hạn xử lý: T+1",
+					rec.ReconType, tripID.String()[:8], rec.Variance)
+				link := "/dashboard/reconciliation"
+				_ = s.notifSvc.SendToRole(ctx, "accountant", "⚠️ Đối soát sai lệch", msg, "discrepancy_open", &link)
 			}
 		}
 	}
@@ -164,14 +181,14 @@ func (s *Service) GetReconciliationsByTrip(ctx context.Context, tripID uuid.UUID
 	return s.repo.GetReconciliationsByTrip(ctx, tripID)
 }
 
-func (s *Service) ListReconciliations(ctx context.Context, status string, page, limit int) ([]domain.Reconciliation, int64, error) {
+func (s *Service) ListReconciliations(ctx context.Context, status, fromDate, toDate string, page, limit int) ([]domain.Reconciliation, int64, error) {
 	if limit <= 0 {
 		limit = 20
 	}
 	if page <= 0 {
 		page = 1
 	}
-	return s.repo.ListReconciliations(ctx, status, page, limit)
+	return s.repo.ListReconciliations(ctx, status, fromDate, toDate, page, limit)
 }
 
 func (s *Service) ResolveReconciliation(ctx context.Context, id, userID uuid.UUID) error {
@@ -180,20 +197,21 @@ func (s *Service) ResolveReconciliation(ctx context.Context, id, userID uuid.UUI
 
 // ── Discrepancy Management (Task 3.10) ──────────────
 
-func (s *Service) ListDiscrepancies(ctx context.Context, tripID *uuid.UUID, status string, page, limit int) ([]domain.Discrepancy, int64, error) {
+func (s *Service) ListDiscrepancies(ctx context.Context, tripID *uuid.UUID, status, fromDate, toDate string, page, limit int) ([]domain.Discrepancy, int64, error) {
 	if limit <= 0 {
 		limit = 20
 	}
 	if page <= 0 {
 		page = 1
 	}
-	return s.repo.ListDiscrepancies(ctx, tripID, status, page, limit)
+	return s.repo.ListDiscrepancies(ctx, tripID, status, fromDate, toDate, page, limit)
 }
 
 // IsChiefAccountant checks if a user has is_chief_accountant flag (Task 6.16)
 func (s *Service) IsChiefAccountant(ctx context.Context, userID uuid.UUID) (bool, error) {
 	if s.db == nil {
-		return true, nil // fallback: allow if DB not set
+		// QW-007 / HIGH-003: fail-closed — never allow chief-accountant powers when DB is not wired.
+		return false, fmt.Errorf("chief accountant check unavailable: db not configured")
 	}
 	var isChief bool
 	err := s.db.QueryRow(ctx,
@@ -256,11 +274,11 @@ func (s *Service) GetDailyCloseSummary(ctx context.Context, date string, warehou
 	return s.repo.GetDailyCloseSummary(ctx, date, warehouseID)
 }
 
-func (s *Service) ListDailyCloseSummaries(ctx context.Context, warehouseID *uuid.UUID, limit int) ([]domain.DailyCloseSummary, error) {
+func (s *Service) ListDailyCloseSummaries(ctx context.Context, warehouseID *uuid.UUID, fromDate, toDate string, limit int) ([]domain.DailyCloseSummary, error) {
 	if limit <= 0 {
 		limit = 30
 	}
-	return s.repo.ListDailyCloseSummaries(ctx, warehouseID, limit)
+	return s.repo.ListDailyCloseSummaries(ctx, warehouseID, fromDate, toDate, limit)
 }
 
 // GetDiscrepancyHistory returns action history from entity_events for a discrepancy (Task 6.3).

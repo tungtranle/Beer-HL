@@ -8,6 +8,10 @@ import { handleError } from '@/lib/handleError'
 
 interface KPIReport {
   period: string
+  scope_from?: string
+  scope_to?: string
+  data_as_of?: string
+  latest_fallback?: boolean
   otd_rate: number
   vehicle_utilization: number
   avg_capacity_util: number
@@ -68,7 +72,32 @@ interface KpiHero {
   insights: KpiInsight[]
 }
 
+interface ApiResponse<T> {
+  data: T
+}
+
 type Tab = 'overview' | 'issues' | 'cancellations' | 'route_pnl'
+type ReportPeriod = 'today' | 'week' | 'month' | 'history'
+
+const PERIODS: { value: ReportPeriod; label: string; helper: string }[] = [
+  { value: 'today', label: 'Hôm nay', helper: 'Vận hành trong ngày' },
+  { value: 'week', label: '7 ngày', helper: 'Tuần vận hành gần nhất' },
+  { value: 'month', label: '30 ngày', helper: 'Chu kỳ quản trị tháng' },
+  { value: 'history', label: 'Dữ liệu lịch sử', helper: 'Chủ động xem 90 ngày gần nhất' },
+]
+
+function formatDate(date: Date) {
+  return date.toISOString().slice(0, 10)
+}
+
+function scopeFor(period: ReportPeriod) {
+  const now = new Date()
+  const to = formatDate(now)
+  const fromDate = new Date(now)
+  if (period === 'today') return { from: to, to }
+  fromDate.setDate(now.getDate() - (period === 'week' ? 6 : period === 'month' ? 29 : 89))
+  return { from: formatDate(fromDate), to }
+}
 
 export default function KPIDashboardPage() {
   const router = useRouter()
@@ -77,18 +106,18 @@ export default function KPIDashboardPage() {
   const [issues, setIssues] = useState<IssuesReport | null>(null)
   const [cancellations, setCancellations] = useState<CancellationsReport | null>(null)
   const [loading, setLoading] = useState(true)
-  const [period, setPeriod] = useState('today')
+  const [period, setPeriod] = useState<ReportPeriod>('week')
   const [routePnl, setRoutePnl] = useState<RoutePnlReport | null>(null)
   const [hero, setHero] = useState<KpiHero | null>(null)
 
   const loadHero = () => {
-    apiFetch<any>('/kpi/hero').then(r => setHero(r.data)).catch(() => {})
+    apiFetch<ApiResponse<KpiHero>>('/kpi/hero').then(r => setHero(r.data)).catch(() => {})
   }
 
   const loadOverview = async () => {
     setLoading(true)
     try {
-      const res: any = await apiFetch(`/kpi/report?period=${period}`)
+      const res = await apiFetch<ApiResponse<KPIReport>>(`/kpi/report?period=${period}`)
       setReport(res.data)
     } catch (err) { handleError(err, { userMessage: 'Không tải được báo cáo KPI' }) }
     finally { setLoading(false) }
@@ -97,7 +126,8 @@ export default function KPIDashboardPage() {
   const loadIssues = async () => {
     setLoading(true)
     try {
-      const res: any = await apiFetch('/kpi/issues')
+      const { from, to } = scopeFor(period)
+      const res = await apiFetch<ApiResponse<IssuesReport>>(`/kpi/issues?from=${from}&to=${to}`)
       setIssues(res.data)
     } catch (err) { handleError(err, { userMessage: 'Không tải được danh sách sự cố' }) }
     finally { setLoading(false) }
@@ -106,7 +136,8 @@ export default function KPIDashboardPage() {
   const loadCancellations = async () => {
     setLoading(true)
     try {
-      const res: any = await apiFetch('/kpi/cancellations')
+      const { from, to } = scopeFor(period)
+      const res = await apiFetch<ApiResponse<CancellationsReport>>(`/kpi/cancellations?from=${from}&to=${to}`)
       setCancellations(res.data)
     } catch (err) { handleError(err, { userMessage: 'Không tải được đơn hủy/từ chối' }) }
     finally { setLoading(false) }
@@ -115,7 +146,7 @@ export default function KPIDashboardPage() {
   const loadRoutePnl = async () => {
     setLoading(true)
     try {
-      const res: any = await apiFetch(`/kpi/route-pnl?period=${period}`)
+      const res = await apiFetch<ApiResponse<RoutePnlReport>>(`/kpi/route-pnl?period=${period}`)
       setRoutePnl(res.data)
     } catch { setRoutePnl(null) }
     finally { setLoading(false) }
@@ -143,12 +174,43 @@ export default function KPIDashboardPage() {
     </div>
   )
 
+  const scope = scopeFor(period)
+  const scopeLabel = period === 'today' ? scope.to : `${scope.from} → ${scope.to}`
+  const reportScopeLabel = report?.scope_from && report?.scope_to
+    ? (report.scope_from === report.scope_to ? report.scope_to : `${report.scope_from} → ${report.scope_to}`)
+    : scopeLabel
+
   return (
     <div className="max-w-[1400px] mx-auto">
       <div className="flex items-center justify-between mb-6">
         <div>
           <h1 className="text-2xl font-bold text-gray-800">📈 Bảng điều khiển KPI</h1>
           <p className="text-sm text-gray-500">Chỉ số hiệu suất vận hành</p>
+        </div>
+      </div>
+
+      <div className="mb-6 rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
+        <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+          <div>
+            <div className="text-sm font-semibold text-slate-900">Phạm vi báo cáo</div>
+            <div className="mt-1 text-xs text-slate-500">Mặc định theo ngữ cảnh vận hành, không quét toàn bộ lịch sử nếu người dùng chưa chọn.</div>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            {PERIODS.map(p => (
+              <button key={p.value} onClick={() => setPeriod(p.value)} title={p.helper}
+                className={`px-3 py-1.5 rounded-lg text-sm transition ${period === p.value ? 'bg-brand-500 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}>
+                {p.label}
+              </button>
+            ))}
+          </div>
+        </div>
+        <div className="mt-3 flex flex-wrap gap-2 text-xs text-slate-500">
+          <span className="rounded-full bg-slate-100 px-2.5 py-1">Scope: {tab === 'overview' && report ? reportScopeLabel : scopeLabel}</span>
+          <span className="rounded-full bg-slate-100 px-2.5 py-1">Source: KPI snapshots + transactional drill-down</span>
+          {tab === 'overview' && report?.latest_fallback && (
+            <span className="rounded-full bg-amber-50 px-2.5 py-1 font-medium text-amber-700">Ngày gần nhất có dữ liệu: {report.data_as_of}</span>
+          )}
+          {period === 'history' && <span className="rounded-full bg-rose-50 px-2.5 py-1 font-medium text-rose-700">Historical là lựa chọn chủ động</span>}
         </div>
       </div>
 
@@ -219,19 +281,6 @@ export default function KPIDashboardPage() {
               )}
             </div>
           )}
-
-          <div className="flex gap-2 mb-6">
-            {[
-              { value: 'today', label: 'Hôm nay' },
-              { value: 'week', label: 'Tuần này' },
-              { value: 'month', label: 'Tháng này' },
-            ].map(p => (
-              <button key={p.value} onClick={() => setPeriod(p.value)}
-                className={`px-3 py-1.5 rounded-lg text-sm transition ${period === p.value ? 'bg-brand-500 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}>
-                {p.label}
-              </button>
-            ))}
-          </div>
 
           {loading ? <Spinner /> : !report ? (
             <div className="bg-white rounded-xl shadow-sm p-8 text-center">
@@ -380,14 +429,6 @@ export default function KPIDashboardPage() {
       {/* === Tab: Route P&L (F10) === */}
       {tab === 'route_pnl' && (
         <>
-          <div className="flex gap-2 mb-6">
-            {[{ value: 'today', label: 'Hôm nay' }, { value: 'week', label: 'Tuần này' }, { value: 'month', label: 'Tháng này' }].map(p => (
-              <button key={p.value} onClick={() => setPeriod(p.value)}
-                className={`px-3 py-1.5 rounded-lg text-sm transition ${period === p.value ? 'bg-brand-500 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}>
-                {p.label}
-              </button>
-            ))}
-          </div>
           {loading ? <Spinner /> : !routePnl ? (
             <div className="bg-white rounded-xl shadow-sm p-8 text-center">
               <div className="text-4xl mb-3">🗺️</div>

@@ -33,6 +33,7 @@ func (h *Handler) RegisterRoutes(r *gin.RouterGroup) {
 		ng.GET("/grouped", h.ListGrouped)
 		ng.POST("/:id/read", h.MarkRead)
 		ng.POST("/read-all", h.MarkAllRead)
+		ng.POST("/:id/acknowledge", h.Acknowledge)
 	}
 }
 
@@ -47,10 +48,11 @@ func (h *Handler) List(c *gin.Context) {
 	uid, _ := userID.(uuid.UUID)
 
 	unreadOnly := c.Query("unread") == "true"
+	category := c.Query("category")
 	page, _ := strconv.Atoi(c.DefaultQuery("page", "1"))
 	limit, _ := strconv.Atoi(c.DefaultQuery("limit", "50"))
 
-	results, total, err := h.svc.GetNotificationsPaginated(c.Request.Context(), uid, unreadOnly, page, limit)
+	results, total, err := h.svc.GetNotificationsPaginated(c.Request.Context(), uid, unreadOnly, category, page, limit)
 	if err != nil {
 		response.InternalError(c)
 		return
@@ -108,6 +110,25 @@ func (h *Handler) MarkRead(c *gin.Context) {
 		return
 	}
 	response.OK(c, gin.H{"status": "read"})
+}
+
+// POST /v1/notifications/:id/acknowledge
+// Marks a P0 notification as acknowledged (action taken). Stops escalation timer.
+func (h *Handler) Acknowledge(c *gin.Context) {
+	id, err := uuid.Parse(c.Param("id"))
+	if err != nil {
+		response.BadRequest(c, "Invalid notification ID")
+		return
+	}
+
+	userID, _ := c.Get("user_id")
+	uid, _ := userID.(uuid.UUID)
+
+	if err := h.svc.Acknowledge(c.Request.Context(), id, uid); err != nil {
+		response.NotFound(c, "Notification not found")
+		return
+	}
+	response.OK(c, gin.H{"status": "acknowledged"})
 }
 
 // POST /v1/notifications/read-all

@@ -242,6 +242,10 @@ export default function AdminSettingsPage() {
           className="px-4 py-2 rounded-lg text-sm font-medium bg-white text-gray-600 hover:bg-gray-100 transition border border-dashed border-gray-300">
           🔐 Ma trận phân quyền →
         </button>
+        <button onClick={() => router.push('/dashboard/settings/ai')}
+          className="px-4 py-2 rounded-lg text-sm font-medium bg-white text-gray-600 hover:bg-gray-100 transition border border-dashed border-gray-300">
+          AI Toggle →
+        </button>
         <button onClick={() => { setTab('seasonal'); loadSeasonalMode() }}
           className={`px-4 py-2 rounded-lg text-sm font-medium transition ${tab === 'seasonal' ? 'bg-brand-500 text-white' : 'bg-white text-gray-600 hover:bg-gray-100'}`}>
           🎋 Chế độ mùa vụ

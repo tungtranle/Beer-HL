@@ -20,6 +20,15 @@ interface Customer {
   is_active: boolean
 }
 
+interface NPPZaloDraft {
+  customer_id: string
+  customer_name: string
+  health_score: number
+  draft_message: string
+  reason: string
+  provider: string
+}
+
 const emptyCustomer = {
   code: '', name: '', address: '', phone: null as string | null,
   latitude: null as number | null, longitude: null as number | null,
@@ -39,6 +48,8 @@ export default function CustomersPage() {
   const [form, setForm] = useState(emptyCustomer)
   const [editId, setEditId] = useState<string | null>(null)
   const [saving, setSaving] = useState(false)
+  const [zaloDraft, setZaloDraft] = useState<NPPZaloDraft | null>(null)
+  const [draftLoadingId, setDraftLoadingId] = useState<string | null>(null)
 
   // F2 — NPP health scores by code (batched, fetch-once-per-load).
   const [healthMap, setHealthMap] = useState<Record<string, NppHealth>>({})
@@ -123,6 +134,18 @@ export default function CustomersPage() {
       load()
     } catch (e: any) {
       toast.error(e.message)
+    }
+  }
+
+  const openZaloDraft = async (customer: Customer) => {
+    setDraftLoadingId(customer.id)
+    try {
+      const res: any = await apiFetch('/ai/npp-zalo-draft', { method: 'POST', body: { customer_id: customer.id } })
+      setZaloDraft(res.data || null)
+    } catch (e: any) {
+      toast.error(e.message)
+    } finally {
+      setDraftLoadingId(null)
     }
   }
 
@@ -218,6 +241,16 @@ export default function CustomersPage() {
                   <div key={code} className="bg-white border border-red-200 rounded-lg px-3 py-2 text-xs">
                     <div className="font-semibold text-gray-800">{c?.name || code}</div>
                     <div className="text-red-600">Score: {h.health_score_0_100?.toFixed(0) ?? '—'}</div>
+                    {c && (
+                      <button
+                        type="button"
+                        onClick={() => openZaloDraft(c)}
+                        disabled={draftLoadingId === c.id}
+                        className="mt-2 px-2 py-1 rounded bg-blue-50 text-blue-700 border border-blue-100 hover:bg-blue-100 disabled:opacity-50"
+                      >
+                        {draftLoadingId === c.id ? 'Đang tạo...' : 'Nháp Zalo'}
+                      </button>
+                    )}
                   </div>
                 )
               })}
@@ -267,6 +300,7 @@ export default function CustomersPage() {
                   </span>
                 </td>
                 <td className="px-4 py-3 text-center">
+                  <a href={`/dashboard/customers/${c.id}/vrp-constraints`} className="text-emerald-600 hover:underline text-xs mr-2" title="Ràng buộc giao hàng cho VRP">🚚 VRP</a>
                   <button onClick={() => openEdit(c)} className="text-brand-500 hover:underline text-xs mr-2">Sửa</button>
                   <button onClick={() => handleDelete(c.id, c.name)} className="text-red-600 hover:underline text-xs">Xóa</button>
                 </td>
@@ -336,6 +370,36 @@ export default function CustomersPage() {
               <button onClick={() => setModal(null)} className="px-4 py-2 border rounded-lg text-sm">Hủy</button>
               <button onClick={handleSave} disabled={saving} className="px-4 py-2 bg-brand-500 text-white rounded-lg text-sm font-medium hover:bg-brand-600 disabled:opacity-50">
                 {saving ? 'Đang lưu...' : 'Lưu'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {zaloDraft && (
+        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4" onClick={() => setZaloDraft(null)}>
+          <div className="bg-white rounded-xl shadow-xl w-full max-w-lg p-6" onClick={e => e.stopPropagation()}>
+            <div className="flex items-start justify-between gap-3 mb-4">
+              <div>
+                <h2 className="text-lg font-bold text-gray-900">Nháp Zalo chăm sóc NPP</h2>
+                <p className="text-sm text-gray-500 mt-1">{zaloDraft.customer_name} · health {zaloDraft.health_score}/100</p>
+              </div>
+              <span className="text-[10px] text-blue-700 bg-blue-50 px-2 py-1 rounded border border-blue-100">{zaloDraft.provider}</span>
+            </div>
+            <div className="rounded-lg border border-gray-200 bg-gray-50 p-4 text-sm text-gray-800 whitespace-pre-wrap leading-6">
+              {zaloDraft.draft_message}
+            </div>
+            <p className="text-xs text-gray-500 mt-3">{zaloDraft.reason}</p>
+            <div className="flex justify-end gap-3 mt-6">
+              <button onClick={() => setZaloDraft(null)} className="px-4 py-2 border rounded-lg text-sm">Đóng</button>
+              <button
+                onClick={() => {
+                  navigator.clipboard?.writeText(zaloDraft.draft_message)
+                  toast.success('Đã copy nháp Zalo')
+                }}
+                className="px-4 py-2 bg-blue-600 text-white rounded-lg text-sm font-medium hover:bg-blue-700"
+              >
+                Copy để gửi tay
               </button>
             </div>
           </div>

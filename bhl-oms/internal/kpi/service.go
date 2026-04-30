@@ -258,6 +258,10 @@ func (s *Service) GetKPIReport(ctx context.Context, warehouseID *uuid.UUID, from
 // AggregatedKPIReport is the aggregated single-object report for a period (matches frontend interface).
 type AggregatedKPIReport struct {
 	Period             string  `json:"period"`
+	ScopeFrom          string  `json:"scope_from"`
+	ScopeTo            string  `json:"scope_to"`
+	DataAsOf           string  `json:"data_as_of"`
+	LatestFallback     bool    `json:"latest_fallback"`
 	OTDRate            float64 `json:"otd_rate"`
 	VehicleUtilization float64 `json:"vehicle_utilization"`
 	AvgCapacityUtil    float64 `json:"avg_capacity_util"`
@@ -277,12 +281,14 @@ func (s *Service) GetAggregatedReport(ctx context.Context, period string, wareho
 	now := time.Now().In(time.FixedZone("ICT", 7*3600))
 	today := now.Format("2006-01-02")
 
-	// Find most recent snapshot date if no data for today
+	// Find most recent snapshot date if no data for today. The response exposes
+	// this fallback explicitly so the UI never labels historical data as today.
 	var latestDate string
 	_ = s.repo.db.QueryRow(ctx, `SELECT MAX(snapshot_date)::text FROM daily_kpi_snapshots`).Scan(&latestDate)
 	if latestDate == "" {
 		latestDate = today
 	}
+	latestFallback := latestDate != today
 
 	var from, to string
 	switch period {
@@ -298,6 +304,10 @@ func (s *Service) GetAggregatedReport(ctx context.Context, period string, wareho
 		latest, _ := time.Parse("2006-01-02", latestDate)
 		from = latest.AddDate(0, 0, -29).Format("2006-01-02")
 		to = latestDate
+	case "history":
+		latest, _ := time.Parse("2006-01-02", latestDate)
+		from = latest.AddDate(0, 0, -89).Format("2006-01-02")
+		to = latestDate
 	default:
 		from = today
 		to = today
@@ -311,7 +321,7 @@ func (s *Service) GetAggregatedReport(ctx context.Context, period string, wareho
 		return nil, nil
 	}
 
-	result := &AggregatedKPIReport{Period: period}
+	result := &AggregatedKPIReport{Period: period, ScopeFrom: from, ScopeTo: to, DataAsOf: to, LatestFallback: latestFallback}
 	var otdSum, utilSum, reconSum float64
 	for _, snap := range snaps {
 		result.TotalTrips += snap.TotalTrips

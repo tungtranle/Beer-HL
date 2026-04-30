@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"net/http"
+	"time"
 
 	"bhl-oms/internal/middleware"
 	"bhl-oms/pkg/response"
@@ -32,7 +33,11 @@ func (h *Handler) RegisterRoutes(r *gin.RouterGroup) {
 	driver.POST("/gps/batch", h.BatchGPS)
 
 	// Dispatcher: get latest positions
-	r.GET("/gps/latest", h.GetLatestPositions)
+	// QW-006 / HIGH-009: chỉ role điều hành/quản lý mới xem realtime vị trí cả flotilla,
+	// tránh leak vehicle_id cho driver/security (gắn với CRIT-007).
+	r.GET("/gps/latest",
+		middleware.RequireRole("admin", "dispatcher", "management", "warehouse_handler"),
+		h.GetLatestPositions)
 }
 
 // batchGPSRequest is the request body for batch GPS upload.
@@ -62,6 +67,22 @@ func (h *Handler) BatchGPS(c *gin.Context) {
 	if driverID == uuid.Nil {
 		response.Unauthorized(c, "Không xác định được tài xế")
 		return
+	}
+
+	// CRIT-007: override vehicle_id with driver's actual in_transit trip vehicle.
+	// Prevents driver A from spoofing GPS on vehicle assigned to driver B.
+	vehicleID, err := h.hub.lookupDriverVehicle(c.Request.Context(), driverID)
+	if err != nil {
+		// No active trip → silently accept but don't publish (no vehicle to update)
+		response.OK(c, gin.H{"received": len(req.Points), "message": "No active trip — GPS points buffered"})
+		return
+	}
+	for i := range req.Points {
+		req.Points[i].DriverID = driverID
+		req.Points[i].VehicleID = vehicleID // enforce ownership
+		if req.Points[i].Timestamp.IsZero() {
+			req.Points[i].Timestamp = time.Now()
+		}
 	}
 
 	if err := h.hub.PublishBatch(c.Request.Context(), driverID, req.Points); err != nil {

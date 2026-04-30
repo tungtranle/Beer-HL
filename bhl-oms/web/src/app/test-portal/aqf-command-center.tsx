@@ -1,8 +1,9 @@
 'use client'
 
 import { useCallback, useEffect, useState } from 'react'
+import { apiFetch } from '@/lib/api'
 
-const API = '/api/test-portal/aqf'
+const API = '/test-portal/aqf'
 
 // ─────────────────────────────────────────────────────────────
 // Types (mirrors aqf_types.go)
@@ -97,20 +98,17 @@ interface AQFStatusResponse {
 
 async function apiGet<T>(path: string): Promise<T | null> {
   try {
-    const res = await fetch(API + path)
-    const json = await res.json()
+    const json: any = await apiFetch(API + path)
     return json.success ? json.data : null
   } catch { return null }
 }
 
 async function apiPost<T>(path: string, body?: unknown): Promise<T | null> {
   try {
-    const res = await fetch(API + path, {
+    const json: any = await apiFetch(API + path, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: body ? JSON.stringify(body) : undefined,
+      body,
     })
-    const json = await res.json()
     return json.success ? json.data : null
   } catch { return null }
 }

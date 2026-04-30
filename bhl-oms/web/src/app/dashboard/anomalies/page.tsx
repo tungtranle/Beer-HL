@@ -30,6 +30,13 @@ interface Anomaly {
   zalo_sent: boolean
 }
 
+interface AnomalyExplanation {
+  explanation: string
+  suggestions: string[]
+  confidence: string
+  provider: string
+}
+
 const TYPE_LABELS: Record<Anomaly['anomaly_type'], string> = {
   deviation: 'Lệch tuyến',
   stop_overdue: 'Đứng quá lâu',
@@ -71,6 +78,8 @@ export default function AnomaliesPage() {
   const [resolving, setResolving] = useState<string | null>(null)
   const [resolveNote, setResolveNote] = useState('')
   const [resolveModal, setResolveModal] = useState<Anomaly | null>(null)
+  const [explanations, setExplanations] = useState<Record<string, AnomalyExplanation>>({})
+  const [explaining, setExplaining] = useState<string | null>(null)
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -97,6 +106,26 @@ export default function AnomaliesPage() {
       load()
     } catch (err) {
       handleError(err, { userMessage: 'Không ghi nhận được cảnh báo' })
+    }
+  }
+
+  const explainAnomaly = async (id: string) => {
+    if (explanations[id]) {
+      setExplanations((current) => {
+        const next = { ...current }
+        delete next[id]
+        return next
+      })
+      return
+    }
+    setExplaining(id)
+    try {
+      const res: any = await apiFetch(`/ai/anomaly/${id}/explain`)
+      setExplanations((current) => ({ ...current, [id]: res.data }))
+    } catch (err) {
+      handleError(err, { userMessage: 'Không tạo được giải thích AI cho cảnh báo này' })
+    } finally {
+      setExplaining(null)
     }
   }
 
@@ -239,8 +268,29 @@ export default function AnomaliesPage() {
                       Ghi chú xử lý: {a.resolution_note}
                     </div>
                   )}
+                  {explanations[a.id] && (
+                    <div className="mt-3 rounded-lg border border-sky-200 bg-sky-50 px-3 py-2 text-sm text-sky-900">
+                      <div className="flex items-center justify-between gap-2 mb-1">
+                        <span className="font-semibold">AI giải thích</span>
+                        <span className="text-[10px] text-sky-600 bg-white px-1.5 py-0.5 rounded border border-sky-100">{explanations[a.id].provider}</span>
+                      </div>
+                      <p>{explanations[a.id].explanation}</p>
+                      {explanations[a.id].suggestions?.length > 0 && (
+                        <ul className="mt-2 space-y-1 text-xs text-sky-800">
+                          {explanations[a.id].suggestions.map((item, idx) => <li key={idx}>• {item}</li>)}
+                        </ul>
+                      )}
+                    </div>
+                  )}
                 </div>
                 <div className="flex flex-col gap-2">
+                  <button
+                    onClick={() => explainAnomaly(a.id)}
+                    disabled={explaining === a.id}
+                    className="px-3 py-1.5 text-xs bg-sky-100 text-sky-700 rounded hover:bg-sky-200 transition disabled:opacity-50"
+                  >
+                    {explaining === a.id ? 'Đang giải thích...' : explanations[a.id] ? 'Ẩn AI' : 'AI giải thích'}
+                  </button>
                   {a.status === 'open' && (
                     <button
                       onClick={() => handleAck(a.id)}

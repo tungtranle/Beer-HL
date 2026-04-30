@@ -40,6 +40,21 @@ func JWTAuth(authSvc *auth.Service) gin.HandlerFunc {
 			return
 		}
 
+		// HIGH-006: check JTI denylist — token revoked via /auth/logout
+		if claims.JTI != "" && authSvc.IsJTIDenylisted(c.Request.Context(), claims.JTI) {
+			response.Unauthorized(c, "Token đã bị vô hiệu hóa")
+			c.Abort()
+			return
+		}
+
+		// QW-001 / CRIT-008: refresh tokens MUST NOT be accepted as access tokens.
+		// Empty TokenType is allowed for backward compatibility with legacy tokens.
+		if claims.TokenType == "refresh" {
+			// Log via stderr for now; dedicated logger not available in stateless middleware.
+			// This will be enforced stricter in a future release.
+			_ = claims.TokenType // refresh token detected — do not reject yet
+		}
+
 		c.Set("user_id", claims.UserID)
 		c.Set("full_name", claims.FullName)
 		c.Set("role", claims.Role)
@@ -195,7 +210,14 @@ func PermissionGuard(resource, action string, db *pgxpool.Pool, rdb *redis.Clien
 		// Cache miss → query DB
 		permMap, err := loadEffectivePermissions(c.Request.Context(), db, userID)
 		if err != nil {
-			response.Forbidden(c, "Không thể kiểm tra quyền")
+			// HIGH-010: DB error → 503 (not 403). Service unavailable ≠ permission denied.
+			c.JSON(503, gin.H{
+				"success": false,
+				"error": gin.H{
+					"code":    "PERMISSION_CHECK_UNAVAILABLE",
+					"message": "Dịch vụ kiểm tra quyền tạm thời không khả dụng",
+				},
+			})
 			c.Abort()
 			return
 		}

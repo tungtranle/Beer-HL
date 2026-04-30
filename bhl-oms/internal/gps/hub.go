@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"net/http"
+	"strings"
 	"sync"
 	"time"
 
@@ -13,6 +14,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
 	"github.com/gorilla/websocket"
+	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/redis/go-redis/v9"
 )
 
@@ -59,12 +61,16 @@ type GPSUpdate struct {
 // Hub manages WebSocket connections and Redis pub/sub for GPS.
 type Hub struct {
 	rdb     *redis.Client
+	db      *pgxpool.Pool
 	authSvc *auth.Service
 	log     logger.Logger
 
 	// Connected dispatcher WebSocket clients
 	mu      sync.RWMutex
 	clients map[*wsClient]bool
+
+	// HIGH-007: allowed WebSocket origins
+	allowedOrigins []string
 
 	// F7 anomaly detection hook (optional, async per-point).
 	detector PointDetector
@@ -83,22 +89,56 @@ type wsClient struct {
 	role   string
 }
 
-var upgrader = websocket.Upgrader{
-	ReadBufferSize:  1024,
-	WriteBufferSize: 1024,
-	CheckOrigin: func(r *http.Request) bool {
-		return true // CORS handled at Nginx level in production
-	},
+// upgrader is created per-Hub via newUpgrader() to support per-config origin check.
+func (h *Hub) newUpgrader() websocket.Upgrader {
+	return websocket.Upgrader{
+		ReadBufferSize:  1024,
+		WriteBufferSize: 1024,
+		// HIGH-007: whitelist origins; fall back to allow-all in dev/empty config
+		CheckOrigin: func(r *http.Request) bool {
+			if len(h.allowedOrigins) == 0 {
+				return true // dev mode — no restriction
+			}
+			origin := r.Header.Get("Origin")
+			for _, allowed := range h.allowedOrigins {
+				if strings.EqualFold(origin, allowed) {
+					return true
+				}
+			}
+			return false
+		},
+	}
 }
 
 // NewHub creates a GPS hub with Redis pub/sub.
-func NewHub(rdb *redis.Client, authSvc *auth.Service, log logger.Logger) *Hub {
+func NewHub(rdb *redis.Client, authSvc *auth.Service, log logger.Logger, db *pgxpool.Pool, allowedOrigins []string) *Hub {
 	return &Hub{
-		rdb:     rdb,
-		authSvc: authSvc,
-		log:     log,
-		clients: make(map[*wsClient]bool),
+		rdb:            rdb,
+		db:             db,
+		authSvc:        authSvc,
+		log:            log,
+		clients:        make(map[*wsClient]bool),
+		allowedOrigins: allowedOrigins,
 	}
+}
+
+// lookupDriverVehicle returns the vehicle_id of the trip currently in_transit for a driver.
+// CRIT-007: used to override client-supplied vehicle_id to prevent GPS spoofing.
+func (h *Hub) lookupDriverVehicle(ctx context.Context, driverID uuid.UUID) (uuid.UUID, error) {
+	var vehicleID uuid.UUID
+	err := h.db.QueryRow(ctx,
+		`SELECT t.vehicle_id FROM trips t
+		 JOIN drivers d ON d.id = t.driver_id
+		 WHERE d.user_id = $1
+		   AND t.status::text IN ('in_transit', 'started')
+		 ORDER BY t.started_at DESC NULLS LAST
+		 LIMIT 1`,
+		driverID,
+	).Scan(&vehicleID)
+	if err != nil {
+		return uuid.Nil, err
+	}
+	return vehicleID, nil
 }
 
 // Run starts the Redis subscriber goroutine. Call in a separate goroutine.
@@ -208,7 +248,8 @@ func (h *Hub) HandleWebSocket(c *gin.Context) {
 		return
 	}
 
-	conn, err := upgrader.Upgrade(c.Writer, c.Request, nil)
+	upg := h.newUpgrader()
+	conn, err := upg.Upgrade(c.Writer, c.Request, nil)
 	if err != nil {
 		h.log.Error(c.Request.Context(), "websocket_upgrade_failed", err)
 		return
@@ -243,16 +284,24 @@ func (h *Hub) removeClient(c *wsClient) {
 	h.mu.Unlock()
 }
 
+// broadcast sends msg to all connected clients.
+// LOW-001: collect slow clients while holding read lock, then remove them after
+// releasing the lock — avoids sending on a closed channel and prevents race.
 func (h *Hub) broadcast(msg []byte) {
+	var toRemove []*wsClient
+
 	h.mu.RLock()
-	defer h.mu.RUnlock()
 	for client := range h.clients {
 		select {
 		case client.send <- msg:
 		default:
-			// Client too slow, drop
-			go h.removeClient(client)
+			toRemove = append(toRemove, client)
 		}
+	}
+	h.mu.RUnlock()
+
+	for _, client := range toRemove {
+		h.removeClient(client)
 	}
 }
 
@@ -311,6 +360,15 @@ func (h *Hub) readPump(c *wsClient) {
 				point.DriverID = c.userID
 				if point.Timestamp.IsZero() {
 					point.Timestamp = time.Now()
+				}
+				// CRIT-007: override vehicle_id from driver's active trip — prevent GPS spoofing
+				if h.db != nil {
+					if vid, err := h.lookupDriverVehicle(context.Background(), c.userID); err == nil {
+						point.VehicleID = vid
+					} else {
+						h.log.Warn(context.Background(), "gps_ws_no_active_trip", logger.F("driver_id", c.userID.String()))
+						continue // drop point — driver has no active trip
+					}
 				}
 				h.PublishGPS(context.Background(), point)
 			}

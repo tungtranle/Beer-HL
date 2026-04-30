@@ -17,6 +17,10 @@
 | TD-H4-geocode | 44 toll stations mới (mig 039) có lat/lng=0/0 | `is_active=FALSE` — không tham gia VRP cost matching | Ops geocode thủ công + ENABLE | Sprint 2 | Medium — VRP cost chưa tính được 44 trạm này → underestimate ~30% chi phí BOT cho miền Bắc |
 | TD-F7-state-redis | GPS anomaly stationary state in-memory `map[uuid.UUID]` | Mất khi restart → stop-overdue trễ tối đa 10min | Migrate sang Redis khi scale > 1 instance | Sprint 3+ | Low — hiện tại single-instance |
 | TD-F7-zalo-stub | `notify()` chỉ log `anomaly_detected_zalo_pending` | Không gửi Zalo thực | Integrate `internal/integration/zalo` với template P0/P1 | Sprint 2 | Medium — dispatcher phải vào `/dashboard/anomalies` xem thay vì nhận push |
+| TD-WMS-BIN-AMBIG | `stock_quants.location_id` ambiguous (có thể là bin_id hoặc warehouse_id, không có FK rõ) | Service nay JOIN cả `bin_locations.id` lẫn fallback `pallets.current_bin_id` | Tách hai cột `bin_id`/`warehouse_id` rõ ràng + FK constraints, hoặc rename thành `bin_location_id NOT NULL` | Phase 10 WMS cleanup | Medium — đụng nhiều query, cần migration data |
+| TD-LOTS-FROZEN | `lots` thiếu cột `is_frozen` mà BRD đề cập (FEFO ignore frozen lots) | Hiện FEFO chỉ sort theo expiry_date, không loại frozen | ADD COLUMN is_frozen BOOL + cập nhật picking allocator | Phase 10 | Low — chưa có lot frozen thực tế |
+| TD-VRP-TIMEWINDOWS | VRP solver chưa enforce `delivery_windows` / `forbidden_windows` cứng (mới enforce vehicle weight) | Solver bỏ qua windows JSONB; planner xem chips để né thủ công | Thêm `time_dimension.CumulVar(node).SetRange(start, end)` ở solver Python | Sprint sau | Medium — cần biết khung giờ trip thực tế (start_time + service_time per stop) |
+| TD-PASSPORT-INLINE | 4 endpoints Asset Passport viết inline trong `cmd/server/main.go` thay vì module riêng | Hoạt động đúng, nhưng main.go phình to | Tách thành `internal/passport/` với handler/service/repo | Khi cần thêm advanced analytics (e.g., predictive maintenance) | Low |
 | TD-005 | DB access thủ công | Raw pgx queries | sqlc generated code | Sau go-live | **High** — rewrite toàn bộ repository |
 | TD-006 | Driver app là web | Next.js web pages | React Native Expo (BRD) | Sau go-live | **High** — build app mới, khác codebase |
 | TD-007 | Integration mock mặc định | `INTEGRATION_MOCK=true`, standalone mock server sẵn sàng (cmd/mock_server) | Real HTTP calls | Khi có sandbox | Low — mock server đã test HTTP path |
@@ -40,6 +44,9 @@
 | TD-025 | Thiếu Repository layer (3 modules) | auth, admin, kpi: service query DB trực tiếp, không có repository.go | Tách repository.go riêng cho mỗi module | Post go-live | Medium — khó mock test, khó thay đổi DB layer |
 | TD-026 | Token endpoint defer (NPP confirm/reject) | Endpoints `confirm_order`, `reject_order` token-based chưa build — Phase 2 cần NPP App | Build khi triển khai NPP App (DEC-012) | Phase 2 (3-6 tháng) | Low — Zalo OA + DVKH ghi thay đủ cho Phase 1 |
 | TD-027 | Note visibility locked (internal only) | `order_notes.visibility` chỉ hỗ trợ `internal`, chưa unlock `shared` cho NPP đọc | Unlock khi NPP App Phase 2, thêm filter visibility trong query | Phase 2 (3-6 tháng) | Low — NPP chưa có app nên không cần shared |
+| TD-028 | QA full smoke chưa phủ hết scoped runner | `qa_scenario_runs`/`qa_owned_entities` và 4 demo scenarios đã có; cần mở rộng regression/full smoke dựa trên ownership model | Thêm test automation cho scoped runner và các scenario DB rộng hơn, vẫn giữ historical rows touched = 0 | Trước go-live QA full smoke | Medium — demo an toàn đã có, automation regression cần mở rộng |
+| TD-029 | Telegram AQF alert chưa wire vào workflow | `aqf.config.yml` có `TELEGRAM_*`, nhưng chưa thấy G3/G4 step gửi Telegram thật | Thêm notify step cho daily smoke/fail alert, dùng GitHub secrets/server env | Trước go-live | Medium — founder phải tự mở GitHub/Portal để biết lỗi |
+| TD-030 | Frontend Sentry DSN hardcode | `web/sentry.*.config.ts` hardcode DSN | Dùng env var (`NEXT_PUBLIC_SENTRY_DSN`/`SENTRY_DSN`) và docs secret | Trước go-live security polish | Medium — khó rotate DSN, leak config trong repo |
 
 ---
 

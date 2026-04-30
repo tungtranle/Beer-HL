@@ -24,6 +24,7 @@ Khi hoàn thành một thay đổi code (tính năng mới, sửa lỗi, thay đ
 | Kiến trúc hệ thống | `SAD_BHL_OMS_TMS_WMS.md` |
 | Giao diện / UX flow | `UIX_BHL_OMS_TMS_WMS.md` |
 | Test case | `TST_BHL_OMS_TMS_WMS.md` |
+| AQF gate / QA Portal / evidence / data safety | `AQF_BHL_SETUP.md` + `TST_BHL_OMS_TMS_WMS.md` |
 | Tích hợp bên ngoài | `INT_BHL_OMS_TMS_WMS.md` |
 | Hạ tầng / deployment | `INF_BHL_OMS_TMS_WMS.md` |
 | Migration data | `MIG_BHL_OMS_TMS_WMS.md` |
@@ -36,3 +37,12 @@ Khi hoàn thành một thay đổi code (tính năng mới, sửa lỗi, thay đ
 - Thêm tính năng drag-drop điều chỉnh VRP → Cập nhật BRD (User Story mới), API doc (endpoint mới nếu có), UIX (mô tả UX flow mới).
 - Sửa bug hiển thị địa chỉ → Cập nhật TST (thêm test case regression).
 - Thêm OSRM routing trên bản đồ → Cập nhật BRD (User Story), SAD (kiến trúc tích hợp OSRM), INT (external service mới).
+
+## AQF không được drift
+
+Khi thay đổi code có ảnh hưởng tới chất lượng/go-live, không chỉ cập nhật BRD/spec nghiệp vụ. Phải kiểm tra thêm:
+
+1. `AQF_BHL_SETUP.md` có còn đúng về gate, scenario, evidence, monitoring, data safety không?
+2. `TST_BHL_OMS_TMS_WMS.md` có cần thêm test/golden/E2E/API case không?
+3. `TASK_TRACKER.md` có task AQF follow-up hoặc blocker cần đánh dấu không?
+4. Nếu thay đổi tạo/cleanup dữ liệu test: docs phải ghi rõ ownership model và cách chứng minh historical rows touched = 0.

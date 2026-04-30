@@ -2,8 +2,8 @@
 
 | Thông tin | Giá trị |
 |-----------|---------|
-| Phiên bản | **v1.0** |
-| Dựa trên | BRD v2.0, SAD v2.1, API v1.0 |
+| Phiên bản | **v1.1** |
+| Dựa trên | BRD v3.8, SAD v2.1, API v1.3 |
 | Platforms | Web (Next.js 14) + Driver App (React Native Expo) + PDA (PWA) + NPP Portal (Public page) |
 
 ---
@@ -25,6 +25,7 @@
 13. [Navigation Flow Diagrams](#13-navigation-flow-diagrams)
 14. [Component Library](#14-component-library)
 15. [Responsive & Accessibility](#15-responsive--accessibility)
+16. [AI-Native UX Patterns](#16-ai-native-ux-patterns)
 
 ---
 
@@ -886,6 +887,91 @@ WEB-OMS-03 (Create) → WEB-OMS-01 (List, status=new)
 
 ---
 
-**=== HẾT TÀI LIỆU UIX v1.0 ===**
+# 16. AI-NATIVE UX PATTERNS
 
-*UI/UX Screen Inventory & Flow v1.0 — 49 screens, wireframes, navigation flows, component library, design system.*
+## 16.1 AI Settings — `/dashboard/settings/ai`
+
+| Item | Requirement |
+|---|---|
+| Access | Admin only |
+| Master switch | `ai.master` controls effective state of every AI feature |
+| Feature list | Shows 17 blueprint flags with category and ON/OFF state |
+| Role overrides | Admin can toggle role-level overrides for each flag |
+| Baseline rule | Page copy must state AI OFF keeps core workflow usable |
+
+## 16.2 Hook contract
+
+```tsx
+const { enabled } = useAIFeature('ai.forecast')
+
+return (
+    <>
+        <BaseOrderForm />
+        {enabled && <AIDemandForecastWidget />}
+    </>
+)
+```
+
+Never block baseline page content while waiting for AI flags.
+
+## 16.3 Transparency Center — `/dashboard/ai/transparency`
+
+| Item | Requirement |
+|---|---|
+| Purpose | Cho admin/management nhìn AI đang bật gì, provider nào sẵn sàng, guardrail nào đang áp dụng |
+| Baseline | Page vẫn render khi AI OFF; provider status và guardrails không phụ thuộc LLM |
+| Content | Effective flags, Gemini/Groq/local-rules status, Privacy Router/Audit/Simulation/Trust Loop guardrails |
+
+## 16.4 Simulation Lab — `/dashboard/ai/simulations`
+
+| Item | Requirement |
+|---|---|
+| Purpose | Tạo dry-run VRP what-if snapshot trước khi người điều phối áp dụng |
+| AI OFF | Hiển thị disabled state rõ ràng, không block dashboard hoặc workflow TMS |
+| Apply | Luôn approval-required, hiển thị undo TTL 30 giây; Phase 6 foundation không mutate core tables |
+
+## 16.5 Shared AI primitives
+
+| Component | Usage |
+|---|---|
+| `AIStatusBadge` | Hiển thị AI ON/OFF/provider route trên widget |
+| `ExplainabilityPopover` | Lý do, confidence, nguồn dữ liệu của đề xuất |
+| `ApprovalCard` | Tier-2 human approval card cho đề xuất AI |
+| `UndoBanner` | Undo TTL sau hành động AI-assisted |
+| `SimulationCard` | So sánh option A/B/C và chọn phương án |
+| `AIInboxPanel` | Dashboard inbox; lỗi API không làm hỏng baseline dashboard |
+| `AIContextStrip` | Inline decision strip cho rủi ro hoặc review quan trọng; có dismiss, explainability và trust metadata |
+| `ConfidenceMeter` | Hiển thị confidence + nguồn + data freshness/sample size, không chỉ một số % rời rạc |
+| `DemandIntelligencePanel` | OMS sidebar dự báo 4 tuần cho NPP×SKU×kho; lỗi solver hiển thị fallback/empty state |
+| `OutreachQueueWidget` | Dashboard DVKH/admin/management hiển thị 3 NPP cần liên hệ hôm nay |
+
+## 16.6 AI-R / AI-G / AI-M inline surfaces
+
+| Surface | Behavior |
+|---|---|
+| Dashboard | `DispatchBriefCard` hiển thị brief điều phối cho admin/dispatcher/management; lỗi API thì ẩn, không phá dashboard baseline |
+| Control Tower | Marker xe hiển thị badge anomaly score 0-100 và popup có level `normal/watch/alert/critical` |
+| Approvals | Đơn vượt hạn mức có `CreditRiskChip` để kế toán thấy LOW/MEDIUM/HIGH/CRITICAL trước khi duyệt |
+| OMS order form | Mỗi dòng SKU có `SeasonalDemandAlert` nếu số lượng thấp hơn seasonal expectation |
+| OMS order form | Sidebar `DemandIntelligencePanel` hiển thị forecast 4 tuần cho SKU đầu tiên đã chọn; không chặn submit khi API lỗi |
+| Dashboard | `OutreachQueueWidget` hiển thị top 3 NPP rủi ro cho DVKH/admin/management |
+| Anomalies | Nút `AI giải thích` mở panel giải thích + 2 hành động gợi ý; người điều phối vẫn tự ack/resolve |
+| Customers | NPP risk RED có nút `Nháp Zalo`; modal chỉ preview/copy để DVKH gửi tay, không auto-send |
+
+## 16.7 Decision Intelligence one-shot scope — 27/04/2026
+
+| Workflow vàng | UX đã chuẩn hóa | Guardrail |
+|---|---|---|
+| OMS create order | `AIContextStrip` dưới selector NPP khi `ai.credit_score` ON và có insight đáng chú ý; TTL cache 5 phút | API fail hoặc flag OFF thì ẩn strip, form baseline vẫn tạo đơn bình thường |
+| Approval queue | Tab “Ưu tiên xử lý” sort theo SLA, tỷ lệ vượt hạn mức, giá trị đơn và urgent flag | Không đổi R15; phê duyệt/từ chối vẫn là action người dùng |
+| Planning/VRP | Panel “Điểm cần xem trước khi duyệt” build rule-based từ result: unassigned, tải >90%, >8h, toll high, thiếu xe | Không tự duyệt kế hoạch; chỉ hỗ trợ review trước approval |
+| Control Tower | Vehicle anomaly score chỉ gọi khi `ai.gps_anomaly` ON | AI OFF thì không gọi `/ai/vehicle-score`, bản đồ/trip baseline vẫn chạy |
+| Driver PWA | `VoiceCommandFAB` khi `ai.voice` ON + Web Speech support; lệnh thoại chỉ mở xác nhận | Không auto-submit delivery/payment/fail action; timeout thì hủy |
+
+Attention budget: mỗi page chỉ nên có 1 AI surface expanded mặc định; insight P2/P3 chuyển thành chip/drawer hoặc inbox.
+
+---
+
+**=== HẾT TÀI LIỆU UIX v1.1 ===**
+
+*UI/UX Screen Inventory & Flow v1.1 — 49 baseline screens + AI-native progressive enhancements.*

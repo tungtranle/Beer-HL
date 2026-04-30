@@ -20,12 +20,13 @@ import {
   CircleDollarSign, BarChart3, ArrowRight, Sparkles, type LucideIcon,
 } from 'lucide-react'
 import { apiFetch, getUser } from '@/lib/api'
-import { formatVND } from '@/lib/status-config'
+import { formatVND, formatCount } from '@/lib/status-config'
 import { handleError } from '@/lib/handleError'
 import { PageHeader } from '@/components/ui/PageHeader'
 import { KpiCard } from '@/components/ui/KpiCard'
 import { Card, CardHeader } from '@/components/ui/Card'
 import { SkeletonGrid } from '@/components/ui/Skeleton'
+import { AIInboxPanel, DispatchBriefCard, OutreachQueueWidget } from '@/components/ai'
 
 interface Stats {
   total_orders: number
@@ -40,6 +41,9 @@ interface Stats {
   pending_approvals: number
   total_products: number
   total_customers: number
+  scope_from?: string
+  scope_to?: string
+  scope_label?: string
 }
 
 type CardCfg = {
@@ -95,40 +99,40 @@ export default function DashboardPage() {
 
   const cards: CardCfg[] = useMemo(() => {
     const base: CardCfg = {
-      label: 'Tổng đơn hàng', value: stats?.total_orders ?? '—',
+      label: 'Đơn trong tháng', value: stats ? formatCount(stats.total_orders) : '—',
       icon: ClipboardList, tone: 'info', href: '/dashboard/orders',
-      hint: stats ? `${stats.orders_today} mới hôm nay` : undefined,
+      hint: stats ? `${formatCount(stats.orders_today)} mới hôm nay` : undefined,
     }
     if (['admin', 'dispatcher'].includes(role)) {
       return [
         base,
-        { label: 'Đơn chờ giao', value: stats?.pending_shipments ?? '—', icon: Package, tone: 'warning', href: '/dashboard/orders?status=confirmed' },
-        { label: 'Chuyến đang chạy', value: stats?.active_trips ?? '—', icon: Truck, tone: 'success', href: '/dashboard/trips', hint: stats ? `Hoàn tất hôm nay: ${stats.completed_trips_today}` : undefined },
-        { label: 'Sản phẩm', value: stats?.total_products ?? '—', icon: Beer, tone: 'brand', href: '/dashboard/products' },
-        { label: 'Khách hàng (NPP)', value: stats?.total_customers ?? '—', icon: Store, tone: 'neutral', href: '/dashboard/customers' },
+        { label: 'Đơn chờ giao', value: stats ? formatCount(stats.pending_shipments) : '—', icon: Package, tone: 'warning', href: '/dashboard/orders?status=confirmed' },
+        { label: 'Chuyến đang chạy', value: stats ? formatCount(stats.active_trips) : '—', icon: Truck, tone: 'success', href: '/dashboard/trips', hint: stats ? `Hoàn tất hôm nay: ${formatCount(stats.completed_trips_today)}` : undefined },
+        { label: 'Sản phẩm', value: stats ? formatCount(stats.total_products) : '—', icon: Beer, tone: 'brand', href: '/dashboard/products' },
+        { label: 'Khách hàng (NPP)', value: stats ? formatCount(stats.total_customers) : '—', icon: Store, tone: 'neutral', href: '/dashboard/customers' },
       ]
     }
     if (role === 'accountant') {
       const overdue = (stats?.pending_approvals ?? 0) > 0
       return [
         base,
-        { label: 'Đơn chờ duyệt', value: stats?.pending_approvals ?? '—', icon: ClockArrowDown, tone: overdue ? 'danger' : 'warning', href: '/dashboard/approvals', hint: 'T+1 SLA', pulse: overdue },
-        { label: 'Sai lệch chưa xử lý', value: stats?.pending_discrepancies ?? '—', icon: AlertTriangle, tone: 'danger', href: '/dashboard/reconciliation' },
+        { label: 'Đơn chờ duyệt', value: stats ? formatCount(stats.pending_approvals) : '—', icon: ClockArrowDown, tone: overdue ? 'danger' : 'warning', href: '/dashboard/approvals', hint: 'T+1 SLA', pulse: overdue },
+        { label: 'Sai lệch chưa xử lý', value: stats ? formatCount(stats.pending_discrepancies) : '—', icon: AlertTriangle, tone: 'danger', href: '/dashboard/reconciliation' },
         { label: 'Doanh thu hôm nay', value: formatVND(stats?.revenue_today ?? 0), icon: CircleDollarSign, tone: 'success', href: '/dashboard/reconciliation/daily-close' },
-        { label: 'Chuyến đang chạy', value: stats?.active_trips ?? '—', icon: Truck, tone: 'info', href: '/dashboard/trips' },
+        { label: 'Chuyến đang chạy', value: stats ? formatCount(stats.active_trips) : '—', icon: Truck, tone: 'info', href: '/dashboard/trips' },
       ]
     }
     if (role === 'dvkh') {
       return [
         base,
-        { label: 'Đơn chờ giao', value: stats?.pending_shipments ?? '—', icon: Package, tone: 'warning', href: '/dashboard/orders?status=confirmed' },
-        { label: 'Sản phẩm', value: stats?.total_products ?? '—', icon: Beer, tone: 'brand', href: '/dashboard/products' },
-        { label: 'Khách hàng (NPP)', value: stats?.total_customers ?? '—', icon: Store, tone: 'neutral', href: '/dashboard/customers' },
+        { label: 'Đơn chờ giao', value: stats ? formatCount(stats.pending_shipments) : '—', icon: Package, tone: 'warning', href: '/dashboard/orders?status=confirmed' },
+        { label: 'Sản phẩm', value: stats ? formatCount(stats.total_products) : '—', icon: Beer, tone: 'brand', href: '/dashboard/products' },
+        { label: 'Khách hàng (NPP)', value: stats ? formatCount(stats.total_customers) : '—', icon: Store, tone: 'neutral', href: '/dashboard/customers' },
       ]
     }
     if (role === 'management') {
       return [
-        { label: 'Doanh thu hôm nay', value: formatVND(stats?.revenue_today ?? 0), icon: CircleDollarSign, tone: 'success', href: '/dashboard/kpi' },
+        { label: 'Doanh thu hôm nay', value: formatVND(stats?.revenue_today ?? 0), icon: CircleDollarSign, tone: 'success', href: '/dashboard/kpi?period=today' },
         { label: 'Tỷ lệ giao thành công', value: stats?.delivery_rate ? `${stats.delivery_rate.toFixed(1)}%` : '—', icon: BarChart3, tone: 'info', href: '/dashboard/kpi' },
         { label: 'Chuyến đang chạy', value: stats?.active_trips ?? '—', icon: Truck, tone: 'brand', href: '/dashboard/trips' },
         { label: 'Sai lệch chưa xử lý', value: stats?.pending_discrepancies ?? '—', icon: AlertTriangle, tone: 'danger', href: '/dashboard/reconciliation' },
@@ -137,10 +141,10 @@ export default function DashboardPage() {
     }
     return [
       base,
-      { label: 'Đơn chờ giao', value: stats?.pending_shipments ?? '—', icon: Package, tone: 'warning', href: '/dashboard/orders?status=confirmed' },
-      { label: 'Chuyến đang chạy', value: stats?.active_trips ?? '—', icon: Truck, tone: 'success', href: '/dashboard/trips' },
-      { label: 'Sản phẩm', value: stats?.total_products ?? '—', icon: Beer, tone: 'brand', href: '/dashboard/products' },
-      { label: 'Khách hàng (NPP)', value: stats?.total_customers ?? '—', icon: Store, tone: 'neutral', href: '/dashboard/customers' },
+      { label: 'Đơn chờ giao', value: stats ? formatCount(stats.pending_shipments) : '—', icon: Package, tone: 'warning', href: '/dashboard/orders?status=confirmed' },
+      { label: 'Chuyến đang chạy', value: stats ? formatCount(stats.active_trips) : '—', icon: Truck, tone: 'success', href: '/dashboard/trips' },
+      { label: 'Sản phẩm', value: stats ? formatCount(stats.total_products) : '—', icon: Beer, tone: 'brand', href: '/dashboard/products' },
+      { label: 'Khách hàng (NPP)', value: stats ? formatCount(stats.total_customers) : '—', icon: Store, tone: 'neutral', href: '/dashboard/customers' },
     ]
   }, [stats, role])
 
@@ -157,7 +161,7 @@ export default function DashboardPage() {
     <div className="max-w-[1400px] mx-auto">
       <PageHeader
         title={`Chào buổi ${period} ${emoji}, ${user?.full_name?.split(' ').slice(-1)[0] || 'bạn'}`}
-        subtitle={role ? `Bảng điều khiển — ${ROLE_LABEL[role] ?? role}` : 'Bảng điều khiển'}
+        subtitle={role ? `Bảng điều khiển — ${ROLE_LABEL[role] ?? role} · ${stats?.scope_label || 'Tháng hiện tại'}` : 'Bảng điều khiển'}
       />
 
       {/* KPI tiles */}
@@ -177,6 +181,18 @@ export default function DashboardPage() {
               pulse={c.pulse}
             />
           ))}
+        </div>
+      )}
+
+      <div className="mb-6">
+        <AIInboxPanel />
+      </div>
+
+      <DispatchBriefCard />
+
+      {['admin', 'dvkh', 'management'].includes(role) && (
+        <div className="mb-6">
+          <OutreachQueueWidget />
         </div>
       )}
 

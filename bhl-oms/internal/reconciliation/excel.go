@@ -15,8 +15,10 @@ import (
 // GET /v1/reconciliation/export
 func (h *Handler) ExportReconciliations(c *gin.Context) {
 	status := c.Query("status")
+	fromDate := c.Query("from")
+	toDate := c.Query("to")
 
-	results, _, err := h.svc.ListReconciliations(c.Request.Context(), status, 1, 10000)
+	results, _, err := h.svc.ListReconciliations(c.Request.Context(), status, fromDate, toDate, 1, 10000)
 	if err != nil {
 		response.InternalError(c)
 		return

@@ -84,6 +84,9 @@ func (h *Handler) ListScenarios(c *gin.Context) {
 
 // POST /v1/test-portal/load-scenario — reset data + load scenario-specific data
 func (h *Handler) LoadScenario(c *gin.Context) {
+	response.BadRequest(c, "Legacy load-scenario đã bị tắt vì reset toàn bộ transactional data. QA Portal v2 phải nạp dữ liệu bằng scenario_run_id và chỉ cleanup dữ liệu owned bởi run trước.")
+	return
+
 	var req struct {
 		ScenarioID string `json:"scenario_id" binding:"required"`
 	}
@@ -962,8 +965,14 @@ func (h *Handler) loadScenarioGateCheckFail(ctx context.Context) (error, string)
 	  (SELECT id FROM warehouses WHERE code = 'WH-HL'),
 	  CURRENT_DATE, 2, 1500, 20.0
 	FROM vehicles v
-	JOIN drivers d ON d.id = (SELECT id FROM drivers LIMIT 1)
-	WHERE v.plate_number = '14C-00102'
+	JOIN drivers d ON d.id = (SELECT id FROM drivers WHERE status='active' ORDER BY id LIMIT 1)
+	WHERE v.id = (
+	  SELECT id FROM vehicles
+	   WHERE status='active'
+	     AND warehouse_id = (SELECT id FROM warehouses WHERE code='WH-HL')
+	   ORDER BY plate_number
+	   LIMIT 1
+	)
 	ON CONFLICT DO NOTHING
 	RETURNING id
 	`
@@ -1062,10 +1071,16 @@ func (h *Handler) loadScenarioReconDiscrepancy(ctx context.Context) (error, stri
 		  (SELECT id FROM warehouses WHERE code = 'WH-HL'),
 		  CURRENT_DATE - 1, 1, 1000, 15.0
 		FROM vehicles v
-		JOIN drivers d ON d.id = (SELECT id FROM drivers ORDER BY id OFFSET %d LIMIT 1)
-		WHERE v.plate_number = '14C-0010%d'
+		JOIN drivers d ON d.id = (SELECT id FROM drivers WHERE status='active' ORDER BY id OFFSET %d LIMIT 1)
+		WHERE v.id = (
+		  SELECT id FROM vehicles
+		   WHERE status='active'
+		     AND warehouse_id = (SELECT id FROM warehouses WHERE code='WH-HL')
+		   ORDER BY plate_number
+		   LIMIT 1 OFFSET %d
+		)
 		ON CONFLICT DO NOTHING
-		RETURNING id`, seq, i-1, i+1)
+		RETURNING id`, seq, i-1, i)
 		var tripID string
 		if err := tx.QueryRow(ctx, tripSQL).Scan(&tripID); err != nil {
 			return fmt.Errorf("trip_%d: %w", i, err), ""

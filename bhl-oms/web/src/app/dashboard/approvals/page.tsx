@@ -32,6 +32,7 @@ import { Button } from '@/components/ui/Button'
 import { EmptyState } from '@/components/ui/EmptyState'
 import { LoadingState } from '@/components/ui/LoadingState'
 import { KpiCard } from '@/components/ui/KpiCard'
+import { CreditRiskChip } from '@/components/ai'
 
 interface OrderItem {
   product_code: string; product_name: string
@@ -39,7 +40,7 @@ interface OrderItem {
 }
 
 interface PendingOrder {
-  id: string; order_number: string; customer_name: string; customer_code: string
+  id: string; order_number: string; customer_id: string; customer_name: string; customer_code: string
   total_amount: number; credit_limit: number; current_balance: number; available_limit: number
   exceed_amount: number; status: string; created_at: string; notes: string
   items?: OrderItem[]
@@ -75,6 +76,15 @@ const QUICK_REASONS = [
   'Liên hệ NPP để chia nhỏ đơn',
 ]
 
+function priorityScore(order: PendingOrder) {
+  const countdown = getT1Countdown(order.created_at)
+  const slaScore = countdown.tone === 'overdue' ? 100 : countdown.tone === 'urgent' ? 80 : countdown.tone === 'soon' ? 45 : 20
+  const overLimitRatio = order.credit_limit > 0 ? Math.min(100, (order.exceed_amount / order.credit_limit) * 100) : 0
+  const orderValueScore = Math.min(100, order.total_amount / 2_000_000)
+  const urgentScore = order.is_urgent ? 35 : 0
+  return Math.round(slaScore * 0.45 + overLimitRatio * 0.3 + orderValueScore * 0.2 + urgentScore)
+}
+
 export default function ApprovalsPage() {
   const [orders, setOrders] = useState<PendingOrder[]>([])
   const [loading, setLoading] = useState(true)
@@ -82,6 +92,7 @@ export default function ApprovalsPage() {
   const [expanded, setExpanded] = useState<string | null>(null)
   const [rejectModal, setRejectModal] = useState<string | null>(null)
   const [rejectReason, setRejectReason] = useState('')
+  const [queueMode, setQueueMode] = useState<'sla' | 'priority'>('sla')
 
   const loadData = async () => {
     setLoading(true)
@@ -94,9 +105,10 @@ export default function ApprovalsPage() {
   useEffect(() => { loadData() }, [])
   useDataRefresh('order', loadData)
 
-  // Sort by: urgent first, then countdown ASC (less time → top)
+  // Sort by: SLA baseline or Decision Intelligence priority mode.
   const sorted = useMemo(() => {
     return [...orders].sort((a, b) => {
+      if (queueMode === 'priority') return priorityScore(b) - priorityScore(a)
       const ca = getT1Countdown(a.created_at).minutesLeft
       const cb = getT1Countdown(b.created_at).minutesLeft
       // overdue (-1) bubbles first
@@ -104,7 +116,7 @@ export default function ApprovalsPage() {
       if (cb < 0 && ca >= 0) return 1
       return ca - cb
     })
-  }, [orders])
+  }, [orders, queueMode])
 
   const overdueCount = sorted.filter(o => getT1Countdown(o.created_at).tone === 'overdue').length
   const urgentCount = sorted.filter(o => getT1Countdown(o.created_at).tone === 'urgent').length
@@ -209,6 +221,22 @@ export default function ApprovalsPage() {
       </div>
 
       {/* Keyboard hint */}
+      <div className="mb-4 inline-flex rounded-lg border border-slate-200 bg-white p-1 shadow-sm">
+        {[
+          ['sla', 'Theo SLA'],
+          ['priority', 'Ưu tiên xử lý'],
+        ].map(([mode, label]) => (
+          <button
+            key={mode}
+            type="button"
+            onClick={() => setQueueMode(mode as 'sla' | 'priority')}
+            className={`rounded-md px-3 py-1.5 text-sm font-medium transition ${queueMode === mode ? 'bg-brand-500 text-white shadow-sm' : 'text-slate-600 hover:bg-slate-50'}`}
+          >
+            {label}
+          </button>
+        ))}
+      </div>
+
       <div className="flex items-center gap-3 mb-5 text-xs text-gray-400">
         <span>Phím tắt:</span>
         {[['J/↓', 'Xuống'], ['K/↑', 'Lên'], ['A', 'Duyệt'], ['R', 'Từ chối'], ['Esc', 'Đóng']].map(([key, label]) => (
@@ -262,6 +290,14 @@ export default function ApprovalsPage() {
                         <span>—</span>
                         <span className="truncate">{order.customer_name}</span>
                       </p>
+                      <div className="mt-2">
+                        <CreditRiskChip customerId={order.customer_id} />
+                      </div>
+                      {queueMode === 'priority' && (
+                        <div className="mt-2 inline-flex items-center gap-1.5 rounded-full bg-slate-100 px-2 py-0.5 text-xs font-semibold text-slate-600 ring-1 ring-slate-200">
+                          Ưu tiên {priorityScore(order)}/100 · SLA + vượt hạn mức + giá trị đơn
+                        </div>
+                      )}
                     </div>
                     <div className="flex items-center gap-2">
                       <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-semibold ring-1 bg-rose-50 text-rose-700 ring-rose-200">

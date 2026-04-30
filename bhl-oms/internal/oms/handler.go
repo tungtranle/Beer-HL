@@ -48,11 +48,12 @@ func (h *Handler) RegisterRoutes(r *gin.RouterGroup) {
 
 	// Orders
 	orders := r.Group("/orders")
-	orders.POST("", h.CreateOrder)
+	// QW-008 / HIGH-001: ghi đơn (create/update/cancel) chỉ dispatcher/dvkh/admin mới được làm.
+	orders.POST("", middleware.RequireRole("admin", "dispatcher", "dvkh"), h.CreateOrder)
 	orders.GET("", h.ListOrders)
 	orders.GET("/:id", h.GetOrder)
-	orders.PUT("/:id", h.UpdateOrder)
-	orders.POST("/:id/cancel", h.CancelOrder)
+	orders.PUT("/:id", middleware.RequireRole("admin", "dispatcher", "dvkh"), h.UpdateOrder)
+	orders.POST("/:id/cancel", middleware.RequireRole("admin", "dispatcher", "dvkh"), h.CancelOrder)
 	orders.POST("/:id/approve", middleware.RequireRole("admin", "accountant", "management"), h.ApproveOrder)
 	orders.POST("/:id/split", middleware.RequireRole("admin", "dispatcher"), h.SplitOrder)
 	orders.POST("/consolidate", middleware.RequireRole("admin", "dispatcher"), h.ConsolidateOrders)
@@ -353,7 +354,10 @@ func (h *Handler) ListOrders(c *gin.Context) {
 	page, _ := strconv.Atoi(c.DefaultQuery("page", "1"))
 	limit, _ := strconv.Atoi(c.DefaultQuery("limit", "20"))
 	status := c.Query("status")
+	customerID := c.Query("customer_id")
 	deliveryDate := c.Query("delivery_date")
+	fromDate := c.Query("from")
+	toDate := c.Query("to")
 	cutoffGroup := c.Query("cutoff_group")
 
 	warehouseID, allowed := middleware.ResolveWarehouseScope(c)
@@ -362,7 +366,7 @@ func (h *Handler) ListOrders(c *gin.Context) {
 		return
 	}
 
-	orders, total, err := h.svc.ListOrders(c.Request.Context(), warehouseID, status, deliveryDate, cutoffGroup, page, limit)
+	orders, total, err := h.svc.ListOrders(c.Request.Context(), warehouseID, status, customerID, deliveryDate, fromDate, toDate, cutoffGroup, page, limit)
 	if err != nil {
 		response.InternalError(c)
 		return
@@ -535,7 +539,7 @@ func (h *Handler) GetControlDeskStats(c *gin.Context) {
 		warehouseID = &parsed
 	}
 
-	stats, err := h.svc.GetControlDeskStats(c.Request.Context(), warehouseID)
+	stats, err := h.svc.GetControlDeskStats(c.Request.Context(), warehouseID, c.Query("from"), c.Query("to"))
 	if err != nil {
 		h.log.Error(c.Request.Context(), "GetControlDeskStats failed", err)
 		response.InternalError(c)

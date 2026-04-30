@@ -3,6 +3,8 @@ package ai
 import (
 	"context"
 	"fmt"
+	"os"
+	"strings"
 	"time"
 
 	"bhl-oms/pkg/logger"
@@ -75,6 +77,9 @@ func (s *Service) GetDispatchBrief(ctx context.Context) (*DispatchBrief, error) 
 
 	// Cache hit
 	if content, prov, ok := s.repo.GetInsight(ctx, "dispatch_brief", today); ok {
+		if isFallbackBriefProvider(prov) && cloudProviderConfigured() {
+			return s.generateDispatchBrief(ctx, today)
+		}
 		dc, _ := s.repo.GetDispatchContext(ctx)
 		brief := &DispatchBrief{
 			Date:        today,
@@ -92,6 +97,19 @@ func (s *Service) GetDispatchBrief(ctx context.Context) (*DispatchBrief, error) 
 	}
 
 	return s.generateDispatchBrief(ctx, today)
+}
+
+func (s *Service) RefreshDispatchBrief(ctx context.Context) (*DispatchBrief, error) {
+	return s.generateDispatchBrief(ctx, time.Now().Format("2006-01-02"))
+}
+
+func cloudProviderConfigured() bool {
+	return os.Getenv("GROQ_API_KEY") != "" || os.Getenv("GEMINI_API_KEY") != ""
+}
+
+func isFallbackBriefProvider(provider string) bool {
+	lower := strings.ToLower(provider)
+	return lower == "" || strings.Contains(lower, "mock") || strings.Contains(lower, "rules")
 }
 
 func (s *Service) generateDispatchBrief(ctx context.Context, date string) (*DispatchBrief, error) {
@@ -113,14 +131,20 @@ Viết ngắn gọn, thực tế, tập trung điểm cần chú ý nhất. Khô
 		dc.Date, dc.TotalOrders, dc.PendingOrders, dc.ActiveTrips, dc.AtRiskNPPs, dc.OpenExceptions,
 	)
 
-	text, err := s.provider.Generate(ctx, prompt)
+	result, err := s.GenerateWithPrivacy(ctx, AIProviderCall{FeatureKey: FlagBriefing, ActionType: "dispatch_brief", Prompt: prompt})
+	text := ""
+	provider := s.provider.Name()
 	if err != nil {
 		s.log.Warn(ctx, "ai.dispatch_brief_llm_failed", logger.F("err", err.Error()))
 		text = fmt.Sprintf("Hôm nay %s: %d đơn (%d đang chờ), %d chuyến active, %d NPP cần theo dõi, %d cảnh báo GPS đang mở.",
 			dc.Date, dc.TotalOrders, dc.PendingOrders, dc.ActiveTrips, dc.AtRiskNPPs, dc.OpenExceptions)
+		provider = "rules"
+	} else {
+		text = result.Text
+		provider = result.Provider
 	}
 
-	_ = s.repo.SaveInsight(ctx, "dispatch_brief", date, text, s.provider.Name())
+	_ = s.repo.SaveInsight(ctx, "dispatch_brief", date, text, provider)
 
 	return &DispatchBrief{
 		Date:        date,
@@ -130,7 +154,7 @@ Viết ngắn gọn, thực tế, tập trung điểm cần chú ý nhất. Khô
 		ActiveTrips: dc.ActiveTrips,
 		Exceptions:  dc.OpenExceptions,
 		GeneratedAt: time.Now(),
-		Provider:    s.provider.Name(),
+		Provider:    provider,
 	}, nil
 }
 
@@ -157,11 +181,10 @@ func (s *Service) ExplainAnomaly(ctx context.Context, anomalyID uuid.UUID) (*Exc
 	}
 
 	anomalyTypeVN := map[string]string{
-		"route_deviation": "lệch tuyến",
-		"long_stop":       "dừng lâu bất thường",
-		"speed_violation": "vi phạm tốc độ",
-		"off_route":       "ra khỏi tuyến kế hoạch",
-		"gps_lost":        "mất tín hiệu GPS",
+		"deviation":    "lệch tuyến",
+		"stop_overdue": "dừng lâu bất thường",
+		"speed_high":   "vi phạm tốc độ",
+		"off_route":    "ra khỏi tuyến kế hoạch",
 	}
 	typeVN, ok := anomalyTypeVN[ac.AnomalyType]
 	if !ok {
@@ -192,14 +215,20 @@ HÀNH ĐỘNG 2: [hành động cụ thể]`,
 		ac.DetectedAt.Format("15:04 02/01/2006"), pastNote,
 	)
 
-	text, genErr := s.provider.Generate(ctx, prompt)
+	result, genErr := s.GenerateWithPrivacy(ctx, AIProviderCall{FeatureKey: FlagExplainability, ActionType: "explain_anomaly", Prompt: prompt})
+	text := ""
+	provider := s.provider.Name()
 	if genErr != nil {
 		s.log.Warn(ctx, "ai.explain_anomaly_llm_failed", logger.F("err", genErr.Error()))
 		text = fmt.Sprintf("GIẢI THÍCH: Xe %s %s (%.1f km, %.0f phút). %s\nHÀNH ĐỘNG 1: Gọi điện tài xế xác nhận tình trạng\nHÀNH ĐỘNG 2: Theo dõi GPS trong 10 phút tiếp theo",
 			ac.VehiclePlate, typeVN, ac.DistanceKm, ac.DurationMin, pastNote)
+		provider = "rules"
+	} else {
+		text = result.Text
+		provider = result.Provider
 	}
 
-	_ = s.repo.SaveInsight(ctx, "exception_explain", cacheKey, text, s.provider.Name())
+	_ = s.repo.SaveInsight(ctx, "exception_explain", cacheKey, text, provider)
 
 	explanation, suggestions := parseExplanationOutput(text)
 	return &ExceptionExplanation{
@@ -207,7 +236,7 @@ HÀNH ĐỘNG 2: [hành động cụ thể]`,
 		Explanation: explanation,
 		Suggestions: suggestions,
 		Confidence:  "high",
-		Provider:    s.provider.Name(),
+		Provider:    provider,
 		GeneratedAt: time.Now(),
 	}, nil
 }
@@ -219,6 +248,19 @@ func (s *Service) GenerateNPPZaloDraft(ctx context.Context, customerID uuid.UUID
 	nc, err := s.repo.GetNPPZaloContext(ctx, customerID)
 	if err != nil {
 		return nil, fmt.Errorf("ai.GenerateNPPZaloDraft: %w", err)
+	}
+
+	cacheKey := customerID.String()
+	if content, provider, ok := s.repo.GetInsight(ctx, "npp_zalo_draft", cacheKey); ok {
+		return &NPPZaloDraft{
+			CustomerID:   customerID,
+			CustomerName: nc.CustomerName,
+			HealthScore:  nc.HealthScore,
+			DraftMessage: content,
+			Reason:       fmt.Sprintf("NPP chưa đặt hàng %d ngày, health score %d/100", nc.LastOrderDays, nc.HealthScore),
+			Provider:     provider,
+			GeneratedAt:  time.Now(),
+		}, nil
 	}
 
 	prompt := fmt.Sprintf(`Bạn là nhân viên DVKH của công ty bia BHL, viết tin nhắn Zalo ngắn gọn (2-3 câu)
@@ -233,13 +275,22 @@ Chỉ viết nội dung tin nhắn, không thêm tiêu đề hay giải thích.`
 		nc.CustomerName, nc.LastOrderDays, nc.TotalOrders,
 	)
 
-	draft, genErr := s.provider.Generate(ctx, prompt)
+	result, genErr := s.GenerateWithPrivacy(ctx, AIProviderCall{FeatureKey: FlagCopilot, ActionType: "npp_zalo_draft", Prompt: prompt})
+	draft := ""
+	provider := s.provider.Name()
 	if genErr != nil {
 		s.log.Warn(ctx, "ai.npp_zalo_draft_failed", logger.F("err", genErr.Error()))
 		draft = fmt.Sprintf("Chào %s! BHL gửi lời hỏi thăm. Anh/chị cần đặt hàng gì không ạ? BHL sẵn sàng phục vụ!", nc.CustomerName)
+		provider = "rules"
+	} else {
+		draft = result.Text
+		provider = result.Provider
 	}
 
 	reason := fmt.Sprintf("NPP chưa đặt hàng %d ngày, health score %d/100", nc.LastOrderDays, nc.HealthScore)
+	if saveErr := s.repo.SaveInsight(ctx, "npp_zalo_draft", cacheKey, draft, provider); saveErr != nil {
+		s.log.Warn(ctx, "ai.npp_zalo_draft_cache_save_failed", logger.F("err", saveErr.Error()))
+	}
 
 	return &NPPZaloDraft{
 		CustomerID:   customerID,
@@ -247,7 +298,7 @@ Chỉ viết nội dung tin nhắn, không thêm tiêu đề hay giải thích.`
 		HealthScore:  nc.HealthScore,
 		DraftMessage: draft,
 		Reason:       reason,
-		Provider:     s.provider.Name(),
+		Provider:     provider,
 		GeneratedAt:  time.Now(),
 	}, nil
 }
@@ -268,10 +319,29 @@ func (s *Service) CheckOrderSeasonalAlert(ctx context.Context, sku, warehouseCod
 // ─── RunDailyBriefingCron generates and caches the daily dispatch briefing at 7h ─
 
 func (s *Service) RunDailyBriefingCron(ctx context.Context) {
-	s.log.Info(ctx, "ai.daily_briefing_cron_started")
-	// Generate now (cron will call this at 7h via main.go)
-	if _, err := s.generateDispatchBrief(ctx, time.Now().Format("2006-01-02")); err != nil {
-		s.log.Warn(ctx, "ai.daily_briefing_cron_failed", logger.F("err", err.Error()))
+	s.log.Info(ctx, "ai.daily_briefing_cron_started", logger.F("cron", "07:00_daily"))
+	loc, err := time.LoadLocation("Asia/Ho_Chi_Minh")
+	if err != nil {
+		loc = time.Local
+	}
+
+	for {
+		now := time.Now().In(loc)
+		next := time.Date(now.Year(), now.Month(), now.Day(), 7, 0, 0, 0, loc)
+		if !now.Before(next) {
+			next = next.Add(24 * time.Hour)
+		}
+		s.log.Info(ctx, "ai.daily_briefing_cron_next", logger.F("next_run", next.Format("2006-01-02 15:04")))
+
+		select {
+		case <-ctx.Done():
+			s.log.Info(ctx, "ai.daily_briefing_cron_stopped")
+			return
+		case <-time.After(next.Sub(now)):
+			if _, err := s.generateDispatchBrief(ctx, time.Now().In(loc).Format("2006-01-02")); err != nil {
+				s.log.Warn(ctx, "ai.daily_briefing_cron_failed", logger.F("err", err.Error()))
+			}
+		}
 	}
 }
 

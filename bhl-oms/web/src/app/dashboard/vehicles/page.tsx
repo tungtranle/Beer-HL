@@ -245,6 +245,7 @@ export default function VehiclesPage() {
                   </span>
                 </td>
                 <td className="px-4 py-3 text-center">
+                  <Link href={`/dashboard/vehicles/${v.id}/profile`} className="text-stone-700 hover:underline text-xs mr-2">📜 Hồ sơ</Link>
                   <Link href={`/dashboard/vehicles/${v.id}/documents`} className="text-brand-500 hover:underline text-xs mr-2">Giấy tờ</Link>
                   <button onClick={() => openEdit(v)} className="text-brand-500 hover:underline text-xs mr-2">Sửa</button>
                   <button onClick={() => handleDelete(v.id, v.plate_number)} className="text-red-600 hover:underline text-xs">Xóa</button>

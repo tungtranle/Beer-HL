@@ -5,7 +5,517 @@
 
 ---
 
-## [Unreleased] — Phase 6 + UX Overhaul + Phase 8 Fleet & Driver + **Phase 9 WMS Pallet/QR/Bin/Cycle Count COMPLETE (15/15)** + **Sprint 1 World-Class (F2/F3/F7/H4/TD-020) GO LIVE** + **Sprint UX-1 World-Class Design System** + **Sprint UX-2 Dashboard Pages Redesign (ALL DONE)** + **Sprint UX-3 Pagination & Filter Audit (in progress)** + **AQF Roadmap ALL COMPLETE**
+## [Unreleased] — Phase 6 + UX Overhaul + Phase 8 Fleet & Driver + **Phase 9 WMS Pallet/QR/Bin/Cycle Count COMPLETE (15/15)** + **Sprint 1 World-Class (F2/F3/F7/H4/TD-020) GO LIVE** + **Sprint UX-1 World-Class Design System** + **Sprint UX-2 Dashboard Pages Redesign (ALL DONE)** + **Sprint UX-3 Pagination & Filter Audit (in progress)** + **AQF Roadmap ALL COMPLETE** + **Session 28/04 Historical Data Completeness Audit**
+
+### 2026-04-28 — Comprehensive Historical Data Completeness Audit & Supplementation
+
+#### Added
+1. **New rating tables for AI features** (migrations/migration_new_rating_tables.sql)
+   - `driver_ratings` — Track driver performance (safety, punctuality, professionalism, vehicle condition) on 1-5 scale. Seeded: 123 records (50 drivers).
+   - `supplier_ratings` — Track customer payment reliability, order accuracy, delivery cooperation, return rate. Seeded: 157 records (200 customers). Credit tiers: gold/silver/bronze/watch.
+   - `vehicle_condition_checks` — Per-item vehicle maintenance (tire_pressure, brake_fluid, lights, etc.). Pre-trip & post-trip. Seeded: 3,899 records (83% of trips).
+
+2. **GPS locations partitioned table** (migrations/migration_create_gps_locations.sql)
+   - Created `gps_locations` partitioned by month (36 partitions: 2024-01 through 2026-06).
+   - Supports anomaly detection, ETA prediction, route deviation analysis.
+   - Seeded: 10,000 GPS points across 56 vehicles (97% coverage).
+
+3. **Audit & seed tools** (new command tools)
+   - `cmd/audit_data_completeness/main.go` — Comprehensive audit showing 72% data completeness (improved from 60%).
+   - `cmd/seed_historical_quality/main.go` — Seeds driver_ratings, supplier_ratings, vehicle_condition_checks, reconciliation records (tool created, but reconciliation seeding needs query fix).
+   - `cmd/seed_gps_traces/main.go` — Generates realistic GPS traces. Note: Go batch insert had transaction issue; fixed via direct SQL `migrations/seed_gps_direct.sql`.
+
+#### Modified
+1. **demo_repository.go** — Fixed QA Portal cleanup status filter (also in 2026-04-28 entry below).
+
+#### Data Quality Metrics (Session Results)
+- ✅ **Referential Integrity:** 100% (verified E2E: zero orphans, 1:1 order-shipment-trip mapping).
+- ✅ **Core Business Data:** 32,415 orders, 4,679 trips, 32,415 shipments, 32,415 stops — all complete.
+- ✅ **Financial Records:** 28,794 receivable ledger, 28,692 payments (88.5%), 51,644 asset ledger.
+- ✅ **GPS Data:** 10,000 points across 56 vehicles (97% coverage), realistic speed 10-60 km/h, ±5-20m accuracy.
+- ✅ **Rating Data:** 123 driver + 157 supplier + 3,899 vehicle condition checks seeded.
+- 🟡 **E-PODs:** 0 / 4,039 (0%) — needs photo_urls population.
+- 🟡 **Gate Checks:** 4,446 / 32,415 (14%) — needs 27,969 more for 100% validation.
+- 🟡 **Reconciliation:** 0 / 4,679 (0%) — tool created but query needs iteration.
+
+#### AI Feature Readiness
+- ✅ **Anomaly Detection:** Ready (GPS data + speed patterns)
+- ✅ **ETA Prediction:** Ready (GPS history, though only 1 month vs. ideal 6+)
+- ✅ **Driver Performance Scoring:** Ready (driver_ratings with 1-5 scales + overall_score)
+- ✅ **Vehicle Health Monitoring:** Ready (3,899 pre/post-trip condition checks)
+- ✅ **Credit Risk Assessment:** Ready (supplier_ratings with credit tiers)
+- 🟡 **Route Deviation Detection:** Partial (GPS ready, but reconciliation data missing)
+- ❌ **Quality Assurance Brief:** Blocked (gate_checks only 14%, E-PODs 0%)
+
+#### Verification
+1. All migrations applied successfully via `docker exec bhl-oms-postgres-1 psql`.
+2. Seed commands executed:
+   - `seed_historical_quality.go`: 123 driver + 157 supplier + 3,899 vehicle check records.
+   - `seed_gps_direct.sql`: 10,000 GPS points, 56 vehicles with GPS data.
+3. Audit tool output: `go run ./cmd/audit_data_completeness/main.go` — 72% completeness score.
+4. Backend build: `go build ./...` — exit 0 (PASS).
+5. Test data maintains `qa_owned_entities` ownership model (no destructive TRUNCATE, no unscoped DELETE on historical data).
+
+#### Recommendations for Phase 2
+**Priority 1 (Blocks demo):**
+- Populate E-PODs: Add photo_urls to 4,039 delivery_attempts (~30 mins).
+- Expand Gate Checks: Seed 27,969 missing shipments (~45 mins).
+- Seed Reconciliation: Create 4,679 trip reconciliation records (~1 hour).
+
+**Priority 2 (Enhances AI):**
+- Expand GPS: From 200 trips to all 4,679 trips (+40K GPS points, ~1.5 hours).
+- Expand Driver Ratings: From 123 to ~500 records for broader coverage (~30 mins).
+
+#### Docs Updated
+1. `DATA_COMPLETENESS_AUDIT_2026_04_28.md` — 📋 Full audit report (72% completeness, gaps analysis, priority plan).
+2. `CURRENT_STATE.md` — Added "Historical Data Completeness" section with tables created, seeds applied, AI readiness matrix.
+3. `CHANGELOG.md` — This entry.
+
+---
+
+### 2026-04-28 — Fixed: Test Portal cleanup không xóa dữ liệu của kịch bản test (QA Portal v2)
+
+#### Fixed
+1. **QA Portal cleanup scope regression** — `demo_repository.go` `ListOwnedForScenario()` WHERE clause chỉ tìm runs ở trạng thái `'completed'` hoặc `'failed'`, nên sau khi cleanup lần 1 set status='cleaned', lần 2 cleanup KHÔNG tìm thấy và KHÔNG XÓA dữ liệu. 
+   - **Root cause:** Cleanup thay đổi run.status từ 'completed' → 'cleaned', nhưng WHERE filter chỉ lọc 'completed'/'failed'.
+   - **Fix:** WHERE clause giờ bao gồm `'cleaned'` ngoài `'completed'/'failed'` để scenario có thể cleanup lại từ lần trước, đúng theo ownership model trong AQF_BHL_SETUP.md.
+   - **Code:** [demo_repository.go](bhl-oms/internal/testportal/demo_repository.go#L78-L82)
+
+#### Verification
+1. `go build ./cmd/server/...` — PASS (exit code 0).
+2. Logic check: `cleanup load-scenario lần 1` → run='completed' → cleanup exec → run='cleaned' + deleted owned entities. Lần 2 `load-scenario` → cleanup exec → WHERE status IN ('completed','failed','cleaned') → tìm thấy run từ lần 1 (status='cleaned') → xóa dữ liệu cũ → seed mới.
+
+#### Docs Updated
+1. `AI_LESSONS.md` — thêm L-39 QA Portal cleanup status filter.
+2. `CHANGELOG.md` — entry này.
+
+---
+
+### 2026-04-27 — Session: VRP fallback BOT cost integration
+
+#### Fixed
+1. **Fallback mock cost breakdown** — `internal/tms/service.go` now estimates toll/BOT in mock mode using route-vs-point proximity and expressway rates from solver payload (`toll_stations`, `toll_expressways`, `vehicle_toll_class`), then writes back `trip.toll_cost_vnd`, `trip.total_cost_vnd`, `trip.tolls_passed` and summary-level toll fields.
+
+#### Verification
+1. `get_errors` on `internal/tms/service.go` — PASS.
+2. `go test ./internal/tms/...` — PASS.
+3. Local runtime verify on backend source mới (`/v1/app/version` HTTP 200, solver `:8090` intentionally OFF): compare jobs returned `distance_source=mock` for both cost/time and summary showed toll-aware breakdown (`COST: fuel=12617059, toll=0`; `TIME: fuel=11400389, toll=360000`) with corresponding `tolls_passed` counters > 0.
+
+#### Docs Updated
+1. `CURRENT_STATE.md`
+2. `CHANGELOG.md`
+
+### 2026-04-27 — Session: VRP compare + route-real regression fix
+
+#### Fixed
+1. **VRP compare fallback** — `internal/tms/service.go` mock heuristic giờ phân biệt `optimize_for=cost` và `optimize_for=time`, tránh trường hợp solver fallback trả hai phương án giống hệt nhau trên màn so sánh.
+2. **Route-real rendering** — `/dashboard/planning`, `/dashboard/control-tower`, `/dashboard/trips/:id` chỉ dùng geometry từ OSRM local qua rewrite `/osrm/*`; bỏ fallback vẽ polyline đường chim bay và không còn gọi `router.project-osrm.org` trực tiếp.
+3. **AI Inbox CTA behavior** — `AIInboxPanel` không còn optimistic-remove khi người dùng bấm `Xem chi tiết`; CTA có route chỉ điều hướng, còn dismiss vẫn do nút `X` xử lý.
+
+#### Verification
+1. `get_errors` on `web/src/components/ai/AIInboxPanel.tsx`, `web/src/app/dashboard/planning/page.tsx`, `web/src/app/dashboard/control-tower/page.tsx`, `web/src/app/dashboard/trips/[id]/page.tsx` — PASS.
+2. `go test ./internal/tms/...` — PASS.
+3. Localhost smoke — PASS: frontend `http://localhost:3000/login` HTTP 200, backend `http://localhost:8080/v1/app/version` HTTP 200.
+4. Localhost smoke note — `/v1/health` on current local backend returned 404, so verification used the public endpoint actually exposed by this build.
+
+#### Docs Updated
+1. `CURRENT_STATE.md`
+2. `CHANGELOG.md`
+
+### 2026-04-27 — Session: GPS/AI/report audit follow-up
+
+#### Changed
+1. **Dashboard scope mặc định** — `/dashboard/stats` không còn trả `total_orders` toàn bộ lịch sử; mặc định là tháng hiện tại (`scope_from/scope_to/scope_label`), còn backlog mở như pending approvals/discrepancies/active trips vẫn giữ đúng nghĩa việc cần xử lý.
+2. **Order management scope** — `/dashboard/orders` mặc định tháng hiện tại, có quick filters Hôm nay/7 ngày/Tháng này/30 ngày/Tùy chọn/Lịch sử; stats, list, export và sidebar NPP dùng cùng `from/to` hoặc `delivery_date`.
+3. **Operational trip scope** — `/v1/trips` và export hỗ trợ `active=true`; Control Tower và Handover A dùng active scope để không quét 50 chuyến lịch sử mới nhất.
+4. **Reconciliation scoped work queue** — `/dashboard/reconciliation` mặc định vào reconciliation `pending`, discrepancy `open` và tháng hiện tại; backend list/export/daily-close nhận `from/to`, người dùng phải chọn “Lịch sử” nếu muốn xem toàn bộ.
+5. **GPS route-real fail-closed** — runtime simulator và Test Portal GPS chỉ dùng OSRM local/route geometry; nếu không lấy được road geometry sẽ trả `ROUTE_GEOMETRY_UNAVAILABLE`, không còn fallback đường chim bay hoặc public OSRM.
+
+#### Added
+1. **KPI report scope UX** — `/dashboard/kpi` mặc định xem 7 ngày, có scope bar chung cho Today/7 ngày/30 ngày/Historical; overview nhận metadata `scope_from`, `scope_to`, `data_as_of`, `latest_fallback` để không hiểu nhầm dữ liệu lịch sử là dữ liệu hôm nay.
+2. **Scoped drill-down period** — KPI Issues/Cancellations tabs truyền `from/to` theo period đang chọn thay vì gọi mặc định toàn bộ lịch sử.
+3. **DEMO-HIST-01** — QA Portal thêm kịch bản read-only chọn ngày lịch sử có sản lượng thật làm scenario/evidence, không copy/sửa/xóa dữ liệu nghiệp vụ cũ.
+4. **DEMO-DISPATCH-01** — QA Portal thêm kịch bản live ops cho điều phối: tạo owned orders/shipments/trips/stops theo busiest historical day + khoảng 80% xe/lái xe active, cap 40 trips, driver check-ins scoped, NPP có tọa độ và AI Inbox gợi ý cho dispatcher.
+5. **DEMO-AI-DISPATCH-01** — QA Portal thêm kịch bản AI cho điều phối viên: live ops data + dispatcher AI Inbox/Brief/Simulation/audit evidence, vẫn giữ AI as assistive và cleanup scoped.
+
+#### Fixed
+1. **AI Inbox synthetic rule item ack** — `PATCH /v1/ai/inbox/:id/action` now accepts `rules-*` virtual inbox IDs as a deliberate no-op ack, so rule-generated suggestions can be marked done/dismissed instead of failing UUID validation.
+2. **AI Inbox frontend request body** — `AIInboxPanel` now passes `{ status }` directly to `apiFetch`, avoiding double JSON encoding.
+3. **Dispatch Brief metric drill-down** — the 4 mini metrics in `DispatchBriefCard` now link to filtered operational pages: today's orders, active Control Tower, risky NPPs and open GPS anomalies.
+4. **Outreach Queue item actions** — each NPP row now supports opening the filtered customer list, generating a Zalo draft, and marking the item contacted in the widget.
+5. **DEMO-03 realism** — dispatch demo không còn tạo 3 đơn/1 chuyến nhỏ; seeder đọc profile ngày lịch sử bận nhất và tạo tối thiểu 24 orders chia nhiều trips/stops.
+
+#### Verification
+1. `gofmt -w internal/ai/handler.go` — PASS.
+2. `go test ./internal/ai` — PASS.
+3. `get_errors` on `internal/ai/handler.go` and `web/src/components/ai/AIInboxPanel.tsx` — PASS.
+4. `get_errors` on `web/src/components/ai/DispatchBriefCard.tsx` — PASS.
+5. `get_errors` on `web/src/components/ai/OutreachQueueWidget.tsx` — PASS.
+6. `npx eslint src/components/ai/AIInboxPanel.tsx src/components/ai/DispatchBriefCard.tsx src/components/ai/OutreachQueueWidget.tsx --max-warnings 500` — PASS: 0 errors, 0 warnings from touched files; TypeScript version support notice only.
+7. `gofmt -w internal/kpi/service.go internal/testportal/demo_service.go` — PASS.
+8. `go test ./internal/kpi ./internal/testportal` — PASS: no test files, compile OK.
+9. `get_errors` on `internal/kpi/service.go`, `internal/testportal/demo_service.go`, `web/src/app/dashboard/kpi/page.tsx` — PASS.
+10. `npx eslint src/app/dashboard/kpi/page.tsx src/components/ai/AIInboxPanel.tsx src/components/ai/DispatchBriefCard.tsx src/components/ai/OutreachQueueWidget.tsx --max-warnings 500` — PASS: 0 errors, 0 warnings from touched files; TypeScript support notice only.
+11. AQF G2 data-safety code review — PASS: new historical scenario is read-only except owned event evidence; live ops inserts are registered through `qa_owned_entities`; no `TRUNCATE`, no unscoped transactional `DELETE`, expected `historical_rows_touched = 0` after load/cleanup.
+12. Localhost smoke — PASS: `http://localhost:8080/health` HTTP 200 và `http://localhost:3000/login` HTTP 200.
+13. `gofmt -w cmd/server/main.go internal/domain/models.go internal/oms/* internal/tms/*` — PASS.
+14. `go test ./internal/oms ./internal/tms ./internal/reconciliation ./internal/anomaly` — PASS.
+15. `get_errors` on touched Go/TSX files — PASS.
+16. `npx eslint` touched dashboard pages with repo threshold `--max-warnings 500` — PASS: 0 errors, 68 existing warnings.
+17. Localhost smoke after operational scope changes — PASS: backend `/health` HTTP 200, frontend `/login` HTTP 200.
+18. `gofmt -w internal/gps/simulator.go internal/testportal/handler.go internal/testportal/gps_routes.go internal/reconciliation/*` — PASS.
+19. `go test ./internal/gps ./internal/testportal ./internal/reconciliation` — PASS: compile OK, no test files.
+20. `get_errors` on GPS/Test Portal/Reconciliation Go files and reconciliation TSX — PASS.
+21. `npx eslint src/app/dashboard/reconciliation/page.tsx --max-warnings 500` — PASS: 0 errors, 9 existing `any` warnings.
+22. Localhost smoke — PASS: backend `/health` HTTP 200, frontend `/login` HTTP 200, frontend `/dashboard/reconciliation` HTTP 200.
+23. Temp backend from current source on `:18080` — PASS: login admin/demo123 OK; `/v1/reconciliation?status=pending&from&to`, `/v1/reconciliation/discrepancies?status=open&from&to`, `/v1/reconciliation/daily-close?from&to` all HTTP 200; `/v1/gps/simulate/start` with OSRM unavailable returned HTTP 503 fail-closed as expected.
+24. `go test ./internal/testportal` after QA demo realism changes — PASS.
+25. AQF G2 data-safety search — PASS: no `TRUNCATE`; transactional deletes remain guarded by `qa_owned_entities`; `driver_checkins` cleanup added with ownership filter.
+26. Temp backend from current source on `:18080` + DB `:5433` — PASS: `GET /v1/test-portal/demo-scenarios` includes DEMO-03, DEMO-HIST-01, DEMO-DISPATCH-01, DEMO-AI-DISPATCH-01.
+27. Scenario load smoke — PASS: DEMO-HIST-01 `created=1 historical=0`; DEMO-03 `created=313 historical=0`; DEMO-DISPATCH-01 `created=882 historical=0`; DEMO-AI-DISPATCH-01 `created=849 historical=0`.
+
+#### Docs Updated
+1. `CHANGELOG.md`
+2. `TASK_TRACKER.md`
+3. `docs/specs/CURRENT_STATE_COMPACT.md`
+4. `CURRENT_STATE.md`
+5. `AQF_BHL_SETUP.md`
+6. `TST_BHL_OMS_TMS_WMS.md`
+7. `API_BHL_OMS_TMS_WMS.md`
+
+### 2026-04-27 — Session: Decision Intelligence UX One-shot
+
+#### Added
+1. **Decision Intelligence primitives** — `AIContextStrip`, `ConfidenceMeter`, `ai-tokens.css`, `ai-cache.ts`, `ai-feedback.ts`; `ExplainabilityPopover` now supports factors, source, confidence, data freshness and sample size.
+2. **OMS create order risk strip** — `/dashboard/orders/new` shows NPP risk/context strip under customer selector when `ai.credit_score` is ON and insight is meaningful; uses 5-minute frontend cache and silent fail.
+3. **Approval priority mode** — `/dashboard/approvals` adds “Ưu tiên xử lý” tab sorting by SLA urgency, over-limit ratio, order value and urgent flag; R15 approval behavior unchanged.
+4. **VRP result review panel** — `/dashboard/planning` shows “Điểm cần xem trước khi duyệt” from rule-based solver highlights: unassigned, high load, >8h, toll ratio, missing vehicle/driver.
+5. **Driver voice assist safe MVP** — `/dashboard/driver` adds `VoiceCommandFAB` gated by `ai.voice` + browser support; long press 500ms, TTS readback, write intents require visual confirmation.
+
+#### Fixed
+1. **Control Tower AI OFF noise** — `/dashboard/control-tower` now calls `/ai/vehicle-score` only when `ai.gps_anomaly` is enabled.
+2. **Credit risk role mismatch** — `GET /v1/ai/customers/:id/risk-score` now allows `dvkh` so OMS create order can use the score safely when flag is ON.
+
+#### Verification
+1. `get_errors` on touched frontend/Go files — PASS.
+2. `npm run lint -- --max-warnings 500` — PASS: 0 errors, 492 existing warnings under budget.
+3. `go build ./cmd/server/` — PASS.
+4. `npm run build` — PASS: Next.js built 60 app routes including `/dashboard/orders/new`, `/dashboard/approvals`, `/dashboard/planning`, `/dashboard/control-tower`, `/dashboard/driver`.
+5. Localhost smoke — SKIP/PARTIAL: backend/frontend were not running; backend start fails because PostgreSQL `localhost:5434` is not accepting connections. No Docker lifecycle command was run inside VS Code per machine safety rule.
+
+#### Docs Updated
+1. `docs/specs/AI_NATIVE_BLUEPRINT_v3.md`
+2. `docs/specs/FRONTEND_GUIDE.md`
+3. `docs/specs/CURRENT_STATE_COMPACT.md`
+4. `BRD_BHL_OMS_TMS_WMS.md`
+5. `UIX_BHL_OMS_TMS_WMS.md`
+6. `bhl-oms/docs/DESIGN_SYSTEM_BHL.md`
+7. `CURRENT_STATE.md`
+8. `TASK_TRACKER.md`
+9. `CHANGELOG.md`
+
+### 2026-04-27 — Session: AI-native full feature setup + seed data
+
+#### Fixed
+1. **`ai/repository.go` `GetAnomalyContext`** — SQL dùng `a.vehicle_plate` không tồn tại trong bảng; sửa thành `LEFT JOIN vehicles v ON v.id = a.vehicle_id` + `COALESCE(v.plate_number, '')`. Endpoint `/v1/ai/anomaly/:id/explain` không còn crash khi có GPS anomaly data.
+2. **`ai/service.go` `anomalyTypeVN` mapping** — các key cũ (`route_deviation`, `long_stop`, `speed_violation`, `gps_lost`) không khớp với DB constraint (`deviation`, `stop_overdue`, `speed_high`, `off_route`); đã sửa để label tiếng Việt hiển thị đúng trong Gemini prompt.
+
+#### Added
+1. **`scripts/seed_ai_demo_data.sql`** — seed data đầy đủ cho AI demo: 5 GPS anomalies (deviation/stop_overdue/speed_high/off_route, P0-P2), 8 AI Inbox items (4 roles: dispatcher/dvkh/accountant/admin/management), xóa mock dispatch_brief cache. Idempotent.
+2. **`apply_ai_demo_seed.bat`** — double-click để apply seed + hướng dẫn setup GEMINI key.
+3. **`start-ai-full.bat`** — khởi động backend có GEMINI_API_KEY, kill port 8080 cũ, health check.
+4. **`start.ps1`** — thêm comment hướng dẫn `$env:GEMINI_API_KEY` và `$env:GROQ_API_KEY`.
+
+#### AI Feature Status (sau session này)
+| Feature | Trạng thái | Cần gì để bật |
+|---------|-----------|---------------|
+| AI Flags (tất cả) | ✅ ON trong DB | - |
+| AI Inbox Panel | ✅ 8 items (4 roles) | - |
+| Daily Dispatch Brief | ⚠️ Mock → chờ key | GEMINI_API_KEY |
+| GPS Anomaly Control Tower | ✅ 5 anomalies seeded | - |
+| Exception Explain (LLM) | ⚠️ Cần restart backend sau fix + key | Restart + key |
+| Credit Risk Score | ✅ Rules-based | - |
+| NPP Zalo Draft | ⚠️ Mock → chờ key | GEMINI_API_KEY |
+| Demand Forecast | ✅ ML/rules fallback | - |
+| Outreach Queue | ✅ Queries DB | - |
+| Simulation VRP | ✅ Khi VRP solver running | - |
+| Copilot/Intent | ✅ | - |
+| Transparency Center | ✅ | - |
+
+#### Verification
+- `go build ./cmd/server/` — exit 0 ✅
+- Seed: 5 gps_anomalies, 8 ai_inbox_items open, 0 mock cache ✅
+- `GET /v1/ai/dispatch-brief` — HTTP 200 ✅
+- `GET /v1/ai/inbox` — HTTP 200 ✅
+- `GET /v1/ai/features` — HTTP 200 ✅
+
+#### Docs Updated
+- `CHANGELOG.md` (this entry)
+- `TASK_TRACKER.md` — ghi nhận fix bugs AI + seed data
+
+---
+
+### 2026-04-27 — Session: AI-native 401 + Progressive Enhancement Fix
+
+#### Fixed
+1. **Frontend refresh token shape drift** — `api.ts` now accepts refresh responses as either `data.access_token` or `data.tokens.access_token`, preventing empty Bearer tokens and 401 bursts after access token expiry.
+2. **AI widgets calling while flags OFF** — Dashboard AI Inbox/Brief/Outreach and OMS Demand/Seasonal panels now gate API calls behind `useAIFeature(...)`; baseline dashboard/order form renders normally when AI flags are OFF.
+3. **AI feature flag fetch noise** — `useFeatureFlags()` now skips calls when no token exists and shares a short in-flight/cache window so multiple AI surfaces do not stampede `/ai/features`.
+
+#### Verification
+1. Backend direct smoke: `POST /v1/auth/login` + `GET /v1/ai/features` with Bearer token — HTTP 200.
+2. Next proxy smoke: `POST /api/auth/login`, `POST /api/auth/refresh`, `GET /api/ai/features`, `GET /dashboard/orders/new` — HTTP 200.
+3. `get_errors` on touched frontend files — PASS.
+4. Targeted ESLint on touched frontend files — 0 errors; existing `no-explicit-any` warnings remain under configured warning budget.
+
+#### Docs Updated
+1. `CURRENT_STATE.md`
+2. `docs/specs/CURRENT_STATE_COMPACT.md`
+3. `CHANGELOG.md`
+
+### 2026-04-26 — Session: AI-M Python ML Extension Completion
+
+#### Added
+1. **Demand forecast bridge** — Go endpoint `GET /v1/ai/demand-forecast` queries NPP×SKU×warehouse history and calls Python `POST /ml/forecast-demand`.
+2. **Fail-soft forecasting** — If `VRP_SOLVER_URL` is unavailable, demand forecast returns 4-week `rules-fallback` output instead of blocking OMS order creation.
+3. **Proactive outreach queue** — `GET /v1/ai/outreach-queue` returns top risk NPPs from `ml_features.npp_health_scores` for DVKH/admin/management.
+4. **Frontend AI-M widgets** — `DemandIntelligencePanel` in OMS order form and `OutreachQueueWidget` on dashboard.
+
+#### Verification
+1. Python syntax check for `vrp-solver/main.py` — PASS.
+2. Pylance Python snippet `forecast_demand(...)` — `prophet-compatible-rules`, 4 forecast points.
+3. `go test ./internal/ai` — PASS.
+4. `go build ./cmd/server` — PASS.
+5. Backend smoke on `SERVER_PORT=18080`, `VRP_SOLVER_URL=http://127.0.0.1:1`: demand forecast returned `rules-fallback` with 4 points; outreach queue returned 3 items.
+6. `get_errors` on touched TSX/Go files — PASS.
+7. Frontend dev server `http://127.0.0.1:3000`: `/dashboard/orders/new` and `/dashboard` returned HTTP 200.
+
+#### Docs Updated
+1. `TASK_TRACKER.md`
+2. `CURRENT_STATE.md`
+3. `docs/specs/CURRENT_STATE_COMPACT.md`
+4. `API_BHL_OMS_TMS_WMS.md`
+5. `UIX_BHL_OMS_TMS_WMS.md`
+6. `TST_BHL_OMS_TMS_WMS.md`
+7. `CHANGELOG.md`
+
+### 2026-04-26 — Session: AI-R Smart Rules + AI-G Gemini Integration Completion
+
+#### Added
+1. **AI-R UI integration** — Control Tower vehicle anomaly score badge, Accountant approvals credit risk chip, OMS seasonal demand inline warning.
+2. **AI-G UI integration** — Dashboard dispatch brief card, Anomalies AI explanation panel, Customers Zalo NPP draft modal with manual copy.
+3. **Provider reliability** — Gemini→Groq provider chain now retries each real provider before falling back to mock rules.
+
+#### Changed
+1. Daily dispatch brief is now a real 07:00 ICT cron loop instead of a one-shot startup generation.
+2. NPP Zalo draft now uses `ai_insights` cache and schema-correct `sales_orders`/`customers.code` queries.
+3. Credit risk query casts average payment delay to int for pgx scan compatibility.
+
+#### Verification
+1. `go test ./internal/ai` — PASS.
+2. `go build ./cmd/server` — PASS.
+3. `get_errors` on all touched TSX/AI component files — PASS.
+4. Temporary backend `SERVER_PORT=18080` smoke:
+  - `GET /v1/ai/vehicle-score` → `normal`.
+  - `GET /v1/ai/seasonal-alert` → `high` alert.
+  - `GET /v1/ai/dispatch-brief` → provider `mock-rules→mock-rules`.
+  - `GET /v1/ai/customers/:id/risk-score` → `medium`.
+  - `POST /v1/ai/npp-zalo-draft` → provider `mock-rules→mock-rules`.
+  - `GET /v1/ai/anomaly/:id/explain` skipped: local DB had no open anomaly.
+5. Frontend routes loaded HTTP 200: `/dashboard`, `/dashboard/approvals`, `/dashboard/orders/new`, `/dashboard/control-tower`, `/dashboard/anomalies`, `/dashboard/customers`.
+
+#### Docs Updated
+1. `TASK_TRACKER.md`
+2. `CURRENT_STATE.md`
+3. `docs/specs/CURRENT_STATE_COMPACT.md`
+4. `UIX_BHL_OMS_TMS_WMS.md`
+5. `TST_BHL_OMS_TMS_WMS.md`
+6. `CHANGELOG.md`
+
+### 2026-04-26 — Session: AI-Native UX v3 Phase 2-6 Foundation
+
+#### Added
+1. **Migration 043** — `ai_audit_log`, `ai_inbox_items`, `ai_simulations`, `ai_feedback`.
+2. **Privacy Router** — fail-closed classifier, redaction, request hash audit, 50+ unit inputs.
+3. **AI-native APIs** — privacy route, transparency, inbox, intents, voice parse, simulations, trust suggestions.
+4. **Frontend AI primitives** — status badge, explainability popover, approval card, undo banner, simulation card, inbox panel.
+5. **Frontend pages** — `/dashboard/ai/transparency`, `/dashboard/ai/simulations`; dashboard AI Inbox; Cmd+K intent-aware mode.
+
+#### Verification
+1. `go test ./internal/ai` — PASS.
+2. `go build ./cmd/server` — PASS.
+3. Migration 043 applied via `docker cp` + `docker exec psql -f`; verified 4 AI tables exist.
+4. Temporary backend `SERVER_PORT=18080` smoke:
+  - Privacy route: phone+NPP → `local/high`.
+  - Transparency: 3 providers + 4 guardrails.
+  - Intent flag ON: `mo phong vrp` → `simulate.vrp_what_if`.
+  - Voice flag ON: `da den diem` → `arrived_stop`, `confirm_required=true`.
+  - Simulation flag ON: create `ready` snapshot with 3 options; apply returns `approval_required=true`, `core_tables_mutated=false`.
+  - Test flags reset OFF: `ai.master=false`, `ai.intent=false`, `ai.voice=false`, `ai.simulation=false`.
+5. Frontend routes loaded HTTP 200: `/dashboard/ai/transparency`, `/dashboard/ai/simulations`, `/dashboard`.
+
+---
+
+### 2026-04-26 — Session: AI-Native UX v3 Foundation + AI Toggle Phase 1
+
+#### Added
+1. `docs/specs/AI_NATIVE_BLUEPRINT_v3.md` — engineering digest cho AI-native UX/UI, progressive enhancement, flags, sprint plan.
+2. **Migration 042** — `ai_feature_flags` với org/role/user scope, `config JSONB`, `updated_by`, `updated_at`, default missing row = OFF.
+3. **Backend AI flag APIs:**
+  - `GET /v1/ai/features` — effective flags cho user hiện tại.
+  - `GET /v1/admin/ai-flags` — admin list 17 flag definitions + configured states.
+  - `PUT /v1/admin/ai-flags` — admin upsert flag; invalid flag trả 400.
+4. **Frontend AI settings:** `/dashboard/settings/ai` admin-only, master switch, feature list, role overrides.
+5. **Frontend hooks:** `useFeatureFlags()` và `useAIFeature(flagKey)` cho AI baseline-first render.
+
+#### Changed
+1. BRD nâng v3.8, §14D thành AI-Native Progressive Enhancement Layer.
+2. `DEC-AI-02` ghi quyết định AI Toggle + Asynq-first, không thêm pgboss khi chưa có DEC mới.
+3. `CLAUDE.md` thêm rule AI progressive enhancement và route đọc `AI_NATIVE_BLUEPRINT_v3.md`.
+4. `ROADMAP.md` reclassify EC-10 Feature Flags cho AI scope.
+
+#### Docs Updated
+1. `CLAUDE.md`
+2. `docs/specs/AI_NATIVE_BLUEPRINT_v3.md`
+3. `BRD_BHL_OMS_TMS_WMS.md`
+4. `SAD_BHL_OMS_TMS_WMS.md`
+5. `UIX_BHL_OMS_TMS_WMS.md`
+6. `API_BHL_OMS_TMS_WMS.md`
+7. `DBS_BHL_OMS_TMS_WMS.md`
+8. `TST_BHL_OMS_TMS_WMS.md`
+9. `DECISIONS.md`
+10. `ROADMAP.md`
+11. `TASK_TRACKER.md`
+12. `CURRENT_STATE.md`
+13. `docs/specs/CURRENT_STATE_COMPACT.md`
+14. `CHANGELOG.md`
+
+#### Verification
+1. `go build ./cmd/server` — PASS.
+2. `get_errors` on new frontend AI page/hooks — PASS, no TypeScript errors.
+3. Migration 042 applied via `docker cp` + `docker exec psql -f`; verified `SELECT COUNT(*) FROM ai_feature_flags` succeeds.
+4. Temporary backend `SERVER_PORT=18080` verified:
+  - `GET /v1/admin/ai-flags` — 17 flags.
+  - `PUT /v1/admin/ai-flags` for `ai.master/org/bhl=true` — PASS.
+  - `GET /v1/ai/features` — `ai.master=true`, child flags default false.
+  - invalid flag upsert — HTTP 400.
+  - reset `ai.master=false` — effective master false.
+5. Frontend `GET http://localhost:3000/dashboard/settings/ai` — HTTP 200.
+
+---
+
+### 2026-04-26 — Session: AQF Vibe-Code Guardrails in Docs/Instructions
+
+#### Changed
+1. `CLAUDE.md` nay coi AQF là gate bắt buộc khi vibe code: routing đọc `AQF_BHL_SETUP.md`, rule không vi phạm #7, checklist cuối phiên có G0-G4/data safety/evidence.
+2. `.github/instructions/test-after-code.instructions.md` thêm mapping G0/G1/G2/G3/G4, QA Portal data safety verification và yêu cầu report gate pass/skip.
+3. `.github/instructions/doc-update-rules.instructions.md` và `sync-brd-docs.instructions.md` thêm rule cập nhật `AQF_BHL_SETUP.md`/`TST_BHL_OMS_TMS_WMS.md` khi QA/AQF/scenario/evidence thay đổi.
+4. `docs/specs/BACKEND_GUIDE.md`, `FRONTEND_GUIDE.md`, `RULES.md`, `CURRENT_STATE_COMPACT.md` đồng bộ QA Portal v2, ownership registry, Data Safety Panel, BR-QA-01/02.
+5. QA prompts/agent cập nhật để không dùng legacy destructive test flow và ưu tiên scoped scenario/evidence.
+
+#### Docs Updated
+1. `CLAUDE.md`
+2. `.github/instructions/doc-update-rules.instructions.md`
+3. `.github/instructions/test-after-code.instructions.md`
+4. `.github/instructions/sync-brd-docs.instructions.md`
+5. `AQF_BHL_SETUP.md`
+6. `TST_BHL_OMS_TMS_WMS.md`
+7. `docs/specs/BACKEND_GUIDE.md`
+8. `docs/specs/FRONTEND_GUIDE.md`
+9. `docs/specs/RULES.md`
+10. `docs/specs/CURRENT_STATE_COMPACT.md`
+11. `.github/prompts/qa-check.prompt.md`
+12. `.github/prompts/qa-gen.prompt.md`
+13. `.github/prompts/qa-intake.prompt.md`
+14. `.github/agents/qa-analyst.agent.md`
+15. `DECISIONS.md`
+16. `TASK_TRACKER.md`
+17. `CHANGELOG.md`
+
+#### Verification
+1. Docs-only change: không chạy build code.
+2. Đã đọc lại các file instruction/spec chính và kiểm tra git diff.
+
+---
+
+### 2026-04-26 — Session: QA Demo Portal v2 — Login Protected + Scoped Customer Demo Scenarios
+
+#### Added
+1. **Migration 041** — thêm `qa_scenario_runs` và `qa_owned_entities` để tracking ownership từng run demo, phục vụ cleanup scoped không đụng dữ liệu lịch sử.
+2. **Demo account** — thêm `qa.demo` / `demo123`, role `management`, vào `migrations/seed_master.sql`.
+3. **Safe demo scenario API**:
+  - `GET /v1/test-portal/demo-scenarios`
+  - `GET /v1/test-portal/demo-runs`
+  - `POST /v1/test-portal/demo-scenarios/:id/load`
+  - `POST /v1/test-portal/demo-scenarios/:id/cleanup`
+4. **4 customer-demo scenarios**:
+  - `DEMO-01`: DVKH tạo đơn → NPP xác nhận Zalo
+  - `DEMO-02`: Vượt hạn mức tín dụng → kế toán duyệt
+  - `DEMO-03`: Điều phối tạo chuyến giao nhiều điểm
+  - `DEMO-04`: NPP từ chối đơn → timeline lý do
+5. **Frontend Demo Scenario Panel** ở `/test-portal`: hiển thị kịch bản, bước demo, nút nạp data, nút xóa scoped, run history và chỉ số `historical_rows_touched`.
+
+#### Changed
+1. Toàn bộ `/v1/test-portal/*` nay chạy dưới JWT protected group + `RequireRole("admin", "management")`.
+2. `/test-portal` frontend có auth gate; login support `?next=/test-portal`.
+3. AQF Command Center chuyển từ `fetch` trực tiếp sang `apiFetch` để gửi Bearer token.
+4. `web/next.config.js` chỉ bật Next standalone output trên non-Windows để tránh lỗi `routes-manifest.json` khi build local Windows; Docker/Linux production vẫn giữ standalone.
+
+#### Data Safety
+1. Không dùng `TRUNCATE` hoặc unscoped `DELETE`.
+2. Mọi entity demo tạo ra được ghi vào `qa_owned_entities` trong cùng transaction.
+3. Load scenario tự cleanup run cũ cùng scenario bằng registry; cleanup thủ công cũng chỉ xóa entity owned.
+4. API result luôn trả `historical_rows_touched = 0`.
+
+#### Docs Updated
+1. `CURRENT_STATE.md` — cập nhật Test Portal protected + demo scenarios.
+2. `CHANGELOG.md` — entry này.
+3. `TASK_TRACKER.md` — QAP-03..06 DONE, thêm QAP-10 login protection.
+4. `API_BHL_OMS_TMS_WMS.md` — cập nhật auth + endpoint demo scenarios.
+5. `DBS_BHL_OMS_TMS_WMS.md` — thêm migration 041 tables.
+6. `TST_BHL_OMS_TMS_WMS.md` — thêm test data strategy scoped scenario.
+7. `AQF_BHL_SETUP.md` — cập nhật P0 đã triển khai và endpoint thực tế.
+
+#### Verification
+1. `go test ./internal/testportal ./cmd/server` — PASS.
+2. `GET /v1/test-portal/demo-scenarios` without token — HTTP 401.
+3. Login `qa.demo` / `demo123` — PASS, role `management`.
+4. `DEMO-01` load + reload + cleanup — PASS, created/cleaned scoped rows, `historical=0`.
+5. `DEMO-02`, `DEMO-03`, `DEMO-04` load + cleanup — PASS, `historical=0`.
+6. DB cleanup check — `qa_owned_entities=0`, `sales_orders WHERE order_number LIKE 'QA-%'=0` after cleanup.
+7. `npm run lint -- --quiet` — PASS (no errors; existing warnings suppressed by quiet).
+
+---
+
+### 2026-04-26 — Session: QA Portal v2 Safety Reset — Legacy Test Portal Disabled
+
+#### Changed
+1. **Frontend `/test-portal`** nay chỉ render AQF Command Center (`aqf-command-center.tsx`), bỏ UI Test Portal 10 tab cũ khỏi trải nghiệm chính.
+2. **`bhl-oms/aqf/aqf.config.yml`** đổi `decision_interface.primary` từ `test_portal` sang `qa_portal`, thêm `data_isolation` và `monitoring` config.
+
+#### Disabled for Data Safety
+1. `POST /v1/test-portal/reset-data` — disabled, không còn delete rộng transactional data.
+2. `POST /v1/test-portal/load-scenario` — disabled, không còn reset toàn bộ trước khi seed scenario.
+3. `POST /v1/test-portal/run-scenario` — disabled, tránh tạo/xóa data không có run scope.
+4. `POST /v1/test-portal/run-all-smoke` — disabled, vì flow cũ chạy reset rộng giữa các scenario.
+
+#### Docs Updated
+1. `AQF_BHL_SETUP.md` — viết lại theo QA Portal v2, scenario ownership, data safety, Playwright/Clarity/Sentry/Telegram tracking.
+2. `CURRENT_STATE.md` — cập nhật trạng thái thực tế của QA Portal và legacy disabled endpoints.
+3. `API_BHL_OMS_TMS_WMS.md` — đánh dấu endpoint legacy disabled, thêm nhóm AQF endpoints đang dùng.
+4. `TASK_TRACKER.md` — thêm track QA Portal v2 Safety & Monitoring.
+5. `TECH_DEBT.md` — thêm nợ scoped scenario runner / Telegram wiring / Sentry env.
+6. `DECISIONS.md` — thêm quyết định DEC-QA-01.
+
+#### Verification
+1. `go test ./internal/testportal` — PASS (package compile OK, no test files).
+2. `go build ./cmd/server` — PASS.
+3. `npm run lint` — PASS, 0 errors / 465 existing warnings.
+4. `npx tsc --noEmit --pretty false` — PASS.
+5. Localhost health/page check — backend health 200, frontend `/test-portal` 200.
+6. Temporary backend `:18080` verified `POST /v1/test-portal/reset-data` returns HTTP 400 with data-safety disabled message.
+
+---
 
 ### 2026-05-XX — Session: AQF Roadmap — Golden Cases + G4 + Bruno 36+ Tests (FULL COMPLETE)
 

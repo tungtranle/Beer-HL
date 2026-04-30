@@ -178,6 +178,7 @@ export default function DriversListPage() {
                     </span>
                   </td>
                   <td className="px-4 py-3 text-center">
+                    <Link href={`/dashboard/drivers-list/${d.id}/profile`} className="text-stone-700 hover:underline text-xs mr-2">📜 Hồ sơ</Link>
                     <Link href={`/dashboard/drivers-list/${d.id}/documents`} className="text-brand-500 hover:underline text-xs mr-2">Giấy tờ</Link>
                     <button onClick={() => openEdit(d)} className="text-brand-500 hover:underline text-xs mr-2">Sửa</button>
                     <button onClick={() => handleDelete(d.id, d.full_name)} className="text-red-600 hover:underline text-xs">Xóa</button>

@@ -6,6 +6,137 @@
 
 ---
 
+## DEC-WMS-05: Reuse Phase 9 bin_locations rather than introduce a separate "suggested_bins" table
+**Date:** 2026-04-28  **Status:** Implemented
+
+**Context:** WMS Bin Guidance cần (1) chỉ ra bin gợi ý lúc nhập hàng và (2) hiển thị bin chính xác trên phiếu lấy hàng. Có 2 lựa chọn: (a) tạo bảng riêng `suggested_bins` cache top-3 trước, hoặc (b) tính realtime từ `bin_locations` + `stock_quants` + `pallets`.
+
+**Decision:** Chọn (b) — tính realtime, không cache. Lý do:
+- Số lượng bin nhỏ (~52/kho), query <50ms.
+- Tránh staleness — tồn kho/free slots thay đổi liên tục.
+- Không cần migration thêm table; mig 044 chỉ seed bins thực tế.
+
+**Consequences:**
+- ✅ Code đơn giản, không có background job đồng bộ.
+- ⚠️ Nếu warehouse mở rộng >500 bin/kho → cần materialize hoặc thêm index trên `(warehouse_id, status)`.
+
+**Docs Impact:** `BRD_BHL_OMS_TMS_WMS.md`, `CURRENT_STATE.md`, `DBS_BHL_OMS_TMS_WMS.md`.
+
+---
+
+## DEC-VRP-01: Lưu customer constraints dạng JSONB columns thay vì tách bảng `customer_traffic_zones` / `customer_windows`
+**Date:** 2026-04-28  **Status:** Implemented (mig 045)
+
+**Context:** Mỗi customer có thể có nhiều delivery windows + forbidden windows, mỗi cái là object {start, end, days, reason}. Có thể (a) tách 2 bảng many-to-one, hoặc (b) JSONB trên `customers`.
+
+**Decision:** Chọn (b) JSONB. Lý do:
+- 200 customers × ~3 windows = ~600 row total → JSONB không tốn nhiều storage.
+- Read pattern: 100% lấy theo customer_id (không filter cross-customer theo window) → JSONB load all in single SELECT.
+- Tránh 4 join cho mỗi planning request.
+- Editor UI dễ implement: load 1 object, edit, PUT 1 lần.
+
+**Consequences:**
+- ✅ API đơn giản, frontend không cần CRUD nhiều endpoint.
+- ⚠️ Không thể full-text search "khách nào cấm 06-09" — nhưng đây không phải use case thực tế.
+- ⚠️ Validation chỉ làm ở frontend; backend không enforce schema. Nếu cần strict, thêm CHECK constraint với `jsonb_typeof()`.
+
+**Docs Impact:** `BRD_BHL_OMS_TMS_WMS.md`, `DBS_BHL_OMS_TMS_WMS.md`, `INT_BHL_OMS_TMS_WMS.md` (API spec mới).
+
+---
+
+## DEC-VRP-02: Vehicle-weight enforcement bằng `routing.VehicleVar(node).SetValues([-1] + allowed)` thay vì allowed_vehicles list per node trong RoutingModel
+**Date:** 2026-04-28  **Status:** Implemented (vrp-solver/main.py)
+
+**Context:** OR-Tools cho phép giới hạn xe nào được visit node nào theo 2 cách: (a) `routing.SetAllowedVehiclesForIndex(allowed_list, index)` — API chính thức nhưng **không tồn tại trong python binding** stable, hoặc (b) `routing.VehicleVar(index).SetValues(allowed_with_minus_1)` — manipulate underlying CP variable trực tiếp.
+
+**Decision:** Chọn (b) SetValues với `[-1] + allowed_vehicle_indices`. `-1` là sentinel cho "node không được visit" (đã được xử lý qua AddDisjunction phía trên).
+
+**Consequences:**
+- ✅ Hoạt động ngay với OR-Tools 9.x Python binding.
+- ⚠️ Phụ thuộc vào internal API của OR-Tools — phải retest khi nâng version major.
+
+**Docs Impact:** `BRD_BHL_OMS_TMS_WMS.md`, `INT_BHL_OMS_TMS_WMS.md` (VRP solver contract).
+
+---
+
+## DEC-PASSPORT-01: Asset Passport endpoints viết inline trong `cmd/server/main.go` thay vì tạo module `internal/passport/`
+**Date:** 2026-04-28  **Status:** Implemented (TD-PASSPORT-INLINE accepted)
+
+**Context:** Vehicle/driver timeline + stats là 4 query đơn lẻ aggregate từ tables sẵn có (work_orders, fuel_logs, trips, driver_scores, leave_requests, badge_awards). Không có business logic phức tạp.
+
+**Decision:** Inline trong main.go ở giai đoạn này. Khi nào cần predictive maintenance, anomaly detection hoặc cron-warmed cache → tách module.
+
+**Consequences:**
+- ✅ Ship nhanh, không tăng độ phức tạp project layout.
+- ⚠️ main.go dài hơn ~120 dòng → đã ghi vào TD-PASSPORT-INLINE.
+
+**Docs Impact:** `BRD_BHL_OMS_TMS_WMS.md`, `SAD_BHL_OMS_TMS_WMS.md`, `TECH_DEBT.md`.
+
+---
+
+## DEC-QA-02: AQF is a mandatory vibe-code gate, not only a QA dashboard
+
+**Date:** 2026-04-26  **Status:** Implemented in docs/process
+
+**Context:** AQF 4.1 đã mô tả QA Portal v2, Decision Brief, gate timeline, evidence, monitoring và data safety. Tuy nhiên các file điều phối AI/vibe-code trước đây chủ yếu nhắc compile/test/localhost, chưa bắt buộc mọi phiên code phải map thay đổi vào G0/G1/G2/G3/G4 hoặc chứng minh scenario data không đụng history. Điều này dễ làm AI báo "xong" khi chỉ build pass nhưng thiếu evidence AQF.
+
+**Decision:** Đưa AQF thành guardrail bắt buộc trong các tài liệu AI đọc khi vibe code:
+- `CLAUDE.md` thêm routing AQF, quy tắc không vi phạm #7, checklist cuối phiên.
+- `.github/instructions/test-after-code.instructions.md` thêm gate mapping G0-G4 và QA Portal data safety verification.
+- `.github/instructions/doc-update-rules.instructions.md` và `sync-brd-docs.instructions.md` buộc cập nhật `AQF_BHL_SETUP.md`/`TST_BHL_OMS_TMS_WMS.md` khi QA/AQF thay đổi.
+- `BACKEND_GUIDE.md`, `FRONTEND_GUIDE.md`, `RULES.md` thêm rule cụ thể cho ownership, Data Safety Panel, evidence và HOLD behavior.
+- QA prompts/agent được cập nhật để không dùng legacy destructive test flow.
+
+**Consequences:**
+- ✅ Mọi thay đổi code phải báo gate AQF pass/skip thay vì chỉ nói build pass.
+- ✅ Scenario/test data phải chứng minh `historical_rows_touched = 0` khi có DB mutation.
+- ✅ AI session sau có router rõ ràng để đọc AQF trước khi đụng QA Portal/test data/go-live.
+- ⚠️ Đây là process/docs guardrail, chưa phải enforcement tự động bằng hook. Nếu cần chặn cứng, thêm script G0/G2 quét destructive SQL và bắt buộc evidence JSON.
+
+**Docs Impact:** `CLAUDE.md`, `.github/instructions/*.instructions.md`, `AQF_BHL_SETUP.md`, `TST_BHL_OMS_TMS_WMS.md`, `docs/specs/*_GUIDE.md`, `docs/specs/RULES.md`, `docs/specs/CURRENT_STATE_COMPACT.md`, `.github/prompts/*.prompt.md`, `.github/agents/qa-analyst.agent.md`, `TASK_TRACKER.md`, `CHANGELOG.md`.
+
+---
+
+## DEC-QA-01: QA Portal v2 replaces legacy Test Portal; scenario data must be scoped-owned
+
+**Date:** 2026-04-26  **Status:** Implemented
+
+**Context:** DB hiện đã có dữ liệu lịch sử. Test Portal cũ có UI 10 tab và các endpoint `reset-data`, `load-scenario`, `run-scenario`, `run-all-smoke` từng dùng `DELETE`/`TRUNCATE` rộng để reset transactional data. Cách này không còn chấp nhận được vì có thể xóa đơn/chuyến/tồn kho/lịch sử thật.
+
+**Decision:** Bỏ UI Test Portal cũ khỏi `/test-portal`; route này render QA Demo Portal v2 và AQF Command Center sau login. Tắt các legacy destructive endpoints để bảo toàn dữ liệu. QA Portal v2 chỉ được nạp/xóa dữ liệu test qua ownership model: `qa_scenario_runs` + `qa_owned_entities`, cleanup theo scenario/run scope, historical rows touched = 0.
+
+**Consequences:**
+- ✅ Không còn nút/flow UI xóa rộng dữ liệu test.
+- ✅ Legacy reset/load/run endpoints trả lỗi rõ ràng thay vì thao tác DB.
+- ✅ AQF Command Center tiếp tục dùng được cho Decision Brief, Golden, Health, Evidence, Open Questions.
+- ✅ Customer demo scenarios có runner scoped-owned, cleanup chỉ xóa entity được đăng ký trong `qa_owned_entities`.
+- ⚠️ Package/backend vẫn tên `internal/testportal` để tránh refactor lớn trước go-live.
+
+**Docs Impact:** `AQF_BHL_SETUP.md`, `CURRENT_STATE.md`, `API_BHL_OMS_TMS_WMS.md`, `TASK_TRACKER.md`, `TECH_DEBT.md`, `CHANGELOG.md`.
+
+---
+
+## DEC-AI-02: AI-Native UX v3 — Progressive enhancement + AI feature flags
+
+**Date:** 2026-04-26  **Status:** Planned → Phase 1 in implementation
+
+**Context:** Blueprint v3 yêu cầu AI UX/UI có thể bật/tắt theo nhu cầu. Khi tắt AI, UX/UI baseline vẫn phải hoạt động như trước. `DEC-AI-01` chỉ mô tả provider free-tier first, chưa đủ cho rollout an toàn, privacy routing, simulation và trust loop.
+
+**Decision:** Adopt AI-Native Blueprint v3 as the governing spec for AI work. AI is progressive enhancement, not dependency. Build an AI feature flag backbone first (`ai_feature_flags`) with org/role/user scope and safe default OFF. Backend AI endpoints must check flags before provider calls; frontend AI UI must render baseline first and use `useAIFeature(flag)` for conditional enhancements.
+
+**Queue decision:** Use existing Redis/Asynq-first strategy for async AI jobs because the codebase already runs Redis/Asynq. Do not add pgboss unless a later DEC proves Asynq cannot satisfy simulation/job requirements.
+
+**Consequences:**
+- ✅ AI can be rolled out per feature/role/user.
+- ✅ Master switch can disable all AI without breaking core workflows.
+- ✅ Code review has a clear baseline-off test.
+- ✅ `ROADMAP.md` EC-10 is reclassified for AI scope only.
+- ⚠️ Existing AI endpoints from `DEC-AI-01` need flag wrapping incrementally.
+
+**Docs Impact:** `docs/specs/AI_NATIVE_BLUEPRINT_v3.md`, `CLAUDE.md`, `BRD_BHL_OMS_TMS_WMS.md`, `SAD_BHL_OMS_TMS_WMS.md`, `UIX_BHL_OMS_TMS_WMS.md`, `API_BHL_OMS_TMS_WMS.md`, `DBS_BHL_OMS_TMS_WMS.md`, `TASK_TRACKER.md`, `CURRENT_STATE.md` when code is implemented.
+
+---
+
 ## DEC-AI-01: AI Intelligence Layer Architecture — Free-tier first, provider-agnostic
 
 **Date:** 2026-04-24  **Status:** Planned (Sprint 2 — implement from 24/04/2026)

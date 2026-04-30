@@ -115,6 +115,8 @@ func (h *Handler) RegisterRoutes(r *gin.RouterGroup) {
 
 	// End-of-Day — Receiver endpoints (warehouse_handler, accountant, dispatcher)
 	eod := r.Group("/eod")
+	// QW-005 / HIGH-002: EOD checkpoint là chốt kết ca tài xế, chỉ receiver hợp lệ được confirm/reject.
+	eod.Use(middleware.RequireRole("admin", "warehouse_handler", "accountant", "dispatcher", "management"))
 	eod.GET("/pending/:cpType", h.GetPendingCheckpoints)
 	eod.POST("/checkpoint/:checkpointId/confirm", h.ConfirmCheckpointReceiver)
 	eod.POST("/checkpoint/:checkpointId/reject", h.RejectCheckpointReceiver)
@@ -484,6 +486,7 @@ func (h *Handler) ListTrips(c *gin.Context) {
 	limit, _ := strconv.Atoi(c.DefaultQuery("limit", "20"))
 	status := c.Query("status")
 	plannedDate := c.Query("planned_date")
+	activeOnly := c.Query("active") == "true"
 
 	warehouseID, allowed := middleware.ResolveWarehouseScope(c)
 	if !allowed {
@@ -491,7 +494,7 @@ func (h *Handler) ListTrips(c *gin.Context) {
 		return
 	}
 
-	trips, total, err := h.svc.ListTrips(c.Request.Context(), warehouseID, plannedDate, status, page, limit)
+	trips, total, err := h.svc.ListTrips(c.Request.Context(), warehouseID, plannedDate, status, activeOnly, page, limit)
 	if err != nil {
 		response.InternalError(c)
 		return

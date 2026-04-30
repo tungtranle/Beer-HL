@@ -141,20 +141,22 @@ type OrderItem struct {
 
 // ===== CONTROL DESK =====
 type ControlDeskStats struct {
-	Draft                  int `json:"draft"`
-	PendingCustomerConfirm int `json:"pending_customer_confirm"`
-	PendingApproval        int `json:"pending_approval"`
-	Confirmed              int `json:"confirmed"`
-	ShipmentCreated        int `json:"shipment_created"`
-	InTransit              int `json:"in_transit"`
-	Delivering             int `json:"delivering"`
-	Delivered              int `json:"delivered"`
-	PartiallyDelivered     int `json:"partially_delivered"`
-	Failed                 int `json:"failed"`
-	Cancelled              int `json:"cancelled"`
-	Rejected               int `json:"rejected"`
-	OnCredit               int `json:"on_credit"`
-	Total                  int `json:"total"`
+	Draft                  int    `json:"draft"`
+	PendingCustomerConfirm int    `json:"pending_customer_confirm"`
+	PendingApproval        int    `json:"pending_approval"`
+	Confirmed              int    `json:"confirmed"`
+	ShipmentCreated        int    `json:"shipment_created"`
+	InTransit              int    `json:"in_transit"`
+	Delivering             int    `json:"delivering"`
+	Delivered              int    `json:"delivered"`
+	PartiallyDelivered     int    `json:"partially_delivered"`
+	Failed                 int    `json:"failed"`
+	Cancelled              int    `json:"cancelled"`
+	Rejected               int    `json:"rejected"`
+	OnCredit               int    `json:"on_credit"`
+	Total                  int    `json:"total"`
+	ScopeFrom              string `json:"scope_from,omitempty"`
+	ScopeTo                string `json:"scope_to,omitempty"`
 }
 
 // ===== DISPATCHER CONTROL TOWER =====
@@ -941,7 +943,15 @@ type Notification struct {
 	Actions    json.RawMessage `json:"actions,omitempty"`
 	GroupKey   *string         `json:"group_key,omitempty"`
 	IsRead     bool            `json:"is_read"`
-	CreatedAt  time.Time       `json:"created_at"`
+	// Phase 1 — World-class fields (migration 050)
+	IsAcknowledged    bool       `json:"is_acknowledged"`
+	AcknowledgedAt    *time.Time `json:"acknowledged_at,omitempty"`
+	ResolvedAt        *time.Time `json:"resolved_at,omitempty"`
+	IdempotencyKey    *string    `json:"-"` // internal, not exposed via API
+	ExpiresAt         time.Time  `json:"expires_at,omitempty"`
+	EscalatedAt       *time.Time `json:"escalated_at,omitempty"`
+	EscalatedToUserID *uuid.UUID `json:"escalated_to_user_id,omitempty"`
+	CreatedAt         time.Time  `json:"created_at"`
 }
 
 // NotificationAction represents an inline action button on a notification

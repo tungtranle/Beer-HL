@@ -1,4 +1,4 @@
-'use client'
+﻿'use client'
 
 import { useEffect, useState, useCallback } from 'react'
 import { apiFetch } from '@/lib/api'
@@ -15,107 +15,38 @@ interface Notification {
   actions?: { label: string; action: string }[]
 }
 
-type Tab = 'architecture' | 'center' | 'routing' | 'settings' | 'escalation'
-type CategoryFilter = 'all' | 'order' | 'delivery' | 'recon' | 'system'
+type View = 'center' | 'settings'
+type CategoryFilter = 'all' | 'order' | 'trip' | 'reconciliation' | 'eod' | 'finance'
 
-// ── Priority config (ảnh 1) ──
-const PRIORITY = {
-  P0: { label: 'P0 — Critical', title: 'Yêu cầu xử lý ngay', color: 'bg-red-50 border-red-200 text-red-700', badge: 'bg-red-600',
-    examples: 'Gate check fail, xe tai nạn, sai lệch hàng tại cổng, DLQ hết retry',
-    channels: ['Web popup', 'App push', 'SMS fallback'] },
-  P1: { label: 'P1 — Urgent', title: 'Phải xử lý hôm nay', color: 'bg-amber-50 border-amber-200 text-amber-700', badge: 'bg-amber-600',
-    examples: 'CK timeout, đơn chờ duyệt, sai lệch T+1 cần deadline, xe dừng bất thường',
-    channels: ['Web toast', 'App push', 'Escalate nếu 30\''] },
-  P2: { label: 'P2 — Important', title: 'Cần biết, không khẩn', color: 'bg-blue-50 border-blue-200 text-blue-600', badge: 'bg-blue-500',
-    examples: 'Trip hoàn thành, NPP từ chối đơn, vỏ cần đếm, hạn mức sắp hết thời kỳ',
-    channels: ['Web bell', 'App badge'] },
-  P3: { label: 'P3 — Digest', title: 'FYI — Gộp theo giờ', color: 'bg-gray-50 border-gray-200 text-gray-600', badge: 'bg-gray-500',
-    examples: 'Đơn mới tạo, DMS synced, Bravo confirmed, trạng thái đổi thường',
-    channels: ['Web bell', 'Hourly digest'] },
-}
-
-// ── Category badges for notifications ──
+// ── Category badges ──
 const CATEGORY_BADGE: Record<string, { icon: string; label: string; color: string }> = {
-  order: { icon: 'ĐH', label: 'Đơn hàng', color: 'bg-green-100 text-green-700' },
-  delivery: { icon: 'VC', label: 'Vận chuyển', color: 'bg-blue-100 text-blue-700' },
-  recon: { icon: 'ĐS', label: 'Đối soát', color: 'bg-purple-100 text-purple-700' },
-  system: { icon: 'HT', label: 'Hệ thống', color: 'bg-gray-100 text-gray-700' },
-  warehouse: { icon: 'KH', label: 'Kho', color: 'bg-amber-100 text-amber-700' },
-  payment: { icon: 'KT', label: 'Kế toán', color: 'bg-orange-100 text-orange-700' },
+  order:          { icon: 'ĐH', label: 'Đơn hàng',    color: 'bg-green-100 text-green-700' },
+  trip:           { icon: 'VC', label: 'Vận chuyển',  color: 'bg-blue-100 text-blue-700' },
+  reconciliation: { icon: 'ĐS', label: 'Đối soát',    color: 'bg-purple-100 text-purple-700' },
+  eod:            { icon: 'EoD', label: 'EoD',         color: 'bg-amber-100 text-amber-700' },
+  finance:        { icon: 'KT', label: 'Tài chính',   color: 'bg-orange-100 text-orange-700' },
+  document:       { icon: 'TL', label: 'Tài liệu',    color: 'bg-gray-100 text-gray-700' },
+  incident:       { icon: '⚠', label: 'Sự cố',        color: 'bg-red-100 text-red-700' },
+  asset:          { icon: '🔧', label: 'Thiết bị',    color: 'bg-gray-100 text-gray-600' },
+  kpi:            { icon: '📊', label: 'KPI',          color: 'bg-indigo-100 text-indigo-700' },
+  system:         { icon: 'HT', label: 'Hệ thống',    color: 'bg-gray-100 text-gray-700' },
 }
 
-// ── Priority border for notification cards ──
+// ── Priority left-border ──
 const PRIORITY_BORDER: Record<string, string> = {
   urgent: 'border-l-4 border-l-red-500',
-  high: 'border-l-4 border-l-amber-500',
+  high:   'border-l-4 border-l-amber-500',
   normal: 'border-l-4 border-l-blue-400',
-  low: 'border-l-4 border-l-gray-300',
+  low:    'border-l-4 border-l-gray-300',
 }
 
-// ── Routing table data (ảnh 3) ──
-const ROUTING: { priority: string; label: string; color: string; rows: { event: string; channels: string[] }[] }[] = [
-  { priority: 'P0 Critical', label: 'Routing theo sự kiện — P0 Critical', color: 'border-red-200 bg-red-50/30',
-    rows: [
-      { event: 'Gate check fail', channels: ['Web popup', 'App push', 'SMS', 'Escalate 5\''] },
-      { event: 'Xe tai nạn / sự cố nghiêm trọng', channels: ['Web popup', 'App push', 'SMS'] },
-      { event: 'DLQ hết 3 lần retry', channels: ['Web popup', 'SMS Admin'] },
-    ]},
-  { priority: 'P1 Urgent', label: 'Routing theo sự kiện — P1 Urgent', color: 'border-amber-200 bg-amber-50/30',
-    rows: [
-      { event: 'Đơn chờ duyệt hạn mức (R15)', channels: ['Web toast', 'App push', 'Escalate 30\''] },
-      { event: 'CK timeout chưa xác nhận', channels: ['Web toast', 'App push', 'Escalate config'] },
-      { event: 'Sai lệch T+1 còn < 2 giờ', channels: ['Web toast', 'App push'] },
-      { event: 'Xe dừng > ngưỡng cảnh báo', channels: ['Web toast', 'App push'] },
-      { event: 'NPP từ chối đơn hàng (R16)', channels: ['Web toast'] },
-    ]},
-  { priority: 'P2 & Zalo OA', label: 'Routing theo sự kiện — P2 & Zalo OA', color: 'border-blue-200 bg-blue-50/30',
-    rows: [
-      { event: 'Trip hoàn thành', channels: ['Web bell', 'App badge'] },
-      { event: 'Xác nhận đơn hàng (R16) — cho NPP', channels: ['Zalo OA'] },
-      { event: 'Xác nhận nhận hàng (R13) — cho NPP', channels: ['Zalo OA'] },
-      { event: 'Hạn mức NPP sắp hết thời kỳ', channels: ['Web bell'] },
-      { event: 'Xe cần kiểm định / bảo dưỡng', channels: ['Web bell', 'App push'] },
-    ]},
-]
-
-// ── Settings rows (ảnh 4) ──
+// ── Settings event list ──
 const SETTINGS_EVENTS = [
   'Đơn chờ duyệt hạn mức', 'Xác nhận chuyển khoản', 'Trip hoàn thành',
   'Sai lệch đối soát', 'DLQ lỗi tích hợp', 'Hàng cận date',
 ]
 
-// ── Escalation example (ảnh 5) ──
-const ESCALATION_STEPS = [
-  { time: 'T+0: ngay lập tức', title: 'Kế toán phụ trách nhận notification', desc: 'Web toast + App push — Với nút Duyệt / Từ chối inline', color: 'bg-blue-600' },
-  { time: 'T+20 phút', title: 'Nếu chưa xử lý — nhắc lại + badge đổi màu', desc: 'Notification chuyển màu amber, snooze bị tắt', color: 'bg-amber-500' },
-  { time: 'T+30 phút', title: 'Kế toán trưởng nhận notification', desc: 'Web toast + App push — note "Kế toán X chưa xử lý"', color: 'bg-orange-500' },
-  { time: 'T+45 phút', title: 'Quản lý vận hành nhận Web popup + SMS', desc: 'Đơn sắp quá mốc chốt 16h — cần quyết định ngay', color: 'bg-red-500' },
-  { time: 'T+60 phút (hoặc quá 16h cutoff)', title: 'Tự động từ chối nếu không ai xử lý', desc: 'Log đầy đủ ai nhận notification, ai không phản hồi', color: 'bg-gray-800' },
-]
-
-// ── Channel badge component ──
-function ChannelBadge({ ch }: { ch: string }) {
-  const colors: Record<string, string> = {
-    'Web popup': 'bg-red-100 text-red-700 border-red-200',
-    'App push': 'bg-green-100 text-green-700 border-green-200',
-    'SMS': 'bg-amber-100 text-amber-700 border-amber-200',
-    'SMS fallback': 'bg-amber-100 text-amber-700 border-amber-200',
-    'SMS Admin': 'bg-amber-100 text-amber-700 border-amber-200',
-    'Web toast': 'bg-orange-100 text-orange-700 border-orange-200',
-    'Web bell': 'bg-blue-100 text-blue-700 border-blue-200',
-    'App badge': 'bg-purple-100 text-purple-700 border-purple-200',
-    'Hourly digest': 'bg-gray-100 text-gray-700 border-gray-200',
-    'Zalo OA': 'bg-blue-100 text-blue-700 border-blue-200',
-  }
-  const c = colors[ch] || 'bg-gray-100 text-gray-600 border-gray-200'
-  const isEscalate = ch.startsWith('Escalate')
-  return (
-    <span className={`inline-block px-2 py-0.5 text-[11px] font-medium rounded border ${isEscalate ? 'bg-gray-800 text-white border-gray-800' : c}`}>
-      {ch}
-    </span>
-  )
-}
-
+// ── Helpers ──
 function timeAgo(dateStr: string) {
   const diff = Date.now() - new Date(dateStr).getTime()
   const mins = Math.floor(diff / 60000)
@@ -131,7 +62,11 @@ function formatDateTime(dateStr: string) {
   return d.toLocaleString('vi-VN', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit', second: '2-digit' })
 }
 
-// Gộp notifications cùng group_key thành 1 thread, giữ nguyên thứ tự thời gian
+function navigateLink(link: string) {
+  if (link.startsWith('/dashboard')) return link
+  return `/dashboard${link}`
+}
+
 function mergeGroups(notifs: Notification[]): { grouped: boolean; items: Notification[]; key: string | null }[] {
   const groupKeyMap = new Map<string, Notification[]>()
   const processedGroupKeys = new Set<string>()
@@ -180,7 +115,7 @@ function groupByTime(notifs: Notification[]) {
 
 export default function NotificationsPage() {
   const router = useRouter()
-  const [tab, setTab] = useState<Tab>('center')
+  const [view, setView] = useState<View>('center')
   const [notifications, setNotifications] = useState<Notification[]>([])
   const [loading, setLoading] = useState(true)
   const [filter, setFilter] = useState<CategoryFilter>('all')
@@ -193,8 +128,10 @@ export default function NotificationsPage() {
   const [expandedGroups, setExpandedGroups] = useState<Set<string>>(new Set())
 
   const load = useCallback(async () => {
+    setLoading(true)
     try {
-      const res = await apiFetch<any>(`/notifications?page=${page}&limit=${limit}`)
+      const categoryParam = filter !== 'all' ? `&category=${filter}` : ''
+      const res = await apiFetch<any>(`/notifications?page=${page}&limit=${limit}${categoryParam}`)
       setNotifications(res.data || [])
       setTotalRows(res.meta?.total ?? 0)
     } catch { /* ignore */ }
@@ -203,7 +140,7 @@ export default function NotificationsPage() {
       setUnreadCount(res.data?.unread_count || 0)
     } catch { /* ignore */ }
     setLoading(false)
-  }, [page, limit])
+  }, [page, limit, filter])
 
   useEffect(() => { load() }, [load])
 
@@ -223,9 +160,9 @@ export default function NotificationsPage() {
     } catch { /* ignore */ }
   }
 
-  const _handleClick = (n: Notification) => {
+  const handleClick = (n: Notification) => {
     if (!n.is_read) markRead(n.id)
-    if (n.link) router.push(`/dashboard${n.link}`)
+    if (n.link) router.push(navigateLink(n.link))
   }
 
   const toggleSetting = (event: string, channel: string) => {
@@ -235,81 +172,22 @@ export default function NotificationsPage() {
     }))
   }
 
-  const filteredNotifications = notifications.filter(n => {
-    const matchesCategory = filter === 'all' || n.category === filter
-    const matchesSearch = !searchQuery ||
-      n.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      n.body.toLowerCase().includes(searchQuery.toLowerCase())
-    return matchesCategory && matchesSearch
-  })
+  const setFilterAndReset = (f: CategoryFilter) => {
+    setFilter(f)
+    setPage(1)
+  }
 
-  const TABS: { key: Tab; label: string }[] = [
-    { key: 'architecture', label: 'Kiến trúc' },
-    { key: 'center', label: 'Notification center' },
-    { key: 'routing', label: 'Routing thông minh' },
-    { key: 'settings', label: 'Cài đặt cá nhân' },
-    { key: 'escalation', label: 'Escalation chain' },
-  ]
+  // Search is client-side within current page
+  const displayedNotifications = searchQuery
+    ? notifications.filter(n =>
+        n.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        n.body.toLowerCase().includes(searchQuery.toLowerCase()))
+    : notifications
 
   return (
     <div className="max-w-4xl mx-auto">
-      {/* Tab bar */}
-      <div className="flex gap-2 mb-6 flex-wrap">
-        {TABS.map(t => (
-          <button
-            key={t.key}
-            onClick={() => setTab(t.key)}
-            className={`px-4 py-2.5 text-sm font-medium rounded-lg border transition ${
-              tab === t.key
-                ? 'bg-white border-gray-300 shadow-sm text-gray-900'
-                : 'bg-white border-gray-200 text-gray-500 hover:border-gray-300 hover:text-gray-700'
-            }`}
-          >
-            {t.label}
-          </button>
-        ))}
-      </div>
-
-      {/* ═══════ Tab 1: Kiến trúc (ảnh 1) ═══════ */}
-      {tab === 'architecture' && (
-        <div className="space-y-6">
-          {/* 4 Priority cards */}
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            {Object.entries(PRIORITY).map(([key, p]) => (
-              <div key={key} className={`rounded-xl border-2 p-5 ${p.color}`}>
-                <p className="text-xs font-bold uppercase tracking-wider mb-1">{p.label}</p>
-                <p className="font-semibold text-base mb-2">{p.title}</p>
-                <p className="text-sm opacity-80 mb-3">{p.examples}</p>
-                <div className="flex flex-wrap gap-1.5">
-                  {p.channels.map(ch => <ChannelBadge key={ch} ch={ch} />)}
-                </div>
-              </div>
-            ))}
-          </div>
-
-          {/* 5 Design principles */}
-          <div>
-            <h3 className="text-base font-semibold text-gray-800 mb-3">5 nguyên tắc thiết kế</h3>
-            <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
-              {[
-                { name: 'Actionable', desc: 'Mọi thông báo có CTA inline, không phải chỉ "xem thêm"' },
-                { name: 'Grouped', desc: 'Nhiều sự kiện cùng Trip/Order gộp thành 1 thread' },
-                { name: 'Context-rich', desc: 'Link thẳng đến record, không cần tìm lại' },
-                { name: 'Role-aware', desc: 'Kế toán không nhận alert GPS, Tài xế không nhận alert kho' },
-                { name: 'Audit trail', desc: 'Ai đã đọc, ai đã xử lý, lúc mấy giờ — có log đầy đủ' },
-              ].map(p => (
-                <div key={p.name} className="bg-white rounded-lg border border-gray-200 p-4">
-                  <p className="font-semibold text-sm text-gray-800 mb-1">{p.name}</p>
-                  <p className="text-xs text-gray-500 leading-relaxed">{p.desc}</p>
-                </div>
-              ))}
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* ═══════ Tab 2: Notification Center (ảnh 2) ═══════ */}
-      {tab === 'center' && (
+      {/* ═══════ Notification Center ═══════ */}
+      {view === 'center' && (
         <div>
           {/* Header */}
           <div className="flex items-center justify-between mb-4">
@@ -326,7 +204,9 @@ export default function NotificationsPage() {
                   Đánh dấu tất cả đã đọc
                 </button>
               )}
-              <button className="text-sm text-gray-600 hover:text-gray-800 px-3 py-1.5 rounded-lg border border-gray-200 hover:bg-gray-50 transition">
+              <button
+                onClick={() => setView('settings')}
+                className="text-sm text-gray-600 hover:text-gray-800 px-3 py-1.5 rounded-lg border border-gray-200 hover:bg-gray-50 transition">
                 Cài đặt
               </button>
             </div>
@@ -340,9 +220,9 @@ export default function NotificationsPage() {
               </svg>
               <input
                 type="text"
-                placeholder="Tìm theo tiêu đề, nội dung, mã đơn..."
+                placeholder="Tìm theo tiêu đề, nội dung..."
                 value={searchQuery}
-                onChange={e => { setSearchQuery(e.target.value); setPage(1) }}
+                onChange={e => setSearchQuery(e.target.value)}
                 className="w-full pl-9 pr-4 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#F68634]/40 focus:border-[#F68634] transition"
               />
               {searchQuery && (
@@ -355,13 +235,14 @@ export default function NotificationsPage() {
             </div>
             <div className="flex gap-2 flex-wrap">
               {([
-                { key: 'all' as CategoryFilter, label: 'Tất cả' },
-                { key: 'order' as CategoryFilter, label: 'Đơn hàng' },
-                { key: 'delivery' as CategoryFilter, label: 'Vận chuyển' },
-                { key: 'recon' as CategoryFilter, label: 'Đối soát' },
-                { key: 'system' as CategoryFilter, label: 'Hệ thống' },
+                { key: 'all' as CategoryFilter,           label: 'Tất cả' },
+                { key: 'order' as CategoryFilter,         label: 'Đơn hàng' },
+                { key: 'trip' as CategoryFilter,          label: 'Vận chuyển' },
+                { key: 'reconciliation' as CategoryFilter, label: 'Đối soát' },
+                { key: 'eod' as CategoryFilter,           label: 'EoD' },
+                { key: 'finance' as CategoryFilter,       label: 'Tài chính' },
               ]).map(f => (
-                <button key={f.key} onClick={() => setFilter(f.key)}
+                <button key={f.key} onClick={() => setFilterAndReset(f.key)}
                   className={`px-3.5 py-1.5 text-sm rounded-lg border transition ${
                     filter === f.key
                       ? 'bg-gray-800 text-white border-gray-800'
@@ -373,12 +254,12 @@ export default function NotificationsPage() {
             </div>
           </div>
 
-          {/* Notification list grouped by time */}
+          {/* Notification list */}
           {loading ? (
             <div className="flex justify-center py-20">
               <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-[#F68634]"></div>
             </div>
-          ) : filteredNotifications.length === 0 ? (
+          ) : displayedNotifications.length === 0 ? (
             <div className="bg-white rounded-xl border border-gray-200 p-12 text-center">
               <p className="text-4xl mb-3">🔔</p>
               {searchQuery ? (
@@ -395,7 +276,7 @@ export default function NotificationsPage() {
             </div>
           ) : (
             <div className="space-y-6">
-              {groupByTime(filteredNotifications).map(group => (
+              {groupByTime(displayedNotifications).map(group => (
                 <div key={group.label}>
                   <p className="text-xs font-medium text-gray-400 uppercase tracking-wider mb-2">{group.label}</p>
                   <div className="space-y-2">
@@ -406,12 +287,8 @@ export default function NotificationsPage() {
                       const borderClass = PRIORITY_BORDER[n.priority] || PRIORITY_BORDER.normal
                       return (
                         <div key={n.id} className={`bg-white rounded-lg border border-gray-200 overflow-hidden ${borderClass}`}>
-                          {/* Main notification row */}
                           <div
-                            onClick={() => {
-                              if (!n.is_read) markRead(n.id)
-                              if (n.link) router.push(`/dashboard${n.link}`)
-                            }}
+                            onClick={() => handleClick(n)}
                             className={`p-4 cursor-pointer hover:shadow-md transition ${!n.is_read ? 'bg-amber-50/30' : ''}`}>
                             <div className="flex items-start gap-3">
                               <div className={`flex-shrink-0 w-9 h-9 rounded-full flex items-center justify-center text-xs font-bold ${cat.color}`}>
@@ -435,27 +312,11 @@ export default function NotificationsPage() {
                                   )}
                                 </div>
                                 <p className="text-sm text-gray-600 leading-relaxed">{n.body}</p>
-                                {(n.priority === 'urgent') && (
+                                {(n.priority === 'urgent' || n.priority === 'high') && n.link && (
                                   <div className="flex gap-2 mt-2.5">
                                     <button className="px-3 py-1.5 text-xs font-medium border border-gray-300 rounded-lg hover:bg-gray-50 transition"
-                                      onClick={e => { e.stopPropagation(); if (n.link) router.push(`/dashboard${n.link}`) }}>
+                                      onClick={e => { e.stopPropagation(); router.push(navigateLink(n.link!)) }}>
                                       Xem chi tiết
-                                    </button>
-                                    <button className="px-3 py-1.5 text-xs font-medium border border-gray-300 rounded-lg hover:bg-gray-50 transition"
-                                      onClick={e => e.stopPropagation()}>Từ chối xuất</button>
-                                    <button className="px-3 py-1.5 text-xs font-medium border border-gray-300 rounded-lg hover:bg-gray-50 transition"
-                                      onClick={e => e.stopPropagation()}>Bỏ qua ngoại lệ</button>
-                                  </div>
-                                )}
-                                {(n.priority === 'high') && (
-                                  <div className="flex gap-2 mt-2.5">
-                                    <button className="px-3 py-1.5 text-xs font-medium border border-gray-300 rounded-lg hover:bg-gray-50 transition"
-                                      onClick={e => e.stopPropagation()}>Duyệt ngay</button>
-                                    <button className="px-3 py-1.5 text-xs font-medium border border-gray-300 rounded-lg hover:bg-gray-50 transition"
-                                      onClick={e => e.stopPropagation()}>Từ chối</button>
-                                    <button className="px-3 py-1.5 text-xs font-medium border border-gray-300 rounded-lg hover:bg-gray-50 transition"
-                                      onClick={e => { e.stopPropagation(); if (n.link) router.push(`/dashboard${n.link}`) }}>
-                                      Xem công nợ NPP
                                     </button>
                                   </div>
                                 )}
@@ -469,7 +330,6 @@ export default function NotificationsPage() {
                             </div>
                           </div>
 
-                          {/* Thread expand/collapse */}
                           {grouped && (
                             <>
                               <button
@@ -490,7 +350,7 @@ export default function NotificationsPage() {
                                 const subCat = CATEGORY_BADGE[sub.category] || CATEGORY_BADGE.system
                                 return (
                                   <div key={sub.id}
-                                    onClick={() => { if (!sub.is_read) markRead(sub.id); if (sub.link) router.push(`/dashboard${sub.link}`) }}
+                                    onClick={() => { if (!sub.is_read) markRead(sub.id); if (sub.link) router.push(navigateLink(sub.link)) }}
                                     className={`flex items-start gap-3 px-4 py-3 border-t border-gray-100 cursor-pointer transition hover:bg-gray-50 ${!sub.is_read ? 'bg-amber-50/20' : 'bg-gray-50/50'}`}>
                                     <div className={`flex-shrink-0 w-7 h-7 rounded-full flex items-center justify-center text-[10px] font-bold ${subCat.color} opacity-70`}>
                                       {subCat.icon}
@@ -525,32 +385,20 @@ export default function NotificationsPage() {
         </div>
       )}
 
-      {/* ═══════ Tab 3: Routing thông minh (ảnh 3) ═══════ */}
-      {tab === 'routing' && (
-        <div className="space-y-5">
-          {ROUTING.map(group => (
-            <div key={group.priority} className={`rounded-xl border-2 p-5 ${group.color}`}>
-              <h3 className="font-semibold text-sm text-gray-800 mb-4">{group.label}</h3>
-              <div className="space-y-3">
-                {group.rows.map(row => (
-                  <div key={row.event} className="flex items-center justify-between gap-4">
-                    <span className="text-sm text-gray-700">{row.event}</span>
-                    <div className="flex gap-1.5 flex-wrap justify-end">
-                      {row.channels.map(ch => <ChannelBadge key={ch} ch={ch} />)}
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </div>
-          ))}
-        </div>
-      )}
-
-      {/* ═══════ Tab 4: Cài đặt cá nhân (ảnh 4) ═══════ */}
-      {tab === 'settings' && (
+      {/* ═══════ Cài đặt thông báo ═══════ */}
+      {view === 'settings' && (
         <div>
+          <div className="flex items-center gap-3 mb-5">
+            <button onClick={() => setView('center')} className="text-sm text-gray-500 hover:text-gray-700 flex items-center gap-1.5">
+              <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M15 19l-7-7 7-7" />
+              </svg>
+              Quay lại
+            </button>
+            <h2 className="text-lg font-semibold text-gray-900">Cài đặt thông báo</h2>
+          </div>
           <p className="text-sm text-gray-500 mb-5">
-            Mỗi user tự cài đặt nhận thông báo nào, qua kênh nào — hệ thống ghi nhớ theo role mặc định.
+            Tự cài đặt nhận thông báo nào, qua kênh nào — hệ thống ghi nhớ theo role mặc định.
           </p>
           <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
             <table className="w-full text-sm">
@@ -586,39 +434,8 @@ export default function NotificationsPage() {
             </table>
           </div>
           <p className="text-xs text-gray-400 mt-3">
-            Digest: gộp các thông báo P3 thành 1 email/web notification theo giờ. Snooze: tạm dừng loại thông báo trong 1 giờ khi đang bận.
+            Digest: gộp thông báo P3 thành 1 web notification theo giờ. Snooze: tạm dừng loại thông báo trong 1 giờ khi đang bận.
           </p>
-        </div>
-      )}
-
-      {/* ═══════ Tab 5: Escalation chain (ảnh 5) ═══════ */}
-      {tab === 'escalation' && (
-        <div>
-          <p className="text-sm text-gray-600 mb-5">
-            Chuỗi escalation tự động khi thông báo không được xử lý trong thời gian quy định:
-          </p>
-          <div className="bg-white rounded-xl border border-gray-200 p-6">
-            <p className="text-xs text-gray-400 uppercase tracking-wider mb-1">Ví dụ:</p>
-            <p className="font-semibold text-gray-800 mb-5">Đơn vượt hạn mức chờ duyệt</p>
-
-            <div className="relative">
-              {/* Vertical line */}
-              <div className="absolute left-[11px] top-3 bottom-3 w-0.5 bg-gray-200"></div>
-
-              <div className="space-y-6">
-                {ESCALATION_STEPS.map((step, idx) => (
-                  <div key={idx} className="relative flex items-start gap-4 pl-0">
-                    <div className={`relative z-10 w-6 h-6 rounded-full ${step.color} ring-4 ring-white shrink-0`}></div>
-                    <div className="flex-1 min-w-0">
-                      <p className="font-semibold text-sm text-gray-800">{step.title}</p>
-                      <p className="text-xs text-gray-500 mt-0.5">{step.desc}</p>
-                      <p className="text-[11px] text-gray-400 mt-1">{step.time}</p>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </div>
-          </div>
         </div>
       )}
     </div>

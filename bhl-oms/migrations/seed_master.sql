@@ -81,7 +81,8 @@ INSERT INTO users (
 ('3d6b4c6c-6817-44bc-1fb7-a0533450a696', 'security.hp', '$2a$10$VwRQalAxJFxy71yg/9OYfOv7yFBxByFPDjcxKSXxr.FwLBFFkd3Y2', 'Bảo Vệ Hải Phòng', 'security', ARRAY[]::text[], '{a0000000-0000-0000-0000-000000000002}'::uuid[], 'security.hp@bhl.local', true, false),
 ('0e39b13a-4c5e-4ee8-d642-ac19f395cb16', 'wh.handler.hl', '$2a$10$VwRQalAxJFxy71yg/9OYfOv7yFBxByFPDjcxKSXxr.FwLBFFkd3Y2', 'Thủ Kho Hạ Long', 'warehouse_handler', ARRAY[]::text[], '{a0000000-0000-0000-0000-000000000001}'::uuid[], 'wh.handler.hl@bhl.local', true, false),
 ('114c67fe-0f4a-4d16-fb29-ad5679ce248f', 'wh.handler.hp', '$2a$10$VwRQalAxJFxy71yg/9OYfOv7yFBxByFPDjcxKSXxr.FwLBFFkd3Y2', 'Thủ Kho Hải Phòng', 'warehouse_handler', ARRAY[]::text[], '{a0000000-0000-0000-0000-000000000002}'::uuid[], 'wh.handler.hp@bhl.local', true, false),
-('9f24101f-9493-44e0-1f2c-0b2f9646b1f5', 'workshop', '$2a$10$VwRQalAxJFxy71yg/9OYfOv7yFBxByFPDjcxKSXxr.FwLBFFkd3Y2', 'Kỹ Thuật Cơ Điện', 'workshop', ARRAY[]::text[], '{a0000000-0000-0000-0000-000000000001}'::uuid[], 'workshop@bhl.local', true, false)
+('9f24101f-9493-44e0-1f2c-0b2f9646b1f5', 'workshop', '$2a$10$VwRQalAxJFxy71yg/9OYfOv7yFBxByFPDjcxKSXxr.FwLBFFkd3Y2', 'Kỹ Thuật Cơ Điện', 'workshop', ARRAY[]::text[], '{a0000000-0000-0000-0000-000000000001}'::uuid[], 'workshop@bhl.local', true, false),
+('3ce3e567-0c45-4144-9a49-b40d6cb8b041', 'qa.demo', '$2a$10$VwRQalAxJFxy71yg/9OYfOv7yFBxByFPDjcxKSXxr.FwLBFFkd3Y2', 'QA Demo Portal', 'management', ARRAY[]::text[], '{a0000000-0000-0000-0000-000000000001}'::uuid[], 'qa.demo@bhl.local', true, false)
 
 ON CONFLICT (username) DO UPDATE SET
   full_name            = EXCLUDED.full_name,

@@ -259,7 +259,9 @@ func (s *Service) getOSRMDistances(warehouses []domain.Warehouse, custLat, custL
 	url = fmt.Sprintf("%s/table/v1/driving/%s?sources=%s&destinations=%d&annotations=distance,duration",
 		cfg.OSRMURL, coords, sources, custIdx)
 
-	resp, err := http.Get(url) //nolint:gosec
+	// QW-010 / LOW-003: 3s timeout to avoid hanging the warehouse-suggest pipeline if OSRM stalls.
+	osrmClient := &http.Client{Timeout: 3 * time.Second}
+	resp, err := osrmClient.Get(url) //nolint:gosec
 	if err != nil {
 		s.log.Warn(context.Background(), "osrm_table_failed", logger.Field{Key: "error", Value: err.Error()})
 		return result
@@ -797,7 +799,7 @@ func (s *Service) UpdateOrder(ctx context.Context, orderID uuid.UUID, req Create
 	return order, nil
 }
 
-func (s *Service) ListOrders(ctx context.Context, warehouseID *uuid.UUID, status, deliveryDate, cutoffGroup string, page, limit int) ([]domain.SalesOrder, int64, error) {
+func (s *Service) ListOrders(ctx context.Context, warehouseID *uuid.UUID, status, customerID, deliveryDate, fromDate, toDate, cutoffGroup string, page, limit int) ([]domain.SalesOrder, int64, error) {
 	if limit <= 0 {
 		limit = 20
 	}
@@ -805,7 +807,7 @@ func (s *Service) ListOrders(ctx context.Context, warehouseID *uuid.UUID, status
 		page = 1
 	}
 	offset := (page - 1) * limit
-	return s.repo.ListOrders(ctx, warehouseID, status, deliveryDate, cutoffGroup, limit, offset)
+	return s.repo.ListOrders(ctx, warehouseID, status, customerID, deliveryDate, fromDate, toDate, cutoffGroup, limit, offset)
 }
 
 func (s *Service) GetOrder(ctx context.Context, orderID uuid.UUID) (*domain.SalesOrder, error) {
@@ -1245,8 +1247,8 @@ func (s *Service) ListDeliveryAttempts(ctx context.Context, orderID uuid.UUID) (
 // ===== CONTROL DESK (Task 5.9, 5.10, 5.11) =====
 
 // GetControlDeskStats returns order counts per status for the DVKH control desk
-func (s *Service) GetControlDeskStats(ctx context.Context, warehouseID *uuid.UUID) (*domain.ControlDeskStats, error) {
-	return s.repo.GetControlDeskStats(ctx, warehouseID)
+func (s *Service) GetControlDeskStats(ctx context.Context, warehouseID *uuid.UUID, fromDate, toDate string) (*domain.ControlDeskStats, error) {
+	return s.repo.GetControlDeskStats(ctx, warehouseID, fromDate, toDate)
 }
 
 // SearchOrders performs a global search across customer name, phone, order number, vehicle plate

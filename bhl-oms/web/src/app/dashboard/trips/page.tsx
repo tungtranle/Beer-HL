@@ -40,7 +40,7 @@ export default function TripsPage() {
   const [search, setSearch] = useState('')
   const [view, setView] = useState<SavedView>('today')
   const [selected, setSelected] = useState<Set<string>>(new Set())
-  const [plannedDate, setPlannedDate] = useState('')
+  const [plannedDate, setPlannedDate] = useState(new Date().toISOString().split('T')[0])
   const [page, setPage] = useState(1)
   const [limit, setLimit] = useState(50)
   const [totalRows, setTotalRows] = useState(0)
@@ -52,6 +52,7 @@ export default function TripsPage() {
     const params = new URLSearchParams()
     if (filter) params.set('status', filter)
     if (plannedDate) params.set('planned_date', plannedDate)
+    if (view === 'active' && !filter) params.set('active', 'true')
     params.set('page', String(page))
     params.set('limit', String(limit))
     apiFetch<any>(`/trips?${params}`)
@@ -71,6 +72,8 @@ export default function TripsPage() {
     try {
       const params = new URLSearchParams()
       if (filter) params.set('status', filter)
+      if (plannedDate) params.set('planned_date', plannedDate)
+      if (view === 'active' && !filter) params.set('active', 'true')
       const res = await fetch(`/api/trips/export?${params}`, {
         headers: { Authorization: `Bearer ${getToken()}` },
       })
@@ -121,7 +124,7 @@ export default function TripsPage() {
   const applyView = (v: SavedView) => {
     setView(v)
     if (v === 'today') { setPlannedDate(todayStr); setFilter('') }
-    else if (v === 'active') { setPlannedDate(''); setFilter('in_transit') }
+    else if (v === 'active') { setPlannedDate(''); setFilter('') }
     else if (v === 'issues') { setPlannedDate(''); setFilter('cancelled') }
     else { setPlannedDate(''); setFilter('') }
   }

@@ -11,6 +11,7 @@ import logging
 import urllib.request
 import urllib.error
 from http.server import HTTPServer, BaseHTTPRequestHandler
+from datetime import datetime, timedelta
 try:
     from ortools.constraint_solver import routing_enums_pb2, pywrapcp
 except ImportError:
@@ -21,6 +22,97 @@ logger = logging.getLogger(__name__)
 
 OSRM_URL = os.environ.get('OSRM_URL', 'http://localhost:5000')
 _osrm_available = None
+
+
+def parse_iso_date(value):
+    try:
+        return datetime.strptime(value[:10], '%Y-%m-%d')
+    except Exception:
+        return None
+
+
+def forecast_demand(data):
+    """Forecast weekly demand for one NPP/SKU using zero-dependency rules.
+
+    The production contract is Prophet-compatible, but the solver container keeps
+    dependencies light. If a richer model is added later, keep this response
+    shape stable for Go/Next.js callers.
+    """
+    sku = str(data.get('sku') or '').strip()
+    npp_code = str(data.get('npp_code') or '').strip()
+    warehouse_code = str(data.get('warehouse_code') or '').strip()
+    horizon_weeks = int(data.get('horizon_weeks') or 4)
+    horizon_weeks = max(1, min(horizon_weeks, 8))
+    raw_history = data.get('history') or []
+
+    weekly = {}
+    for row in raw_history:
+        date_value = parse_iso_date(str(row.get('date') or ''))
+        if not date_value:
+            continue
+        week_start = date_value - timedelta(days=date_value.weekday())
+        key = week_start.strftime('%Y-%m-%d')
+        try:
+            qty = float(row.get('qty') or 0)
+        except Exception:
+            qty = 0.0
+        weekly[key] = weekly.get(key, 0.0) + max(qty, 0.0)
+
+    ordered_weeks = sorted(weekly.items())
+    values = [qty for _, qty in ordered_weeks[-12:]]
+    if not values:
+        values = [float(data.get('baseline_qty') or 1)]
+
+    recent = values[-4:]
+    previous = values[-8:-4]
+    baseline = sum(recent) / len(recent)
+    if previous:
+        prev_avg = sum(previous) / len(previous)
+        trend_per_week = (baseline - prev_avg) / max(len(recent), 1)
+    elif len(values) >= 2:
+        trend_per_week = (values[-1] - values[0]) / max(len(values) - 1, 1)
+    else:
+        trend_per_week = 0.0
+
+    variance = sum(abs(v - baseline) for v in values) / max(len(values), 1)
+    confidence = max(0.35, min(0.86, 0.78 - (variance / max(baseline, 1.0)) * 0.18))
+
+    if ordered_weeks:
+        last_week = parse_iso_date(ordered_weeks[-1][0]) or datetime.utcnow()
+        next_week = last_week + timedelta(days=7)
+    else:
+        today = datetime.utcnow()
+        next_week = today - timedelta(days=today.weekday())
+
+    forecasts = []
+    for idx in range(horizon_weeks):
+        point_date = next_week + timedelta(days=idx * 7)
+        pred = max(0.0, baseline + trend_per_week * (idx + 1))
+        band = max(1.0, variance * 1.25)
+        forecasts.append({
+            'week_start': point_date.strftime('%Y-%m-%d'),
+            'qty_pred': round(pred, 2),
+            'qty_lower': round(max(0.0, pred - band), 2),
+            'qty_upper': round(pred + band, 2),
+        })
+
+    direction = 'ổn định'
+    if trend_per_week > max(1.0, baseline * 0.08):
+        direction = 'tăng'
+    elif trend_per_week < -max(1.0, baseline * 0.08):
+        direction = 'giảm'
+
+    return {
+        'sku': sku,
+        'npp_code': npp_code,
+        'warehouse_code': warehouse_code,
+        'history_points': len(raw_history),
+        'model_method': 'prophet-compatible-rules',
+        'confidence': round(confidence, 4),
+        'forecast': forecasts,
+        'explanation': f'Dự báo 4 tuần dựa trên {len(values)} tuần gần nhất; nhu cầu đang {direction}.',
+        'generated_at': datetime.utcnow().isoformat(timespec='seconds') + 'Z',
+    }
 
 
 def haversine(lat1, lon1, lat2, lon2):
@@ -501,7 +593,7 @@ def solve_vrp(data, progress_callback=None):
     num_nodes = len(nodes) + 1  # +1 for depot
     
     # Extract optimization mode
-    # 'cost' = avoid tolls → minimize fuel (exclude=toll OSRM)
+    # 'cost' = minimize total VND (fuel + toll), letting solver trade off toll vs detour
     # 'time' = minimize total delivery time (driving + loading)
     # 'distance' = minimize total km (normal OSRM)
     optimize_for = data.get('optimize_for', 'cost')
@@ -527,28 +619,22 @@ def solve_vrp(data, progress_callback=None):
         distance_matrix = build_distance_matrix(depot, nodes)
         logger.info("Using Haversine distance matrix (OSRM unavailable)")
     
-    # Pre-compute arc toll details for fallback when OSRM route geometry fails
+    # Pre-compute arc toll details AND per-vehicle VND cost matrices
     toll_stations = data.get('toll_stations', [])
     toll_expressways = data.get('toll_expressways', [])
+    cost_matrices = None  # per-vehicle VND matrices (for COST mode)
     if toll_stations or toll_expressways:
         emit("toll", 25, f"{len(toll_stations)} trạm BOT, {len(toll_expressways)} cao tốc")
-        _, arc_toll_details = build_vehicle_cost_matrices(
+        cost_matrices, arc_toll_details = build_vehicle_cost_matrices(
             all_points, distance_matrix, vehicles, toll_stations, toll_expressways
         )
         logger.info(f"Arc toll fallback: {len(arc_toll_details)} vehicle-arc toll entries")
     
-    # ── Cost mode: build SECOND OSRM matrix with exclude=toll ──
-    # The solver uses this alternative matrix → naturally avoids toll roads.
-    # This creates GENUINE routing differences from distance mode.
-    cost_distance_matrix = None
-    if optimize_for == 'cost' and use_osrm:
-        emit("toll_matrix", 30, "Tính ma trận tránh BOT")
-        notoll_dm, notoll_dur = build_osrm_matrix(all_points, exclude='toll')
-        if notoll_dm is not None:
-            cost_distance_matrix = notoll_dm
-            logger.info(f"Cost mode: exclude=toll OSRM matrix built ({len(all_points)} points)")
-        else:
-            logger.warning("Cost mode: exclude=toll OSRM failed, falling back to normal matrix")
+    # ── Cost mode: REMOVE exclude=toll OSRM — use per-vehicle VND matrix instead ──
+    # Reason: exclude=toll avoids all tolls unconditionally, but longer detour routes can cost
+    # MORE in fuel than the toll savings. True cost optimization must balance fuel + toll.
+    # The per-vehicle VND matrix (from build_vehicle_cost_matrices) encodes this tradeoff.
+    cost_distance_matrix = None  # kept for backward compat but no longer built in cost mode
     
     # Demands (index 0 = depot with 0 demand)
     demands = [0] + [n.get('demand', 0) for n in nodes]
@@ -592,29 +678,39 @@ def solve_vrp(data, progress_callback=None):
             return travel
     time_service_cb_index = routing.RegisterTransitCallback(time_with_service_callback)
 
-    # 3. Cost mode distance callback (exclude=toll, if available)
-    cost_cb_index = None
-    if cost_distance_matrix is not None:
-        def cost_distance_callback(from_index, to_index):
-            from_node = manager.IndexToNode(from_index)
-            to_node = manager.IndexToNode(to_index)
-            return cost_distance_matrix[from_node][to_node]
-        cost_cb_index = routing.RegisterTransitCallback(cost_distance_callback)
+    # 3. Per-vehicle VND cost callbacks (for COST mode)
+    # Each vehicle gets its own callback: arc_cost = fuel_vnd + toll_vnd
+    # This lets OR-Tools naturally pick whether paying a toll is cheaper than the detour.
+    per_vehicle_cost_cb_indices = []
+    if cost_matrices is not None and len(cost_matrices) == num_vehicles:
+        for vi in range(num_vehicles):
+            # Capture vi and matrix by value in closure
+            vm = cost_matrices[vi]
+            def make_vnd_callback(mat):
+                def cb(from_index, to_index):
+                    from_node = manager.IndexToNode(from_index)
+                    to_node = manager.IndexToNode(to_index)
+                    return mat[from_node][to_node]
+                return cb
+            cb_idx = routing.RegisterTransitCallback(make_vnd_callback(vm))
+            per_vehicle_cost_cb_indices.append(cb_idx)
 
     # ── Set arc cost based on optimization mode ──
     if optimize_for == 'time':
         # TIME: arc cost = duration + 20min service per stop
         routing.SetArcCostEvaluatorOfAllVehicles(time_service_cb_index)
         logger.info(f"Optimize mode: TIME (duration + 20min/stop, source={'osrm' if duration_matrix is not None else 'haversine_est'})")
-    elif optimize_for == 'cost' and cost_cb_index is not None:
-        # COST: arc cost = exclude=toll OSRM distance (meters)
-        routing.SetArcCostEvaluatorOfAllVehicles(cost_cb_index)
-        logger.info("Optimize mode: COST (exclude=toll OSRM meters)")
+    elif optimize_for == 'cost' and len(per_vehicle_cost_cb_indices) == num_vehicles:
+        # COST: arc cost = fuel_vnd + toll_vnd per vehicle (true VND minimization)
+        # Solver will naturally prefer toll roads when paying toll is cheaper than the detour.
+        for vi, cb_idx in enumerate(per_vehicle_cost_cb_indices):
+            routing.SetArcCostEvaluatorOfVehicle(cb_idx, vi)
+        logger.info(f"Optimize mode: COST (per-vehicle VND = fuel+toll, {num_vehicles} vehicles)")
     else:
-        # DISTANCE (or COST without OSRM): arc cost = normal distance (meters)
+        # DISTANCE (or COST without toll data): arc cost = normal distance (meters)
         routing.SetArcCostEvaluatorOfAllVehicles(transit_callback_index)
-        if optimize_for == 'cost' and cost_cb_index is None:
-            logger.warning("Optimize mode: COST degraded to DISTANCE (OSRM unavailable, no exclude=toll)")
+        if optimize_for == 'cost':
+            logger.warning("Optimize mode: COST degraded to DISTANCE (no toll data available)")
         else:
             logger.info("Optimize mode: DISTANCE (normal meters)")
 
@@ -666,6 +762,30 @@ def solve_vrp(data, progress_callback=None):
         penalty = 1_000_000  # ~1000km in meters (both cost and distance modes use meters)
     for node in range(1, num_nodes):
         routing.AddDisjunction([manager.NodeToIndex(node)], penalty)
+
+    # ── Phase B: Customer VRP constraints — vehicle weight filter ──
+    # Each node may declare `max_vehicle_weight_kg` (integer kg). Vehicles whose
+    # `capacity` (kg) exceeds this limit are forbidden from visiting that node.
+    # Reason: physical site access (narrow lanes, low bridges, intra-city load bans).
+    # Stops are nodes[0..N-1]; corresponding routing index = node_idx + 1 (depot is 0).
+    weight_constraint_count = 0
+    for ni, n in enumerate(nodes):
+        max_kg = int(n.get('max_vehicle_weight_kg', 0) or 0)
+        if max_kg <= 0:
+            continue
+        allowed = [vi for vi, v in enumerate(vehicles) if int(v.get('capacity', 0)) <= max_kg]
+        if not allowed:
+            logger.warning(
+                f"Node {ni} requires vehicle ≤{max_kg}kg but NO vehicle qualifies — "
+                f"will likely be dropped (penalty {penalty})"
+            )
+            continue
+        if len(allowed) == num_vehicles:
+            continue  # no real restriction
+        routing.VehicleVar(manager.NodeToIndex(ni + 1)).SetValues([-1] + allowed)
+        weight_constraint_count += 1
+    if weight_constraint_count:
+        logger.info(f"Applied vehicle-weight constraint to {weight_constraint_count}/{len(nodes)} nodes")
     
     # Search parameters
     search_params = pywrapcp.DefaultRoutingSearchParameters()
@@ -759,29 +879,21 @@ def solve_vrp(data, progress_callback=None):
                 idx_walk = solution.Value(routing.NextVar(idx_walk))
             trip_waypoints.append(depot)  # quay về kho
 
-            # Lấy tuyến đường thực tế từ OSRM
-            # Cost mode: dùng exclude=toll để hiển thị đúng tuyến solver đã chọn
-            route_exclude = 'toll' if (optimize_for == 'cost' and cost_distance_matrix is not None) else None
-            route_geo = get_route_geometry(trip_waypoints, exclude=route_exclude)
+            # Lấy tuyến đường thực tế từ OSRM (luôn dùng route bình thường)
+            # COST mode dùng VND matrix → solver có thể chọn đường qua BOT nếu rẻ hơn.
+            # Không dùng exclude=toll ở đây để report đúng thực tế.
+            route_geo = get_route_geometry(trip_waypoints, exclude=None)
 
             if route_geo is not None:
                 # ✅ Route geometry-based detection (chính xác)
                 actual_distance_km = route_geo['total_distance_m'] / 1000.0
                 fuel_total = fuel_cost_per_km * actual_distance_km
 
-                # Cost mode uses OSRM exclude=toll for both matrix building and route geometry.
-                # In this branch, the solver already chose a no-toll route on the routing graph.
-                # Running proximity-based toll detection again causes false positives on parallel
-                # national roads that pass near toll plazas without actually traversing tolled edges.
-                if optimize_for == 'cost' and route_exclude == 'toll':
-                    toll_total = 0.0
-                    tolls_passed = []
-                    route_data['toll_detection'] = 'osrm_exclude_toll'
-                else:
-                    toll_total, tolls_passed = detect_tolls_on_polyline(
-                        route_geo['polyline'], toll_stations, toll_expressways, toll_class
-                    )
-                    route_data['toll_detection'] = 'route_geometry'
+                # Detect tolls on the actual route geometry
+                toll_total, tolls_passed = detect_tolls_on_polyline(
+                    route_geo['polyline'], toll_stations, toll_expressways, toll_class
+                )
+                route_data['toll_detection'] = 'route_geometry'
 
                 route_data['distance_km'] = round(actual_distance_km, 1)
                 route_data['route_polyline_count'] = len(route_geo['polyline'])
@@ -900,6 +1012,24 @@ class VRPHandler(BaseHTTPRequestHandler):
                     self.wfile.flush()
                 except:
                     pass
+        elif self.path == '/ml/forecast-demand':
+            content_length = int(self.headers.get('Content-Length', 0))
+            body = self.rfile.read(content_length)
+
+            try:
+                data = json.loads(body or b'{}')
+                result = forecast_demand(data)
+
+                self.send_response(200)
+                self.send_header('Content-Type', 'application/json')
+                self.end_headers()
+                self.wfile.write(json.dumps(result).encode())
+            except Exception as e:
+                logger.error(f"Demand forecast error: {e}")
+                self.send_response(500)
+                self.send_header('Content-Type', 'application/json')
+                self.end_headers()
+                self.wfile.write(json.dumps({'error': str(e)}).encode())
         else:
             self.send_response(404)
             self.end_headers()

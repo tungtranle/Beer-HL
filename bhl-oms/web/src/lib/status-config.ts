@@ -417,3 +417,6 @@ export const formatVNDCompact = (n: number) => {
   if (n >= 1_000) return (n / 1_000).toFixed(0) + 'K'
   return n.toString()
 }
+
+// Format counts / general numbers for KPI tiles (thousands separator, vi-VN)
+export const formatCount = (n: number) => new Intl.NumberFormat('vi-VN').format(n)

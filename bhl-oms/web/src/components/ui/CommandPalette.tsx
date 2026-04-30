@@ -19,9 +19,11 @@ import { useRouter } from 'next/navigation'
 import {
   Search, FileText, Truck, Users, Package, MapPin,
   BarChart3, Settings, PlusCircle, Bell, Warehouse,
+  Bot, FlaskConical, ShieldCheck,
   type LucideIcon,
 } from 'lucide-react'
-import { getUser } from '@/lib/api'
+import { apiFetch, getUser } from '@/lib/api'
+import { useAIFeature } from '@/hooks/useAIFeature'
 
 interface Command {
   id: string
@@ -35,7 +37,7 @@ interface Command {
   onSelect?: () => void
   /** Search keywords (Vietnamese + ASCII) */
   keywords?: string[]
-  group: 'Điều hướng' | 'Hành động' | 'Cài đặt' | 'Báo cáo'
+  group: 'Điều hướng' | 'Hành động' | 'Cài đặt' | 'Báo cáo' | 'AI'
 }
 
 const COMMANDS: Command[] = [
@@ -49,6 +51,9 @@ const COMMANDS: Command[] = [
   { id: 'nav-kpi',           label: 'Báo cáo KPI',          icon: BarChart3,    href: '/dashboard/kpi',             group: 'Báo cáo' },
   { id: 'nav-notifications', label: 'Thông báo',            icon: Bell,         href: '/dashboard/notifications',   group: 'Điều hướng' },
   { id: 'nav-settings',      label: 'Cài đặt hệ thống',     icon: Settings,     href: '/dashboard/settings',        group: 'Cài đặt',     roles: ['admin'] },
+  { id: 'nav-ai-transparency', label: 'AI Transparency Center', icon: ShieldCheck, href: '/dashboard/ai/transparency', group: 'AI', roles: ['admin', 'management'] },
+  { id: 'nav-ai-simulations', label: 'AI Simulation Lab', icon: FlaskConical, href: '/dashboard/ai/simulations', group: 'AI', roles: ['admin', 'dispatcher', 'management'] },
+  { id: 'nav-ai-settings', label: 'Cài đặt AI Toggle', icon: Bot, href: '/dashboard/settings/ai', group: 'AI', roles: ['admin'] },
 
   // Actions
   { id: 'act-new-order',     label: 'Tạo đơn hàng mới',     icon: PlusCircle,   href: '/dashboard/orders/new',      group: 'Hành động',   roles: ['admin', 'dvkh'], keywords: ['create', 'tao don', 'new'] },
@@ -63,11 +68,13 @@ export function CommandPalette({ extraCommands = [] }: Props) {
   const [open, setOpen] = useState(false)
   const [query, setQuery] = useState('')
   const [activeIdx, setActiveIdx] = useState(0)
+  const [intentCommands, setIntentCommands] = useState<Command[]>([])
   const router = useRouter()
   const inputRef = useRef<HTMLInputElement>(null)
   const listRef = useRef<HTMLDivElement>(null)
 
   const userRole = getUser()?.role
+  const { enabled: aiIntentEnabled } = useAIFeature('ai.intent')
 
   // Cmd+K / Ctrl+K toggle
   useEffect(() => {
@@ -89,19 +96,48 @@ export function CommandPalette({ extraCommands = [] }: Props) {
       setTimeout(() => inputRef.current?.focus(), 50)
       setQuery('')
       setActiveIdx(0)
+      setIntentCommands([])
     }
   }, [open])
 
+  useEffect(() => {
+    if (!open || !aiIntentEnabled || query.trim().length < 3) {
+      setIntentCommands([])
+      return
+    }
+    let cancelled = false
+    const timer = window.setTimeout(async () => {
+      try {
+        const res: any = await apiFetch(`/ai/intents?q=${encodeURIComponent(query)}`)
+        if (cancelled) return
+        const matches = (res.data || []).slice(0, 3)
+        setIntentCommands(matches.map((match: any, index: number) => ({
+          id: `ai-intent-${match.intent}-${index}`,
+          label: `AI: ${match.action}`,
+          hint: `${Math.round((match.confidence || 0) * 100)}% · Tier ${match.tier}`,
+          icon: match.action === 'create_simulation' ? FlaskConical : Bot,
+          href: match.href,
+          onSelect: match.href ? undefined : () => router.push('/dashboard/ai/simulations'),
+          group: 'AI',
+          keywords: [match.intent, match.action],
+        })))
+      } catch {
+        if (!cancelled) setIntentCommands([])
+      }
+    }, 250)
+    return () => { cancelled = true; window.clearTimeout(timer) }
+  }, [open, query, aiIntentEnabled, router])
+
   // Filter commands
   const visible = useMemo(() => {
-    const all = [...COMMANDS, ...extraCommands].filter((c) => !c.roles || (userRole && c.roles.includes(userRole)))
+    const all = [...COMMANDS, ...extraCommands, ...intentCommands].filter((c) => !c.roles || (userRole && c.roles.includes(userRole)))
     if (!query.trim()) return all
     const q = normalizeVi(query.trim().toLowerCase())
     return all.filter((c) => {
       const haystack = [c.label, c.hint, ...(c.keywords || [])].filter(Boolean).map((s) => normalizeVi(String(s).toLowerCase())).join(' ')
       return haystack.includes(q)
     })
-  }, [query, userRole, extraCommands])
+  }, [query, userRole, extraCommands, intentCommands])
 
   // Group by group label
   const grouped = useMemo(() => {

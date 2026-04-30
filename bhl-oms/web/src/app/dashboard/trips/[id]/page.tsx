@@ -56,6 +56,7 @@ export default function TripDetailPage() {
   const [trip, setTrip] = useState<TripDetail | null>(null)
   const [loading, setLoading] = useState(true)
   const [updating, setUpdating] = useState(false)
+  const [osrmWarning, setOsrmWarning] = useState(false)
   const mapRef = useRef<HTMLDivElement>(null)
   const mapInstanceRef = useRef<any>(null)
 
@@ -136,6 +137,7 @@ export default function TripDetailPage() {
   useEffect(() => {
     if (!trip || !mapRef.current) return
     let cancelled = false
+    setOsrmWarning(false)
 
     // Dynamic import Leaflet (client-side only)
     import('leaflet').then((L) => {
@@ -210,12 +212,20 @@ export default function TripDetailPage() {
         routeCoords.push([trip.warehouse_lat, trip.warehouse_lng])
       }
 
-      // Draw route using OSRM road routing
+      // Draw route using OSRM road routing, fallback to dashed straight-line if unavailable
       if (routeCoords.length > 1) {
         const coords = routeCoords.map(([lat, lng]) => `${lng},${lat}`).join(';')
-        fetch(`https://router.project-osrm.org/route/v1/driving/${coords}?overview=full&geometries=geojson`)
+        const drawFallback = () => {
+          if (cancelled) return
+          L.polyline(routeCoords, {
+            color: '#9ca3af', weight: 3, opacity: 0.7, dashArray: '8 5',
+          }).addTo(map)
+          setOsrmWarning(true)
+        }
+        fetch(`/osrm/route/v1/driving/${coords}?overview=full&geometries=geojson`)
           .then(res => res.json())
           .then(data => {
+            if (cancelled) return
             if (data.code === 'Ok' && data.routes?.[0]?.geometry) {
               const geoCoords = data.routes[0].geometry.coordinates.map(
                 (c: [number, number]) => [c[1], c[0]] as [number, number]
@@ -224,17 +234,10 @@ export default function TripDetailPage() {
                 color: '#2563eb', weight: 4, opacity: 0.8,
               }).addTo(map)
             } else {
-              // Fallback: straight dashed lines if OSRM fails
-              L.polyline(routeCoords, {
-                color: '#2563eb', weight: 3, opacity: 0.7, dashArray: '8, 8',
-              }).addTo(map)
+              drawFallback()
             }
           })
-          .catch(() => {
-            L.polyline(routeCoords, {
-              color: '#2563eb', weight: 3, opacity: 0.7, dashArray: '8, 8',
-            }).addTo(map)
-          })
+          .catch(() => drawFallback())
       }
 
       // Fit bounds
@@ -320,7 +323,13 @@ export default function TripDetailPage() {
 
       {/* Map */}
       <div className="bg-white rounded-xl shadow-sm p-4 mb-6">
-        <h2 className="font-semibold mb-3">Bản đồ tuyến đường</h2>
+        <h2 className="font-semibold mb-2">Bản đồ tuyến đường</h2>
+        {osrmWarning && (
+          <div className="flex items-center gap-2 text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded px-3 py-1.5 mb-2">
+            <span>⚠️</span>
+            <span>OSRM chưa sẵn sàng — đang hiển thị đường thẳng tạm. Chạy <strong>START_OSRM_ONLY.bat</strong> để xem tuyến đường thực tế.</span>
+          </div>
+        )}
         <div ref={mapRef} className="w-full h-[450px] rounded-lg border" />
       </div>
 

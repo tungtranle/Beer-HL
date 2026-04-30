@@ -24,14 +24,17 @@ applyTo: "**/*.{go,ts,tsx,sql}"
 | Thay đổi cấu trúc thư mục | CURRENT_STATE.md + CHANGELOG.md |
 | Thêm/sửa biến môi trường | CURRENT_STATE.md + CHANGELOG.md |
 | Thêm frontend page mới | CURRENT_STATE.md (danh sách pages) + CHANGELOG.md |
+| Thêm/sửa QA Portal, AQF gate, demo scenario, evidence, monitoring QA | AQF_BHL_SETUP.md + TST_BHL_OMS_TMS_WMS.md + CURRENT_STATE.md + TASK_TRACKER.md + CHANGELOG.md |
+| Thêm/sửa test data hoặc scenario có DB mutation | AQF_BHL_SETUP.md (data safety) + DBS_BHL_OMS_TMS_WMS.md nếu đổi schema + CURRENT_STATE.md + CHANGELOG.md |
 | Xong task trong TASK_TRACKER | TASK_TRACKER.md (đánh ☑, cập nhật counter) |
 
 ## Thứ tự ưu tiên cập nhật
 
 1. **CURRENT_STATE.md** — Luôn cập nhật đầu tiên (source of truth cho trạng thái thực tế)
-2. **CHANGELOG.md** — Ghi lại thay đổi cụ thể
-3. **TASK_TRACKER.md** — Nếu liên quan đến task
-4. **Spec files** (API, DBS, BRD...) — Nếu spec cần cập nhật theo
+2. **AQF_BHL_SETUP.md** — Nếu thay đổi QA Portal, gate, evidence, demo scenario, data safety, monitoring
+3. **CHANGELOG.md** — Ghi lại thay đổi cụ thể
+4. **TASK_TRACKER.md** — Nếu liên quan đến task
+5. **Spec files** (API, DBS, BRD, TST...) — Nếu spec cần cập nhật theo
 
 ## KHÔNG cần cập nhật khi
 
@@ -44,9 +47,12 @@ applyTo: "**/*.{go,ts,tsx,sql}"
 
 Trước khi kết thúc, AI phải tự kiểm tra:
 0. **[BẮT BUỘC] Code đã test chưa?** Mỗi feature/endpoint/page đã viết PHẢI được test riêng lẻ. Xem `test-after-code.instructions.md`.
-1. **[BẮT BUỘC] Localhost hoạt động?** Fetch backend health check + frontend login page. Nếu fail → fix trước khi báo "đã xong". Nếu port bị chiếm → dùng port khác + cập nhật proxy.
-2. Đã cập nhật CURRENT_STATE.md cho mọi thay đổi chưa?
-3. Đã ghi CHANGELOG.md chưa?
-4. TASK_TRACKER.md đã đánh dấu các task hoàn thành chưa?
-5. Có quyết định kỹ thuật mới cần ghi vào DECISIONS.md không?
-6. Có nợ kỹ thuật mới cần ghi vào TECH_DEBT.md không?
+1. **[BẮT BUỘC] AQF gate phù hợp đã chạy chưa?** G0/G1/G2/G3/G4 tùy phạm vi. Nếu skip phải có lý do.
+2. **[BẮT BUỘC] Data safety nếu có test/demo data:** `historical_rows_touched = 0`, không `TRUNCATE`, không unscoped `DELETE`.
+3. **[BẮT BUỘC] Localhost hoạt động?** Fetch backend health check + frontend login page. Nếu fail → fix trước khi báo "đã xong". Nếu port bị chiếm → dùng port khác + cập nhật proxy.
+4. Đã cập nhật CURRENT_STATE.md cho mọi thay đổi chưa?
+5. Đã cập nhật AQF_BHL_SETUP.md/TST nếu thay đổi QA/AQF chưa?
+6. Đã ghi CHANGELOG.md chưa?
+7. TASK_TRACKER.md đã đánh dấu các task hoàn thành chưa?
+8. Có quyết định kỹ thuật mới cần ghi vào DECISIONS.md không?
+9. Có nợ kỹ thuật mới cần ghi vào TECH_DEBT.md không?

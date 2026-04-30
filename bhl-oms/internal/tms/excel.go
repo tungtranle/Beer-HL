@@ -24,7 +24,7 @@ func (h *Handler) ExportTrips(c *gin.Context) {
 		return
 	}
 
-	trips, _, err := h.svc.ListTrips(c.Request.Context(), warehouseID, plannedDate, status, 1, 10000)
+	trips, _, err := h.svc.ListTrips(c.Request.Context(), warehouseID, plannedDate, status, c.Query("active") == "true", 1, 10000)
 	if err != nil {
 		response.InternalError(c)
 		return

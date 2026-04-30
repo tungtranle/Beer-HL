@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"sort"
 	"time"
 
 	"github.com/google/uuid"
@@ -155,11 +156,16 @@ type EnrichedPickingItem struct {
 	BatchNumber string    `json:"batch_number"`
 	ExpiryDate  string    `json:"expiry_date"`
 	LocationID  uuid.UUID `json:"location_id"`
+	BinCode     string    `json:"bin_code"` // bin guidance on slip — "Lấy từ A-03-02"
+	Zone        string    `json:"zone"`     // for walk-path grouping
 	Quantity    int       `json:"qty"`
 	PickedQty   int       `json:"picked_qty"`
 }
 
 // EnrichPickingOrders joins product/lot info onto picking items for frontend display.
+// Also resolves bin_code (location_id may point to bin_locations OR legacy warehouses).
+// Items within an order are sorted by bin walk path (zone → row → level → expiry) for
+// optimal pick route on the slip.
 func (s *Service) EnrichPickingOrders(ctx context.Context, orders []domain.PickingOrder) []EnrichedPickingOrder {
 	result := make([]EnrichedPickingOrder, 0, len(orders))
 	for _, po := range orders {
@@ -193,8 +199,41 @@ func (s *Service) EnrichPickingOrders(ctx context.Context, orders []domain.Picki
 				ei.BatchNumber = batchNumber
 				ei.ExpiryDate = expiryDate
 
+				// Resolve bin guidance: try bin_locations first (Phase 9), fall back to
+				// product+lot's pallet location, finally to "—".
+				var binCode, zone string
+				_ = s.repo.db.QueryRow(ctx,
+					`SELECT bin_code, COALESCE(zone, '') FROM bin_locations WHERE id = $1`,
+					item.LocationID,
+				).Scan(&binCode, &zone)
+				if binCode == "" {
+					// Legacy: location_id points to warehouse. Look up the FEFO pallet for this lot.
+					_ = s.repo.db.QueryRow(ctx, `
+						SELECT COALESCE(b.bin_code,''), COALESCE(b.zone,'')
+						FROM pallets p
+						LEFT JOIN bin_locations b ON b.id = p.current_bin_id
+						WHERE p.lot_id = $1 AND p.product_id = $2 AND p.status::text = 'in_stock' AND p.qty > 0
+						ORDER BY p.received_at ASC LIMIT 1`,
+						item.LotID, item.ProductID,
+					).Scan(&binCode, &zone)
+				}
+				ei.BinCode = binCode
+				ei.Zone = zone
+
 				enriched.EnrichedItems = append(enriched.EnrichedItems, ei)
 			}
+
+			// Sort for walk path: zone, then bin_code (alphanumeric covers row/level), then expiry
+			sort.SliceStable(enriched.EnrichedItems, func(i, j int) bool {
+				a, b := enriched.EnrichedItems[i], enriched.EnrichedItems[j]
+				if a.Zone != b.Zone {
+					return a.Zone < b.Zone
+				}
+				if a.BinCode != b.BinCode {
+					return a.BinCode < b.BinCode
+				}
+				return a.ExpiryDate < b.ExpiryDate
+			})
 		}
 		enriched.TotalItems = len(enriched.EnrichedItems)
 		result = append(result, enriched)
@@ -389,36 +428,121 @@ type GateCheckRequest struct {
 }
 
 func (s *Service) PerformGateCheck(ctx context.Context, req GateCheckRequest, userID uuid.UUID) (*domain.GateCheck, error) {
-	// In a full implementation, we'd fetch expected items from the picking order.
-	// For now, the expected items come from the request or from the shipment.
-	gc := domain.GateCheck{
-		TripID:        req.TripID,
-		ShipmentID:    req.ShipmentID,
-		ExpectedItems: json.RawMessage("[]"), // Placeholder: would be fetched from picking_orders
-		ScannedItems:  req.ScannedItems,
-		Result:        "pass",
-		CheckedBy:     userID,
+	// CRIT-003: load expected items from the picking order for this shipment.
+	// If no picking order exists, expected is empty — any scanned item → fail.
+	var expectedJSON json.RawMessage
+	pickOrder, err := s.repo.GetPickingOrderByShipmentID(ctx, req.ShipmentID)
+	if err == nil && pickOrder != nil {
+		expectedJSON = pickOrder.Items
+	} else {
+		expectedJSON = json.RawMessage("[]")
 	}
 
-	// Compare expected vs scanned
-	// R01: discrepancy must be 0 for pass
-	var scannedItems []struct {
+	// Parse scanned items
+	type CheckItem struct {
 		ProductID uuid.UUID `json:"product_id"`
 		LotID     uuid.UUID `json:"lot_id"`
 		Qty       int       `json:"qty"`
 	}
+	var scannedItems []CheckItem
 	if err := json.Unmarshal(req.ScannedItems, &scannedItems); err != nil {
 		return nil, fmt.Errorf("invalid scanned_items format: %w", err)
 	}
 
-	// For R01 compliance: any discrepancy → fail
-	// Full comparison would need expected items from picking order
+	// Parse expected items (from picking order)
+	type PickItem struct {
+		ProductID uuid.UUID `json:"product_id"`
+		LotID     uuid.UUID `json:"lot_id"`
+		Qty       int       `json:"qty"`
+		PickedQty int       `json:"picked_qty"`
+	}
+	var expectedItems []PickItem
+	json.Unmarshal(expectedJSON, &expectedItems) //nolint:errcheck
+
+	// Build expected map: (product_id|lot_id) → qty
+	type itemKey struct {
+		ProductID uuid.UUID
+		LotID     uuid.UUID
+	}
+	expectedMap := make(map[itemKey]int)
+	for _, item := range expectedItems {
+		qty := item.Qty
+		if item.PickedQty > 0 {
+			qty = item.PickedQty
+		}
+		expectedMap[itemKey{item.ProductID, item.LotID}] += qty
+	}
+
+	// Build scanned map
+	scannedMap := make(map[itemKey]int)
+	for _, item := range scannedItems {
+		scannedMap[itemKey{item.ProductID, item.LotID}] += item.Qty
+	}
+
+	// R01: zero tolerance — any discrepancy → fail
+	type Discrepancy struct {
+		ProductID string `json:"product_id"`
+		LotID     string `json:"lot_id"`
+		Expected  int    `json:"expected"`
+		Scanned   int    `json:"scanned"`
+		Delta     int    `json:"delta"`
+	}
+	var discrepancies []Discrepancy
+
+	for key, expQty := range expectedMap {
+		scannedQty := scannedMap[key]
+		if scannedQty != expQty {
+			discrepancies = append(discrepancies, Discrepancy{
+				ProductID: key.ProductID.String(),
+				LotID:     key.LotID.String(),
+				Expected:  expQty,
+				Scanned:   scannedQty,
+				Delta:     scannedQty - expQty,
+			})
+		}
+	}
+	// Check extra scanned items not in expected
+	for key, scannedQty := range scannedMap {
+		if _, exists := expectedMap[key]; !exists {
+			discrepancies = append(discrepancies, Discrepancy{
+				ProductID: key.ProductID.String(),
+				LotID:     key.LotID.String(),
+				Expected:  0,
+				Scanned:   scannedQty,
+				Delta:     scannedQty,
+			})
+		}
+	}
+
+	result := "pass"
+	if len(discrepancies) > 0 {
+		result = "fail"
+	}
+
+	discrepancyJSON, _ := json.Marshal(discrepancies)
 	now := time.Now()
-	gc.ExitTime = &now
+	gc := domain.GateCheck{
+		TripID:             req.TripID,
+		ShipmentID:         req.ShipmentID,
+		ExpectedItems:      expectedJSON,
+		ScannedItems:       req.ScannedItems,
+		Result:             result,
+		DiscrepancyDetails: discrepancyJSON,
+		CheckedBy:          userID,
+		ExitTime:           &now,
+	}
 
 	id, err := s.repo.CreateGateCheck(ctx, gc)
 	if err != nil {
 		return nil, err
+	}
+
+	// Notify dispatcher + warehouse_handler on gate check failure (R01 violation)
+	if result == "fail" && s.notifSvc != nil {
+		msg := fmt.Sprintf("Gate check thất bại: %d chênh lệch tại chuyến %s", len(discrepancies), req.TripID.String()[:8])
+		link := "/dashboard/gate-check"
+		_ = s.notifSvc.SendToRole(ctx, "dispatcher", "⚠️ Gate Check Thất bại", msg, "gate_check_fail", &link)
+		_ = s.notifSvc.SendToRole(ctx, "warehouse_handler", "⚠️ Gate Check Thất bại", msg, "gate_check_fail", &link)
 	}
 
 	gc.ID = id

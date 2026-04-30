@@ -10,6 +10,8 @@ tools: [search, read, execute]
 
 Thực hiện audit toàn diện project BHL OMS-TMS-WMS. Báo cáo bằng tiếng Việt.
 
+Luôn đọc `AQF_BHL_SETUP.md`, `CURRENT_STATE.md`, `TASK_TRACKER.md` trước khi kết luận. Intake phải xác nhận QA Portal v2 còn giữ data safety và legacy destructive endpoints không bị khôi phục.
+
 ## Bước 1 — Verify 4 lỗ hổng đã biết
 
 Kiểm tra từng lỗ hổng còn tồn tại không bằng cách đọc code thực tế:
@@ -83,6 +85,28 @@ Xác nhận các file sau tồn tại trong `bhl-oms/tests/api/business-rules/`:
 
 ---
 
+## Bước 5 — Kiểm tra AQF / QA Portal v2 guardrails
+
+1. Xác nhận `/test-portal` không render lại UI 10 tab cũ.
+2. Xác nhận các endpoint legacy destructive còn disabled:
+	- `POST /v1/test-portal/reset-data`
+	- `POST /v1/test-portal/load-scenario`
+	- `POST /v1/test-portal/run-scenario`
+	- `POST /v1/test-portal/run-all-smoke`
+3. Xác nhận scoped scenario APIs còn tồn tại và dùng ownership registry:
+	- `qa_scenario_runs`
+	- `qa_owned_entities`
+4. Tìm SQL nguy hiểm trong QA/test code:
+	- `TRUNCATE`
+	- `DELETE FROM sales_orders`
+	- `DELETE FROM trips`
+	- `DELETE FROM shipments`
+	- `DELETE FROM stock_moves`
+	Nếu có, phải kiểm tra có filter qua registry ownership hay không.
+5. Kiểm tra docs/instructions còn nhắc AQF gate G0-G4 và `historical_rows_touched = 0`.
+
+---
+
 ## Báo cáo cuối
 
 Xuất bảng tóm tắt:
@@ -103,6 +127,7 @@ Xuất bảng tóm tắt:
 ║  Go unit tests: [X] files                            ║
 ║  Bruno tests: [X] files ([Y]/5 business rules)       ║
 ║  Playwright E2E: [X] files                           ║
+║  AQF SAFETY: [PASS / REVIEW / FAIL]                  ║
 ╠══════════════════════════════════════════════════════╣
 ║  VIỆC CẦN LÀM TIẾP THEO (theo priority):             ║
 ║  1. [task quan trọng nhất]                           ║
@@ -111,4 +136,4 @@ Xuất bảng tóm tắt:
 ╚══════════════════════════════════════════════════════╝
 ```
 
-Kết thúc bằng: "Bạn muốn tôi fix [vấn đề cao nhất] ngay không?"
+Kết thúc bằng: "Bạn muốn tôi fix [vấn đề cao nhất] ngay không?" Nếu vấn đề cao nhất là AQF data safety fail, nói rõ đây là blocker `HOLD`.

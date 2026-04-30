@@ -51,7 +51,8 @@ export default function LoginPage() {
       setAuth(res.data.tokens.access_token, res.data.user, res.data.tokens.refresh_token)
       if (remember) localStorage.setItem('bhl_last_user', username.trim())
       else localStorage.removeItem('bhl_last_user')
-      router.push('/dashboard')
+      const next = new URLSearchParams(window.location.search).get('next')
+      router.push(next && next.startsWith('/') && !next.startsWith('//') ? next : '/dashboard')
     } catch (err: any) {
       setError(err.message || 'Đăng nhập thất bại — kiểm tra lại tên đăng nhập và mật khẩu')
     } finally {

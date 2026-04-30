@@ -2,12 +2,13 @@
 
 | Thông tin | Giá trị |
 |-----------|---------|
-| Phiên bản | **v2.0** |
-| Dựa trên | BRD v3.2, SAD v2.1, DBS v1.0, API v1.1, **Code thực tế 23/04/2026** |
-| Cập nhật | 23/04/2026 — sync với code thực tế, thêm AI-first strategy |
+| Phiên bản | **v2.3** |
+| Dựa trên | BRD v3.8, SAD v2.1, DBS v1.2, API v1.3, **Code thực tế 27/04/2026**, AQF 4.1 |
+| Cập nhật | 27/04/2026 — thêm blueprint BRD-derived cho GPS route-real, AI actionability, report scope và demo/test đầy đủ |
 
-> ⚠️ **Nguyên tắc v2.0:** Test cases phải đọc từ CODE, không chỉ từ spec. Spec là ý định, code là sự thật.  
+> ⚠️ **Nguyên tắc v2.2:** Test cases phải đọc từ CODE, không chỉ từ spec. Spec là ý định, code là sự thật. AQF là gate bắt buộc trước khi báo xong.
 > Xem chi tiết chiến lược: `AI_TEST_STRATEGY.md`
+> Blueprint chi tiết mới: `docs/BHL_TEST_DEMO_BLUEPRINT_2026-04-27.md`
 
 ---
 
@@ -26,10 +27,19 @@
 11. [Test Environment](#11-test-environment)
 12. [Bug Classification](#12-bug-classification)
 13. [Entry / Exit Criteria](#13-entry--exit-criteria)
+14. [BRD-Derived Test/Demo Blueprint](#14-brd-derived-testdemo-blueprint)
 
 ---
 
 # 1. TEST STRATEGY OVERVIEW
+
+## 1.0 BRD-derived blueprint bắt buộc
+
+Từ 27/04/2026, mọi kịch bản test/demo phải đối chiếu với `docs/BHL_TEST_DEMO_BLUEPRINT_2026-04-27.md` trước khi code hoặc seed dữ liệu. Ba guardrail mới là bắt buộc:
+
+1. **GPS route-real:** mọi demo/test tuyến đường phải dùng OSRM/local route geometry hoặc route geometry đã lưu. Fallback đường chim bay chỉ được dùng trong kịch bản degraded mode có cảnh báo rõ, không dùng cho demo vận hành chính.
+2. **AI actionability:** AI Inbox, Dispatch Brief, Outreach Queue không được chỉ là text tĩnh. Mỗi insight phải có action, drill-down, explainability hoặc label read-only rõ ràng.
+3. **Report scope:** báo cáo và danh sách giao dịch vận hành không được mặc định quét toàn bộ lịch sử. UI/API phải có date scope, active/open scope, data-as-of và filter context; historical mode là lựa chọn chủ động.
 
 ## Nguyên tắc
 
@@ -38,6 +48,80 @@
 3. **Business rule coverage:** Mỗi rule R01–R15 có ít nhất 1 test case
 4. **Regression CI:** Mỗi PR phải pass toàn bộ test suite
 5. **Production-like data:** Local/UAT hiện dùng 218 NPP thực đã import + 30 SKU; khi BHL cung cấp full dump thì nâng lên 800 NPP mà không đổi matrix test
+6. **AQF after every code change:** mỗi thay đổi phải có gate phù hợp G0/G1/G2/G3/G4 hoặc báo skip có lý do.
+7. **Data safety first:** test/demo data trong DB thật phải scoped-owned; không xóa dữ liệu lịch sử.
+8. **AI baseline first:** mọi AI feature phải có test flag OFF để chứng minh baseline UX/API không bị phá.
+
+## AI Toggle Phase 1 test matrix
+
+| Case | Evidence required |
+|---|---|
+| Migration 042 | Apply migration, query `ai_feature_flags` tồn tại |
+| Admin list flags | Login admin, `GET /v1/admin/ai-flags` trả 17 definitions |
+| Admin upsert happy path | `PUT /v1/admin/ai-flags` với `ai.master/org/bhl` trả 200 |
+| Admin upsert error path | Unknown flag trả HTTP 400 `AI_FLAG_INVALID` |
+| Effective flags | `GET /v1/ai/features` trả map; master OFF ép mọi flag false |
+| Frontend route | Load `/dashboard/settings/ai` HTTP 200, admin-only guard |
+| Baseline default | Sau test reset `ai.master=false`; missing feature rows vẫn OFF |
+
+## AI-native Phase 2-6 test matrix
+
+| Case | Evidence required |
+|---|---|
+| Privacy Router | `go test ./internal/ai` pass với ≥50 classifier inputs; PII phone/email/address route local |
+| Migration 043 | Apply migration, verify `ai_audit_log`, `ai_inbox_items`, `ai_simulations`, `ai_feedback` tồn tại |
+| Transparency | `GET /v1/ai/transparency` trả providers + guardrails |
+| Intent MVP | Flag ON: `GET /v1/ai/intents?q=mo phong vrp` trả `simulate.vrp_what_if`; flag OFF trả baseline/manual |
+| Voice Driver safety | Flag ON: whitelist command trả `confirm_required=true`, `auto_cancel_second=10`; unknown command không allowed |
+| Simulation | Flag ON: create snapshot `ready`, 3 options, apply trả `approval_required=true`, `core_tables_mutated=false` |
+| Frontend routes | Load `/dashboard/ai/transparency`, `/dashboard/ai/simulations`, `/dashboard` HTTP 200 |
+
+## AI-R / AI-G test matrix
+
+| Case | Evidence required |
+|---|---|
+| Provider chain | `go test ./internal/ai` + `go build ./cmd/server`; Gemini/Groq retry before mock fallback |
+| Vehicle anomaly score | `GET /v1/ai/vehicle-score` returns score/level; Control Tower marker diagnostics clean |
+| Credit risk | Real customer `GET /v1/ai/customers/:id/risk-score` returns level; Approvals chip diagnostics clean |
+| Seasonal demand | `GET /v1/ai/seasonal-alert` returns alert body; OMS order form diagnostics clean |
+| Dispatch brief | `GET /v1/ai/dispatch-brief` returns provider/summary; Dashboard route HTTP 200 |
+| Exception explain | If open anomaly exists, `GET /v1/ai/anomaly/:id/explain`; if none, record skip reason |
+| Zalo draft | Real customer `POST /v1/ai/npp-zalo-draft` returns provider/message; Customers route HTTP 200 |
+| Frontend smoke | `/dashboard`, `/dashboard/approvals`, `/dashboard/orders/new`, `/dashboard/control-tower`, `/dashboard/anomalies`, `/dashboard/customers` HTTP 200 |
+
+## AI-M test matrix
+
+| Case | Evidence required |
+|---|---|
+| Python forecast function | Syntax check `vrp-solver/main.py`; direct `forecast_demand(...)` returns `prophet-compatible-rules` and 4 forecast points |
+| Go demand bridge | `GET /v1/ai/demand-forecast?customer_id=&product_id=&warehouse_id=` returns forecast body; with solver down returns `model_method=rules-fallback` HTTP 200 |
+| Outreach queue | `GET /v1/ai/outreach-queue?limit=3` returns at most 3 read-only NPP risk items |
+| Frontend diagnostics | `DemandIntelligencePanel`, `OutreachQueueWidget`, dashboard and order form TS diagnostics clean |
+| Frontend smoke | `/dashboard/orders/new` and `/dashboard` HTTP 200 with AI-M widgets mounted |
+| Data safety | No seed/migration/data mutation; AI-M reads `sales_orders`, `order_items`, `customers`, `products`, `warehouses`, `ml_features.npp_health_scores` only |
+
+## AQF gate mapping cho vibe code
+
+| Gate | Khi nào bắt buộc | Ví dụ evidence |
+|------|------------------|----------------|
+| G0 Build/Static | Mọi thay đổi code | `go build`, `go vet`, `tsc`, `next build`, lint, page/endpoint smoke |
+| G1 Fast | Module/service/business flow nhỏ | Go unit test, targeted package test, API smoke liên quan |
+| G2 Domain/Golden/Data Safety | Credit, ATP, FEFO, state, RBAC, recon, QA scenario | golden JSON, Bruno, API assertion, `historical_rows_touched=0` |
+| G3 E2E | Journey người dùng hoặc page workflow quan trọng | Playwright report/trace/screenshot |
+| G4 Production Watch | Deploy/go-live/monitoring | `/v1/health`, AQF status, Sentry/Clarity/Telegram status |
+
+**Rule:** Không được dùng `status code 200` làm evidence duy nhất cho business rule. Phải assert body/state/DB/event phù hợp.
+
+## QA Portal v2 test data strategy
+
+1. Master/historical data là fixture read-only: customers, products, warehouses, vehicles, historical orders/trips.
+2. Scenario DB được mutate chỉ khi có run scope:
+  - `qa_scenario_runs.id`
+  - `qa_owned_entities(run_id, entity_type, entity_id)`
+3. Seed scenario phải ghi registry trong transaction ngay sau mỗi insert.
+4. Cleanup chỉ xóa entity trong registry của run cũ cùng scenario.
+5. Bất kỳ check nào fail (`historical_rows_touched > 0`, delete thiếu registry, master table modified) → rollback và Decision Brief = `HOLD`.
+6. Playwright/Bruno/synthetic tests không được gọi legacy destructive endpoints; nếu cần data, dùng scoped scenario API hoặc fixture read-only.
 
 ## Test Coverage Target
 
@@ -177,6 +261,9 @@ func TestOMS_CreateOrder_PastCutoff(t *testing.T) { ... }
 | Auto-reconcile: asset shortage | BR-REC-01 | Returned vỏ < shipped | discrepancy_ticket type=asset |
 | Daily close: aggregate correct | — | 5 trips, 3 deliveries | totals match sum of trips |
 | Discrepancy T+1 escalation | R08 | Ticket open > 24h | Notification escalated |
+| Reconciliation list scope | — | `from/to` tháng hiện tại | List/export chỉ trả trip planned_date trong scope; History mới bỏ `from/to` |
+| Discrepancy list scope | — | `status=open&from&to` | Ticket ngoài scope ngày không xuất hiện trong work queue |
+| Daily close scope | — | `from/to` + `warehouse_id` | Chỉ trả close_date trong khoảng ngày |
 
 ### Auth & RBAC
 
@@ -341,6 +428,7 @@ Từ BRD §14 — 12 tiêu chí nghiệm thu. Mỗi tiêu chí cần **Passed** 
 | UAT-09 | Bravo sync | Giao hàng xong → Bravo sandbox nhận phiếu giao | ePOD confirmed → check Bravo sandbox → document present | ☐ |
 | UAT-10 | Zalo OA xác nhận | NPP nhận tin Zalo chứa link → click confirm | ePOD → Zalo msg sent → click link → confirm page | ☐ |
 | UAT-11 | Dashboard + KPIs | Dashboard hiển thị 5 widget + KPI tính đúng | Login manager → open dashboard → 5 widgets + KPI charts | ☐ |
+| UAT-11A | Operational data scope | Dashboard/orders/trips/reconciliation không mặc định load 2 năm lịch sử | Open dashboard → total orders là month-to-date; open Orders → `from/to` tháng hiện tại + có History explicit; Control Tower/Handover dùng `active=true`; Reconciliation mặc định pending/open + `from/to` tháng hiện tại ở list/export/daily-close | ☐ |
 | UAT-12 | Offline 2h | Tắt mạng 2h, giao 3 điểm → bật mạng → sync thành công | Airplane mode → deliver → reconnect → data synced | ☐ |
 | UAT-13 | Ops & Audit regression | QA thấy timeline, pinned notes, DLQ, discrepancy, daily close, KPI snapshot trong một tab | Load SC-12 → mở Test Portal Ops & Audit → đối chiếu counters + order OPS-PART-* | ☐ |
 | UAT-14 | Cost Engine VRP | Chạy VRP → trip hiển thị chi phí xăng dầu + phí cầu đường → tổng chi phí tính đúng | Run VRP SC-09 → mở kết quả → kiểm tra cost_breakdown: fuel_cost + toll_cost > 0 | ☐ |
@@ -421,6 +509,20 @@ Từ BRD §14 — 12 tiêu chí nghiệm thu. Mỗi tiêu chí cần **Passed** 
 | Orders | 3,000–5,000 | k6 script |
 | GPS points | 70 vehicles × 30 min × 2/min = 4,200 | k6 GPS script |
 | Concurrent logins | 100–200 | k6 |
+
+## 10.4 QA Demo Scenario Data (QA Portal v2)
+
+| Scenario | Purpose | Data Created | Cleanup Rule |
+|----------|---------|--------------|--------------|
+| DEMO-01 | DVKH tạo đơn → NPP xác nhận Zalo | 2 orders, 2 order confirmations, timeline events | Delete only rows registered in `qa_owned_entities` |
+| DEMO-02 | Vượt hạn mức tín dụng → kế toán duyệt | 1 pending approval order, 1 receivable ledger, item/event | Same scenario ownership cleanup |
+| DEMO-03 | Điều phối tạo chuyến nhiều điểm | Historical-calibrated dispatch data: tối thiểu 24 orders, nhiều shipments/trips/stops, NPP có tọa độ | Same scenario ownership cleanup |
+| DEMO-04 | NPP từ chối đơn → audit timeline | 1 cancelled order, rejected confirmation, events | Same scenario ownership cleanup |
+| DEMO-HIST-01 | Replay ngày lịch sử có sản lượng thật | Read-only query chọn busiest `sales_orders.delivery_date`; 1 owned evidence event | No business history mutation; cleanup owned evidence only |
+| DEMO-DISPATCH-01 | Điều phối live ops gần công suất | Theo busiest historical day; up to 40 active trips, tối thiểu 24 orders, driver_checkins scoped, AI Inbox dispatcher; fleet/driver master không bị sửa | Same scenario ownership cleanup; expected `historical_rows_touched = 0` |
+| DEMO-AI-DISPATCH-01 | AI điều phối viên | Live ops owned data + 4 dispatcher AI Inbox items + AI audit + simulation evidence | Same scenario ownership cleanup; expected `historical_rows_touched = 0` |
+
+**Invariant bắt buộc:** `historical_rows_touched = 0`. Test/demo data được nạp qua `POST /v1/test-portal/demo-scenarios/:id/load`; cleanup qua `POST /v1/test-portal/demo-scenarios/:id/cleanup`. Không dùng legacy `reset-data`, `load-scenario`, `run-scenario`, `run-all-smoke`.
 
 ---
 

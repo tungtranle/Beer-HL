@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net/http"
 
+	"bhl-oms/internal/middleware"
 	"bhl-oms/pkg/response"
 
 	"github.com/gin-gonic/gin"
@@ -50,6 +51,9 @@ func (h *Handler) SetNotificationSender(ns NotificationSender) {
 
 func (h *Handler) RegisterRoutes(r *gin.RouterGroup) {
 	ig := r.Group("/integration")
+	// QW-002 / CRIT-006: integration endpoints push hoá đơn Bravo, gửi Zalo ZNS (tốn phí),
+	// quản lý DLQ chứa payload nhạy cảm. Chỉ admin/management/dispatcher mới được dùng.
+	ig.Use(middleware.RequireRole("admin", "management", "dispatcher"))
 	{
 		// Bravo webhook (Task 3.3) — receives events from Bravo ERP
 		ig.POST("/bravo/webhook", h.BravoWebhook)

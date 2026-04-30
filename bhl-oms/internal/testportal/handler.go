@@ -25,6 +25,7 @@ type Handler struct {
 	rdb     *redis.Client
 	log     logger.Logger
 	osrmURL string
+	demoSvc *DemoService
 
 	// GPS simulation state
 	gpsMu     sync.Mutex
@@ -33,13 +34,20 @@ type Handler struct {
 }
 
 func NewHandler(db *pgxpool.Pool, rdb *redis.Client, log logger.Logger, osrmURL string) *Handler {
-	return &Handler{db: db, rdb: rdb, log: log, osrmURL: osrmURL}
+	demoRepo := NewDemoRepository(db, log)
+	return &Handler{db: db, rdb: rdb, log: log, osrmURL: osrmURL, demoSvc: NewDemoService(demoRepo, log)}
 }
 
-// RegisterRoutes registers test portal routes under /v1/test-portal (no auth).
+// RegisterRoutes registers test portal routes under /v1/test-portal.
 func (h *Handler) RegisterRoutes(r *gin.RouterGroup) {
 	tp := r.Group("/test-portal")
 	{
+		// Safe demo scenarios (scoped ownership, historical data preserved)
+		tp.GET("/demo-scenarios", h.ListDemoScenarios)
+		tp.GET("/demo-runs", h.ListDemoRuns)
+		tp.POST("/demo-scenarios/:id/load", h.LoadDemoScenario)
+		tp.POST("/demo-scenarios/:id/cleanup", h.CleanupDemoScenario)
+
 		// Overview data
 		tp.GET("/orders", h.ListOrders)
 		tp.GET("/orders/:id", h.GetOrder)
@@ -899,6 +907,9 @@ func (h *Handler) GetOpsAudit(c *gin.Context) {
 
 // POST /v1/test-portal/reset-data — clear transactional data, keep NPP + products
 func (h *Handler) ResetTestData(c *gin.Context) {
+	response.BadRequest(c, "Legacy reset-data đã bị tắt để bảo toàn dữ liệu lịch sử. Dùng QA Portal v2 với scenario ownership/run_id scoped cleanup.")
+	return
+
 	ctx := c.Request.Context()
 
 	queries := []string{
@@ -1149,6 +1160,9 @@ func getContextValue(ctx context.Context, key string) string {
 
 // POST /v1/test-portal/run-scenario — auto-execute a complete test scenario
 func (h *Handler) RunScenario(c *gin.Context) {
+	response.BadRequest(c, "Legacy run-scenario đã bị tắt để tránh tạo/xóa dữ liệu ngoài scenario scope. Dùng QA Portal v2 scoped runner.")
+	return
+
 	var req struct {
 		Scenario string `json:"scenario" binding:"required"` // happy_path, credit_exceed, atp_fail, multi_product
 	}
@@ -1674,10 +1688,13 @@ type GPSScenario struct {
 }
 
 type GPSRoute struct {
-	Name      string        `json:"name"`
-	Waypoints []GPSWaypoint `json:"waypoints"`
-	SpeedKmh  float64       `json:"speed_kmh"`
-	StopSec   int           `json:"stop_seconds"`
+	Name           string        `json:"name"`
+	Waypoints      []GPSWaypoint `json:"waypoints"`
+	SpeedKmh       float64       `json:"speed_kmh"`
+	StopSec        int           `json:"stop_seconds"`
+	GeometrySource string        `json:"geometry_source,omitempty"`
+	DistanceKm     float64       `json:"distance_km,omitempty"`
+	DurationMin    int           `json:"duration_min,omitempty"`
 }
 
 type GPSWaypoint struct {
@@ -1840,7 +1857,7 @@ func (h *Handler) GPSStart(c *gin.Context) {
 	if len(vehicles) == 0 || len(routes) == 0 {
 		cancel()
 		h.gpsCancel = nil
-		response.BadRequest(c, "Không tìm thấy xe hoặc tuyến đường hợp lệ để giả lập")
+		response.Err(c, http.StatusServiceUnavailable, "ROUTE_GEOMETRY_UNAVAILABLE", "Không tìm thấy xe hoặc tuyến đường thực tế hợp lệ để giả lập. Kiểm tra OSRM_URL/OSRM local trước khi chạy demo GPS.")
 		return
 	}
 
@@ -1857,10 +1874,11 @@ func (h *Handler) GPSStart(c *gin.Context) {
 	go h.runGPSSimulation(ctx, req.ScenarioID, vehicles, routes, interval)
 
 	response.OK(c, gin.H{
-		"message":       fmt.Sprintf("Bắt đầu giả lập GPS: %s (%d xe)", scenarioName, len(vehicles)),
-		"scenario":      req.ScenarioID,
-		"vehicle_count": len(vehicles),
-		"interval_ms":   interval.Milliseconds(),
+		"message":         fmt.Sprintf("Bắt đầu giả lập GPS: %s (%d xe)", scenarioName, len(vehicles)),
+		"scenario":        req.ScenarioID,
+		"vehicle_count":   len(vehicles),
+		"interval_ms":     interval.Milliseconds(),
+		"geometry_source": routes[0].GeometrySource,
 	})
 }
 
@@ -2069,7 +2087,15 @@ func (h *Handler) loadTripsFromDB(ctx context.Context) ([]simVehicle, []GPSRoute
 		route.Waypoints = append(route.Waypoints, GPSWaypoint{Lat: warehouseWaypoints[tripID].Lat, Lng: warehouseWaypoints[tripID].Lng, Name: "Quay về kho"})
 
 		if len(route.Waypoints) >= 3 {
-			route.Waypoints = h.fetchOSRMWaypoints(route.Waypoints)
+			waypoints, source, distanceKm, durationMin, err := h.fetchOSRMWaypoints(route.Waypoints)
+			if err != nil {
+				h.log.Warn(ctx, "gps_route_geometry_unavailable", logger.F("trip_id", tripID), logger.F("err", err.Error()))
+				continue
+			}
+			route.Waypoints = waypoints
+			route.GeometrySource = source
+			route.DistanceKm = distanceKm
+			route.DurationMin = durationMin
 			routes = append(routes, route)
 		}
 	}

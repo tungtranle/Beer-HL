@@ -294,6 +294,25 @@ func (r *Repository) GetPickingOrderByID(ctx context.Context, id uuid.UUID) (*do
 	return &po, nil
 }
 
+// GetPickingOrderByShipmentID returns the most recent picking order for a given shipment.
+// Used by gate check R01 to load expected items for comparison.
+func (r *Repository) GetPickingOrderByShipmentID(ctx context.Context, shipmentID uuid.UUID) (*domain.PickingOrder, error) {
+	var po domain.PickingOrder
+	err := r.db.QueryRow(ctx,
+		`SELECT id, pick_number, shipment_id, warehouse_id, status, items, assigned_to, started_at, completed_at, created_at, updated_at
+		 FROM picking_orders WHERE shipment_id = $1
+		 ORDER BY created_at DESC LIMIT 1`, shipmentID,
+	).Scan(
+		&po.ID, &po.PickNumber, &po.ShipmentID, &po.WarehouseID,
+		&po.Status, &po.Items, &po.AssignedTo,
+		&po.StartedAt, &po.CompletedAt, &po.CreatedAt, &po.UpdatedAt,
+	)
+	if err != nil {
+		return nil, err
+	}
+	return &po, nil
+}
+
 func (r *Repository) UpdatePickingOrderStatus(ctx context.Context, id uuid.UUID, status string, items json.RawMessage) error {
 	query := `UPDATE picking_orders SET status = $2, items = $3, updated_at = now()`
 	if status == "in_progress" {

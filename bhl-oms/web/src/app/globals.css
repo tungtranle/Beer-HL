@@ -1,9 +1,17 @@
+@import '../styles/ai-tokens.css';
+
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
 
 body {
   font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+}
+
+/* Passport serif font for Asset Passport pages */
+@import url('https://fonts.googleapis.com/css2?family=Playfair+Display:wght@400;700&display=swap');
+.passport-serif {
+  font-family: 'Playfair Display', Georgia, Cambria, 'Times New Roman', Times, serif;
 }
 
 /* Toast slide-in animation */

@@ -7,7 +7,7 @@ const OSRM_ORIGIN = process.env.INTERNAL_OSRM_ORIGIN || 'http://localhost:5000'
 
 /** @type {import('next').NextConfig} */
 const nextConfig = {
-  output: process.env.NODE_ENV === 'production' ? 'standalone' : undefined,
+  output: process.env.NODE_ENV === 'production' && process.platform !== 'win32' ? 'standalone' : undefined,
   typescript: {
     ignoreBuildErrors: false,
   },

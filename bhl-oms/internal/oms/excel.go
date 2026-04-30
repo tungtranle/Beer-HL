@@ -33,7 +33,7 @@ func (h *Handler) ExportOrders(c *gin.Context) {
 	}
 
 	// Fetch all orders (no pagination for export)
-	orders, _, err := h.svc.ListOrders(c.Request.Context(), warehouseID, status, deliveryDate, cutoffGroup, 1, 10000)
+	orders, _, err := h.svc.ListOrders(c.Request.Context(), warehouseID, status, c.Query("customer_id"), deliveryDate, c.Query("from"), c.Query("to"), cutoffGroup, 1, 10000)
 	if err != nil {
 		response.InternalError(c)
 		return

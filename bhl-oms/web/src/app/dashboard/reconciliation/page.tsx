@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { apiFetch, getToken } from '@/lib/api'
 import { formatVND } from '@/lib/status-config'
 import { toast } from '@/lib/useToast'
@@ -114,6 +114,37 @@ const discSubTabs = [
   { key: 'asset', label: '🏷️ Vỏ' },
 ]
 
+type DateRangePreset = 'today' | 'mtd' | 'last30' | 'history' | 'custom'
+
+function formatDateLocal(date: Date): string {
+  const year = date.getFullYear()
+  const month = String(date.getMonth() + 1).padStart(2, '0')
+  const day = String(date.getDate()).padStart(2, '0')
+  return `${year}-${month}-${day}`
+}
+
+function todayString(): string {
+  return formatDateLocal(new Date())
+}
+
+function monthStartString(): string {
+  const now = new Date()
+  return formatDateLocal(new Date(now.getFullYear(), now.getMonth(), 1))
+}
+
+function daysAgoString(days: number): string {
+  const date = new Date()
+  date.setDate(date.getDate() - days)
+  return formatDateLocal(date)
+}
+
+function rangeBounds(range: DateRangePreset): { from?: string; to?: string } {
+  if (range === 'history') return {}
+  if (range === 'today') return { from: todayString(), to: todayString() }
+  if (range === 'last30') return { from: daysAgoString(29), to: todayString() }
+  return { from: monthStartString(), to: todayString() }
+}
+
 // â”€â”€ Helpers â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 function getT1Countdown(deadline: string | null): { text: string; color: string; urgent: boolean } {
@@ -137,9 +168,12 @@ export default function ReconciliationPage() {
   const [discs, setDiscs] = useState<Discrepancy[]>([])
   const [closes, setCloses] = useState<DailyClose[]>([])
   const [loading, setLoading] = useState(true)
-  const [reconFilter, setReconFilter] = useState('')
-  const [discFilter, setDiscFilter] = useState('')
+  const [reconFilter, setReconFilter] = useState('pending')
+  const [discFilter, setDiscFilter] = useState('open')
   const [discTypeFilter, setDiscTypeFilter] = useState('all')
+  const [dateRange, setDateRange] = useState<DateRangePreset>('mtd')
+  const [fromDate, setFromDate] = useState(monthStartString())
+  const [toDate, setToDate] = useState(todayString())
   const [resolveId, setResolveId] = useState<string | null>(null)
   const [resolution, setResolution] = useState('')
   const [historyId, setHistoryId] = useState<string | null>(null)
@@ -167,12 +201,35 @@ export default function ReconciliationPage() {
   // Reset page when filter changes
   useEffect(() => { setReconPage(1) }, [reconFilter])
   useEffect(() => { setDiscPage(1) }, [discFilter, discTypeFilter])
+  useEffect(() => {
+    setReconPage(1)
+    setDiscPage(1)
+    setClosePage(1)
+  }, [dateRange, fromDate, toDate])
+
+  const applyDateRange = (range: DateRangePreset) => {
+    setDateRange(range)
+    if (range !== 'custom') {
+      const bounds = rangeBounds(range)
+      setFromDate(bounds.from || '')
+      setToDate(bounds.to || '')
+    }
+  }
+
+  const scopedParams = useCallback(() => {
+    const params = new URLSearchParams()
+    if (dateRange !== 'history') {
+      if (fromDate) params.set('from', fromDate)
+      if (toDate) params.set('to', toDate)
+    }
+    return params
+  }, [dateRange, fromDate, toDate])
 
   // Load data based on active tab
   useEffect(() => {
     setLoading(true)
     if (activeTab === 'recon') {
-      const params = new URLSearchParams()
+      const params = scopedParams()
       if (reconFilter) params.set('status', reconFilter)
       params.set('page', String(reconPage))
       params.set('limit', String(reconLimit))
@@ -181,7 +238,7 @@ export default function ReconciliationPage() {
         .catch(err => handleError(err))
         .finally(() => setLoading(false))
     } else if (activeTab === 'disc') {
-      const params = new URLSearchParams()
+      const params = scopedParams()
       if (discFilter) params.set('status', discFilter)
       params.set('page', String(discPage))
       params.set('limit', String(discLimit))
@@ -190,7 +247,7 @@ export default function ReconciliationPage() {
         .catch(err => handleError(err))
         .finally(() => setLoading(false))
     } else {
-      const params = new URLSearchParams()
+      const params = scopedParams()
       params.set('page', String(closePage))
       params.set('limit', String(closeLimit))
       apiFetch<any>(`/reconciliation/daily-close?${params}`)
@@ -198,7 +255,7 @@ export default function ReconciliationPage() {
         .catch(err => handleError(err))
         .finally(() => setLoading(false))
     }
-  }, [activeTab, reconFilter, discFilter, reconPage, reconLimit, discPage, discLimit, closePage, closeLimit])
+  }, [activeTab, reconFilter, discFilter, reconPage, reconLimit, discPage, discLimit, closePage, closeLimit, scopedParams])
 
   // formatVND imported from status-config (single source of truth)
 
@@ -211,7 +268,7 @@ export default function ReconciliationPage() {
       })
       setResolveId(null)
       setResolution('')
-      const params = new URLSearchParams()
+      const params = scopedParams()
       if (discFilter) params.set('status', discFilter)
       params.set('limit', '50')
       const r: any = await apiFetch(`/reconciliation/discrepancies?${params}`)
@@ -239,7 +296,9 @@ export default function ReconciliationPage() {
         method: 'POST',
         body: { warehouse_id: warehouseId, date },
       })
-      const r: any = await apiFetch('/reconciliation/daily-close?limit=30')
+      const params = scopedParams()
+      params.set('limit', '30')
+      const r: any = await apiFetch(`/reconciliation/daily-close?${params}`)
       setCloses(r.data || [])
     } catch (err: any) {
       toast.error(err.message)
@@ -298,7 +357,9 @@ export default function ReconciliationPage() {
           <button
             onClick={async () => {
               try {
-                const res = await fetch('/api/reconciliation/export', {
+                const params = scopedParams()
+                if (reconFilter) params.set('status', reconFilter)
+                const res = await fetch(`/api/reconciliation/export?${params}`, {
                   headers: { Authorization: `Bearer ${getToken()}` },
                 })
                 if (!res.ok) throw new Error('Export failed')
@@ -333,6 +394,65 @@ export default function ReconciliationPage() {
         ) : recons.length === 0 && discs.length === 0 ? (
           <span className="text-xs text-gray-400 bg-gray-100 px-3 py-1.5 rounded-full">Chưa có chuyến nào hoàn thành</span>
         ) : null}
+      </div>
+
+      <div className="mb-4 rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
+        <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+          <div>
+            <div className="text-sm font-semibold text-slate-900">Phạm vi dữ liệu đối soát</div>
+            <div className="mt-1 text-xs text-slate-500">
+              {dateRange === 'history'
+                ? 'Đang xem lịch sử đầy đủ theo lựa chọn chủ động.'
+                : `Đang xem từ ${fromDate || '...'} đến ${toDate || '...'}.`}
+            </div>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            {[
+              ['today', 'Hôm nay'],
+              ['mtd', 'Tháng này'],
+              ['last30', '30 ngày'],
+              ['history', 'Lịch sử'],
+            ].map(([key, label]) => (
+              <button
+                key={key}
+                type="button"
+                onClick={() => applyDateRange(key as DateRangePreset)}
+                className={`rounded-lg px-3 py-1.5 text-sm font-medium transition ${dateRange === key ? 'bg-brand-500 text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'}`}
+              >
+                {label}
+              </button>
+            ))}
+            <button
+              type="button"
+              onClick={() => setDateRange('custom')}
+              className={`rounded-lg px-3 py-1.5 text-sm font-medium transition ${dateRange === 'custom' ? 'bg-brand-500 text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'}`}
+            >
+              Tùy chọn
+            </button>
+          </div>
+        </div>
+        {dateRange === 'custom' && (
+          <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:max-w-md">
+            <label className="text-xs font-medium text-slate-600">
+              Từ ngày
+              <input
+                type="date"
+                value={fromDate}
+                onChange={(event) => setFromDate(event.target.value)}
+                className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
+              />
+            </label>
+            <label className="text-xs font-medium text-slate-600">
+              Đến ngày
+              <input
+                type="date"
+                value={toDate}
+                onChange={(event) => setToDate(event.target.value)}
+                className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
+              />
+            </label>
+          </div>
+        )}
       </div>
 
       {/* Tabs */}

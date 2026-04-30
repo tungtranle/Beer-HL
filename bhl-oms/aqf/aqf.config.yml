@@ -172,17 +172,17 @@ oracles:
         description: "Tăng available_stock không bao giờ làm ATP từ pass → fail"
 
 # ─────────────────────────────────────────────
-# TEST PORTAL — Decision Interface chính
+# QA PORTAL — Decision Interface chính
 # ─────────────────────────────────────────────
 decision_interface:
-  primary: test_portal
+  primary: qa_portal
   url: "http://localhost:3001"   # Next.js frontend
   portal_backend: "http://localhost:8080/v1/test-portal"
 
   # Decision Brief format
   decision_brief:
     language: "vi"
-    delivery: [test_portal, telegram]  # dual delivery
+    delivery: [qa_portal, telegram]  # dual delivery
     telegram_chat_id: "${TELEGRAM_CHAT_ID}"  # từ .env
     auto_ship_threshold: 85   # confidence >= 85 → auto SHIP
     hold_threshold: 60        # confidence < 60 → HOLD
@@ -193,6 +193,52 @@ decision_interface:
     daily_staging: "07:00"
     pre_deploy: "trigger"
     weekly_full: "Monday 08:00"
+
+  legacy_test_portal:
+    ui_tabs_enabled: false
+    destructive_endpoints_enabled: false
+    reason: "DB đã có dữ liệu lịch sử; scenario reset rộng bị cấm"
+
+data_isolation:
+  preserve_historical_data: true
+  forbid_truncate_business_tables: true
+  forbid_unscoped_delete: true
+  ownership_registry:
+    scenario_runs_table: "qa_scenario_runs"
+    owned_entities_table: "qa_owned_entities"
+  cleanup_policy:
+    mode: "scenario_run_scope_only"
+    require_owned_entity_registry: true
+    max_historical_rows_touched: 0
+  read_only_fixtures:
+    - customers
+    - products
+    - warehouses
+    - vehicles
+    - historical_orders
+    - historical_trips
+
+monitoring:
+  playwright:
+    config: "tests/e2e/playwright.config.ts"
+    script: "cd web && npm run test:e2e"
+    workflow: ".github/workflows/aqf-g3.yml"
+    artifacts: [playwright-report, test-results]
+  clarity:
+    component: "web/src/components/ClarityClient.tsx"
+    enabled_on_hostname: "bhl.symper.us"
+    requires_consent: true
+  sentry:
+    backend_env: "SENTRY_DSN"
+    backend_entry: "cmd/server/main.go"
+    frontend_configs:
+      - "web/sentry.client.config.ts"
+      - "web/sentry.server.config.ts"
+      - "web/sentry.edge.config.ts"
+  telegram:
+    bot_token_env: "TELEGRAM_BOT_TOKEN"
+    chat_id_env: "TELEGRAM_CHAT_ID"
+    workflow_notify_step: pending
 
 # ─────────────────────────────────────────────
 # EVIDENCE STORE

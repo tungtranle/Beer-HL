@@ -34,7 +34,8 @@ import { KpiCard } from '@/components/ui/KpiCard'
 interface EnrichedItem {
   product_id: string; product_name: string; product_sku: string
   lot_id: string; batch_number: string; expiry_date: string
-  location_id: string; qty: number; picked_qty: number
+  location_id: string; bin_code?: string; zone?: string
+  qty: number; picked_qty: number
 }
 
 interface PickingOrder {
@@ -242,7 +243,7 @@ export default function PickingOrdersPage() {
                               <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-xs">
                                 <Field icon={Hash} label="Lô" value={item.batch_number || '—'} />
                                 <Field icon={Calendar} label="HSD" value={item.expiry_date ? new Date(item.expiry_date).toLocaleDateString('vi-VN') : '—'} />
-                                <Field icon={MapPin} label="Vị trí" value={item.location_id || '—'} mono />
+                                <Field icon={MapPin} label="Lấy từ bin" value={item.bin_code || '—'} mono highlight={!!item.bin_code} />
                                 <Field icon={Package} label="SL" value={`${item.picked_qty}/${item.qty}`} highlight={item.picked_qty >= item.qty} />
                               </div>
 
@@ -257,17 +258,29 @@ export default function PickingOrdersPage() {
                         })}
                       </div>
 
-                      <Button
-                        variant="primary"
-                        size="lg"
-                        fullWidth
-                        leftIcon={CheckCircle2}
-                        loading={confirming === order.id}
-                        onClick={(e) => { e.stopPropagation(); confirmPick(order) }}
-                        className="mt-4 h-14"
-                      >
-                        Xác nhận đã soạn xong
-                      </Button>
+                      <div className="mt-4 flex gap-2">
+                        <Button
+                          variant="primary"
+                          size="lg"
+                          fullWidth
+                          leftIcon={CheckCircle2}
+                          loading={confirming === order.id}
+                          onClick={(e) => { e.stopPropagation(); confirmPick(order) }}
+                          className="h-14"
+                        >
+                          Xác nhận đã soạn xong
+                        </Button>
+                        <a
+                          href={`/dashboard/warehouse/picking/${order.id}/slip`}
+                          target="_blank"
+                          rel="noopener"
+                          onClick={(e) => e.stopPropagation()}
+                          className="inline-flex items-center justify-center px-4 h-14 bg-emerald-600 text-white rounded-lg font-medium hover:bg-emerald-700 shrink-0"
+                          title="In phiếu soạn (kèm bin code)"
+                        >
+                          🖨 In phiếu
+                        </a>
+                      </div>
                     </div>
                   )}
                 </Card>

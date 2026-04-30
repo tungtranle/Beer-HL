@@ -1,281 +1,172 @@
 ﻿-- ================================================================
--- Seed 70 xe + 70 tÃ i xáº¿ thá»±c táº¿ CÃ´ng ty BHL
--- PhÃ¢n bá»•: 50 xe + 50 tÃ i xáº¿ (WH-HL), 20 xe + 20 tÃ i xáº¿ (WH-HP)
--- Biá»ƒn sá»‘: 14C = Quáº£ng Ninh, 15C = Háº£i PhÃ²ng
--- Loáº¡i xe: truck_3t5 (30), truck_5t (25), truck_8t (10), truck_15t (5)
+-- Seed xe + tai xe thuc te Cong ty BHL
+-- Moc tham chieu: 23/04/2026 — da xac nhan tu DB
+--
+-- Phan bo thuc te:
+--   Kho Ha Long  (WH-HL): 50 xe (5×3t5, 5×5t, 40×8t), 41 tai xe
+--   Kho Dong Mai (WH-DM):  8 xe (2×3t5, 3×5t, 3×8t),   9 tai xe
+--
+-- QUAN TRONG: Khong tao them xe/tai xe ngoai danh sach nay.
+-- QA8T-VRP-* la xe test gia, da duoc danh dau inactive trong migration 048.
 -- ================================================================
 
-BEGIN;
+-- ================================================================
+-- VEHICLES — Kho Ha Long (WH-HL): 50 xe thuc
+-- ================================================================
+INSERT INTO vehicles (plate_number, vehicle_type, capacity_kg, capacity_m3, status, warehouse_id)
+VALUES
+  -- truck_3t5 (5 xe)
+  ('14C26445T', 'truck_3t5', 3500, 12.0, 'active', 'a0000000-0000-0000-0000-000000000001'),
+  ('14C26594T', 'truck_3t5', 3500, 12.0, 'active', 'a0000000-0000-0000-0000-000000000001'),
+  ('14C30113T', 'truck_3t5', 3500, 12.0, 'active', 'a0000000-0000-0000-0000-000000000001'),
+  ('14C30190T', 'truck_3t5', 3500, 12.0, 'active', 'a0000000-0000-0000-0000-000000000001'),
+  ('14M8012',   'truck_3t5', 3500, 12.0, 'active', 'a0000000-0000-0000-0000-000000000001'),
+  -- truck_5t (5 xe)
+  ('14C19245T', 'truck_5t',  5000, 18.0, 'active', 'a0000000-0000-0000-0000-000000000001'),
+  ('14C23267T', 'truck_5t',  5000, 18.0, 'active', 'a0000000-0000-0000-0000-000000000001'),
+  ('14C26481T', 'truck_5t',  5000, 18.0, 'active', 'a0000000-0000-0000-0000-000000000001'),
+  ('14C26577T', 'truck_5t',  5000, 18.0, 'active', 'a0000000-0000-0000-0000-000000000001'),
+  ('14C30108T', 'truck_5t',  5000, 18.0, 'active', 'a0000000-0000-0000-0000-000000000001'),
+  -- truck_8t — bien 14C (30 xe)
+  ('14C12129T', 'truck_8t',  8000, 28.0, 'active', 'a0000000-0000-0000-0000-000000000001'),
+  ('14C12157T', 'truck_8t',  8000, 28.0, 'active', 'a0000000-0000-0000-0000-000000000001'),
+  ('14C16737T', 'truck_8t',  8000, 28.0, 'active', 'a0000000-0000-0000-0000-000000000001'),
+  ('14C16797T', 'truck_8t',  8000, 28.0, 'active', 'a0000000-0000-0000-0000-000000000001'),
+  ('14C19190T', 'truck_8t',  8000, 28.0, 'active', 'a0000000-0000-0000-0000-000000000001'),
+  ('14C19301T', 'truck_8t',  8000, 28.0, 'active', 'a0000000-0000-0000-0000-000000000001'),
+  ('14C19436T', 'truck_8t',  8000, 28.0, 'active', 'a0000000-0000-0000-0000-000000000001'),
+  ('14C19586T', 'truck_8t',  8000, 28.0, 'active', 'a0000000-0000-0000-0000-000000000001'),
+  ('14C19613T', 'truck_8t',  8000, 28.0, 'active', 'a0000000-0000-0000-0000-000000000001'),
+  ('14C19648T', 'truck_8t',  8000, 28.0, 'active', 'a0000000-0000-0000-0000-000000000001'),
+  ('14C19665T', 'truck_8t',  8000, 28.0, 'active', 'a0000000-0000-0000-0000-000000000001'),
+  ('14C20679T', 'truck_8t',  8000, 28.0, 'active', 'a0000000-0000-0000-0000-000000000001'),
+  ('14C20780T', 'truck_8t',  8000, 28.0, 'active', 'a0000000-0000-0000-0000-000000000001'),
+  ('14C22971T', 'truck_8t',  8000, 28.0, 'active', 'a0000000-0000-0000-0000-000000000001'),
+  ('14C23017T', 'truck_8t',  8000, 28.0, 'active', 'a0000000-0000-0000-0000-000000000001'),
+  ('14C23092T', 'truck_8t',  8000, 28.0, 'active', 'a0000000-0000-0000-0000-000000000001'),
+  ('14C23119T', 'truck_8t',  8000, 28.0, 'active', 'a0000000-0000-0000-0000-000000000001'),
+  ('14C23179T', 'truck_8t',  8000, 28.0, 'active', 'a0000000-0000-0000-0000-000000000001'),
+  ('14C23193T', 'truck_8t',  8000, 28.0, 'active', 'a0000000-0000-0000-0000-000000000001'),
+  ('14C26320T', 'truck_8t',  8000, 28.0, 'active', 'a0000000-0000-0000-0000-000000000001'),
+  ('14C26421T', 'truck_8t',  8000, 28.0, 'active', 'a0000000-0000-0000-0000-000000000001'),
+  ('14C26495T', 'truck_8t',  8000, 28.0, 'active', 'a0000000-0000-0000-0000-000000000001'),
+  ('14C26525T', 'truck_8t',  8000, 28.0, 'active', 'a0000000-0000-0000-0000-000000000001'),
+  ('14C26526T', 'truck_8t',  8000, 28.0, 'active', 'a0000000-0000-0000-0000-000000000001'),
+  ('14C26533T', 'truck_8t',  8000, 28.0, 'active', 'a0000000-0000-0000-0000-000000000001'),
+  ('14C30013T', 'truck_8t',  8000, 28.0, 'active', 'a0000000-0000-0000-0000-000000000001'),
+  ('14C30043T', 'truck_8t',  8000, 28.0, 'active', 'a0000000-0000-0000-0000-000000000001'),
+  ('14C30109T', 'truck_8t',  8000, 28.0, 'active', 'a0000000-0000-0000-0000-000000000001'),
+  ('14C30223T', 'truck_8t',  8000, 28.0, 'active', 'a0000000-0000-0000-0000-000000000001'),
+  ('14C30246T', 'truck_8t',  8000, 28.0, 'active', 'a0000000-0000-0000-0000-000000000001'),
+  -- truck_8t — bien 14M/14N/14P (10 xe)
+  ('14M0641',   'truck_8t',  8000, 28.0, 'active', 'a0000000-0000-0000-0000-000000000001'),
+  ('14M1802',   'truck_8t',  8000, 28.0, 'active', 'a0000000-0000-0000-0000-000000000001'),
+  ('14M1950',   'truck_8t',  8000, 28.0, 'active', 'a0000000-0000-0000-0000-000000000001'),
+  ('14M2320',   'truck_8t',  8000, 28.0, 'active', 'a0000000-0000-0000-0000-000000000001'),
+  ('14M2390',   'truck_8t',  8000, 28.0, 'active', 'a0000000-0000-0000-0000-000000000001'),
+  ('14M4540',   'truck_8t',  8000, 28.0, 'active', 'a0000000-0000-0000-0000-000000000001'),
+  ('14M6537',   'truck_8t',  8000, 28.0, 'active', 'a0000000-0000-0000-0000-000000000001'),
+  ('14N1262',   'truck_8t',  8000, 28.0, 'active', 'a0000000-0000-0000-0000-000000000001'),
+  ('14P2848',   'truck_8t',  8000, 28.0, 'active', 'a0000000-0000-0000-0000-000000000001'),
+  ('14P4637',   'truck_8t',  8000, 28.0, 'active', 'a0000000-0000-0000-0000-000000000001')
+ON CONFLICT (plate_number) DO UPDATE
+  SET vehicle_type = EXCLUDED.vehicle_type,
+      capacity_kg  = EXCLUDED.capacity_kg,
+      capacity_m3  = EXCLUDED.capacity_m3,
+      warehouse_id = EXCLUDED.warehouse_id,
+      updated_at   = NOW();
 
--- XÃ³a dá»¯ liá»‡u cÅ© (khÃ´ng cÃ³ trips nÃªn an toÃ n)
-DELETE FROM drivers;
-DELETE FROM vehicles;
+-- ================================================================
+-- VEHICLES — Kho Dong Mai (WH-DM): 8 xe
+-- ================================================================
+INSERT INTO vehicles (plate_number, vehicle_type, capacity_kg, capacity_m3, status, warehouse_id)
+VALUES
+  ('14H00904V', 'truck_8t',  8000, 28.0, 'active', 'a0000000-0000-0000-0000-000000000002'),
+  ('15C-21001',  'truck_5t',  5000, 18.0, 'active', 'a0000000-0000-0000-0000-000000000002'),
+  ('15C-21002',  'truck_5t',  5000, 18.0, 'active', 'a0000000-0000-0000-0000-000000000002'),
+  ('15C-21003',  'truck_5t',  5000, 18.0, 'active', 'a0000000-0000-0000-0000-000000000002'),
+  ('15C-21004',  'truck_8t',  8000, 28.0, 'active', 'a0000000-0000-0000-0000-000000000002'),
+  ('15C-21005',  'truck_8t',  8000, 28.0, 'active', 'a0000000-0000-0000-0000-000000000002'),
+  ('15C-21006',  'truck_3t5', 3500, 12.0, 'active', 'a0000000-0000-0000-0000-000000000002'),
+  ('15C-21007',  'truck_3t5', 3500, 12.0, 'active', 'a0000000-0000-0000-0000-000000000002')
+ON CONFLICT (plate_number) DO UPDATE
+  SET vehicle_type = EXCLUDED.vehicle_type,
+      capacity_kg  = EXCLUDED.capacity_kg,
+      capacity_m3  = EXCLUDED.capacity_m3,
+      warehouse_id = EXCLUDED.warehouse_id,
+      updated_at   = NOW();
 
--- XÃ³a driver user accounts cÅ© (giá»¯ láº¡i cÃ¡c user khÃ¡c)
-DELETE FROM users WHERE role = 'driver';
+-- ================================================================
+-- DRIVER USERS (50 tai xe thuc te — username chinh xac tu he thong)
+-- Password: demo123
+-- ================================================================
+INSERT INTO users (username, password_hash, full_name, role, warehouse_ids)
+VALUES
+  -- WH-HL (41 nguoi)
+  ('b.nguyen',     '$2a$10$JoEl4RXE/c/cvSPQTy01ceDBSF6dy/3UsCcDh2vWD8gll0EFy7WlK', 'B. Nguyen',    'driver', ARRAY['a0000000-0000-0000-0000-000000000001']::uuid[]),
+  ('chi.nguyen',   '$2a$10$JoEl4RXE/c/cvSPQTy01ceDBSF6dy/3UsCcDh2vWD8gll0EFy7WlK', 'Chi Nguyen',   'driver', ARRAY['a0000000-0000-0000-0000-000000000001']::uuid[]),
+  ('chung.nguyen', '$2a$10$JoEl4RXE/c/cvSPQTy01ceDBSF6dy/3UsCcDh2vWD8gll0EFy7WlK', 'Chung Nguyen', 'driver', ARRAY['a0000000-0000-0000-0000-000000000001']::uuid[]),
+  ('cuong.doan',   '$2a$10$JoEl4RXE/c/cvSPQTy01ceDBSF6dy/3UsCcDh2vWD8gll0EFy7WlK', 'Cuong Doan',   'driver', ARRAY['a0000000-0000-0000-0000-000000000001']::uuid[]),
+  ('cuong.ngo',    '$2a$10$JoEl4RXE/c/cvSPQTy01ceDBSF6dy/3UsCcDh2vWD8gll0EFy7WlK', 'Cuong Ngo',    'driver', ARRAY['a0000000-0000-0000-0000-000000000001']::uuid[]),
+  ('cuong.nguyen', '$2a$10$JoEl4RXE/c/cvSPQTy01ceDBSF6dy/3UsCcDh2vWD8gll0EFy7WlK', 'Cuong Nguyen', 'driver', ARRAY['a0000000-0000-0000-0000-000000000001']::uuid[]),
+  ('cuong.nung',   '$2a$10$JoEl4RXE/c/cvSPQTy01ceDBSF6dy/3UsCcDh2vWD8gll0EFy7WlK', 'Cuong Nung',   'driver', ARRAY['a0000000-0000-0000-0000-000000000001']::uuid[]),
+  ('cuong.pham',   '$2a$10$JoEl4RXE/c/cvSPQTy01ceDBSF6dy/3UsCcDh2vWD8gll0EFy7WlK', 'Cuong Pham',   'driver', ARRAY['a0000000-0000-0000-0000-000000000001']::uuid[]),
+  ('dinh.le',      '$2a$10$JoEl4RXE/c/cvSPQTy01ceDBSF6dy/3UsCcDh2vWD8gll0EFy7WlK', 'Dinh Le',      'driver', ARRAY['a0000000-0000-0000-0000-000000000001']::uuid[]),
+  ('dung.do',      '$2a$10$JoEl4RXE/c/cvSPQTy01ceDBSF6dy/3UsCcDh2vWD8gll0EFy7WlK', 'Dung Do',      'driver', ARRAY['a0000000-0000-0000-0000-000000000001']::uuid[]),
+  ('dung.vu',      '$2a$10$JoEl4RXE/c/cvSPQTy01ceDBSF6dy/3UsCcDh2vWD8gll0EFy7WlK', 'Dung Vu',      'driver', ARRAY['a0000000-0000-0000-0000-000000000001']::uuid[]),
+  ('hai.doan',     '$2a$10$JoEl4RXE/c/cvSPQTy01ceDBSF6dy/3UsCcDh2vWD8gll0EFy7WlK', 'Hai Doan',     'driver', ARRAY['a0000000-0000-0000-0000-000000000001']::uuid[]),
+  ('hien.luu',     '$2a$10$JoEl4RXE/c/cvSPQTy01ceDBSF6dy/3UsCcDh2vWD8gll0EFy7WlK', 'Hien Luu',     'driver', ARRAY['a0000000-0000-0000-0000-000000000001']::uuid[]),
+  ('hoa.vu',       '$2a$10$JoEl4RXE/c/cvSPQTy01ceDBSF6dy/3UsCcDh2vWD8gll0EFy7WlK', 'Hoa Vu',       'driver', ARRAY['a0000000-0000-0000-0000-000000000001']::uuid[]),
+  ('hoang.nguyen', '$2a$10$JoEl4RXE/c/cvSPQTy01ceDBSF6dy/3UsCcDh2vWD8gll0EFy7WlK', 'Hoang Nguyen', 'driver', ARRAY['a0000000-0000-0000-0000-000000000001']::uuid[]),
+  ('hoi.pham',     '$2a$10$JoEl4RXE/c/cvSPQTy01ceDBSF6dy/3UsCcDh2vWD8gll0EFy7WlK', 'Hoi Pham',     'driver', ARRAY['a0000000-0000-0000-0000-000000000001']::uuid[]),
+  ('hong.tran',    '$2a$10$JoEl4RXE/c/cvSPQTy01ceDBSF6dy/3UsCcDh2vWD8gll0EFy7WlK', 'Hong Tran',    'driver', ARRAY['a0000000-0000-0000-0000-000000000001']::uuid[]),
+  ('hong.vu',      '$2a$10$JoEl4RXE/c/cvSPQTy01ceDBSF6dy/3UsCcDh2vWD8gll0EFy7WlK', 'Hong Vu',      'driver', ARRAY['a0000000-0000-0000-0000-000000000001']::uuid[]),
+  ('hung.nguyen',  '$2a$10$JoEl4RXE/c/cvSPQTy01ceDBSF6dy/3UsCcDh2vWD8gll0EFy7WlK', 'Hung Nguyen',  'driver', ARRAY['a0000000-0000-0000-0000-000000000001']::uuid[]),
+  ('hung.pham',    '$2a$10$JoEl4RXE/c/cvSPQTy01ceDBSF6dy/3UsCcDh2vWD8gll0EFy7WlK', 'Hung Pham',    'driver', ARRAY['a0000000-0000-0000-0000-000000000001']::uuid[]),
+  ('lam.le',       '$2a$10$JoEl4RXE/c/cvSPQTy01ceDBSF6dy/3UsCcDh2vWD8gll0EFy7WlK', 'Lam Le',       'driver', ARRAY['a0000000-0000-0000-0000-000000000001']::uuid[]),
+  ('mien.ha',      '$2a$10$JoEl4RXE/c/cvSPQTy01ceDBSF6dy/3UsCcDh2vWD8gll0EFy7WlK', 'Mien Ha',      'driver', ARRAY['a0000000-0000-0000-0000-000000000001']::uuid[]),
+  ('nam.nguyen',   '$2a$10$JoEl4RXE/c/cvSPQTy01ceDBSF6dy/3UsCcDh2vWD8gll0EFy7WlK', 'Nam Nguyen',   'driver', ARRAY['a0000000-0000-0000-0000-000000000001']::uuid[]),
+  ('nhat.bui',     '$2a$10$JoEl4RXE/c/cvSPQTy01ceDBSF6dy/3UsCcDh2vWD8gll0EFy7WlK', 'Nhat Bui',     'driver', ARRAY['a0000000-0000-0000-0000-000000000001']::uuid[]),
+  ('ninh.dang',    '$2a$10$JoEl4RXE/c/cvSPQTy01ceDBSF6dy/3UsCcDh2vWD8gll0EFy7WlK', 'Ninh Dang',    'driver', ARRAY['a0000000-0000-0000-0000-000000000001']::uuid[]),
+  ('phoc.vo',      '$2a$10$JoEl4RXE/c/cvSPQTy01ceDBSF6dy/3UsCcDh2vWD8gll0EFy7WlK', 'Phoc Vo',      'driver', ARRAY['a0000000-0000-0000-0000-000000000001']::uuid[]),
+  ('phuc.vu',      '$2a$10$JoEl4RXE/c/cvSPQTy01ceDBSF6dy/3UsCcDh2vWD8gll0EFy7WlK', 'Phuc Vu',      'driver', ARRAY['a0000000-0000-0000-0000-000000000001']::uuid[]),
+  ('quan.bui',     '$2a$10$JoEl4RXE/c/cvSPQTy01ceDBSF6dy/3UsCcDh2vWD8gll0EFy7WlK', 'Quan Bui',     'driver', ARRAY['a0000000-0000-0000-0000-000000000001']::uuid[]),
+  ('quan.tran',    '$2a$10$JoEl4RXE/c/cvSPQTy01ceDBSF6dy/3UsCcDh2vWD8gll0EFy7WlK', 'Quan Tran',    'driver', ARRAY['a0000000-0000-0000-0000-000000000001']::uuid[]),
+  ('quynh.nguyen', '$2a$10$JoEl4RXE/c/cvSPQTy01ceDBSF6dy/3UsCcDh2vWD8gll0EFy7WlK', 'Quynh Nguyen', 'driver', ARRAY['a0000000-0000-0000-0000-000000000001']::uuid[]),
+  ('quynh.vu',     '$2a$10$JoEl4RXE/c/cvSPQTy01ceDBSF6dy/3UsCcDh2vWD8gll0EFy7WlK', 'Quynh Vu',     'driver', ARRAY['a0000000-0000-0000-0000-000000000001']::uuid[]),
+  ('son.doan',     '$2a$10$JoEl4RXE/c/cvSPQTy01ceDBSF6dy/3UsCcDh2vWD8gll0EFy7WlK', 'Son Doan',     'driver', ARRAY['a0000000-0000-0000-0000-000000000001']::uuid[]),
+  ('thanh.bui',    '$2a$10$JoEl4RXE/c/cvSPQTy01ceDBSF6dy/3UsCcDh2vWD8gll0EFy7WlK', 'Thanh Bui',    'driver', ARRAY['a0000000-0000-0000-0000-000000000001']::uuid[]),
+  ('thanh.vu',     '$2a$10$JoEl4RXE/c/cvSPQTy01ceDBSF6dy/3UsCcDh2vWD8gll0EFy7WlK', 'Thanh Vu',     'driver', ARRAY['a0000000-0000-0000-0000-000000000001']::uuid[]),
+  ('thuan.pham',   '$2a$10$JoEl4RXE/c/cvSPQTy01ceDBSF6dy/3UsCcDh2vWD8gll0EFy7WlK', 'Thuan Pham',   'driver', ARRAY['a0000000-0000-0000-0000-000000000001']::uuid[]),
+  ('tien.nguyen',  '$2a$10$JoEl4RXE/c/cvSPQTy01ceDBSF6dy/3UsCcDh2vWD8gll0EFy7WlK', 'Tien Nguyen',  'driver', ARRAY['a0000000-0000-0000-0000-000000000001']::uuid[]),
+  ('toan.luong',   '$2a$10$JoEl4RXE/c/cvSPQTy01ceDBSF6dy/3UsCcDh2vWD8gll0EFy7WlK', 'Toan Luong',   'driver', ARRAY['a0000000-0000-0000-0000-000000000001']::uuid[]),
+  ('trong.doan',   '$2a$10$JoEl4RXE/c/cvSPQTy01ceDBSF6dy/3UsCcDh2vWD8gll0EFy7WlK', 'Trong Doan',   'driver', ARRAY['a0000000-0000-0000-0000-000000000001']::uuid[]),
+  ('tuan.vu',      '$2a$10$JoEl4RXE/c/cvSPQTy01ceDBSF6dy/3UsCcDh2vWD8gll0EFy7WlK', 'Tuan Vu',      'driver', ARRAY['a0000000-0000-0000-0000-000000000001']::uuid[]),
+  ('tuyen.ha',     '$2a$10$JoEl4RXE/c/cvSPQTy01ceDBSF6dy/3UsCcDh2vWD8gll0EFy7WlK', 'Tuyen Ha',     'driver', ARRAY['a0000000-0000-0000-0000-000000000001']::uuid[]),
+  ('van.nguyen',   '$2a$10$JoEl4RXE/c/cvSPQTy01ceDBSF6dy/3UsCcDh2vWD8gll0EFy7WlK', 'Van Nguyen',   'driver', ARRAY['a0000000-0000-0000-0000-000000000001']::uuid[]),
+  -- WH-DM (9 nguoi)
+  ('a.hoang',      '$2a$10$JoEl4RXE/c/cvSPQTy01ceDBSF6dy/3UsCcDh2vWD8gll0EFy7WlK', 'A. Hoang',     'driver', ARRAY['a0000000-0000-0000-0000-000000000002']::uuid[]),
+  ('chuyen.tran',  '$2a$10$JoEl4RXE/c/cvSPQTy01ceDBSF6dy/3UsCcDh2vWD8gll0EFy7WlK', 'Chuyen Tran',  'driver', ARRAY['a0000000-0000-0000-0000-000000000002']::uuid[]),
+  ('hao.le',       '$2a$10$JoEl4RXE/c/cvSPQTy01ceDBSF6dy/3UsCcDh2vWD8gll0EFy7WlK', 'Hao Le',       'driver', ARRAY['a0000000-0000-0000-0000-000000000002']::uuid[]),
+  ('hiep.dang',    '$2a$10$JoEl4RXE/c/cvSPQTy01ceDBSF6dy/3UsCcDh2vWD8gll0EFy7WlK', 'Hiep Dang',    'driver', ARRAY['a0000000-0000-0000-0000-000000000002']::uuid[]),
+  ('lap.tran',     '$2a$10$JoEl4RXE/c/cvSPQTy01ceDBSF6dy/3UsCcDh2vWD8gll0EFy7WlK', 'Lap Tran',     'driver', ARRAY['a0000000-0000-0000-0000-000000000002']::uuid[]),
+  ('son.nguyen',   '$2a$10$JoEl4RXE/c/cvSPQTy01ceDBSF6dy/3UsCcDh2vWD8gll0EFy7WlK', 'Son Nguyen',   'driver', ARRAY['a0000000-0000-0000-0000-000000000002']::uuid[]),
+  ('thuy.pham',    '$2a$10$JoEl4RXE/c/cvSPQTy01ceDBSF6dy/3UsCcDh2vWD8gll0EFy7WlK', 'Thuy Pham',    'driver', ARRAY['a0000000-0000-0000-0000-000000000002']::uuid[]),
+  ('tien.tran',    '$2a$10$JoEl4RXE/c/cvSPQTy01ceDBSF6dy/3UsCcDh2vWD8gll0EFy7WlK', 'Tien Tran',    'driver', ARRAY['a0000000-0000-0000-0000-000000000002']::uuid[]),
+  ('tung.le',      '$2a$10$JoEl4RXE/c/cvSPQTy01ceDBSF6dy/3UsCcDh2vWD8gll0EFy7WlK', 'Tung Le',      'driver', ARRAY['a0000000-0000-0000-0000-000000000002']::uuid[])
+ON CONFLICT (username) DO NOTHING;
 
--- ========================================
--- 70 VEHICLES
--- ========================================
--- WH-HL (Háº¡ Long): 50 xe
---   truck_3t5: 20 xe (giao ná»™i thÃ nh, NPP nhá»)
---   truck_5t:  18 xe (giao trung bÃ¬nh)
---   truck_8t:   8 xe (giao hÃ ng lá»›n)
---   truck_15t:  4 xe (giao liÃªn tá»‰nh)
-
--- WH-HP (Háº£i PhÃ²ng): 20 xe
---   truck_3t5:  10 xe
---   truck_5t:    7 xe
---   truck_8t:    2 xe
---   truck_15t:   1 xe
-
-INSERT INTO vehicles (id, plate_number, vehicle_type, capacity_kg, capacity_m3, status, warehouse_id) VALUES
--- === WH-HL: truck_3t5 (20 xe) ===
-('e1000000-0000-0000-0000-000000000001', '14C-00101', 'truck_3t5', 3500, 12.0, 'active', 'a0000000-0000-0000-0000-000000000001'),
-('e1000000-0000-0000-0000-000000000002', '14C-00102', 'truck_3t5', 3500, 12.0, 'active', 'a0000000-0000-0000-0000-000000000001'),
-('e1000000-0000-0000-0000-000000000003', '14C-00103', 'truck_3t5', 3500, 12.0, 'active', 'a0000000-0000-0000-0000-000000000001'),
-('e1000000-0000-0000-0000-000000000004', '14C-00104', 'truck_3t5', 3500, 12.0, 'active', 'a0000000-0000-0000-0000-000000000001'),
-('e1000000-0000-0000-0000-000000000005', '14C-00105', 'truck_3t5', 3500, 12.0, 'active', 'a0000000-0000-0000-0000-000000000001'),
-('e1000000-0000-0000-0000-000000000006', '14C-00106', 'truck_3t5', 3500, 12.0, 'active', 'a0000000-0000-0000-0000-000000000001'),
-('e1000000-0000-0000-0000-000000000007', '14C-00107', 'truck_3t5', 3500, 12.0, 'active', 'a0000000-0000-0000-0000-000000000001'),
-('e1000000-0000-0000-0000-000000000008', '14C-00108', 'truck_3t5', 3500, 12.0, 'active', 'a0000000-0000-0000-0000-000000000001'),
-('e1000000-0000-0000-0000-000000000009', '14C-00109', 'truck_3t5', 3500, 12.0, 'active', 'a0000000-0000-0000-0000-000000000001'),
-('e1000000-0000-0000-0000-000000000010', '14C-00110', 'truck_3t5', 3500, 12.0, 'active', 'a0000000-0000-0000-0000-000000000001'),
-('e1000000-0000-0000-0000-000000000011', '14C-00111', 'truck_3t5', 3500, 12.0, 'active', 'a0000000-0000-0000-0000-000000000001'),
-('e1000000-0000-0000-0000-000000000012', '14C-00112', 'truck_3t5', 3500, 12.0, 'active', 'a0000000-0000-0000-0000-000000000001'),
-('e1000000-0000-0000-0000-000000000013', '14C-00113', 'truck_3t5', 3500, 12.0, 'active', 'a0000000-0000-0000-0000-000000000001'),
-('e1000000-0000-0000-0000-000000000014', '14C-00114', 'truck_3t5', 3500, 12.0, 'active', 'a0000000-0000-0000-0000-000000000001'),
-('e1000000-0000-0000-0000-000000000015', '14C-00115', 'truck_3t5', 3500, 12.0, 'active', 'a0000000-0000-0000-0000-000000000001'),
-('e1000000-0000-0000-0000-000000000016', '14C-00116', 'truck_3t5', 3500, 12.0, 'active', 'a0000000-0000-0000-0000-000000000001'),
-('e1000000-0000-0000-0000-000000000017', '14C-00117', 'truck_3t5', 3500, 12.0, 'active', 'a0000000-0000-0000-0000-000000000001'),
-('e1000000-0000-0000-0000-000000000018', '14C-00118', 'truck_3t5', 3500, 12.0, 'active', 'a0000000-0000-0000-0000-000000000001'),
-('e1000000-0000-0000-0000-000000000019', '14C-00119', 'truck_3t5', 3500, 12.0, 'active', 'a0000000-0000-0000-0000-000000000001'),
-('e1000000-0000-0000-0000-000000000020', '14C-00120', 'truck_3t5', 3500, 12.0, 'active', 'a0000000-0000-0000-0000-000000000001'),
--- === WH-HL: truck_5t (18 xe) ===
-('e1000000-0000-0000-0000-000000000021', '14C-00201', 'truck_5t', 5000, 18.0, 'active', 'a0000000-0000-0000-0000-000000000001'),
-('e1000000-0000-0000-0000-000000000022', '14C-00202', 'truck_5t', 5000, 18.0, 'active', 'a0000000-0000-0000-0000-000000000001'),
-('e1000000-0000-0000-0000-000000000023', '14C-00203', 'truck_5t', 5000, 18.0, 'active', 'a0000000-0000-0000-0000-000000000001'),
-('e1000000-0000-0000-0000-000000000024', '14C-00204', 'truck_5t', 5000, 18.0, 'active', 'a0000000-0000-0000-0000-000000000001'),
-('e1000000-0000-0000-0000-000000000025', '14C-00205', 'truck_5t', 5000, 18.0, 'active', 'a0000000-0000-0000-0000-000000000001'),
-('e1000000-0000-0000-0000-000000000026', '14C-00206', 'truck_5t', 5000, 18.0, 'active', 'a0000000-0000-0000-0000-000000000001'),
-('e1000000-0000-0000-0000-000000000027', '14C-00207', 'truck_5t', 5000, 18.0, 'active', 'a0000000-0000-0000-0000-000000000001'),
-('e1000000-0000-0000-0000-000000000028', '14C-00208', 'truck_5t', 5000, 18.0, 'active', 'a0000000-0000-0000-0000-000000000001'),
-('e1000000-0000-0000-0000-000000000029', '14C-00209', 'truck_5t', 5000, 18.0, 'active', 'a0000000-0000-0000-0000-000000000001'),
-('e1000000-0000-0000-0000-000000000030', '14C-00210', 'truck_5t', 5000, 18.0, 'active', 'a0000000-0000-0000-0000-000000000001'),
-('e1000000-0000-0000-0000-000000000031', '14C-00211', 'truck_5t', 5000, 18.0, 'active', 'a0000000-0000-0000-0000-000000000001'),
-('e1000000-0000-0000-0000-000000000032', '14C-00212', 'truck_5t', 5000, 18.0, 'active', 'a0000000-0000-0000-0000-000000000001'),
-('e1000000-0000-0000-0000-000000000033', '14C-00213', 'truck_5t', 5000, 18.0, 'active', 'a0000000-0000-0000-0000-000000000001'),
-('e1000000-0000-0000-0000-000000000034', '14C-00214', 'truck_5t', 5000, 18.0, 'active', 'a0000000-0000-0000-0000-000000000001'),
-('e1000000-0000-0000-0000-000000000035', '14C-00215', 'truck_5t', 5000, 18.0, 'active', 'a0000000-0000-0000-0000-000000000001'),
-('e1000000-0000-0000-0000-000000000036', '14C-00216', 'truck_5t', 5000, 18.0, 'active', 'a0000000-0000-0000-0000-000000000001'),
-('e1000000-0000-0000-0000-000000000037', '14C-00217', 'truck_5t', 5000, 18.0, 'active', 'a0000000-0000-0000-0000-000000000001'),
-('e1000000-0000-0000-0000-000000000038', '14C-00218', 'truck_5t', 5000, 18.0, 'active', 'a0000000-0000-0000-0000-000000000001'),
--- === WH-HL: truck_8t (8 xe) ===
-('e1000000-0000-0000-0000-000000000039', '14C-00301', 'truck_8t', 8000, 28.0, 'active', 'a0000000-0000-0000-0000-000000000001'),
-('e1000000-0000-0000-0000-000000000040', '14C-00302', 'truck_8t', 8000, 28.0, 'active', 'a0000000-0000-0000-0000-000000000001'),
-('e1000000-0000-0000-0000-000000000041', '14C-00303', 'truck_8t', 8000, 28.0, 'active', 'a0000000-0000-0000-0000-000000000001'),
-('e1000000-0000-0000-0000-000000000042', '14C-00304', 'truck_8t', 8000, 28.0, 'active', 'a0000000-0000-0000-0000-000000000001'),
-('e1000000-0000-0000-0000-000000000043', '14C-00305', 'truck_8t', 8000, 28.0, 'active', 'a0000000-0000-0000-0000-000000000001'),
-('e1000000-0000-0000-0000-000000000044', '14C-00306', 'truck_8t', 8000, 28.0, 'active', 'a0000000-0000-0000-0000-000000000001'),
-('e1000000-0000-0000-0000-000000000045', '14C-00307', 'truck_8t', 8000, 28.0, 'active', 'a0000000-0000-0000-0000-000000000001'),
-('e1000000-0000-0000-0000-000000000046', '14C-00308', 'truck_8t', 8000, 28.0, 'active', 'a0000000-0000-0000-0000-000000000001'),
--- === WH-HL: truck_15t (4 xe) ===
-('e1000000-0000-0000-0000-000000000047', '14C-00401', 'truck_15t', 15000, 45.0, 'active', 'a0000000-0000-0000-0000-000000000001'),
-('e1000000-0000-0000-0000-000000000048', '14C-00402', 'truck_15t', 15000, 45.0, 'active', 'a0000000-0000-0000-0000-000000000001'),
-('e1000000-0000-0000-0000-000000000049', '14C-00403', 'truck_15t', 15000, 45.0, 'active', 'a0000000-0000-0000-0000-000000000001'),
-('e1000000-0000-0000-0000-000000000050', '14C-00404', 'truck_15t', 15000, 45.0, 'active', 'a0000000-0000-0000-0000-000000000001'),
-
--- === WH-HP: truck_3t5 (10 xe) ===
-('e1000000-0000-0000-0000-000000000051', '15C-00101', 'truck_3t5', 3500, 12.0, 'active', 'a0000000-0000-0000-0000-000000000002'),
-('e1000000-0000-0000-0000-000000000052', '15C-00102', 'truck_3t5', 3500, 12.0, 'active', 'a0000000-0000-0000-0000-000000000002'),
-('e1000000-0000-0000-0000-000000000053', '15C-00103', 'truck_3t5', 3500, 12.0, 'active', 'a0000000-0000-0000-0000-000000000002'),
-('e1000000-0000-0000-0000-000000000054', '15C-00104', 'truck_3t5', 3500, 12.0, 'active', 'a0000000-0000-0000-0000-000000000002'),
-('e1000000-0000-0000-0000-000000000055', '15C-00105', 'truck_3t5', 3500, 12.0, 'active', 'a0000000-0000-0000-0000-000000000002'),
-('e1000000-0000-0000-0000-000000000056', '15C-00106', 'truck_3t5', 3500, 12.0, 'active', 'a0000000-0000-0000-0000-000000000002'),
-('e1000000-0000-0000-0000-000000000057', '15C-00107', 'truck_3t5', 3500, 12.0, 'active', 'a0000000-0000-0000-0000-000000000002'),
-('e1000000-0000-0000-0000-000000000058', '15C-00108', 'truck_3t5', 3500, 12.0, 'active', 'a0000000-0000-0000-0000-000000000002'),
-('e1000000-0000-0000-0000-000000000059', '15C-00109', 'truck_3t5', 3500, 12.0, 'active', 'a0000000-0000-0000-0000-000000000002'),
-('e1000000-0000-0000-0000-000000000060', '15C-00110', 'truck_3t5', 3500, 12.0, 'active', 'a0000000-0000-0000-0000-000000000002'),
--- === WH-HP: truck_5t (7 xe) ===
-('e1000000-0000-0000-0000-000000000061', '15C-00201', 'truck_5t', 5000, 18.0, 'active', 'a0000000-0000-0000-0000-000000000002'),
-('e1000000-0000-0000-0000-000000000062', '15C-00202', 'truck_5t', 5000, 18.0, 'active', 'a0000000-0000-0000-0000-000000000002'),
-('e1000000-0000-0000-0000-000000000063', '15C-00203', 'truck_5t', 5000, 18.0, 'active', 'a0000000-0000-0000-0000-000000000002'),
-('e1000000-0000-0000-0000-000000000064', '15C-00204', 'truck_5t', 5000, 18.0, 'active', 'a0000000-0000-0000-0000-000000000002'),
-('e1000000-0000-0000-0000-000000000065', '15C-00205', 'truck_5t', 5000, 18.0, 'active', 'a0000000-0000-0000-0000-000000000002'),
-('e1000000-0000-0000-0000-000000000066', '15C-00206', 'truck_5t', 5000, 18.0, 'active', 'a0000000-0000-0000-0000-000000000002'),
-('e1000000-0000-0000-0000-000000000067', '15C-00207', 'truck_5t', 5000, 18.0, 'active', 'a0000000-0000-0000-0000-000000000002'),
--- === WH-HP: truck_8t (2 xe) ===
-('e1000000-0000-0000-0000-000000000068', '15C-00301', 'truck_8t', 8000, 28.0, 'active', 'a0000000-0000-0000-0000-000000000002'),
-('e1000000-0000-0000-0000-000000000069', '15C-00302', 'truck_8t', 8000, 28.0, 'active', 'a0000000-0000-0000-0000-000000000002'),
--- === WH-HP: truck_15t (1 xe) ===
-('e1000000-0000-0000-0000-000000000070', '15C-00401', 'truck_15t', 15000, 45.0, 'active', 'a0000000-0000-0000-0000-000000000002');
-
--- ========================================
--- 70 DRIVER USER ACCOUNTS
--- ========================================
--- Password: demo123 (bcrypt hash)
-
-INSERT INTO users (id, username, password_hash, full_name, role, warehouse_ids) VALUES
--- WH-HL: 50 drivers
-('d1000000-0000-0000-0000-000000000001', 'driver01', '$2a$10$JoEl4RXE/c/cvSPQTy01ceDBSF6dy/3UsCcDh2vWD8gll0EFy7WlK', 'Pháº¡m VÄƒn Äá»©c',     'driver', ARRAY['a0000000-0000-0000-0000-000000000001']::uuid[]),
-('d1000000-0000-0000-0000-000000000002', 'driver02', '$2a$10$JoEl4RXE/c/cvSPQTy01ceDBSF6dy/3UsCcDh2vWD8gll0EFy7WlK', 'Nguyá»…n VÄƒn HÃ¹ng',   'driver', ARRAY['a0000000-0000-0000-0000-000000000001']::uuid[]),
-('d1000000-0000-0000-0000-000000000003', 'driver03', '$2a$10$JoEl4RXE/c/cvSPQTy01ceDBSF6dy/3UsCcDh2vWD8gll0EFy7WlK', 'Tráº§n VÄƒn ToÃ n',     'driver', ARRAY['a0000000-0000-0000-0000-000000000001']::uuid[]),
-('d1000000-0000-0000-0000-000000000004', 'driver04', '$2a$10$JoEl4RXE/c/cvSPQTy01ceDBSF6dy/3UsCcDh2vWD8gll0EFy7WlK', 'LÃª VÄƒn DÅ©ng',       'driver', ARRAY['a0000000-0000-0000-0000-000000000001']::uuid[]),
-('d1000000-0000-0000-0000-000000000005', 'driver05', '$2a$10$JoEl4RXE/c/cvSPQTy01ceDBSF6dy/3UsCcDh2vWD8gll0EFy7WlK', 'HoÃ ng VÄƒn Tháº¯ng',   'driver', ARRAY['a0000000-0000-0000-0000-000000000001']::uuid[]),
-('d1000000-0000-0000-0000-000000000006', 'driver06', '$2a$10$JoEl4RXE/c/cvSPQTy01ceDBSF6dy/3UsCcDh2vWD8gll0EFy7WlK', 'Äáº·ng CÃ´ng Vinh',    'driver', ARRAY['a0000000-0000-0000-0000-000000000001']::uuid[]),
-('d1000000-0000-0000-0000-000000000007', 'driver07', '$2a$10$JoEl4RXE/c/cvSPQTy01ceDBSF6dy/3UsCcDh2vWD8gll0EFy7WlK', 'VÅ© VÄƒn Long',       'driver', ARRAY['a0000000-0000-0000-0000-000000000001']::uuid[]),
-('d1000000-0000-0000-0000-000000000008', 'driver08', '$2a$10$JoEl4RXE/c/cvSPQTy01ceDBSF6dy/3UsCcDh2vWD8gll0EFy7WlK', 'Äá»— VÄƒn Máº¡nh',       'driver', ARRAY['a0000000-0000-0000-0000-000000000001']::uuid[]),
-('d1000000-0000-0000-0000-000000000009', 'driver09', '$2a$10$JoEl4RXE/c/cvSPQTy01ceDBSF6dy/3UsCcDh2vWD8gll0EFy7WlK', 'BÃ¹i VÄƒn SÃ¡ng',      'driver', ARRAY['a0000000-0000-0000-0000-000000000001']::uuid[]),
-('d1000000-0000-0000-0000-000000000010', 'driver10', '$2a$10$JoEl4RXE/c/cvSPQTy01ceDBSF6dy/3UsCcDh2vWD8gll0EFy7WlK', 'NgÃ´ VÄƒn Phong',     'driver', ARRAY['a0000000-0000-0000-0000-000000000001']::uuid[]),
-('d1000000-0000-0000-0000-000000000011', 'driver11', '$2a$10$JoEl4RXE/c/cvSPQTy01ceDBSF6dy/3UsCcDh2vWD8gll0EFy7WlK', 'Mai XuÃ¢n TrÆ°á»ng',   'driver', ARRAY['a0000000-0000-0000-0000-000000000001']::uuid[]),
-('d1000000-0000-0000-0000-000000000012', 'driver12', '$2a$10$JoEl4RXE/c/cvSPQTy01ceDBSF6dy/3UsCcDh2vWD8gll0EFy7WlK', 'Äinh VÄƒn Hiáº¿u',     'driver', ARRAY['a0000000-0000-0000-0000-000000000001']::uuid[]),
-('d1000000-0000-0000-0000-000000000013', 'driver13', '$2a$10$JoEl4RXE/c/cvSPQTy01ceDBSF6dy/3UsCcDh2vWD8gll0EFy7WlK', 'Phan VÄƒn TÃ¹ng',     'driver', ARRAY['a0000000-0000-0000-0000-000000000001']::uuid[]),
-('d1000000-0000-0000-0000-000000000014', 'driver14', '$2a$10$JoEl4RXE/c/cvSPQTy01ceDBSF6dy/3UsCcDh2vWD8gll0EFy7WlK', 'LÆ°Æ¡ng VÄƒn Háº£i',     'driver', ARRAY['a0000000-0000-0000-0000-000000000001']::uuid[]),
-('d1000000-0000-0000-0000-000000000015', 'driver15', '$2a$10$JoEl4RXE/c/cvSPQTy01ceDBSF6dy/3UsCcDh2vWD8gll0EFy7WlK', 'Táº¡ VÄƒn KiÃªn',       'driver', ARRAY['a0000000-0000-0000-0000-000000000001']::uuid[]),
-('d1000000-0000-0000-0000-000000000016', 'driver16', '$2a$10$JoEl4RXE/c/cvSPQTy01ceDBSF6dy/3UsCcDh2vWD8gll0EFy7WlK', 'Trá»‹nh VÄƒn Nam',     'driver', ARRAY['a0000000-0000-0000-0000-000000000001']::uuid[]),
-('d1000000-0000-0000-0000-000000000017', 'driver17', '$2a$10$JoEl4RXE/c/cvSPQTy01ceDBSF6dy/3UsCcDh2vWD8gll0EFy7WlK', 'DÆ°Æ¡ng VÄƒn Báº£o',     'driver', ARRAY['a0000000-0000-0000-0000-000000000001']::uuid[]),
-('d1000000-0000-0000-0000-000000000018', 'driver18', '$2a$10$JoEl4RXE/c/cvSPQTy01ceDBSF6dy/3UsCcDh2vWD8gll0EFy7WlK', 'LÃ½ VÄƒn Quang',      'driver', ARRAY['a0000000-0000-0000-0000-000000000001']::uuid[]),
-('d1000000-0000-0000-0000-000000000019', 'driver19', '$2a$10$JoEl4RXE/c/cvSPQTy01ceDBSF6dy/3UsCcDh2vWD8gll0EFy7WlK', 'Há»“ VÄƒn ThÃ nh',      'driver', ARRAY['a0000000-0000-0000-0000-000000000001']::uuid[]),
-('d1000000-0000-0000-0000-000000000020', 'driver20', '$2a$10$JoEl4RXE/c/cvSPQTy01ceDBSF6dy/3UsCcDh2vWD8gll0EFy7WlK', 'Cao VÄƒn Tuáº¥n',      'driver', ARRAY['a0000000-0000-0000-0000-000000000001']::uuid[]),
-('d1000000-0000-0000-0000-000000000021', 'driver21', '$2a$10$JoEl4RXE/c/cvSPQTy01ceDBSF6dy/3UsCcDh2vWD8gll0EFy7WlK', 'Nguyá»…n Äá»©c Anh',    'driver', ARRAY['a0000000-0000-0000-0000-000000000001']::uuid[]),
-('d1000000-0000-0000-0000-000000000022', 'driver22', '$2a$10$JoEl4RXE/c/cvSPQTy01ceDBSF6dy/3UsCcDh2vWD8gll0EFy7WlK', 'Tráº§n Quá»‘c Äáº¡t',     'driver', ARRAY['a0000000-0000-0000-0000-000000000001']::uuid[]),
-('d1000000-0000-0000-0000-000000000023', 'driver23', '$2a$10$JoEl4RXE/c/cvSPQTy01ceDBSF6dy/3UsCcDh2vWD8gll0EFy7WlK', 'LÃª Minh HoÃ ng',     'driver', ARRAY['a0000000-0000-0000-0000-000000000001']::uuid[]),
-('d1000000-0000-0000-0000-000000000024', 'driver24', '$2a$10$JoEl4RXE/c/cvSPQTy01ceDBSF6dy/3UsCcDh2vWD8gll0EFy7WlK', 'Pháº¡m Quang Huy',    'driver', ARRAY['a0000000-0000-0000-0000-000000000001']::uuid[]),
-('d1000000-0000-0000-0000-000000000025', 'driver25', '$2a$10$JoEl4RXE/c/cvSPQTy01ceDBSF6dy/3UsCcDh2vWD8gll0EFy7WlK', 'Nguyá»…n Thanh SÆ¡n',  'driver', ARRAY['a0000000-0000-0000-0000-000000000001']::uuid[]),
-('d1000000-0000-0000-0000-000000000026', 'driver26', '$2a$10$JoEl4RXE/c/cvSPQTy01ceDBSF6dy/3UsCcDh2vWD8gll0EFy7WlK', 'VÅ© ÄÃ¬nh Khoa',      'driver', ARRAY['a0000000-0000-0000-0000-000000000001']::uuid[]),
-('d1000000-0000-0000-0000-000000000027', 'driver27', '$2a$10$JoEl4RXE/c/cvSPQTy01ceDBSF6dy/3UsCcDh2vWD8gll0EFy7WlK', 'HoÃ ng Minh QuÃ¢n',   'driver', ARRAY['a0000000-0000-0000-0000-000000000001']::uuid[]),
-('d1000000-0000-0000-0000-000000000028', 'driver28', '$2a$10$JoEl4RXE/c/cvSPQTy01ceDBSF6dy/3UsCcDh2vWD8gll0EFy7WlK', 'Äáº·ng Ngá»c Trung',   'driver', ARRAY['a0000000-0000-0000-0000-000000000001']::uuid[]),
-('d1000000-0000-0000-0000-000000000029', 'driver29', '$2a$10$JoEl4RXE/c/cvSPQTy01ceDBSF6dy/3UsCcDh2vWD8gll0EFy7WlK', 'BÃ¹i Thanh HÃ ',      'driver', ARRAY['a0000000-0000-0000-0000-000000000001']::uuid[]),
-('d1000000-0000-0000-0000-000000000030', 'driver30', '$2a$10$JoEl4RXE/c/cvSPQTy01ceDBSF6dy/3UsCcDh2vWD8gll0EFy7WlK', 'Tráº§n XuÃ¢n BÃ¡ch',    'driver', ARRAY['a0000000-0000-0000-0000-000000000001']::uuid[]),
-('d1000000-0000-0000-0000-000000000031', 'driver31', '$2a$10$JoEl4RXE/c/cvSPQTy01ceDBSF6dy/3UsCcDh2vWD8gll0EFy7WlK', 'Nguyá»…n Há»¯u TÃ i',    'driver', ARRAY['a0000000-0000-0000-0000-000000000001']::uuid[]),
-('d1000000-0000-0000-0000-000000000032', 'driver32', '$2a$10$JoEl4RXE/c/cvSPQTy01ceDBSF6dy/3UsCcDh2vWD8gll0EFy7WlK', 'LÃª VÄƒn PhÃº',        'driver', ARRAY['a0000000-0000-0000-0000-000000000001']::uuid[]),
-('d1000000-0000-0000-0000-000000000033', 'driver33', '$2a$10$JoEl4RXE/c/cvSPQTy01ceDBSF6dy/3UsCcDh2vWD8gll0EFy7WlK', 'Pháº¡m Äá»©c Long',     'driver', ARRAY['a0000000-0000-0000-0000-000000000001']::uuid[]),
-('d1000000-0000-0000-0000-000000000034', 'driver34', '$2a$10$JoEl4RXE/c/cvSPQTy01ceDBSF6dy/3UsCcDh2vWD8gll0EFy7WlK', 'Trá»‹nh Minh TÃ¢n',    'driver', ARRAY['a0000000-0000-0000-0000-000000000001']::uuid[]),
-('d1000000-0000-0000-0000-000000000035', 'driver35', '$2a$10$JoEl4RXE/c/cvSPQTy01ceDBSF6dy/3UsCcDh2vWD8gll0EFy7WlK', 'NgÃ´ Quang Vinh',    'driver', ARRAY['a0000000-0000-0000-0000-000000000001']::uuid[]),
-('d1000000-0000-0000-0000-000000000036', 'driver36', '$2a$10$JoEl4RXE/c/cvSPQTy01ceDBSF6dy/3UsCcDh2vWD8gll0EFy7WlK', 'Táº¡ Äá»©c Thá»‹nh',      'driver', ARRAY['a0000000-0000-0000-0000-000000000001']::uuid[]),
-('d1000000-0000-0000-0000-000000000037', 'driver37', '$2a$10$JoEl4RXE/c/cvSPQTy01ceDBSF6dy/3UsCcDh2vWD8gll0EFy7WlK', 'DÆ°Æ¡ng Minh Äá»©c',    'driver', ARRAY['a0000000-0000-0000-0000-000000000001']::uuid[]),
-('d1000000-0000-0000-0000-000000000038', 'driver38', '$2a$10$JoEl4RXE/c/cvSPQTy01ceDBSF6dy/3UsCcDh2vWD8gll0EFy7WlK', 'Há»“ Ngá»c Minh',      'driver', ARRAY['a0000000-0000-0000-0000-000000000001']::uuid[]),
-('d1000000-0000-0000-0000-000000000039', 'driver39', '$2a$10$JoEl4RXE/c/cvSPQTy01ceDBSF6dy/3UsCcDh2vWD8gll0EFy7WlK', 'Mai VÄƒn Kháº£i',      'driver', ARRAY['a0000000-0000-0000-0000-000000000001']::uuid[]),
-('d1000000-0000-0000-0000-000000000040', 'driver40', '$2a$10$JoEl4RXE/c/cvSPQTy01ceDBSF6dy/3UsCcDh2vWD8gll0EFy7WlK', 'Cao Äá»©c Trá»ng',     'driver', ARRAY['a0000000-0000-0000-0000-000000000001']::uuid[]),
-('d1000000-0000-0000-0000-000000000041', 'driver41', '$2a$10$JoEl4RXE/c/cvSPQTy01ceDBSF6dy/3UsCcDh2vWD8gll0EFy7WlK', 'Phan Thanh LÃ¢m',    'driver', ARRAY['a0000000-0000-0000-0000-000000000001']::uuid[]),
-('d1000000-0000-0000-0000-000000000042', 'driver42', '$2a$10$JoEl4RXE/c/cvSPQTy01ceDBSF6dy/3UsCcDh2vWD8gll0EFy7WlK', 'LÆ°Æ¡ng Äá»©c Tiáº¿n',    'driver', ARRAY['a0000000-0000-0000-0000-000000000001']::uuid[]),
-('d1000000-0000-0000-0000-000000000043', 'driver43', '$2a$10$JoEl4RXE/c/cvSPQTy01ceDBSF6dy/3UsCcDh2vWD8gll0EFy7WlK', 'Tráº§n CÃ´ng Danh',    'driver', ARRAY['a0000000-0000-0000-0000-000000000001']::uuid[]),
-('d1000000-0000-0000-0000-000000000044', 'driver44', '$2a$10$JoEl4RXE/c/cvSPQTy01ceDBSF6dy/3UsCcDh2vWD8gll0EFy7WlK', 'Nguyá»…n Tháº¿ Phong',  'driver', ARRAY['a0000000-0000-0000-0000-000000000001']::uuid[]),
-('d1000000-0000-0000-0000-000000000045', 'driver45', '$2a$10$JoEl4RXE/c/cvSPQTy01ceDBSF6dy/3UsCcDh2vWD8gll0EFy7WlK', 'LÃª HoÃ ng Nam',      'driver', ARRAY['a0000000-0000-0000-0000-000000000001']::uuid[]),
-('d1000000-0000-0000-0000-000000000046', 'driver46', '$2a$10$JoEl4RXE/c/cvSPQTy01ceDBSF6dy/3UsCcDh2vWD8gll0EFy7WlK', 'VÅ© Quá»‘c Trung',     'driver', ARRAY['a0000000-0000-0000-0000-000000000001']::uuid[]),
-('d1000000-0000-0000-0000-000000000047', 'driver47', '$2a$10$JoEl4RXE/c/cvSPQTy01ceDBSF6dy/3UsCcDh2vWD8gll0EFy7WlK', 'Äáº·ng Thanh An',     'driver', ARRAY['a0000000-0000-0000-0000-000000000001']::uuid[]),
-('d1000000-0000-0000-0000-000000000048', 'driver48', '$2a$10$JoEl4RXE/c/cvSPQTy01ceDBSF6dy/3UsCcDh2vWD8gll0EFy7WlK', 'Pháº¡m Há»¯u NghÄ©a',   'driver', ARRAY['a0000000-0000-0000-0000-000000000001']::uuid[]),
-('d1000000-0000-0000-0000-000000000049', 'driver49', '$2a$10$JoEl4RXE/c/cvSPQTy01ceDBSF6dy/3UsCcDh2vWD8gll0EFy7WlK', 'Nguyá»…n BÃ¡ CÆ°á»ng',   'driver', ARRAY['a0000000-0000-0000-0000-000000000001']::uuid[]),
-('d1000000-0000-0000-0000-000000000050', 'driver50', '$2a$10$JoEl4RXE/c/cvSPQTy01ceDBSF6dy/3UsCcDh2vWD8gll0EFy7WlK', 'Tráº§n ÄÃ¬nh Lá»™c',     'driver', ARRAY['a0000000-0000-0000-0000-000000000001']::uuid[]),
--- WH-HP: 20 drivers
-('d1000000-0000-0000-0000-000000000051', 'driver51', '$2a$10$JoEl4RXE/c/cvSPQTy01ceDBSF6dy/3UsCcDh2vWD8gll0EFy7WlK', 'Äá»— Minh Tuáº¥n',      'driver', ARRAY['a0000000-0000-0000-0000-000000000002']::uuid[]),
-('d1000000-0000-0000-0000-000000000052', 'driver52', '$2a$10$JoEl4RXE/c/cvSPQTy01ceDBSF6dy/3UsCcDh2vWD8gll0EFy7WlK', 'BÃ¹i Quang HÆ°ng',    'driver', ARRAY['a0000000-0000-0000-0000-000000000002']::uuid[]),
-('d1000000-0000-0000-0000-000000000053', 'driver53', '$2a$10$JoEl4RXE/c/cvSPQTy01ceDBSF6dy/3UsCcDh2vWD8gll0EFy7WlK', 'NgÃ´ Há»¯u Äáº¡t',       'driver', ARRAY['a0000000-0000-0000-0000-000000000002']::uuid[]),
-('d1000000-0000-0000-0000-000000000054', 'driver54', '$2a$10$JoEl4RXE/c/cvSPQTy01ceDBSF6dy/3UsCcDh2vWD8gll0EFy7WlK', 'HoÃ ng Äá»©c Viá»‡t',    'driver', ARRAY['a0000000-0000-0000-0000-000000000002']::uuid[]),
-('d1000000-0000-0000-0000-000000000055', 'driver55', '$2a$10$JoEl4RXE/c/cvSPQTy01ceDBSF6dy/3UsCcDh2vWD8gll0EFy7WlK', 'LÃª Thanh BÃ¬nh',     'driver', ARRAY['a0000000-0000-0000-0000-000000000002']::uuid[]),
-('d1000000-0000-0000-0000-000000000056', 'driver56', '$2a$10$JoEl4RXE/c/cvSPQTy01ceDBSF6dy/3UsCcDh2vWD8gll0EFy7WlK', 'Tráº§n VÄƒn KhÃ¡nh',    'driver', ARRAY['a0000000-0000-0000-0000-000000000002']::uuid[]),
-('d1000000-0000-0000-0000-000000000057', 'driver57', '$2a$10$JoEl4RXE/c/cvSPQTy01ceDBSF6dy/3UsCcDh2vWD8gll0EFy7WlK', 'Pháº¡m CÃ´ng ThÃ nh',   'driver', ARRAY['a0000000-0000-0000-0000-000000000002']::uuid[]),
-('d1000000-0000-0000-0000-000000000058', 'driver58', '$2a$10$JoEl4RXE/c/cvSPQTy01ceDBSF6dy/3UsCcDh2vWD8gll0EFy7WlK', 'Nguyá»…n XuÃ¢n TrÆ°á»ng','driver', ARRAY['a0000000-0000-0000-0000-000000000002']::uuid[]),
-('d1000000-0000-0000-0000-000000000059', 'driver59', '$2a$10$JoEl4RXE/c/cvSPQTy01ceDBSF6dy/3UsCcDh2vWD8gll0EFy7WlK', 'VÅ© Há»“ng QuÃ¢n',      'driver', ARRAY['a0000000-0000-0000-0000-000000000002']::uuid[]),
-('d1000000-0000-0000-0000-000000000060', 'driver60', '$2a$10$JoEl4RXE/c/cvSPQTy01ceDBSF6dy/3UsCcDh2vWD8gll0EFy7WlK', 'Äáº·ng Há»¯u PhÃºc',     'driver', ARRAY['a0000000-0000-0000-0000-000000000002']::uuid[]),
-('d1000000-0000-0000-0000-000000000061', 'driver61', '$2a$10$JoEl4RXE/c/cvSPQTy01ceDBSF6dy/3UsCcDh2vWD8gll0EFy7WlK', 'Mai Äá»©c Tháº¯ng',     'driver', ARRAY['a0000000-0000-0000-0000-000000000002']::uuid[]),
-('d1000000-0000-0000-0000-000000000062', 'driver62', '$2a$10$JoEl4RXE/c/cvSPQTy01ceDBSF6dy/3UsCcDh2vWD8gll0EFy7WlK', 'Cao Minh Nháº­t',     'driver', ARRAY['a0000000-0000-0000-0000-000000000002']::uuid[]),
-('d1000000-0000-0000-0000-000000000063', 'driver63', '$2a$10$JoEl4RXE/c/cvSPQTy01ceDBSF6dy/3UsCcDh2vWD8gll0EFy7WlK', 'Phan Quá»‘c Huy',     'driver', ARRAY['a0000000-0000-0000-0000-000000000002']::uuid[]),
-('d1000000-0000-0000-0000-000000000064', 'driver64', '$2a$10$JoEl4RXE/c/cvSPQTy01ceDBSF6dy/3UsCcDh2vWD8gll0EFy7WlK', 'LÆ°Æ¡ng VÄƒn Hiá»‡p',    'driver', ARRAY['a0000000-0000-0000-0000-000000000002']::uuid[]),
-('d1000000-0000-0000-0000-000000000065', 'driver65', '$2a$10$JoEl4RXE/c/cvSPQTy01ceDBSF6dy/3UsCcDh2vWD8gll0EFy7WlK', 'Táº¡ Quang PhÃ¡t',     'driver', ARRAY['a0000000-0000-0000-0000-000000000002']::uuid[]),
-('d1000000-0000-0000-0000-000000000066', 'driver66', '$2a$10$JoEl4RXE/c/cvSPQTy01ceDBSF6dy/3UsCcDh2vWD8gll0EFy7WlK', 'DÆ°Æ¡ng ÄÃ¬nh LuÃ¢n',   'driver', ARRAY['a0000000-0000-0000-0000-000000000002']::uuid[]),
-('d1000000-0000-0000-0000-000000000067', 'driver67', '$2a$10$JoEl4RXE/c/cvSPQTy01ceDBSF6dy/3UsCcDh2vWD8gll0EFy7WlK', 'Há»“ Minh Quang',     'driver', ARRAY['a0000000-0000-0000-0000-000000000002']::uuid[]),
-('d1000000-0000-0000-0000-000000000068', 'driver68', '$2a$10$JoEl4RXE/c/cvSPQTy01ceDBSF6dy/3UsCcDh2vWD8gll0EFy7WlK', 'LÃ½ VÄƒn Há»™i',        'driver', ARRAY['a0000000-0000-0000-0000-000000000002']::uuid[]),
-('d1000000-0000-0000-0000-000000000069', 'driver69', '$2a$10$JoEl4RXE/c/cvSPQTy01ceDBSF6dy/3UsCcDh2vWD8gll0EFy7WlK', 'Trá»‹nh CÃ´ng SÆ¡n',    'driver', ARRAY['a0000000-0000-0000-0000-000000000002']::uuid[]),
-('d1000000-0000-0000-0000-000000000070', 'driver70', '$2a$10$JoEl4RXE/c/cvSPQTy01ceDBSF6dy/3UsCcDh2vWD8gll0EFy7WlK', 'Äinh Há»¯u Lá»™c',      'driver', ARRAY['a0000000-0000-0000-0000-000000000002']::uuid[]);
-
--- ========================================
--- 70 DRIVERS (linked to user accounts)
--- ========================================
-
-INSERT INTO drivers (id, user_id, full_name, phone, license_number, status, warehouse_id) VALUES
--- WH-HL: 50 tÃ i xáº¿
-('f1000000-0000-0000-0000-000000000001', 'd1000000-0000-0000-0000-000000000001', 'Pháº¡m VÄƒn Äá»©c',      '0987654001', 'B2-001234', 'active', 'a0000000-0000-0000-0000-000000000001'),
-('f1000000-0000-0000-0000-000000000002', 'd1000000-0000-0000-0000-000000000002', 'Nguyá»…n VÄƒn HÃ¹ng',    '0987654002', 'B2-001235', 'active', 'a0000000-0000-0000-0000-000000000001'),
-('f1000000-0000-0000-0000-000000000003', 'd1000000-0000-0000-0000-000000000003', 'Tráº§n VÄƒn ToÃ n',      '0987654003', 'C-005678',  'active', 'a0000000-0000-0000-0000-000000000001'),
-('f1000000-0000-0000-0000-000000000004', 'd1000000-0000-0000-0000-000000000004', 'LÃª VÄƒn DÅ©ng',        '0987654004', 'C-005679',  'active', 'a0000000-0000-0000-0000-000000000001'),
-('f1000000-0000-0000-0000-000000000005', 'd1000000-0000-0000-0000-000000000005', 'HoÃ ng VÄƒn Tháº¯ng',    '0987654005', 'C-009012',  'active', 'a0000000-0000-0000-0000-000000000001'),
-('f1000000-0000-0000-0000-000000000006', 'd1000000-0000-0000-0000-000000000006', 'Äáº·ng CÃ´ng Vinh',     '0987654006', 'C-009015',  'active', 'a0000000-0000-0000-0000-000000000001'),
-('f1000000-0000-0000-0000-000000000007', 'd1000000-0000-0000-0000-000000000007', 'VÅ© VÄƒn Long',        '0987654007', 'B2-003456', 'active', 'a0000000-0000-0000-0000-000000000001'),
-('f1000000-0000-0000-0000-000000000008', 'd1000000-0000-0000-0000-000000000008', 'Äá»— VÄƒn Máº¡nh',        '0987654008', 'C-007890',  'active', 'a0000000-0000-0000-0000-000000000001'),
-('f1000000-0000-0000-0000-000000000009', 'd1000000-0000-0000-0000-000000000009', 'BÃ¹i VÄƒn SÃ¡ng',       '0987654009', 'C-007891',  'active', 'a0000000-0000-0000-0000-000000000001'),
-('f1000000-0000-0000-0000-000000000010', 'd1000000-0000-0000-0000-000000000010', 'NgÃ´ VÄƒn Phong',      '0987654010', 'C-009016',  'active', 'a0000000-0000-0000-0000-000000000001'),
-('f1000000-0000-0000-0000-000000000011', 'd1000000-0000-0000-0000-000000000011', 'Mai XuÃ¢n TrÆ°á»ng',    '0987654011', 'C-009017',  'active', 'a0000000-0000-0000-0000-000000000001'),
-('f1000000-0000-0000-0000-000000000012', 'd1000000-0000-0000-0000-000000000012', 'Äinh VÄƒn Hiáº¿u',      '0987654012', 'C-009018',  'active', 'a0000000-0000-0000-0000-000000000001'),
-('f1000000-0000-0000-0000-000000000013', 'd1000000-0000-0000-0000-000000000013', 'Phan VÄƒn TÃ¹ng',      '0987654013', 'B2-012345', 'active', 'a0000000-0000-0000-0000-000000000001'),
-('f1000000-0000-0000-0000-000000000014', 'd1000000-0000-0000-0000-000000000014', 'LÆ°Æ¡ng VÄƒn Háº£i',      '0987654014', 'B2-012346', 'active', 'a0000000-0000-0000-0000-000000000001'),
-('f1000000-0000-0000-0000-000000000015', 'd1000000-0000-0000-0000-000000000015', 'Táº¡ VÄƒn KiÃªn',        '0987654015', 'C-013456',  'active', 'a0000000-0000-0000-0000-000000000001'),
-('f1000000-0000-0000-0000-000000000016', 'd1000000-0000-0000-0000-000000000016', 'Trá»‹nh VÄƒn Nam',      '0987654016', 'C-013457',  'active', 'a0000000-0000-0000-0000-000000000001'),
-('f1000000-0000-0000-0000-000000000017', 'd1000000-0000-0000-0000-000000000017', 'DÆ°Æ¡ng VÄƒn Báº£o',      '0987654017', 'C-014567',  'active', 'a0000000-0000-0000-0000-000000000001'),
-('f1000000-0000-0000-0000-000000000018', 'd1000000-0000-0000-0000-000000000018', 'LÃ½ VÄƒn Quang',       '0987654018', 'B2-015678', 'active', 'a0000000-0000-0000-0000-000000000001'),
-('f1000000-0000-0000-0000-000000000019', 'd1000000-0000-0000-0000-000000000019', 'Há»“ VÄƒn ThÃ nh',       '0987654019', 'C-016789',  'active', 'a0000000-0000-0000-0000-000000000001'),
-('f1000000-0000-0000-0000-000000000020', 'd1000000-0000-0000-0000-000000000020', 'Cao VÄƒn Tuáº¥n',       '0987654020', 'C-017890',  'active', 'a0000000-0000-0000-0000-000000000001'),
-('f1000000-0000-0000-0000-000000000021', 'd1000000-0000-0000-0000-000000000021', 'Nguyá»…n Äá»©c Anh',     '0987654021', 'B2-018901', 'active', 'a0000000-0000-0000-0000-000000000001'),
-('f1000000-0000-0000-0000-000000000022', 'd1000000-0000-0000-0000-000000000022', 'Tráº§n Quá»‘c Äáº¡t',      '0987654022', 'C-019012',  'active', 'a0000000-0000-0000-0000-000000000001'),
-('f1000000-0000-0000-0000-000000000023', 'd1000000-0000-0000-0000-000000000023', 'LÃª Minh HoÃ ng',      '0987654023', 'C-020123',  'active', 'a0000000-0000-0000-0000-000000000001'),
-('f1000000-0000-0000-0000-000000000024', 'd1000000-0000-0000-0000-000000000024', 'Pháº¡m Quang Huy',     '0987654024', 'B2-021234', 'active', 'a0000000-0000-0000-0000-000000000001'),
-('f1000000-0000-0000-0000-000000000025', 'd1000000-0000-0000-0000-000000000025', 'Nguyá»…n Thanh SÆ¡n',   '0987654025', 'C-022345',  'active', 'a0000000-0000-0000-0000-000000000001'),
-('f1000000-0000-0000-0000-000000000026', 'd1000000-0000-0000-0000-000000000026', 'VÅ© ÄÃ¬nh Khoa',       '0987654026', 'C-023456',  'active', 'a0000000-0000-0000-0000-000000000001'),
-('f1000000-0000-0000-0000-000000000027', 'd1000000-0000-0000-0000-000000000027', 'HoÃ ng Minh QuÃ¢n',    '0987654027', 'B2-024567', 'active', 'a0000000-0000-0000-0000-000000000001'),
-('f1000000-0000-0000-0000-000000000028', 'd1000000-0000-0000-0000-000000000028', 'Äáº·ng Ngá»c Trung',    '0987654028', 'C-025678',  'active', 'a0000000-0000-0000-0000-000000000001'),
-('f1000000-0000-0000-0000-000000000029', 'd1000000-0000-0000-0000-000000000029', 'BÃ¹i Thanh HÃ ',       '0987654029', 'C-026789',  'active', 'a0000000-0000-0000-0000-000000000001'),
-('f1000000-0000-0000-0000-000000000030', 'd1000000-0000-0000-0000-000000000030', 'Tráº§n XuÃ¢n BÃ¡ch',     '0987654030', 'B2-027890', 'active', 'a0000000-0000-0000-0000-000000000001'),
-('f1000000-0000-0000-0000-000000000031', 'd1000000-0000-0000-0000-000000000031', 'Nguyá»…n Há»¯u TÃ i',     '0987654031', 'C-028901',  'active', 'a0000000-0000-0000-0000-000000000001'),
-('f1000000-0000-0000-0000-000000000032', 'd1000000-0000-0000-0000-000000000032', 'LÃª VÄƒn PhÃº',         '0987654032', 'C-029012',  'active', 'a0000000-0000-0000-0000-000000000001'),
-('f1000000-0000-0000-0000-000000000033', 'd1000000-0000-0000-0000-000000000033', 'Pháº¡m Äá»©c Long',      '0987654033', 'B2-030123', 'active', 'a0000000-0000-0000-0000-000000000001'),
-('f1000000-0000-0000-0000-000000000034', 'd1000000-0000-0000-0000-000000000034', 'Trá»‹nh Minh TÃ¢n',     '0987654034', 'C-031234',  'active', 'a0000000-0000-0000-0000-000000000001'),
-('f1000000-0000-0000-0000-000000000035', 'd1000000-0000-0000-0000-000000000035', 'NgÃ´ Quang Vinh',     '0987654035', 'C-032345',  'active', 'a0000000-0000-0000-0000-000000000001'),
-('f1000000-0000-0000-0000-000000000036', 'd1000000-0000-0000-0000-000000000036', 'Táº¡ Äá»©c Thá»‹nh',       '0987654036', 'B2-033456', 'active', 'a0000000-0000-0000-0000-000000000001'),
-('f1000000-0000-0000-0000-000000000037', 'd1000000-0000-0000-0000-000000000037', 'DÆ°Æ¡ng Minh Äá»©c',     '0987654037', 'C-034567',  'active', 'a0000000-0000-0000-0000-000000000001'),
-('f1000000-0000-0000-0000-000000000038', 'd1000000-0000-0000-0000-000000000038', 'Há»“ Ngá»c Minh',       '0987654038', 'C-035678',  'active', 'a0000000-0000-0000-0000-000000000001'),
-('f1000000-0000-0000-0000-000000000039', 'd1000000-0000-0000-0000-000000000039', 'Mai VÄƒn Kháº£i',       '0987654039', 'B2-036789', 'active', 'a0000000-0000-0000-0000-000000000001'),
-('f1000000-0000-0000-0000-000000000040', 'd1000000-0000-0000-0000-000000000040', 'Cao Äá»©c Trá»ng',      '0987654040', 'C-037890',  'active', 'a0000000-0000-0000-0000-000000000001'),
-('f1000000-0000-0000-0000-000000000041', 'd1000000-0000-0000-0000-000000000041', 'Phan Thanh LÃ¢m',     '0987654041', 'C-038901',  'active', 'a0000000-0000-0000-0000-000000000001'),
-('f1000000-0000-0000-0000-000000000042', 'd1000000-0000-0000-0000-000000000042', 'LÆ°Æ¡ng Äá»©c Tiáº¿n',     '0987654042', 'B2-039012', 'active', 'a0000000-0000-0000-0000-000000000001'),
-('f1000000-0000-0000-0000-000000000043', 'd1000000-0000-0000-0000-000000000043', 'Tráº§n CÃ´ng Danh',     '0987654043', 'C-040123',  'active', 'a0000000-0000-0000-0000-000000000001'),
-('f1000000-0000-0000-0000-000000000044', 'd1000000-0000-0000-0000-000000000044', 'Nguyá»…n Tháº¿ Phong',   '0987654044', 'C-041234',  'active', 'a0000000-0000-0000-0000-000000000001'),
-('f1000000-0000-0000-0000-000000000045', 'd1000000-0000-0000-0000-000000000045', 'LÃª HoÃ ng Nam',       '0987654045', 'B2-042345', 'active', 'a0000000-0000-0000-0000-000000000001'),
-('f1000000-0000-0000-0000-000000000046', 'd1000000-0000-0000-0000-000000000046', 'VÅ© Quá»‘c Trung',      '0987654046', 'C-043456',  'active', 'a0000000-0000-0000-0000-000000000001'),
-('f1000000-0000-0000-0000-000000000047', 'd1000000-0000-0000-0000-000000000047', 'Äáº·ng Thanh An',      '0987654047', 'C-044567',  'active', 'a0000000-0000-0000-0000-000000000001'),
-('f1000000-0000-0000-0000-000000000048', 'd1000000-0000-0000-0000-000000000048', 'Pháº¡m Há»¯u NghÄ©a',    '0987654048', 'B2-045678', 'active', 'a0000000-0000-0000-0000-000000000001'),
-('f1000000-0000-0000-0000-000000000049', 'd1000000-0000-0000-0000-000000000049', 'Nguyá»…n BÃ¡ CÆ°á»ng',    '0987654049', 'C-046789',  'active', 'a0000000-0000-0000-0000-000000000001'),
-('f1000000-0000-0000-0000-000000000050', 'd1000000-0000-0000-0000-000000000050', 'Tráº§n ÄÃ¬nh Lá»™c',      '0987654050', 'C-047890',  'active', 'a0000000-0000-0000-0000-000000000001'),
--- WH-HP: 20 tÃ i xáº¿
-('f1000000-0000-0000-0000-000000000051', 'd1000000-0000-0000-0000-000000000051', 'Äá»— Minh Tuáº¥n',       '0987654051', 'B2-050001', 'active', 'a0000000-0000-0000-0000-000000000002'),
-('f1000000-0000-0000-0000-000000000052', 'd1000000-0000-0000-0000-000000000052', 'BÃ¹i Quang HÆ°ng',     '0987654052', 'C-050002',  'active', 'a0000000-0000-0000-0000-000000000002'),
-('f1000000-0000-0000-0000-000000000053', 'd1000000-0000-0000-0000-000000000053', 'NgÃ´ Há»¯u Äáº¡t',        '0987654053', 'C-050003',  'active', 'a0000000-0000-0000-0000-000000000002'),
-('f1000000-0000-0000-0000-000000000054', 'd1000000-0000-0000-0000-000000000054', 'HoÃ ng Äá»©c Viá»‡t',     '0987654054', 'B2-050004', 'active', 'a0000000-0000-0000-0000-000000000002'),
-('f1000000-0000-0000-0000-000000000055', 'd1000000-0000-0000-0000-000000000055', 'LÃª Thanh BÃ¬nh',      '0987654055', 'C-050005',  'active', 'a0000000-0000-0000-0000-000000000002'),
-('f1000000-0000-0000-0000-000000000056', 'd1000000-0000-0000-0000-000000000056', 'Tráº§n VÄƒn KhÃ¡nh',     '0987654056', 'C-050006',  'active', 'a0000000-0000-0000-0000-000000000002'),
-('f1000000-0000-0000-0000-000000000057', 'd1000000-0000-0000-0000-000000000057', 'Pháº¡m CÃ´ng ThÃ nh',    '0987654057', 'B2-050007', 'active', 'a0000000-0000-0000-0000-000000000002'),
-('f1000000-0000-0000-0000-000000000058', 'd1000000-0000-0000-0000-000000000058', 'Nguyá»…n XuÃ¢n TrÆ°á»ng', '0987654058', 'C-050008',  'active', 'a0000000-0000-0000-0000-000000000002'),
-('f1000000-0000-0000-0000-000000000059', 'd1000000-0000-0000-0000-000000000059', 'VÅ© Há»“ng QuÃ¢n',       '0987654059', 'C-050009',  'active', 'a0000000-0000-0000-0000-000000000002'),
-('f1000000-0000-0000-0000-000000000060', 'd1000000-0000-0000-0000-000000000060', 'Äáº·ng Há»¯u PhÃºc',      '0987654060', 'B2-050010', 'active', 'a0000000-0000-0000-0000-000000000002'),
-('f1000000-0000-0000-0000-000000000061', 'd1000000-0000-0000-0000-000000000061', 'Mai Äá»©c Tháº¯ng',      '0987654061', 'C-050011',  'active', 'a0000000-0000-0000-0000-000000000002'),
-('f1000000-0000-0000-0000-000000000062', 'd1000000-0000-0000-0000-000000000062', 'Cao Minh Nháº­t',      '0987654062', 'C-050012',  'active', 'a0000000-0000-0000-0000-000000000002'),
-('f1000000-0000-0000-0000-000000000063', 'd1000000-0000-0000-0000-000000000063', 'Phan Quá»‘c Huy',      '0987654063', 'B2-050013', 'active', 'a0000000-0000-0000-0000-000000000002'),
-('f1000000-0000-0000-0000-000000000064', 'd1000000-0000-0000-0000-000000000064', 'LÆ°Æ¡ng VÄƒn Hiá»‡p',     '0987654064', 'C-050014',  'active', 'a0000000-0000-0000-0000-000000000002'),
-('f1000000-0000-0000-0000-000000000065', 'd1000000-0000-0000-0000-000000000065', 'Táº¡ Quang PhÃ¡t',      '0987654065', 'C-050015',  'active', 'a0000000-0000-0000-0000-000000000002'),
-('f1000000-0000-0000-0000-000000000066', 'd1000000-0000-0000-0000-000000000066', 'DÆ°Æ¡ng ÄÃ¬nh LuÃ¢n',    '0987654066', 'B2-050016', 'active', 'a0000000-0000-0000-0000-000000000002'),
-('f1000000-0000-0000-0000-000000000067', 'd1000000-0000-0000-0000-000000000067', 'Há»“ Minh Quang',      '0987654067', 'C-050017',  'active', 'a0000000-0000-0000-0000-000000000002'),
-('f1000000-0000-0000-0000-000000000068', 'd1000000-0000-0000-0000-000000000068', 'LÃ½ VÄƒn Há»™i',         '0987654068', 'C-050018',  'active', 'a0000000-0000-0000-0000-000000000002'),
-('f1000000-0000-0000-0000-000000000069', 'd1000000-0000-0000-0000-000000000069', 'Trá»‹nh CÃ´ng SÆ¡n',     '0987654069', 'B2-050019', 'active', 'a0000000-0000-0000-0000-000000000002'),
-('f1000000-0000-0000-0000-000000000070', 'd1000000-0000-0000-0000-000000000070', 'Äinh Há»¯u Lá»™c',       '0987654070', 'C-050020',  'active', 'a0000000-0000-0000-0000-000000000002');
-
--- Verify counts
-DO $$
-DECLARE v_count INTEGER; d_count INTEGER;
-BEGIN
-  SELECT count(*) INTO v_count FROM vehicles;
-  SELECT count(*) INTO d_count FROM drivers;
-  RAISE NOTICE 'Vehicles: %, Drivers: %', v_count, d_count;
-  ASSERT v_count = 70, 'Expected 70 vehicles, got ' || v_count;
-  ASSERT d_count = 70, 'Expected 70 drivers, got ' || d_count;
-END$$;
-
-COMMIT;
+-- ================================================================
+-- PHAN TICH NHANH (THAM KHAO):
+-- ================================================================
+-- WH-HL (Kho Ha Long): 50 xe, 41 tai xe
+--   3t5 (5xe): 14C26445T, 14C26594T, 14C30113T, 14C30190T, 14M8012
+--   5t  (5xe): 14C19245T, 14C23267T, 14C26481T, 14C26577T, 14C30108T
+--   8t (40xe): 14C12129T..14C30246T, 14M0641..14M6537, 14N1262, 14P2848, 14P4637
+--
+-- WH-DM (Kho Dong Mai): 8 xe, 9 tai xe
+--   Xe: 14H00904V, 15C-21001..15C-21007
+--
+-- Cap nhat truoc day: bien so dang dung format fake 14C-00101..
+-- Sau migration 048: QA8T-VRP-* da duoc danh dau inactive
+-- ================================================================

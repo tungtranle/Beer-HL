@@ -46,6 +46,8 @@ interface ControlDeskStats {
   rejected: number
   on_credit: number
   total: number
+  scope_from?: string
+  scope_to?: string
 }
 
 // Status labels and colors imported from @/lib/status-config
@@ -53,6 +55,28 @@ const statusColors = orderStatusColors
 const statusLabels = orderStatusLabels
 
 type ViewTab = 'all' | 'exceptions' | 'redelivery'
+type DateRangePreset = 'today' | '7d' | 'mtd' | '30d' | 'custom' | 'history'
+
+const toDateString = (date: Date) => date.toISOString().slice(0, 10)
+const todayString = () => toDateString(new Date())
+const daysAgoString = (days: number) => {
+  const date = new Date()
+  date.setDate(date.getDate() - days)
+  return toDateString(date)
+}
+const monthStartString = () => {
+  const date = new Date()
+  date.setDate(1)
+  return toDateString(date)
+}
+
+function rangeBounds(range: DateRangePreset) {
+  if (range === 'today') return { from: todayString(), to: todayString() }
+  if (range === '7d') return { from: daysAgoString(6), to: todayString() }
+  if (range === '30d') return { from: daysAgoString(29), to: todayString() }
+  if (range === 'mtd') return { from: monthStartString(), to: todayString() }
+  return { from: '', to: '' }
+}
 
 export default function OrdersPage() {
   const [orders, setOrders] = useState<Order[]>([])
@@ -63,6 +87,11 @@ export default function OrdersPage() {
   const searchParams = useSearchParams()
   const [statusFilter, setStatusFilter] = useState(searchParams.get('status') || '')
   const [deliveryDate, setDeliveryDate] = useState(searchParams.get('delivery_date') || '')
+  const initialRange = (searchParams.get('date') === 'today' ? 'today' : searchParams.get('range') || 'mtd') as DateRangePreset
+  const [dateRange, setDateRange] = useState<DateRangePreset>(initialRange)
+  const initialBounds = rangeBounds(initialRange)
+  const [fromDate, setFromDate] = useState(searchParams.get('from') || initialBounds.from)
+  const [toDate, setToDate] = useState(searchParams.get('to') || initialBounds.to)
   const [cutoffGroup, setCutoffGroup] = useState(searchParams.get('cutoff_group') || '')
   const [page, setPage] = useState(1)
   const [limit, setLimit] = useState(20)
@@ -81,7 +110,11 @@ export default function OrdersPage() {
 
   const handleExport = async () => {
     try {
-      const res = await fetch('/api/orders/export', {
+      const params = new URLSearchParams()
+      if (statusFilter) params.set('status', statusFilter)
+      scopedParams().forEach((value, key) => params.set(key, value))
+      if (cutoffGroup) params.set('cutoff_group', cutoffGroup)
+      const res = await fetch(`/api/orders/export${params.toString() ? `?${params}` : ''}`, {
         headers: { 'Authorization': `Bearer ${localStorage.getItem('bhl_token')}` },
       })
       if (!res.ok) throw new Error('Export failed')
@@ -145,9 +178,23 @@ export default function OrdersPage() {
     }
   }
 
+  const scopedParams = useCallback(() => {
+    const params = new URLSearchParams()
+    if (deliveryDate) {
+      params.set('delivery_date', deliveryDate)
+      return params
+    }
+    if (dateRange !== 'history') {
+      if (fromDate) params.set('from', fromDate)
+      if (toDate) params.set('to', toDate)
+    }
+    return params
+  }, [dateRange, deliveryDate, fromDate, toDate])
+
   const loadStats = async () => {
     try {
-      const res: any = await apiFetch('/orders/control-desk/stats')
+      const params = scopedParams()
+      const res: any = await apiFetch(`/orders/control-desk/stats${params.toString() ? `?${params}` : ''}`)
       setStats(res.data)
     } catch (err) {
       handleError(err, { userMessage: 'Không tải được thống kê đơn hàng' })
@@ -162,7 +209,7 @@ export default function OrdersPage() {
     try {
       const params = new URLSearchParams()
       if (statusFilter) params.set('status', statusFilter)
-      if (deliveryDate) params.set('delivery_date', deliveryDate)
+      scopedParams().forEach((value, key) => params.set(key, value))
       if (cutoffGroup) params.set('cutoff_group', cutoffGroup)
       params.set('page', String(page))
       params.set('limit', String(limit))
@@ -192,18 +239,27 @@ export default function OrdersPage() {
 
   useEffect(() => {
     loadStats()
-  }, [])
+  }, [dateRange, deliveryDate, fromDate, toDate])
 
   useEffect(() => {
     if (!isSearching) {
       loadOrders()
     }
-  }, [statusFilter, deliveryDate, cutoffGroup, page, limit])
+  }, [statusFilter, deliveryDate, cutoffGroup, dateRange, fromDate, toDate, page, limit])
 
   // Reset to first page when filters change
   useEffect(() => {
     setPage(1)
-  }, [statusFilter, deliveryDate, cutoffGroup])
+  }, [statusFilter, deliveryDate, cutoffGroup, dateRange, fromDate, toDate])
+
+  const selectRange = (range: DateRangePreset) => {
+    setDateRange(range)
+    setDeliveryDate('')
+    if (range === 'custom' || range === 'history') return
+    const bounds = rangeBounds(range)
+    setFromDate(bounds.from)
+    setToDate(bounds.to)
+  }
 
   useEffect(() => {
     if (!searchQuery) {
@@ -221,9 +277,12 @@ export default function OrdersPage() {
     setSidebarHealth(null)
     setSidebarForecast([])
     try {
+      const customerOrderParams = scopedParams()
+      customerOrderParams.set('customer_id', customerId)
+      customerOrderParams.set('limit', '20')
       const [custRes, ordersRes]: any[] = await Promise.all([
         apiFetch(`/customers/${customerId}`),
-        apiFetch(`/orders?customer_id=${customerId}&limit=20`),
+        apiFetch(`/orders?${customerOrderParams}`),
       ])
       setSidebarCustomer(custRes.data)
       setSidebarOrders(ordersRes.data || [])
@@ -326,6 +385,15 @@ export default function OrdersPage() {
 
       {/* Summary Cards */}
       {stats && (
+        <div className="mb-3 flex items-center justify-between rounded-xl border border-blue-100 bg-blue-50 px-4 py-2 text-xs text-blue-800">
+          <span>
+            Đang xem dữ liệu {deliveryDate ? `ngày giao ${deliveryDate}` : dateRange === 'history' ? 'toàn bộ lịch sử' : `từ ${fromDate || '...'} đến ${toDate || '...'}`}.
+          </span>
+          {dateRange !== 'history' && <span className="font-medium">Tổng trong phạm vi: {stats.total}</span>}
+        </div>
+      )}
+
+      {stats && (
         <div className="grid grid-cols-7 gap-3 mb-4">
           {summaryCards.map((card) => (
             <button
@@ -366,6 +434,54 @@ export default function OrdersPage() {
 
         {/* Status Filter Tabs */}
         {!isSearching && (
+          <div className="flex gap-2 flex-wrap border-b border-gray-100 pb-3">
+            {([
+              { key: 'today', label: 'Hôm nay' },
+              { key: '7d', label: '7 ngày' },
+              { key: 'mtd', label: 'Tháng này' },
+              { key: '30d', label: '30 ngày' },
+              { key: 'custom', label: 'Tùy chọn' },
+              { key: 'history', label: 'Lịch sử' },
+            ] as const).map((option) => (
+              <button
+                key={option.key}
+                onClick={() => selectRange(option.key)}
+                className={`px-3 py-1.5 text-xs rounded-lg transition ${
+                  dateRange === option.key
+                    ? 'bg-brand-500 text-white'
+                    : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+                }`}
+              >
+                {option.label}
+              </button>
+            ))}
+          </div>
+        )}
+
+        {!isSearching && dateRange === 'custom' && !deliveryDate && (
+          <div className="flex gap-2 flex-wrap items-center text-xs border-b border-gray-100 pb-3">
+            <label className="flex items-center gap-1 text-gray-600">
+              Từ ngày
+              <input
+                type="date"
+                value={fromDate}
+                onChange={(e) => setFromDate(e.target.value)}
+                className="border border-gray-200 rounded px-2 py-1 text-xs"
+              />
+            </label>
+            <label className="flex items-center gap-1 text-gray-600">
+              Đến ngày
+              <input
+                type="date"
+                value={toDate}
+                onChange={(e) => setToDate(e.target.value)}
+                className="border border-gray-200 rounded px-2 py-1 text-xs"
+              />
+            </label>
+          </div>
+        )}
+
+        {!isSearching && (
           <div className="flex gap-2 flex-wrap">
             {['', 'draft', 'pending_customer_confirm', 'confirmed', 'pending_approval', 'in_transit', 'delivered', 'cancelled'].map((s) => (
               <button
@@ -391,7 +507,11 @@ export default function OrdersPage() {
               <input
                 type="date"
                 value={deliveryDate}
-                onChange={(e) => setDeliveryDate(e.target.value)}
+                onChange={(e) => {
+                  setDeliveryDate(e.target.value)
+                  if (e.target.value) setDateRange('custom')
+                  else selectRange('mtd')
+                }}
                 className="border border-gray-200 rounded px-2 py-1 text-xs"
               />
             </label>
@@ -409,7 +529,7 @@ export default function OrdersPage() {
             </label>
             {(deliveryDate || cutoffGroup) && (
               <button
-                onClick={() => { setDeliveryDate(''); setCutoffGroup('') }}
+                onClick={() => { setDeliveryDate(''); setCutoffGroup(''); selectRange('mtd') }}
                 className="text-brand-600 hover:underline"
               >
                 Xóa lọc

@@ -1,7 +1,37 @@
 # 📊 TASK TRACKER — BHL OMS-TMS-WMS
 
-> **Cập nhật lần cuối:** XX/05/2026 — AQF Roadmap FULL COMPLETE: assertions, SC-13..17, Risk Monitor, Playwright E2E, Bruno 36+ tests (16 RBAC + 20 endpoint), golden cases VRP+Recon, Go cost tests, G4 workflow. Backend compile PASS.  
-> **Trạng thái dự án:** 🟢 Đang phát triển (In development)
+> **Cập nhật lần cuối:** 30/04/2026 — Pre-Go-Live Audit + 10 RBAC Quick Wins + bhl-oms cleanup.
+> **Trạng thái dự án:** 🟢 Đang phát triển → ⚠️ CONDITIONAL GO sau khi fix 4 CRIT còn lại.
+
+## 🚦 Pre-Go-Live Audit (30/04/2026)
+
+| ID | Task | Status | File / Deliverable |
+|----|------|--------|--------------------|
+| PGL-AUDIT | Audit 8 module backend + RBAC + state machine | ✅ DONE | `PRE_GOLIVE_AUDIT.md` (27 findings) |
+| PGL-QW-001..010 | Apply 10 RBAC + safety Quick Wins (CRIT-004/005/006/008 + HIGH-001/002/003/009 + LOW-003) | ✅ DONE | 9 backend files; build PASS; binary refresh |
+| PGL-CRIT-001 | Money: float64 → decimal.Decimal | ⏳ TODO | dev review, đụng schema scan |
+| PGL-CRIT-002 | ReserveStockFEFO (per-lot) | ⏳ TODO | dev review |
+| PGL-CRIT-003 | Gate Check R01 thật (compare expected vs scanned) | ⏳ TODO | AI có thể fix nếu duyệt |
+| PGL-CRIT-007 | GPS ownership enforcement (per-trip vehicle binding) | ⏳ TODO | AI có thể fix nếu duyệt |
+| PGL-HIGH-004 | Login rate-limit + lockout | ⏳ TODO | Sprint 1 |
+| PGL-HIGH-005 | Permission cache invalidate (pub/sub) | ⏳ TODO | Sprint 1 |
+| PGL-HIGH-006 | `/auth/logout` + JWT denylist | ⏳ TODO | Sprint 1 |
+| PGL-HIGH-007 | GPS WS CORS origin whitelist | ⏳ TODO | Sprint 1 |
+| PGL-HIGH-008 | ATP race: SELECT FOR UPDATE / retry | ⏳ TODO | gắn với CRIT-002 |
+| PGL-HIGH-010 | Permission check fail-mode rõ (503) | ⏳ TODO | Sprint 1 |
+| PGL-CLEANUP | bhl-oms/ root: 80 → 47 files; 13 startup → 2 (`START_LOCAL.bat`, `START_DOCKER.bat`) | ✅ DONE | `CLEANUP_REPORT.md` |
+
+## 🌟 World-Class Sprint 28-29/04/2026 — Status ✅ ALL DONE
+
+| Phase | Module | Status | Note |
+|-------|--------|--------|------|
+| A | WMS Bin Guidance | ✅ DONE | mig 044 (104 bins/2 kho); `/v1/warehouse/inbound/suggest-bin-preview`; pickers thấy bin trong UI; A4 picking slip "CẤT TỪ BIN" |
+| B | VRP Customer Constraints | ✅ DONE | mig 045 (max_vehicle_weight_kg + delivery/forbidden windows JSONB + access_notes); CRUD endpoints; UI editor + chips trên planning; OR-Tools weight constraint via SetValues |
+| C | Asset Passport | ✅ DONE | 4 endpoints (vehicles/drivers timeline + stats); 2 frontend "passport" pages serif/stone — link "📜 Hồ sơ" trên list |
+| D | WMS Operations Center | ✅ DONE | mig 046 (wms_exceptions table + 5 demo); 5 API endpoints (KPIs, exceptions CRUD, picker-stats); frontend redesigned as single-pane-of-glass dashboard |
+| Ops | Font fix (passport-serif) | ✅ DONE | globals.css Playfair Display; vehicles/drivers profile pages `font-serif` → `passport-serif` |
+
+---
 
 ## 🌍 Sprint 1 World-Class Strategy — Status ✅ DONE
 
@@ -18,6 +48,23 @@
 ---
 
 ## 🎯 AQF Roadmap — 3 Weeks Implementation (AQF_BHL_SETUP.md)
+
+### Route-real, AI actionability, report scope backlog (NEW 27/04)
+
+| ID | Task | Status | File / Deliverable |
+|----|------|--------|--------------------|
+| UX-GPS-01 | GPS simulator fail-closed for route-real | ✅ DONE | Runtime/Test Portal returns `ROUTE_GEOMETRY_UNAVAILABLE` when OSRM geometry is unavailable; no silent straight-line fallback |
+| UX-GPS-02 | Use `OSRM_URL` in runtime GPS simulator | ✅ DONE | `internal/gps/simulator.go` and Test Portal OSRM helper use `OSRM_URL` / local default |
+| UX-GPS-03 | Retire hardcoded GPS demo templates from customer demo | ✅ DONE | Main Test Portal real scenarios fail closed instead of falling back to hardcoded route templates |
+| UX-AI-01 | Fix AI Inbox synthetic item action | ✅ DONE | `PATCH /v1/ai/inbox/:id/action` accepts `rules-*` virtual IDs; frontend body fixed |
+| UX-AI-02 | Make Outreach Queue actionable | ✅ DONE | Open customer filter, generate Zalo draft, mark contacted locally |
+| UX-AI-03 | Make Dispatch Brief metrics drill-down | ✅ DONE | 4 mini metrics link to filtered orders/control-tower/customers/anomalies views |
+| UX-RPT-01 | Add report scope/date-as-of UX | ✅ DONE | KPI scope + dashboard month-to-date + orders `from/to` quick filters + trip `active=true` + recon `from/to` backend/frontend scope |
+| AQF-SC-18 | Add GPS route-real/anomaly scenario | ⏳ TODO | OSRM evidence + Redis cleanup scoped |
+| AQF-SC-19 | Add AI actionability scenario | ✅ DONE | DEMO-AI-DISPATCH-01 seeds dispatcher AI Inbox/Brief/Simulation evidence; AI Inbox ack/drill-down/draft flows already actionable |
+| AQF-SC-20 | Add report scope scenario | ✅ PARTIAL | KPI/orders/dashboard/trips scoped in product; DEMO-HIST-01 provides historical read-only evidence; E2E custom range assertions still pending |
+
+Blueprint: `docs/BHL_TEST_DEMO_BLUEPRINT_2026-04-27.md`.
 
 > Mục tiêu: nâng AQF từ "build passes" → "runtime-verified, DB-asserted, multi-layer quality gate"
 
@@ -46,6 +93,24 @@
 
 **AQF Roadmap FULL: ALL tasks DONE** ✅
 
+### QA Portal v2 — Data Safety & Monitoring Follow-up (NEW 26/04)
+
+| ID | Task | Status | File / Deliverable |
+|----|------|--------|--------------------|
+| QAP-01 | Bỏ UI Test Portal 10 tab cũ | ✅ DONE | `web/src/app/test-portal/page.tsx` chỉ render AQF Command Center |
+| QAP-02 | Disable legacy reset/load/run endpoints | ✅ DONE | `ResetTestData`, `LoadScenario`, `RunScenario`, `RunAllSmoke` trả lỗi bảo vệ history |
+| QAP-03 | Migration QA ownership registry | ✅ DONE | `migrations/041_qa_demo_portal.{up,down}.sql` |
+| QAP-04 | Scoped scenario runner | ✅ DONE | `internal/testportal/demo_service.go`, `demo_repository.go` |
+| QAP-05 | Demo scenarios scoped data | ✅ DONE | DEMO-01..04 + HIST/DISPATCH/AI dispatch scenarios, không `TRUNCATE`, không unscoped `DELETE`, historical_rows_touched=0 |
+| QAP-06 | Data Safety Panel | ✅ DONE | `/test-portal` hiển thị created/cleaned/historical rows touched |
+| QAP-07 | CI artifact import vào Evidence Log | ⏳ TODO | Playwright/Bruno/GitHub run URL trong `aqf/evidence` |
+| QAP-08 | Telegram notify step G3/G4 | ⏳ TODO | Daily 07:00 + fail alert |
+| QAP-09 | Sentry DSN frontend qua env | ⏳ TODO | bỏ hardcode DSN trong `web/sentry.*.config.ts` |
+| QAP-10 | Test Portal login protection | ✅ DONE | JWT + role `admin`/`management`, user `qa.demo` |
+| QAP-11 | AQF vibe-code guardrails trong docs/instructions | ✅ DONE | `CLAUDE.md`, `.github/instructions`, guides, prompts, TST, DECISIONS |
+
+**Ghi chú:** AQF Roadmap cũ vẫn DONE cho golden/tests/gates, nhưng QA Portal v2 có track riêng vì yêu cầu mới là bảo toàn dữ liệu lịch sử trong DB thật.
+
 ---
 
 ## 🤖 Sprint 2 — AI Intelligence Layer (24/04/2026 – ~20/05/2026)
@@ -53,40 +118,58 @@
 > **Mục tiêu:** Đưa AI/ML từ batch-số-tĩnh → interactive, in-context, proactive.  
 > **Nguyên tắc:** Zero infra mới. Free-tier APIs (Gemini 2.0 Flash + Groq). Smart Rules cho scoring.  
 > **Kiến trúc:** `internal/ai/` package với provider interface — swap provider không đổi code.  
-> **Quyết định:** DEC-AI-01. BRD: Section 14D. ROADMAP: P1.5 AI Sprint.
+> **Quyết định:** DEC-AI-01 + DEC-AI-02. BRD: Section 14D v3.8. ROADMAP: P1.5 AI Sprint.
+
+### AI-Native UX v3 — Progressive Enhancement Track (NEW 26/04)
+
+| ID | Task | Status | Deliverable |
+|----|------|--------|-------------|
+| AI-V3-00 | Blueprint/docs foundation | ✅ DONE | `docs/specs/AI_NATIVE_BLUEPRINT_v3.md`, BRD v3.8, DEC-AI-02, API/DBS/UIX/SAD/TST sync |
+| AI-V3-01 | Migration AI feature flags | ✅ DONE | `migrations/042_ai_feature_flags.{up,down}.sql` applied locally |
+| AI-V3-02 | Backend AI flags API | ✅ DONE | `GET /v1/ai/features`, `GET/PUT /v1/admin/ai-flags` |
+| AI-V3-03 | Frontend AI Settings + hooks | ✅ DONE | `/dashboard/settings/ai`, `useFeatureFlags`, `useAIFeature` |
+| AI-V3-04 | Privacy Router + tests | ✅ DONE | `privacy_router.go`, `go test ./internal/ai` with ≥50 classifier inputs |
+| AI-V3-05 | AI UX primitives | ✅ DONE | `components/ai/*`: ExplainabilityPopover, ApprovalCard, UndoBanner, SimulationCard, AIStatusBadge, AIInboxPanel |
+| AI-V3-06 | Voice Driver phase 1 | ✅ DONE | `POST /v1/ai/voice/parse`, 6 command whitelist, confirm modal auto-cancel 10s contract |
+| AI-V3-07 | Copilot + Intent MVP | ✅ DONE | `GET /v1/ai/intents`, Cmd+K intent-aware when `ai.intent` ON |
+| AI-V3-08 | Simulation VRP/re-route | ✅ DONE | `ai_simulations`, `/dashboard/ai/simulations`, approval-required apply, no core table mutation |
+| AI-V3-09 | Trust Loop + Transparency | ✅ DONE | `GET /v1/ai/trust-suggestions`, `/dashboard/ai/transparency`, `ai_audit_log` |
+| AI-V3-10 | Decision Intelligence UX one-shot | ✅ DONE | `AIContextStrip`, `ConfidenceMeter`, OMS risk strip, Approval priority mode, VRP review panel, Control Tower flag gate, Driver voice confirm-only |
 
 ### Phase AI-R — Smart Rules Engine (Tuần 1–2, không cần API)
 
 | ID | Task | Status | Deliverable |
 |----|------|--------|-------------|
-| AI-R1 | `internal/ai/` package: `Provider` interface + `RulesEngine` + `GeminiProvider` stub | ⏳ TODO | `internal/ai/{provider,rules,gemini,fallback}.go` |
-| AI-R2 | Migration 040: bảng `ai_insights` (cache LLM), bảng `npp_risk_signals` (daily computed) | ⏳ TODO | `migrations/040_ai_insights.{up,down}.sql` |
-| AI-R3 | Anomaly Score formula per vehicle → badge trên Control Tower marker | ⏳ TODO | BE endpoint + FE score badge (0–100, màu) |
-| AI-R4 | Credit Risk Score (rule formula) → chip "RỦI RO CAO/TRUNG BÌNH/THẤP" Accountant page | ⏳ TODO | BE `/v1/customers/:id/risk-score` + FE chip |
-| AI-R5 | Seasonal Demand Alert trong OMS order form | ⏳ TODO | So qty đặt vs seasonal_index → inline warning |
+| AI-R1 | `internal/ai/` package: `Provider` interface + `RulesEngine` + `GeminiProvider` stub | ✅ DONE | `internal/ai/{provider,rules,gemini}.go`; Gemini/Groq/Mock provider chain |
+| AI-R2 | Migration 040: bảng `ai_insights` (cache LLM), bảng `npp_risk_signals` (daily computed) | ✅ DONE | `migrations/040_ai_insights.{up,down}.sql` |
+| AI-R3 | Anomaly Score formula per vehicle → badge trên Control Tower marker | ✅ DONE | `GET /v1/ai/vehicle-score` + marker badge/popup score |
+| AI-R4 | Credit Risk Score (rule formula) → chip "RỦI RO CAO/TRUNG BÌNH/THẤP" Accountant page | ✅ DONE | `GET /v1/ai/customers/:id/risk-score` + Approvals risk chip |
+| AI-R5 | Seasonal Demand Alert trong OMS order form | ✅ DONE | `GET /v1/ai/seasonal-alert` + inline warning per SKU row |
 
 ### Phase AI-G — Gemini Free API Integration (Tuần 3–4)
 
 | ID | Task | Status | Deliverable | Quota |
 |----|------|--------|-------------|-------|
-| AI-G1 | `internal/ai/gemini.go`: Gemini 2.0 Flash free tier + Groq fallback | ⏳ TODO | Provider với retry + fallback logic | ~50 req/ngày |
-| AI-G2 | Daily Dispatch Briefing: cron 7h → Gemini → widget Dashboard Dispatcher | ⏳ TODO | Cron job + `GET /v1/ai/dispatch-brief` + FE widget | 1 req/ngày |
-| AI-G3 | Exception Explanation Engine: Control Tower exception → Gemini giải thích | ⏳ TODO | Hook vào anomaly create + FE panel expand | ~10 req/ngày |
-| AI-G4 | Zalo NPP Auto-Draft: khi health_score drop >20 → DVKH xem draft + gửi tay | ⏳ TODO | `POST /v1/ai/npp-zalo-draft` + FE modal preview | ~5 req/ngày |
+| AI-G1 | `internal/ai/gemini.go`: Gemini 2.0 Flash free tier + Groq fallback | ✅ DONE | Provider retry + Gemini→Groq→Mock fallback logic | ~50 req/ngày |
+| AI-G2 | Daily Dispatch Briefing: cron 7h → Gemini → widget Dashboard Dispatcher | ✅ DONE | Cron 07:00 ICT + `GET /v1/ai/dispatch-brief` + Dashboard widget | 1 req/ngày |
+| AI-G3 | Exception Explanation Engine: Control Tower exception → Gemini giải thích | ✅ DONE | `/v1/ai/anomaly/:id/explain` + Anomalies AI panel expand | ~10 req/ngày |
+| AI-G4 | Zalo NPP Auto-Draft: khi health_score drop >20 → DVKH xem draft + gửi tay | ✅ DONE | `POST /v1/ai/npp-zalo-draft` + Customers modal preview/copy | ~5 req/ngày |
 
 ### Phase AI-M — Python ML Extension (Tuần 5–6, extend :8090 hiện có)
 
 | ID | Task | Status | Deliverable |
 |----|------|--------|-------------|
-| AI-M1 | Demand Forecast endpoint trong vrp-solver/:8090 (Prophet 21 SKUs từ `sku_daily_demand.parquet`) | ⏳ TODO | `POST /ml/forecast-demand` → Go → FE |
-| AI-M2 | Demand Intelligence Panel trong OMS order form (4-week forecast per NPP×SKU) | ⏳ TODO | Sidebar widget khi chọn NPP + SKU |
-| AI-M3 | NPP Proactive Outreach queue: DVKH dashboard widget "3 NPP cần liên hệ hôm nay" | ⏳ TODO | FE widget + `GET /v1/ai/outreach-queue` |
+| AI-M1 | Demand Forecast endpoint trong vrp-solver/:8090 (Prophet-compatible rules fallback) | ✅ DONE | `POST /ml/forecast-demand` + `GET /v1/ai/demand-forecast`, Go fail-soft khi solver unavailable |
+| AI-M2 | Demand Intelligence Panel trong OMS order form (4-week forecast per NPP×SKU) | ✅ DONE | `DemandIntelligencePanel` sidebar widget khi chọn NPP + SKU + kho |
+| AI-M3 | NPP Proactive Outreach queue: DVKH dashboard widget "3 NPP cần liên hệ hôm nay" | ✅ DONE | `GET /v1/ai/outreach-queue` + `OutreachQueueWidget` dashboard |
 
 ### Sprint 2 Summary
 
 | Metric | Value |
 |--------|-------|
 | Tổng tasks Sprint 2 | 11 |
+| AI-R/AI-G/AI-M hoàn thành | 12/12 |
+| Còn lại Sprint 2 | Không còn task AI-M trong tracker |
 | Infra thêm | $0 (zero) |
 | API cost | $0 (Gemini free 1,500 req/ngày, Groq free 14,400 req/ngày) |
 | BHL dùng thực tế | ~50–70 req/ngày |
@@ -111,9 +194,9 @@
 
 ```
 ╔══════════════════════════════════════════════════════════════╗
-║  TỔNG TASK: 186 │  HOÀN THÀNH: 166 │  TIẾN ĐỘ: 89.2%    ║
+║  TỔNG TASK: 187 │  HOÀN THÀNH: 167 │  TIẾN ĐỘ: 89.3%    ║
 ╠═══════════════════════════════════════════════════════════╣
-║  ████████████████████████████████████████████░░░░░░  89.2%    ║
+║  ████████████████████████████████████████████░░░░░░  89.3%    ║
 ╠═══════════════════════════════════════════════════════════╣
 ║  ☐ Not Started: 20  │  🔄 In Progress: 0  │  ☑ Done: 166  ║
 ║  ⚠ Blocked: 0       │  ❌ Cancelled: 0                     ║
@@ -122,14 +205,14 @@
 
 | Metric | Value |
 |--------|-------|
-| **Tổng tasks** | 186 |
-| **Hoàn thành** | 166 |
+| **Tổng tasks** | 187 |
+| **Hoàn thành** | 167 |
 | **Đang làm** | 0 |
 | **Chưa bắt đầu** | 20 (9 cũ + 11 Sprint 2 AI) |
 | **Bị block** | 0 |
-| **% Hoàn thành** | **89.2%** |
+| **% Hoàn thành** | **89.3%** |
 | **Go-live target** | ~15/05/2026 (Core), ~20/05/2026 (AI Sprint 2) |
-| **Ngày hôm nay** | 24/04/2026 |
+| **Ngày hôm nay** | 26/04/2026 |
 
 ---
 

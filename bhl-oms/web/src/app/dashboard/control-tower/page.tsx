@@ -7,6 +7,7 @@ import { toast } from '@/lib/useToast'
 import { handleError } from '@/lib/handleError'
 import { useRouter } from 'next/navigation'
 import { useDataRefresh } from '@/lib/notifications'
+import { useAIFeature } from '@/hooks/useAIFeature'
 
 // ─── Types ───────────────────────────────────────────
 
@@ -58,6 +59,11 @@ interface GPSVehicle {
   speed: number
   heading: number
   timestamp: string
+}
+
+interface VehicleAnomalyScore {
+  score: number
+  level: 'normal' | 'watch' | 'alert' | 'critical'
 }
 
 interface TripStop {
@@ -222,6 +228,7 @@ function buildRouteCoords(route?: TripRouteOverlay) {
 export default function ControlTowerPage() {
   const router = useRouter()
   const user = getUser()
+  const gpsAnomalyFeature = useAIFeature('ai.gps_anomaly')
   const [stats, setStats] = useState<ControlTowerStats | null>(null)
   const [exceptions, setExceptions] = useState<TripException[]>([])
   const [trips, setTrips] = useState<Trip[]>([])
@@ -253,6 +260,8 @@ export default function ControlTowerPage() {
   const [tripRouteMap, setTripRouteMap] = useState<Record<string, TripRouteOverlay>>({})
   const [routeGeometryMap, setRouteGeometryMap] = useState<Record<string, [number, number][]>>({})
   const [routeDeviationMap, setRouteDeviationMap] = useState<Record<string, number>>({})
+  const [osrmUnavailable, setOsrmUnavailable] = useState(false)
+  const [vehicleScoreMap, setVehicleScoreMap] = useState<Record<string, VehicleAnomalyScore>>({})
   const [selectedEtaGeometry, setSelectedEtaGeometry] = useState<[number, number][]>([])
   const routeLayersRef = useRef<any[]>([])
   // Track which trip was last fitted so fitBounds only fires on NEW trip selection
@@ -361,7 +370,7 @@ export default function ControlTowerPage() {
       const [statsRes, exceptionsRes, tripsRes, gpsRes]: any[] = await Promise.all([
         apiFetch('/trips/control-tower/stats'),
         apiFetch('/trips/exceptions'),
-        apiFetch('/trips?limit=50'),
+        apiFetch('/trips?limit=50&active=true'),
         apiFetch('/gps/latest').catch(() => ({ data: {} })),
       ])
       setStats(statsRes.data)
@@ -521,12 +530,18 @@ export default function ControlTowerPage() {
     let cancelled = false
     Promise.all(routeVisibleTrips.map(async (trip) => {
       const baseCoords = buildRouteCoords(tripRouteMap[trip.id])
-      if (baseCoords.length < 2) return [trip.id, baseCoords] as const
+      if (baseCoords.length < 2) return [trip.id, [] as [number, number][]] as const
       const geometry = await fetchOSRMGeometry(baseCoords)
-      return [trip.id, geometry && geometry.length > 1 ? geometry : baseCoords] as const
+      return [trip.id, geometry && geometry.length > 1 ? geometry : [] as [number, number][]] as const
     })).then((entries) => {
       if (cancelled) return
       setRouteGeometryMap(Object.fromEntries(entries))
+      // Check if OSRM was unavailable: any trip with enough waypoints but empty geometry
+      const anyFailed = routeVisibleTrips.some((trip, idx) => {
+        const baseCoords = buildRouteCoords(tripRouteMap[trip.id])
+        return baseCoords.length >= 2 && entries[idx][1].length === 0
+      })
+      setOsrmUnavailable(anyFailed)
     })
 
     return () => {
@@ -541,14 +556,43 @@ export default function ControlTowerPage() {
       .filter((trip) => ROUTE_VISIBLE_STATUSES.includes(trip.status))
       .forEach((trip) => {
         const vehicle = vehicles.find((entry) => entry.vehicle_plate === trip.vehicle_plate)
-        const coords = routeGeometryMap[trip.id] || buildRouteCoords(tripRouteMap[trip.id])
-        if (!vehicle || coords.length < 2) return
+        const coords = routeGeometryMap[trip.id]
+        if (!vehicle || !coords || coords.length < 2) return
 
         nextDeviationMap[trip.id] = pointToRouteKm([vehicle.lat, vehicle.lng], coords)
       })
 
     setRouteDeviationMap(nextDeviationMap)
   }, [routeGeometryMap, tripRouteMap, trips, vehicles])
+
+  useEffect(() => {
+    if (!gpsAnomalyFeature.enabled || vehicles.length === 0) { setVehicleScoreMap({}); return }
+    const timer = setTimeout(() => {
+      const activeVehicles = vehicles.slice(0, 30)
+      Promise.all(activeVehicles.map(async (vehicle) => {
+        const tripForVehicle = trips.find((trip) => trip.vehicle_plate === vehicle.vehicle_plate && ROUTE_VISIBLE_STATUSES.includes(trip.status))
+        const deviationKm = tripForVehicle ? routeDeviationMap[tripForVehicle.id] || 0 : 0
+        const stopMin = vehicle.speed <= 0.1 ? 15 : 0
+        const params = new URLSearchParams({
+          plate: vehicle.vehicle_plate,
+          speed: String(vehicle.speed || 0),
+          stop_min: String(stopMin),
+          deviation_km: String(deviationKm),
+        })
+        try {
+          const res: any = await apiFetch(`/ai/vehicle-score?${params}`)
+          return [vehicle.vehicle_plate, res.data] as const
+        } catch {
+          return [vehicle.vehicle_plate, null] as const
+        }
+      })).then((entries) => {
+        const next: Record<string, VehicleAnomalyScore> = {}
+        for (const [plate, score] of entries) if (score) next[plate] = score
+        setVehicleScoreMap(next)
+      })
+    }, 800)
+    return () => clearTimeout(timer)
+  }, [gpsAnomalyFeature.enabled, vehicles, trips, routeDeviationMap])
 
   useEffect(() => {
     if (!selectedTrip) {
@@ -675,6 +719,7 @@ export default function ControlTowerPage() {
       filtered.forEach(v => {
         const tripForVehicle = trips.find(t => t.vehicle_plate === v.vehicle_plate && ['in_transit', 'assigned', 'ready'].includes(t.status))
         const routeDeviationKm = tripForVehicle ? routeDeviationMap[tripForVehicle.id] : undefined
+        const aiScore = vehicleScoreMap[v.vehicle_plate]
         const isOffRoute = typeof routeDeviationKm === 'number' && routeDeviationKm > OFF_ROUTE_THRESHOLD_KM
         const isAnomaly = anomalyPlates.has(v.vehicle_plate) || isOffRoute
         const color = isAnomaly ? '#ef4444' : v.speed > 5 ? '#22c55e' : v.speed >= 0 ? '#f59e0b' : '#9ca3af'
@@ -685,7 +730,9 @@ export default function ControlTowerPage() {
         // Sleek directional arrow marker — 24×24, rotated by heading
         const arrowSvg = `<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" style="filter:drop-shadow(0 1px 3px rgba(0,0,0,.4));transform:rotate(${heading}deg)"><path d="M12 2 L5 20 L12 16 L19 20 Z" fill="${color}" stroke="#fff" stroke-width="1.5" stroke-linejoin="round"/></svg>`
         const plateLabel = `<div style="position:absolute;top:-16px;left:50%;transform:translateX(-50%);white-space:nowrap;background:${color};color:#fff;font-size:8px;font-weight:700;padding:1px 4px;border-radius:8px;box-shadow:0 1px 3px rgba(0,0,0,.25);letter-spacing:.3px;line-height:12px">${v.vehicle_plate}</div>`
-        const html = `<div style="position:relative;width:24px;height:24px">${pulseRing}${plateLabel}<div style="width:24px;height:24px;display:flex;align-items:center;justify-content:center">${arrowSvg}</div></div>`
+        const scoreColor = aiScore?.level === 'critical' ? '#be123c' : aiScore?.level === 'alert' ? '#dc2626' : aiScore?.level === 'watch' ? '#d97706' : '#16a34a'
+        const scoreBadge = aiScore ? `<div style="position:absolute;right:-13px;bottom:-10px;min-width:20px;height:14px;border-radius:7px;background:${scoreColor};color:#fff;border:1px solid #fff;font-size:8px;font-weight:800;line-height:12px;text-align:center;box-shadow:0 1px 3px rgba(0,0,0,.3)">${aiScore.score}</div>` : ''
+        const html = `<div style="position:relative;width:24px;height:24px">${pulseRing}${plateLabel}<div style="width:24px;height:24px;display:flex;align-items:center;justify-content:center">${arrowSvg}</div>${scoreBadge}</div>`
 
         const icon = L.divIcon({
           className: '',
@@ -702,10 +749,13 @@ export default function ControlTowerPage() {
         const routeAlertHtml = isOffRoute && typeof routeDeviationKm === 'number'
           ? `<div style="margin-top:4px;font-size:11px;font-weight:700;color:#dc2626">Lệch tuyến ${routeDeviationKm.toFixed(1)} km</div>`
           : ''
+        const aiScoreHtml = aiScore
+          ? `<div style="margin-top:6px;display:inline-flex;align-items:center;gap:4px;background:#f8fafc;border:1px solid #e2e8f0;border-radius:999px;padding:2px 7px;font-size:11px;font-weight:700;color:${scoreColor}">AI score ${aiScore.score}/100 · ${aiScore.level}</div>`
+          : ''
         const tripHintHtml = tripForVehicle
           ? `<div style="margin-top:6px;font-size:11px;color:#2563eb;font-weight:600">Bấm vào xe để mở tuyến ${tripForVehicle.trip_number}</div>`
           : ''
-        const popupContent = `<div style="min-width:180px"><div style="display:flex;align-items:center;gap:6px"><b style="font-size:13px">${v.vehicle_plate}</b><span style="font-size:11px;color:#6b7280">${v.speed} km/h</span></div><div style="font-size:12px;color:#374151;margin-top:2px">${v.driver_name}</div><div style="font-size:11px;color:${tripStatusColor(v.trip_status)};margin-top:1px">${tripStatusLabel[v.trip_status] || v.trip_status}</div>${progressHtml}${routeAlertHtml}${tripHintHtml}${isAnomaly && !isOffRoute ? '<div style="margin-top:4px;font-size:11px;font-weight:700;color:#dc2626">⚠ Cảnh báo hoạt động</div>' : ''}</div>`
+        const popupContent = `<div style="min-width:180px"><div style="display:flex;align-items:center;gap:6px"><b style="font-size:13px">${v.vehicle_plate}</b><span style="font-size:11px;color:#6b7280">${v.speed} km/h</span></div><div style="font-size:12px;color:#374151;margin-top:2px">${v.driver_name}</div><div style="font-size:11px;color:${tripStatusColor(v.trip_status)};margin-top:1px">${tripStatusLabel[v.trip_status] || v.trip_status}</div>${aiScoreHtml}${progressHtml}${routeAlertHtml}${tripHintHtml}${isAnomaly && !isOffRoute ? '<div style="margin-top:4px;font-size:11px;font-weight:700;color:#dc2626">⚠ Cảnh báo hoạt động</div>' : ''}</div>`
 
         const marker = L.marker([v.lat, v.lng], { icon })
           .addTo(leafletMapRef.current)
@@ -733,7 +783,7 @@ export default function ControlTowerPage() {
         markersRef.current.push(marker)
       })
     })
-  }, [vehicles, mapFilter, tripProgressMap, routeDeviationMap, trips, exceptions, tripRouteMap, focusVehicleOnMap])
+  }, [vehicles, mapFilter, tripProgressMap, routeDeviationMap, vehicleScoreMap, trips, exceptions, tripRouteMap, focusVehicleOnMap])
 
   // Draw active routes overview + selected trip details
   useEffect(() => {
@@ -748,19 +798,22 @@ export default function ControlTowerPage() {
       trips
         .filter((trip) => ROUTE_VISIBLE_STATUSES.includes(trip.status) || trip.id === selectedTrip?.id)
         .forEach((trip) => {
-          const coords = routeGeometryMap[trip.id] || buildRouteCoords(tripRouteMap[trip.id])
-          if (coords.length < 2) return
+          const osrmCoords = routeGeometryMap[trip.id]
+          const waypointCoords = buildRouteCoords(tripRouteMap[trip.id])
+          const isFallback = !osrmCoords || osrmCoords.length < 2
+          const coords = isFallback ? (waypointCoords.length >= 2 ? waypointCoords : null) : osrmCoords
+          if (!coords) return
 
           const isSelected = selectedTrip?.id === trip.id
           const deviationKm = routeDeviationMap[trip.id]
-          const isOffRoute = typeof deviationKm === 'number' && deviationKm > OFF_ROUTE_THRESHOLD_KM
+          const isOffRoute = !isFallback && typeof deviationKm === 'number' && deviationKm > OFF_ROUTE_THRESHOLD_KM
           const isInTransit = trip.status === 'in_transit'
 
           const routePolyline = L.polyline(coords, {
-            color: isSelected ? '#F68634' : isOffRoute ? '#dc2626' : isInTransit ? '#0f766e' : '#6b7280',
-            weight: isSelected ? 6 : isOffRoute ? 4 : isInTransit ? 3 : 2,
-            opacity: isSelected ? 1 : isInTransit ? 0.45 : 0.35,
-            dashArray: isOffRoute ? '10 6' : isInTransit ? undefined : isSelected ? undefined : '6 8',
+            color: isFallback ? '#9ca3af' : isSelected ? '#F68634' : isOffRoute ? '#dc2626' : isInTransit ? '#0f766e' : '#6b7280',
+            weight: isFallback ? 2 : isSelected ? 6 : isOffRoute ? 4 : isInTransit ? 3 : 2,
+            opacity: isFallback ? 0.55 : isSelected ? 1 : isInTransit ? 0.45 : 0.35,
+            dashArray: isFallback ? '8 5' : isOffRoute ? '10 6' : isInTransit ? undefined : isSelected ? undefined : '6 8',
           }).addTo(map)
 
           // Add a wider semi-transparent border for selected route to make it pop
@@ -798,7 +851,8 @@ export default function ControlTowerPage() {
       // Sort by stop_order
       const sorted = [...stopsWithCoords].sort((a, b) => a.stop_order - b.stop_order)
       const routeOverlay = tripRouteMap[selectedTrip.id]
-      const coords = routeGeometryMap[selectedTrip.id] || buildRouteCoords({
+      const coords = routeGeometryMap[selectedTrip.id] || []
+      const fallbackBounds = buildRouteCoords({
         warehouseLat: routeOverlay?.warehouseLat,
         warehouseLng: routeOverlay?.warehouseLng,
         stops: selectedStops,
@@ -857,7 +911,7 @@ export default function ControlTowerPage() {
       // Fit bounds only when a NEW trip is selected — not on vehicle position updates
       if (selectedTrip.id !== lastFittedTripRef.current) {
         lastFittedTripRef.current = selectedTrip.id
-        const allPts: [number, number][] = [...coords]
+        const allPts: [number, number][] = coords.length > 0 ? [...coords] : [...fallbackBounds]
         if (vehicle) allPts.push([vehicle.lat, vehicle.lng])
         if (allPts.length > 0) {
           map.fitBounds(L.latLngBounds(allPts).pad(0.15), { maxZoom: 15 })
@@ -888,9 +942,9 @@ export default function ControlTowerPage() {
       const baseCoords = buildRouteCoords(overlay)
       if (baseCoords.length >= 2) {
         fetchOSRMGeometry(baseCoords).then(geo => {
-          if (geo && geo.length > 1) {
-            setRouteGeometryMap(prev => ({ ...prev, [tripId]: geo }))
-          }
+          const hasGeo = geo && geo.length > 1
+          setRouteGeometryMap(prev => ({ ...prev, [tripId]: hasGeo ? geo : [] }))
+          if (!hasGeo) setOsrmUnavailable(true)
         })
       }
     } catch { setTripStops([]) }
@@ -1432,6 +1486,11 @@ export default function ControlTowerPage() {
         {/* Map container + controls */}
         <div className="relative flex-1 min-h-[420px] bg-[#f5f5f5]" style={{ fontFamily: 'Roboto, sans-serif' }}>
           <div ref={mapRef} className="absolute inset-0" />
+          {osrmUnavailable && (
+            <div className="absolute top-2 left-1/2 -translate-x-1/2 z-[900] flex items-center gap-1.5 bg-amber-50 border border-amber-300 text-amber-800 text-xs font-medium px-3 py-1.5 rounded-full shadow pointer-events-none">
+              <span>⚠</span><span>OSRM chưa chạy — đường nét đứt là tạm thời. Chạy <strong>START_OSRM_ONLY.bat</strong> để có tuyến thực tế.</span>
+            </div>
+          )}
 
           {mapPriorityMode && alertsDrawerOpen && (
             <>

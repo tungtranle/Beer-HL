@@ -22,6 +22,7 @@ func (h *Handler) RegisterPhase9WorkflowRoutes(wh *gin.RouterGroup) {
 
 	// 9.6 Putaway
 	wh.POST("/inbound/suggest-bin", h.SuggestBins)
+	wh.GET("/inbound/suggest-bin-preview", h.SuggestBinsPreview)
 	wh.POST("/inbound/putaway", h.ConfirmPutaway)
 
 	// 9.8 Picking-by-pallet
@@ -82,6 +83,29 @@ func (h *Handler) SuggestBins(c *gin.Context) {
 	suggestions, err := h.svc.SuggestBins(c, req)
 	if err != nil {
 		h.log.Error(c, "suggest bins failed", err)
+		response.InternalError(c)
+		return
+	}
+	response.OK(c, suggestions)
+}
+
+// SuggestBinsPreview — gợi ý bin trước khi tạo lot (UX inbound: thủ kho thấy ngay
+// "Cất vào A-03-02" khi chọn sản phẩm). Khác SuggestBins ở chỗ không cần lot_id.
+// Query: warehouse_id, product_id, qty.
+func (h *Handler) SuggestBinsPreview(c *gin.Context) {
+	whID, err := uuid.Parse(c.Query("warehouse_id"))
+	if err != nil {
+		response.BadRequest(c, "warehouse_id required")
+		return
+	}
+	prodID, err := uuid.Parse(c.Query("product_id"))
+	if err != nil {
+		response.BadRequest(c, "product_id required")
+		return
+	}
+	suggestions, err := h.svc.SuggestBinsPreview(c, whID, prodID)
+	if err != nil {
+		h.log.Error(c, "suggest bins preview failed", err)
 		response.InternalError(c)
 		return
 	}

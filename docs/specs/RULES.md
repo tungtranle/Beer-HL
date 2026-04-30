@@ -57,6 +57,18 @@
 - **Tiền:** `decimal.Decimal` / `NUMERIC(15,2)` — KHÔNG float64
 - **Timezone:** UTC trong DB, convert `Asia/Ho_Chi_Minh` ở app layer
 
+### BR-QA-01: AQF data safety
+- QA Portal không được xóa/chỉnh dữ liệu lịch sử thật.
+- Test/demo data mutation chỉ hợp lệ nếu có `qa_scenario_runs` + `qa_owned_entities` hoặc ownership tương đương.
+- Cleanup phải chạy theo graph phụ thuộc nhưng chỉ trên entity_id có trong registry.
+- `historical_rows_touched > 0` hoặc phát hiện unscoped delete → rollback transaction và Decision Brief = `HOLD`.
+- Master/historical fixtures như customers/products/warehouses/vehicles/historical orders là read-only trong scenario DB, trừ khi task explicitly là migration/master-data sync đã được duyệt.
+
+### BR-QA-02: AQF evidence trước go-live
+- Business rule mới hoặc sửa state/API critical phải có test/evidence tương ứng: unit/golden/API/Playwright/Bruno tùy layer.
+- G0/G1/G2/G3/G4 fail không được báo "xong" như pass. Nếu skip vì thiếu tool/credential, phải ghi `SKIP` + lý do + rủi ro còn lại.
+- Decision Brief `HOLD` là blocker go-live trừ khi có quyết định explicit trong `DECISIONS.md`.
+
 ---
 
 ## §2 State Machines
@@ -126,6 +138,7 @@ if !entity.CanTransitionTo(newStatus) {
 | `BRAVO_`, `DMS_`, `ZALO_` | Integration (trả 202) | WARN |
 | `VALIDATION_` | Input | INFO |
 | `INTERNAL_` | System | ERROR |
+| `QA_`, `AQF_` | QA Portal / AQF gates | ERROR nếu data safety, WARN nếu evidence/monitoring thiếu |
 
 Danh sách đầy đủ: xem `docs/specs/ERROR_CATALOGUE.md` (Tầng 3). KHÔNG tự tạo code mới — thêm vào ERROR_CATALOGUE trước.
 
@@ -139,3 +152,5 @@ Danh sách đầy đủ: xem `docs/specs/ERROR_CATALOGUE.md` (Tầng 3). KHÔNG 
 | BR check pass | Không log | Tránh noise |
 
 Field `rule` phải dùng đúng mã: `BR-OMS-01`, `BR-TMS-04`...
+
+Với QA/AQF, field `rule` dùng `BR-QA-01` hoặc `BR-QA-02`; response nên chứa `run_id`/`evidence_id` nếu có để truy vết.

@@ -72,7 +72,7 @@ export default function HandoverAPage() {
 
   const loadHandovers = useCallback(async () => {
     try {
-      const tripsRes: any = await apiFetch('/trips?limit=50')
+      const tripsRes: any = await apiFetch('/trips?limit=50&active=true')
       const allTrips = tripsRes.data || []
       const records: HandoverRecord[] = []
       for (const t of allTrips.slice(0, 20)) {
@@ -92,7 +92,7 @@ export default function HandoverAPage() {
 
   const loadTrips = useCallback(async () => {
     try {
-      const res: any = await apiFetch('/trips?limit=50')
+      const res: any = await apiFetch('/trips?limit=50&active=true')
       setTrips((res.data || []).filter((t: TripForHandover) =>
         ['ready', 'assigned', 'pre_check'].includes(t.status)))
     } catch { /* ignore */ }

@@ -56,6 +56,14 @@ brand: { DEFAULT: '#F68634', 50: '#FEF3E8', 100: '#FDE0C4', 200: '#FBBB7C',
 - Buttons: `rounded-lg`. Spacing: `gap-4` (default), `gap-6` (sections)
 - Loading: skeleton shimmer (`animate-pulse`), KHÔNG full-page spinner
 
+### 1.5 Decision Intelligence Surfaces
+- AI là progressive enhancement; baseline page render trước, AI chỉ gắn sau `useAIFeature(flag)`.
+- Mỗi page chỉ có tối đa 1 AI surface expanded mặc định; insight phụ dùng chip/drawer/inbox.
+- `AIContextStrip` dùng cho warning/review tại điểm ra quyết định; phải có dismiss và “Vì sao?” khi tác động vận hành.
+- `ConfidenceMeter` hiển thị cùng source/data freshness/sample size khi có thể, không chỉ một score %.
+- Brand `#F68634` là AI accent/dot hoặc primary action; warning nghiệp vụ vẫn dùng amber/rose.
+- Voice/camera/write AI chỉ prefill hoặc mở confirm; không auto-submit.
+
 ---
 
 ## §2 Per-Role Layouts
@@ -79,6 +87,7 @@ brand: { DEFAULT: '#F68634', 50: '#FEF3E8', 100: '#FDE0C4', 200: '#FBBB7C',
 - Submit: `bg-brand text-white` | Credit badge: green(<80%), amber(<100%), red(over)
 - ATP bar: green(>50%), amber(20-50%), red(<20%). Input vượt ATP: `border-amber-400 bg-amber-50` NGAY khi gõ
 - Zalo preview: `bg-green-50 border border-green-200 rounded-xl`
+- Khi `ai.credit_score` ON, risk/context strip nằm ngay dưới customer selector, chỉ hiện nếu có insight đáng chú ý; API fail thì ẩn, không chặn tạo đơn.
 
 ### DRIVER — Mobile full-width (5-6", một tay, ngoài trời)
 - Bottom tabs: Chuyến / Bản đồ / Hàng / Tiền
@@ -86,11 +95,13 @@ brand: { DEFAULT: '#F68634', 50: '#FEF3E8', 100: '#FDE0C4', 200: '#FBBB7C',
 - Stop header: `bg-brand text-white` | Confirm: `bg-green-600 text-white h-14`
 - Payment selected: `border-2 border-brand bg-brand-50` | Offline: `bg-amber-500 text-white`
 - Stop circles: done=green-500, current=brand, next=gray-100
+- Voice assist chỉ hiện khi `ai.voice` ON và browser hỗ trợ SpeechRecognition; giữ 500ms để nghe; mọi write intent phải xác nhận bằng tap.
 
 ### ACCOUNTANT — 2-column table/actions (Desktop)
 - T+1 countdown: >4h=gray, 2-4h=amber, <2h=red (border-l-4 + bg)
 - Discrepancy row: `bg-red-50` | Approve: `bg-green-600 text-white`
 - "Chốt ngày" button: `bg-brand text-white`
+- Approval queue có tab “Ưu tiên xử lý” sort rule-based theo SLA, tỷ lệ vượt hạn mức, giá trị đơn và urgent flag; không tự approve đơn vượt hạn mức.
 
 ### WAREHOUSE_HANDLER — PDA scan-first
 - `text-base` minimum, buttons h-14 minimum
@@ -201,6 +212,30 @@ if (val > atpQty) setBorderColor('border-amber-400')
 5. **Auth tokens:** localStorage `bhl_token`, `bhl_user`, `bhl_refresh_token`
 6. **Headless UI** cho Dialog, Menu, Listbox. **KHÔNG Ant Design**
 7. **Tailwind CSS** trực tiếp — KHÔNG CSS modules
+
+---
+
+## §5b QA Portal / AQF frontend rules
+
+Áp dụng cho `/test-portal`, AQF Command Center, Data Safety Panel, evidence log, monitoring panels và mọi UI chạy scenario/test automation.
+
+1. **Luôn dùng `apiFetch`** cho frontend path `/test-portal/*` (proxy tới backend `/v1/test-portal/*`); QA Portal đã login-protected nên `fetch()` trực tiếp sẽ mất token refresh.
+2. **Auth gate rõ ràng:** nếu chưa login/sai role, redirect về `/login?next=/test-portal`; không render partial panel gây hiểu nhầm.
+3. **Data Safety Panel luôn hiện với scenario mutation:** hiển thị `historical_rows_touched`, owned rows created/deleted, scenario/run id, status.
+4. **Không tạo UI destructive:** không thêm lại nút reset toàn DB, load scenario legacy, run-all-smoke legacy, hoặc text gợi ý thao tác xóa rộng.
+5. **Verdict semantics:** `SHIP` dùng success, `CAUTION` dùng warning amber, `HOLD` dùng error red. Không dùng brand cam BHL để biểu diễn warning/blocker.
+6. **Evidence-first:** mỗi run/gate nên có evidence id hoặc artifact pointer nếu backend trả về; nếu chưa có, UI hiển thị trạng thái thiếu evidence thay vì giả pass.
+7. **Polling/refresh nhẹ:** progress state `queued/running/asserting/saving_evidence/completed/failed` dùng polling có cleanup interval hoặc WebSocket nhẹ; tránh infinite loading.
+8. **Empty/error state có hành động:** lỗi AQF phải có trace/ref và CTA hợp lý: retry run, mở evidence, mở blocker/open question.
+
+Copy display labels chuẩn:
+```tsx
+const verdictLabels = { ship: 'SHIP', caution: 'CAUTION', hold: 'HOLD' }
+const progressLabels = {
+  queued: 'Queued', running: 'Running', asserting: 'Asserting',
+  saving_evidence: 'Saving evidence', completed: 'Completed', failed: 'Failed'
+}
+```
 
 ---
 
