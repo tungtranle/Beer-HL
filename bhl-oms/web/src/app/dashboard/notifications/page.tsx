@@ -68,8 +68,8 @@ function navigateLink(link: string) {
 }
 
 function mergeGroups(notifs: Notification[]): { grouped: boolean; items: Notification[]; key: string | null }[] {
-  const groupKeyMap: Map<string, Notification[]> = new Map()
-  const processedGroupKeys: Set<string> = new Set()
+  const groupKeyMap = (new Map() as unknown) as Map<string, Notification[]>
+  const processedGroupKeys = (new Set() as unknown) as Set<string>
   const result: { grouped: boolean; items: Notification[]; key: string | null }[] = []
 
   for (const n of notifs) {

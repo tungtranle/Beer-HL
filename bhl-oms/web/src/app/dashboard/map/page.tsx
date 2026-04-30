@@ -189,7 +189,7 @@ export default function DispatcherMapPage() {
           headers: { Authorization: `Bearer ${getToken()}` }
         })).json()
         if (res.data) {
-          const posMap: Map<string, VehiclePosition> = new Map()
+          const posMap = (new Map() as unknown) as Map<string, VehiclePosition>
           Object.entries(res.data).forEach(([vehicleId, posData]: [string, any]) => {
             try {
               const pos = typeof posData === 'string' ? JSON.parse(posData) : posData

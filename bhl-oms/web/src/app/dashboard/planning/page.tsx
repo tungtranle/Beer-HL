@@ -146,7 +146,7 @@ function TripDetailModal({ trip, tripIdx, vehicles, warehouse, vrpConstraintsMap
       const validStops = trip.stops.filter(s => s.latitude && s.longitude)
 
       // Offset co-located stops so markers don't overlap
-      const usedCoords: Map<string, number> = new Map()
+      const usedCoords = (new Map() as unknown) as Map<string, number>
       const offsetStops = validStops.map(s => {
         const key = `${s.latitude.toFixed(5)},${s.longitude.toFixed(5)}`
         const count = usedCoords.get(key) || 0
@@ -185,7 +185,7 @@ function TripDetailModal({ trip, tripIdx, vehicles, warehouse, vrpConstraintsMap
 
           // Toll station markers
       if (trip.tolls_passed?.length) {
-        const seen: Set<string> = new Set()
+        const seen = (new Set() as unknown) as Set<string>
         trip.tolls_passed.forEach((tp: any) => {
           if (!tp.latitude || !tp.longitude) return
           const key = `${tp.latitude.toFixed(4)},${tp.longitude.toFixed(4)}`
@@ -539,7 +539,7 @@ function VehicleStatusModal({ vehicles, onClose }: { vehicles: Vehicle[]; onClos
 // ─── Driver Status Modal ────────────────────────────
 function DriverStatusModal({ drivers, checkins, onClose }: { drivers: Driver[]; checkins: any[]; onClose: () => void }) {
   const [selectedDriver, setSelectedDriver] = useState<Driver | null>(null)
-  const checkinMap: Map<string, any> = new Map(checkins.map(c => [c.driver_id || c.id, c] as [string, any]))
+  const checkinMap = (new Map(checkins.map(c => [c.driver_id || c.id, c] as [string, any])) as unknown) as Map<string, any>
 
   const statusGroups: Record<string, { label: string; color: string; dot: string }> = {
     available: { label: 'Sẵn sàng', color: 'bg-green-100 text-green-800', dot: 'bg-green-500' },
@@ -809,7 +809,7 @@ export default function PlanningPage() {
 
   useEffect(() => {
     if (!vrpResult?.trips) return
-    const ids: Set<string> = new Set()
+    const ids = (new Set() as unknown) as Set<string>
     vrpResult.trips.forEach(t => t.stops.forEach(s => { if (s.customer_id) ids.add(s.customer_id) }))
     const missing = Array.from(ids).filter(id => !(id in vrpConstraintsMap))
     if (missing.length === 0) return
@@ -1073,7 +1073,7 @@ export default function PlanningPage() {
             // Init driver assignment (auto-assign: prefer default driver, fallback by order)
             if (r.data?.trips) {
               const init: Record<string, string> = {}
-              const usedDrivers: Set<string> = new Set()
+              const usedDrivers = (new Set() as unknown) as Set<string>
               // First pass: assign default drivers from vehicle mapping
               r.data.trips.forEach((t: VRPTrip) => {
                 const vehicle = vehicles.find(v => v.id === t.vehicle_id)
@@ -1451,7 +1451,7 @@ export default function PlanningPage() {
         setSavedJobId('loaded')
         if (result?.trips) {
           const init: Record<string, string> = {}
-          const usedDrivers: Set<string> = new Set()
+          const usedDrivers = (new Set() as unknown) as Set<string>
           result.trips.forEach((t: VRPTrip) => {
             const vehicle = vehicles.find(v => v.id === t.vehicle_id)
             if (vehicle?.default_driver_id) {
@@ -3478,7 +3478,7 @@ export default function PlanningPage() {
                   // Auto-assign drivers
                   // Auto-assign drivers (prefer default)
                   const init: Record<string, string> = {}
-                  const usedDrivers: Set<string> = new Set()
+                  const usedDrivers = (new Set() as unknown) as Set<string>
                   result.trips.forEach((t) => {
                     const vehicle = vehicles.find(v => v.id === t.vehicle_id)
                     if (vehicle?.default_driver_id) {

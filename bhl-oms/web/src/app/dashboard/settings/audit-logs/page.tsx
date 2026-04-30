@@ -307,7 +307,7 @@ function extractChanges(detail: Record<string, unknown>): Array<{ field: string;
   } else {
     // Detect old_X / new_X pairs
     const keys = Object.keys(detail)
-    const processed: Set<string> = new Set()
+    const processed = (new Set() as unknown) as Set<string>
     for (const key of keys) {
       if (key.startsWith('old_') && !processed.has(key)) {
         const field = key.slice(4)
