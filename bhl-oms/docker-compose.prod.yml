@@ -134,7 +134,7 @@ services:
           memory: 2G
 
   osrm:
-    image: osrm/osrm-backend:v5.26.0
+    image: osrm/osrm-backend:latest
     volumes:
       - ./osrm-data:/data
     command: osrm-routed --algorithm mld /data/vietnam-latest.osrm
