@@ -144,6 +144,7 @@ services:
   osrm:
     image: osrm/osrm-backend:latest
     platform: linux/amd64
+    pull_policy: if_not_present
     volumes:
       - ./osrm-data:/data
     command: osrm-routed --algorithm mld /data/vietnam-latest.osrm

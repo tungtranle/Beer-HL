@@ -84,7 +84,14 @@ jobs:
           fi
 
       - name: Restart services
-        run: docker compose -f $PROJECT_DIR/docker-compose.prod.yml up -d
+        run: |
+          # Restart core infrastructure first, then built services
+          # OSRM failures must not block API/web deployment
+          docker compose -f $PROJECT_DIR/docker-compose.prod.yml up -d postgres redis
+          # Restart the built services (api, web, vrp) — these must succeed
+          docker compose -f $PROJECT_DIR/docker-compose.prod.yml up -d api web vrp
+          # Start all remaining services (nginx, osrm, prometheus...) — ignore individual failures
+          docker compose -f $PROJECT_DIR/docker-compose.prod.yml up -d 2>/dev/null || true
 
       - name: Sync DB (migrations + master data)
         run: |
