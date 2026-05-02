@@ -101,6 +101,7 @@ function Run-Setup {
     Write-Host "  Dang test ket noi SSH..." -ForegroundColor Yellow
     $sshTestArgs = @(
         '-p', $port_,
+        '-i', "$env:USERPROFILE\.ssh\id_ed25519_bhl",
         '-o', 'ConnectTimeout=10',
         '-o', 'StrictHostKeyChecking=no',
         "$user_@$host_",
@@ -193,8 +194,10 @@ $sshPort   = $cfg.Port
 $serverPath = $cfg.Path
 $remoteScriptPath = "/tmp/bhl-oms-update-server.sh"
 
+$sshKeyPath = "$env:USERPROFILE\.ssh\id_ed25519_bhl"
 $scpArgs = @(
     '-P', $sshPort,
+    '-i', $sshKeyPath,
     '-o', 'StrictHostKeyChecking=no',
     "$PSScriptRoot\update-server.sh",
     "${sshTarget}:${remoteScriptPath}"
@@ -216,6 +219,7 @@ $remoteCommand = @(
 
 $sshUpdateArgs = @(
     '-p', $sshPort,
+    '-i', $sshKeyPath,
     '-t',
     '-o', 'StrictHostKeyChecking=no',
     $sshTarget,
