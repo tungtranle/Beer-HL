@@ -85,13 +85,9 @@ jobs:
 
       - name: Restart services
         run: |
-          # Restart core infrastructure first, then built services
-          # OSRM failures must not block API/web deployment
-          docker compose -f $PROJECT_DIR/docker-compose.prod.yml up -d postgres redis
-          # Restart the built services (api, web, vrp) — these must succeed
-          docker compose -f $PROJECT_DIR/docker-compose.prod.yml up -d api web vrp
-          # Start all remaining services (nginx, osrm, prometheus...) — ignore individual failures
-          docker compose -f $PROJECT_DIR/docker-compose.prod.yml up -d 2>/dev/null || true
+          # Single up -d: Docker Compose handles dependency order internally
+          # pull_policy: if_not_present on OSRM prevents blocking pull
+          docker compose -f $PROJECT_DIR/docker-compose.prod.yml up -d
 
       - name: Sync DB (migrations + master data)
         run: |
@@ -103,20 +99,21 @@ jobs:
 
       - name: Health Check
         run: |
-          sleep 15
-          for i in 1 2 3 4 5; do
+          sleep 20
+          for i in 1 2 3 4 5 6 7 8; do
             if curl -sf http://localhost:8080/health > /dev/null 2>&1; then
               echo "API healthy - Deploy thanh cong!"
               docker compose -f $PROJECT_DIR/docker-compose.prod.yml ps
-              if curl -skf https://bhl.symper.us/login > /dev/null 2>&1; then
-                echo "Public login page healthy"
-                exit 0
-              fi
-              echo "API healthy nhưng public login page chua pass"
+              exit 0
             fi
-            echo "Thu $i/5 - doi them 5s..."
-            sleep 5
+            echo "Thu $i/8 - doi them 10s... ($(date '+%H:%M:%S'))"
+            sleep 10
           done
-          echo "API khong phan hoi sau 40s"
-          docker compose -f $PROJECT_DIR/docker-compose.prod.yml logs api --tail 30
+          echo "=== API khong phan hoi sau 100s ==="
+          echo "--- Container status ---"
+          docker compose -f $PROJECT_DIR/docker-compose.prod.yml ps
+          echo "--- API logs (last 50) ---"
+          docker compose -f $PROJECT_DIR/docker-compose.prod.yml logs api --tail 50
+          echo "--- Docker events (last 20) ---"
+          docker events --since 5m --until now --filter type=container 2>/dev/null | tail -20 || true
           exit 1

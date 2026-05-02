@@ -197,6 +197,12 @@ func (s *Service) SendIdempotent(ctx context.Context, userID uuid.UUID, title, b
 // Escalation chain: original recipient → all management + admin users.
 func (s *Service) StartEscalationCron() {
 	go func() {
+		defer func() {
+			if r := recover(); r != nil {
+				s.log.Error(context.Background(), "escalation_cron_panic", fmt.Errorf("%v", r))
+				go s.StartEscalationCron() // restart the cron
+			}
+		}()
 		ticker := time.NewTicker(1 * time.Minute)
 		defer ticker.Stop()
 		for range ticker.C {
@@ -209,6 +215,12 @@ func (s *Service) StartEscalationCron() {
 // StartCleanupCron runs every hour to hard-delete notifications past their expires_at.
 func (s *Service) StartCleanupCron() {
 	go func() {
+		defer func() {
+			if r := recover(); r != nil {
+				s.log.Error(context.Background(), "cleanup_cron_panic", fmt.Errorf("%v", r))
+				go s.StartCleanupCron() // restart the cron
+			}
+		}()
 		ticker := time.NewTicker(1 * time.Hour)
 		defer ticker.Stop()
 		for range ticker.C {
