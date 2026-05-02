@@ -1,6 +1,6 @@
 # CURRENT_STATE — BHL OMS-TMS-WMS
 
-> **Cập nhật:** 01/05/2026 (session 01/05 — Control Tower map layout/dev cache fix)  
+> **Cập nhật:** 02/05/2026 (session 02/05 — Production 502 fix: nginx WebSocket + resilient deploy)  
 > **Mục đích:** Mô tả trạng thái THỰC TẾ của hệ thống. AI đọc file này để biết code đang làm gì, **không** phải spec nói gì.  
 > **Quy tắc:** Khi code thay đổi → cập nhật file này. Nếu CURRENT_STATE không khớp code → file này sai.
 
@@ -15,7 +15,7 @@
 | Database | PostgreSQL 16 | :5434 | ✅ migrations tới 043 (`ai_feature_flags`, AI audit/inbox/simulation/feedback) |
 | Cache/PubSub | Redis | :6379 | ✅ GPS + pub/sub |
 | VRP Solver | Python + OR-Tools | :8090 | ✅ Hoạt động |
-| OSRM Routing | Docker (Vietnam data) | :5000 | ✅ (Production: auto-restart via healthcheck + cron monitor) — Local: cần setup data (`./setup-osrm.ps1`) |
+| OSRM Routing | Docker (Vietnam data) | :5000 | ✅ Production: `platform: linux/amd64` + `pull_policy: if_not_present` — healthcheck disabled (OSRM container không có curl/wget) |
 | Mock Server | Go (Bravo/DMS/Zalo) | :9001-9003 | ✅ Optional — `go run cmd/mock_server/main.go` |
 | Prometheus | Docker | :9090 | ✅ Configured (profile: monitoring) |
 | Grafana | Docker | :3030 | ✅ Configured (profile: monitoring) |

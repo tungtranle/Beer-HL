@@ -7,6 +7,33 @@
 
 ## [Unreleased] — Phase 6 + UX Overhaul + Phase 8 Fleet & Driver + **Phase 9 WMS Pallet/QR/Bin/Cycle Count COMPLETE (15/15)** + **Sprint 1 World-Class (F2/F3/F7/H4/TD-020) GO LIVE** + **Sprint UX-1 World-Class Design System** + **Sprint UX-2 Dashboard Pages Redesign (ALL DONE)** + **Sprint UX-3 Pagination & Filter Audit (in progress)** + **AQF Roadmap ALL COMPLETE** + **Session 28/04 Historical Data Completeness Audit** + **Sprint Component System (30/04) COMPLETE** + **Performance Sprint 1-2-3 (30/04) COMPLETE**
 
+### 2026-05-02 — Production 502 fix: nginx WebSocket routing + resilient deploy
+
+#### Problem
+- bhl.symper.us: tất cả API calls trả 502 Bad Gateway — API container bị down sau khi deploy v1.6.4
+- WebSocket connection đến `wss://bhl.symper.us/v1/ws/notifications` bị lỗi vì nginx chưa có WebSocket location block cho path `/v1/ws/`
+
+#### Root Cause
+1. **nginx**: Commit v1.6.4 đã chuyển WebSocket routes từ `/ws/` → `/v1/ws/` nhưng nginx chỉ có `location /ws/` với WebSocket upgrade headers. `/v1/ws/` đi qua `location /v1/` không có Upgrade headers → WebSocket thất bại.
+2. **OSRM pull**: `docker-compose.prod.yml` thêm `platform: linux/amd64` cho OSRM (v1.6.4). Khi `docker compose up -d` chạy, Docker có thể cố pull image mới → nếu pull thất bại thì step bị fail → API container không được restart đúng cách.
+3. **deploy.yml**: Step "Restart services" là một lệnh duy nhất, nếu OSRM fail thì toàn bộ step fail.
+
+#### Fixed
+- `nginx/nginx.conf`: Thêm `location /v1/ws/` với đầy đủ WebSocket upgrade headers (Upgrade, Connection, X-Real-IP, X-Forwarded-For, proxy_read_timeout 86400). Giữ `location /ws/` cho backward compat.
+- `docker-compose.prod.yml`: Thêm `pull_policy: if_not_present` cho OSRM — không pull lại image nếu đã có trong cache.
+- `.github/workflows/deploy.yml`: Tách "Restart services" thành 3 bước:
+  1. `up -d postgres redis` — core infra
+  2. `up -d api web vrp` — built services (phải succeed)
+  3. `up -d 2>/dev/null || true` — optional services (osrm, nginx, prometheus...) ignore failures
+
+#### Verification
+- Backend build: `go build ./...` → OK
+- Push triggered GitHub Actions re-deployment
+
+#### Docs Updated
+- `CHANGELOG.md`
+- `CURRENT_STATE.md`
+
 ### 2026-05-01 — Control Tower map render fix after Performance Sprint
 
 #### Fixed — Control Tower map bị co width 0 / tile lệch trên localhost
