@@ -26,6 +26,10 @@ self.addEventListener('activate', (event) => {
 
 self.addEventListener('fetch', (event) => {
   const { request } = event;
+  const url = new URL(request.url);
+
+  // Dev must never be served stale Next.js chunks by the PWA cache.
+  if (url.hostname === 'localhost' || url.hostname === '127.0.0.1') return;
 
   // Skip API calls — always go to network for fresh data
   if (request.url.includes('/v1/')) return;

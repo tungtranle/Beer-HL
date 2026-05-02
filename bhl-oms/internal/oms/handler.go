@@ -554,6 +554,10 @@ func (h *Handler) ListDeliveryAttempts(c *gin.Context) {
 // ===== CONTROL DESK (Task 5.9, 5.10, 5.11) =====
 
 func (h *Handler) GetControlDeskStats(c *gin.Context) {
+	from := c.Query("from")
+	to := c.Query("to")
+	h.log.Info(c.Request.Context(), "GetControlDeskStats handler", logger.Field{Key: "from", Value: from}, logger.Field{Key: "to", Value: to})
+
 	var warehouseID *uuid.UUID
 	if wid := c.Query("warehouse_id"); wid != "" {
 		parsed, err := uuid.Parse(wid)
@@ -564,7 +568,7 @@ func (h *Handler) GetControlDeskStats(c *gin.Context) {
 		warehouseID = &parsed
 	}
 
-	stats, err := h.svc.GetControlDeskStats(c.Request.Context(), warehouseID, c.Query("from"), c.Query("to"))
+	stats, err := h.svc.GetControlDeskStats(c.Request.Context(), warehouseID, from, to)
 	if err != nil {
 		h.log.Error(c.Request.Context(), "GetControlDeskStats failed", err)
 		response.InternalError(c)

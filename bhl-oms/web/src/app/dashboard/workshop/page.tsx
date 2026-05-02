@@ -5,8 +5,8 @@ import { apiFetch, getUser } from '@/lib/api'
 import { toast } from '@/lib/useToast'
 import { handleError } from '@/lib/handleError'
 import { useRouter } from 'next/navigation'
-import { PageHeader, Button } from '@/components/ui'
-import { Factory, Package, Sparkles, AlertTriangle, CheckCircle2, Search } from 'lucide-react'
+import { PageHeader } from '@/components/ui'
+import { Factory, Package, Sparkles, AlertTriangle, Search } from 'lucide-react'
 
 interface BottleClassification {
   id: string; trip_id: string; trip_number: string

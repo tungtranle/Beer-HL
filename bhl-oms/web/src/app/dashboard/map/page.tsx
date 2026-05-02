@@ -128,10 +128,9 @@ export default function DispatcherMapPage() {
     if (!token) return
 
     const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
-    const wsHost = window.location.port === '3000'
-      ? `${window.location.hostname}:8080`
-      : window.location.host
-    const wsUrl = `${protocol}//${wsHost}/ws/gps?token=${token}`
+    // Use NEXT_PUBLIC_WS_URL from .env.local in dev (direct to backend, bypasses Next.js proxy)
+    const wsBase = process.env.NEXT_PUBLIC_WS_URL || `${protocol}//${window.location.host}`
+    const wsUrl = `${wsBase}/ws/gps?token=${token}`
 
     const connect = () => {
       const ws = new WebSocket(wsUrl)

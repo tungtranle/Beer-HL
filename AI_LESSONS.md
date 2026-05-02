@@ -55,6 +55,7 @@
 | L-42 | OR-Tools Python: muốn restrict allowed vehicles per node → KHÔNG có `SetAllowedVehiclesForIndex` trong python binding. Phải dùng `routing.VehicleVar(index).SetValues([-1] + allowed_indices)`. `-1` là sentinel cho "không visit". | vrp-solver vehicle-weight constraint |
 | L-43 | **pgx v5 nullable UUID→text scan**: Nếu SQL SELECT có `col::text` và col nullable, scan target PHẢI là `string` (không phải `*string`) và SQL phải dùng `COALESCE(col::text, '')`. Nếu không → runtime scan error. KPI endpoint dùng `err != nil { count = 0 }` che lỗi; exceptions endpoint trả INTERNAL_ERROR lộ rõ. | Phase D wms_exceptions GetExceptions |
 | L-44 | **Migration chạy trong Docker ≠ chạy local PG**. Khi có 2 DB (Docker + local PG port 5433), PHẢI apply migration vào cả 2 hoặc verify server connect tới DB nào. KPIs endpoint ẩn lỗi (trả 0 không lỗi), exceptions endpoint lộ lỗi → dễ nhầm là bug code. | Phase D wms_exceptions migration |
+| L-45 | Khi sửa lỗi frontend local mà DOM vẫn là code cũ dù file đã đổi, PHẢI kiểm tra service worker/PWA cache, browser memory cache và `.next` cache trước khi tiếp tục vá UI. Dev localhost không được để SW cache `/_next/static` vì sẽ làm bug lặp mãi. | Control Tower map width 0 sau Performance Sprint 01/05 |
 
 ## 🟢 Đánh giá / Scope (khi plan)
 

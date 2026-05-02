@@ -9,7 +9,9 @@ import { useRouter } from 'next/navigation'
 import { useDataRefresh } from '@/lib/notifications'
 import { useAIFeature } from '@/hooks/useAIFeature'
 import { Modal, Textarea, Button } from '@/components/ui'
-import { Truck, Bus, CalendarDays, ShieldAlert, AlertTriangle, Circle } from 'lucide-react'
+import { Truck, Bus, CalendarDays, ShieldAlert, AlertTriangle } from 'lucide-react'
+// Self-hosted leaflet CSS: required so Leaflet panes/tiles are positioned correctly.
+import 'leaflet/dist/leaflet.css'
 
 // ─── Types ───────────────────────────────────────────
 
@@ -161,6 +163,39 @@ const emptyStateText: Record<string, string> = {
 const OFF_ROUTE_THRESHOLD_KM = 1.2
 const ROUTE_VISIBLE_STATUSES = ['in_transit', 'assigned', 'ready']
 
+const LEAFLET_CRITICAL_CSS = `
+  .leaflet-container{overflow:hidden;touch-action:pan-x pan-y;background:#ddd;outline-offset:1px}
+  .leaflet-pane,.leaflet-tile,.leaflet-marker-icon,.leaflet-marker-shadow,.leaflet-tile-container,.leaflet-pane>svg,.leaflet-pane>canvas,.leaflet-zoom-box,.leaflet-image-layer,.leaflet-layer{position:absolute;left:0;top:0}
+  .leaflet-tile{width:256px;height:256px;user-select:none;-webkit-user-drag:none}
+  .leaflet-marker-icon,.leaflet-marker-shadow{display:block}
+  .leaflet-map-pane{z-index:400}
+  .leaflet-tile-pane{z-index:200}
+  .leaflet-overlay-pane{z-index:400}
+  .leaflet-shadow-pane{z-index:500}
+  .leaflet-marker-pane{z-index:600}
+  .leaflet-tooltip-pane{z-index:650}
+  .leaflet-popup-pane{z-index:700}
+`
+
+function uniqueUrls(urls: string[]) {
+  return Array.from(new Set(urls.filter(Boolean)))
+}
+
+function buildGpsWebSocketUrls(token: string) {
+  const encodedToken = encodeURIComponent(token)
+  const proto = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
+  const envBase = process.env.NEXT_PUBLIC_WS_URL?.replace(/\/$/, '')
+  const isLocalNext = window.location.hostname === 'localhost' && window.location.port.startsWith('300')
+  const directBackendBase = `${proto}//${window.location.hostname}:8080`
+  const sameHostBase = `${proto}//${window.location.host}`
+  const bases = envBase ? [envBase] : isLocalNext ? [directBackendBase, sameHostBase] : [sameHostBase, directBackendBase]
+
+  return uniqueUrls(bases.flatMap((base) => [
+    `${base}/v1/ws/gps?token=${encodedToken}`,
+    `${base}/ws/gps?token=${encodedToken}`,
+  ]))
+}
+
 function tripStatusColor(status: string) {
   if (status === 'in_transit') return '#16a34a'
   if (status === 'assigned' || status === 'ready') return '#d97706'
@@ -271,6 +306,19 @@ export default function ControlTowerPage() {
   // Track which vehicle marker had its popup open — so we can reopen after marker rebuild
   const openPopupPlateRef = useRef<string | null>(null)
   const [gpsSimRunning, setGpsSimRunning] = useState(false)
+
+  const invalidateMapSize = useCallback(() => {
+    if (typeof window === 'undefined') return
+    window.requestAnimationFrame(() => {
+      const map = leafletMapRef.current
+      const container = mapRef.current
+      if (!map || !container) return
+      const rect = container.getBoundingClientRect()
+      if (rect.width > 0 && rect.height > 0) {
+        map.invalidateSize({ pan: false })
+      }
+    })
+  }, [])
   useEffect(() => {
     if (!user || !['admin', 'dispatcher', 'management'].includes(user.role)) {
       router.replace('/dashboard')
@@ -306,11 +354,23 @@ export default function ControlTowerPage() {
 
   useEffect(() => {
     if (!leafletMapRef.current) return
-    const timer = window.setTimeout(() => {
-      leafletMapRef.current?.invalidateSize()
-    }, 60)
-    return () => window.clearTimeout(timer)
-  }, [mapExpanded, mapFullscreen, alertsDrawerOpen])
+    invalidateMapSize()
+    const timers = [80, 240].map((delay) => window.setTimeout(invalidateMapSize, delay))
+    return () => timers.forEach((timer) => window.clearTimeout(timer))
+  }, [mapExpanded, mapFullscreen, alertsDrawerOpen, invalidateMapSize])
+
+  useEffect(() => {
+    if (typeof window === 'undefined' || !mapRef.current) return
+    const container = mapRef.current
+    const observer = 'ResizeObserver' in window ? new ResizeObserver(invalidateMapSize) : null
+    observer?.observe(container)
+    window.addEventListener('resize', invalidateMapSize)
+    invalidateMapSize()
+    return () => {
+      observer?.disconnect()
+      window.removeEventListener('resize', invalidateMapSize)
+    }
+  }, [invalidateMapSize])
 
   const getTileConfig = useCallback((mode: 'map' | 'satellite') => {
     if (mode === 'satellite') {
@@ -637,12 +697,30 @@ export default function ControlTowerPage() {
     const token = getToken()
     if (!token) return
 
-    const proto = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
-    const wsHost = window.location.port === '3000'
-      ? `${window.location.hostname}:8080`
-      : window.location.host
-    const ws = new WebSocket(`${proto}//${wsHost}/ws/gps?token=${token}`)
-    ws.onmessage = (e) => {
+    const urls = buildGpsWebSocketUrls(token)
+    let stopped = false
+    let attempt = 0
+    let ws: WebSocket | null = null
+
+    const connect = () => {
+      if (stopped || attempt >= urls.length) return
+      const currentAttempt = attempt
+      ws = new WebSocket(urls[currentAttempt])
+
+      ws.onerror = () => {
+        if (stopped || currentAttempt !== attempt) return
+        attempt += 1
+        ws?.close()
+        window.setTimeout(connect, 250)
+      }
+
+      ws.onclose = () => {
+        if (stopped || currentAttempt !== attempt) return
+        attempt += 1
+        window.setTimeout(connect, 250)
+      }
+
+      ws.onmessage = (e) => {
       try {
         const data = JSON.parse(e.data)
         if (data.type === 'position') {
@@ -659,7 +737,13 @@ export default function ControlTowerPage() {
         }
       } catch { /* ignore */ }
     }
-    return () => ws.close()
+    }
+
+    connect()
+    return () => {
+      stopped = true
+      ws?.close()
+    }
   }, [])
 
   // Initialize Leaflet map
@@ -677,11 +761,12 @@ export default function ControlTowerPage() {
       leafletMapRef.current = map
 
       // Leaflet can initialize before the flex layout settles, leaving a blank canvas.
-      window.setTimeout(() => {
-        if (!cancelled && leafletMapRef.current) {
-          leafletMapRef.current.invalidateSize()
-        }
-      }, 0)
+      invalidateMapSize()
+      ;[80, 240, 600].forEach((delay) => {
+        window.setTimeout(() => {
+          if (!cancelled) invalidateMapSize()
+        }, delay)
+      })
     }
     initMap()
     return () => {
@@ -694,7 +779,7 @@ export default function ControlTowerPage() {
       markersRef.current = []
       routeLayersRef.current = []
     }
-  }, [loading, getTileConfig])
+  }, [loading, getTileConfig, invalidateMapSize])
 
   useEffect(() => {
     const map = leafletMapRef.current
@@ -1124,9 +1209,10 @@ export default function ControlTowerPage() {
 
   return (
     <>
-    <div className={`${mapFullscreen ? 'fixed inset-0 z-[950] bg-white' : 'flex h-full'} flex gap-0 overflow-hidden`}>
+    <div className={`${mapFullscreen ? 'fixed inset-0 z-[950] bg-white' : 'h-full min-h-[640px] min-w-[1040px]'} flex gap-0 overflow-hidden`}>
       <style>{`
         @import url('https://fonts.googleapis.com/css2?family=Roboto:wght@400;500;700&display=swap');
+        ${LEAFLET_CRITICAL_CSS}
         @keyframes ping{75%,100%{transform:scale(2);opacity:0}}
         .ct-map-btn{background:#fff;border:0;border-radius:8px;box-shadow:0 2px 6px rgba(0,0,0,0.3);font-family:Roboto,sans-serif}
         .ct-map-btn:hover{background:#f5f5f5}
@@ -1421,7 +1507,7 @@ export default function ControlTowerPage() {
       )}
 
       {/* ═══ CENTER COLUMN (50%) — GPS Map ═══ */}
-      <div className="flex-1 flex flex-col overflow-hidden">
+      <div className="flex-1 min-w-[420px] flex flex-col overflow-hidden">
         {/* Map filter chips */}
         <div className="flex items-center gap-2 px-3 py-2 bg-white border-b text-xs">
           <span className="text-gray-500">Lọc:</span>

@@ -7,6 +7,24 @@
 
 ## [Unreleased] — Phase 6 + UX Overhaul + Phase 8 Fleet & Driver + **Phase 9 WMS Pallet/QR/Bin/Cycle Count COMPLETE (15/15)** + **Sprint 1 World-Class (F2/F3/F7/H4/TD-020) GO LIVE** + **Sprint UX-1 World-Class Design System** + **Sprint UX-2 Dashboard Pages Redesign (ALL DONE)** + **Sprint UX-3 Pagination & Filter Audit (in progress)** + **AQF Roadmap ALL COMPLETE** + **Session 28/04 Historical Data Completeness Audit** + **Sprint Component System (30/04) COMPLETE** + **Performance Sprint 1-2-3 (30/04) COMPLETE**
 
+### 2026-05-01 — Control Tower map render fix after Performance Sprint
+
+#### Fixed — Control Tower map bị co width 0 / tile lệch trên localhost
+- `web/src/app/layout.tsx`: local dev (`localhost`/`127.0.0.1`) tự unregister service worker và clear browser caches; production vẫn register SW bình thường.
+- `web/public/sw.js`: service worker bỏ qua mọi request localhost để không phục vụ stale Next.js dev chunks.
+- `web/src/app/dashboard/layout.tsx`: riêng `/dashboard/control-tower` render edge-to-edge (`p-0 overflow-auto`) thay vì bọc `p-6`, tránh mất chiều ngang trong cockpit 3 cột.
+- `web/src/app/dashboard/control-tower/page.tsx`: thêm Leaflet CSS local/critical CSS, resize observer/invalidateSize, GPS WS URL fallback, và `min-w-[1040px]` cho cockpit để viewport hẹp scroll ngang thay vì ép map width về 0.
+
+#### Verification
+- `get_errors` on `web/src/app/layout.tsx`, `web/src/app/dashboard/layout.tsx`, `web/src/app/dashboard/control-tower/page.tsx`, `web/public/sw.js` — PASS.
+- Scoped ESLint on dashboard layout + control tower — 0 errors; existing warnings remain in large legacy files.
+- Local smoke after clearing SW/browser caches and `.next`: `/dashboard/control-tower` loads; measured `.leaflet-container` changed from `0x420` to `480x551`, cockpit root `min-width=1040px`, tile count 9.
+
+#### Docs Updated
+- `CURRENT_STATE.md`
+- `CHANGELOG.md`
+- `AI_LESSONS.md`
+
 ### 2026-04-30 — World-Class Performance: Sprint 1 + 2 + 3
 
 #### Problem

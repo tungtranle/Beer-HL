@@ -948,7 +948,7 @@ type Notification struct {
 	AcknowledgedAt    *time.Time `json:"acknowledged_at,omitempty"`
 	ResolvedAt        *time.Time `json:"resolved_at,omitempty"`
 	IdempotencyKey    *string    `json:"-"` // internal, not exposed via API
-	ExpiresAt         time.Time  `json:"expires_at,omitempty"`
+	ExpiresAt         *time.Time `json:"expires_at,omitempty"`
 	EscalatedAt       *time.Time `json:"escalated_at,omitempty"`
 	EscalatedToUserID *uuid.UUID `json:"escalated_to_user_id,omitempty"`
 	CreatedAt         time.Time  `json:"created_at"`

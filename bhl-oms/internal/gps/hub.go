@@ -100,6 +100,13 @@ func (h *Hub) newUpgrader() websocket.Upgrader {
 				return true // dev mode — no restriction
 			}
 			origin := r.Header.Get("Origin")
+			if origin == "" {
+				return true // proxied requests (no Origin header)
+			}
+			// Allow any localhost origin regardless of port (dev + Next.js proxy)
+			if strings.HasPrefix(origin, "http://localhost:") || strings.HasPrefix(origin, "https://localhost:") {
+				return true
+			}
 			for _, allowed := range h.allowedOrigins {
 				if strings.EqualFold(origin, allowed) {
 					return true

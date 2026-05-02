@@ -952,18 +952,19 @@ func (r *Repository) GetControlDeskStats(ctx context.Context, warehouseID *uuid.
 	`
 	args := []interface{}{}
 	argIdx := 1
+
 	if warehouseID != nil {
 		query += fmt.Sprintf(" AND so.warehouse_id = $%d", argIdx)
 		args = append(args, *warehouseID)
 		argIdx++
 	}
 	if fromDate != "" {
-		query += fmt.Sprintf(" AND so.delivery_date >= $%d", argIdx)
+		query += fmt.Sprintf(" AND so.created_at::date >= $%d::date", argIdx)
 		args = append(args, fromDate)
 		argIdx++
 	}
 	if toDate != "" {
-		query += fmt.Sprintf(" AND so.delivery_date <= $%d", argIdx)
+		query += fmt.Sprintf(" AND so.created_at::date <= $%d::date", argIdx)
 		args = append(args, toDate)
 		argIdx++
 	}

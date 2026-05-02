@@ -16,7 +16,7 @@ import { createPortal } from 'react-dom'
 import {
   X, Search, BookOpen, Sparkles, Keyboard, HelpCircle,
   FileText, Truck, Warehouse, Scale, BarChart3, Settings,
-  ChevronRight, ExternalLink, Lightbulb, AlertTriangle, CheckCircle2,
+  ChevronRight, ExternalLink, Lightbulb,
   ArrowRight,
 } from 'lucide-react'
 import Link from 'next/link'
@@ -557,7 +557,7 @@ export function HelpDrawer({ open, onClose, userRole }: HelpDrawerProps) {
                 </p>
               </div>
               {filteredAI.map((item, i) => (
-                <GuideCard key={i} item={item} onClose={onClose} accent="brand" />
+                <GuideCard key={i} item={item} onClose={onClose} />
               ))}
             </>
           )}
@@ -622,11 +622,9 @@ export function HelpDrawer({ open, onClose, userRole }: HelpDrawerProps) {
 function GuideCard({
   item,
   onClose,
-  accent = 'gray',
 }: {
   item: HelpItem
   onClose: () => void
-  accent?: 'gray' | 'brand'
 }) {
   const [expanded, setExpanded] = useState(false)
   return (

@@ -54,6 +54,11 @@ const nextConfig = {
         source: '/v1/:path*',
         destination: `${API_ORIGIN}/v1/:path*`,
       },
+      // WebSocket for notifications — proxied to backend
+      {
+        source: '/v1/ws/:path*',
+        destination: `${API_ORIGIN}/v1/ws/:path*`,
+      },
       // OSRM routing — proxied server-side (avoids CORS from browser to Docker)
       {
         source: '/osrm/:path*',

@@ -38,7 +38,7 @@ func (h *Handler) RegisterRoutes(r *gin.RouterGroup) {
 }
 
 // RegisterWebSocket adds the notification WebSocket route (no auth middleware — token in query).
-func (h *Handler) RegisterWebSocket(r *gin.Engine) {
+func (h *Handler) RegisterWebSocket(r *gin.RouterGroup) {
 	r.GET("/ws/notifications", h.HandleWebSocket)
 }
 

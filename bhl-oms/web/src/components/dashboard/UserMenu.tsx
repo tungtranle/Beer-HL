@@ -7,7 +7,7 @@ import { clearAuth } from '@/lib/api'
 
 interface Props {
   fullName: string
-  role: string
+  _role: string
   initials: string
   roleLabel: string
 }
@@ -16,7 +16,7 @@ interface Props {
  * UserMenu — isolated 'use client' dropdown so its open/close state
  * does not trigger a re-render of the full DashboardLayout tree.
  */
-export function UserMenu({ fullName, role, initials, roleLabel }: Props) {
+export function UserMenu({ fullName, _role, initials, roleLabel }: Props) {
   const router = useRouter()
   const [open, setOpen] = useState(false)
 

@@ -72,7 +72,7 @@ func Load() *Config {
 		GroqAPIKey:   getEnv("GROQ_API_KEY", ""),
 
 		// HIGH-007: default to localhost:3000 for dev; set ALLOWED_ORIGINS in prod
-		AllowedOrigins: getEnv("ALLOWED_ORIGINS", "http://localhost:3000"),
+		AllowedOrigins: getEnv("ALLOWED_ORIGINS", "http://localhost:3000,http://localhost:3001,http://localhost:3002"),
 	}
 }
 

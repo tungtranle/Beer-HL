@@ -223,7 +223,7 @@ func main() {
 	notifSvc := notification.NewService(notifRepo, notifHub, appLog)
 	notifHandler := notification.NewHandler(notifSvc, notifHub, authSvc, appLog)
 	notifHandler.RegisterRoutes(protected)
-	notifHandler.RegisterWebSocket(r)
+	notifHandler.RegisterWebSocket(v1)
 	notifSvc.StartEscalationCron()
 	notifSvc.StartCleanupCron()
 	appLog.Info(ctx, "notification_initialized")
@@ -356,7 +356,7 @@ func main() {
 	}
 
 	// GPS WebSocket (authenticated via query token)
-	r.GET("/ws/gps", gpsHub.HandleWebSocket)
+	v1.GET("/ws/gps", gpsHub.HandleWebSocket)
 
 	// Dashboard stats (Task 3.15 — 5 widgets)
 	protected.GET("/dashboard/stats", func(c *gin.Context) {

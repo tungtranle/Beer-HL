@@ -14,7 +14,7 @@ import {
   MapPin, Package, Users, Car, User, Warehouse, QrCode,
   ShieldCheck, CheckCircle2, Scale, FileBarChart, BarChart3, Bell,
   Settings, SlidersHorizontal, CreditCard, ScrollText, Navigation, Activity,
-  Wrench, Search, LogOut, ChevronDown, PanelLeftClose, PanelLeft, Shield, ClipboardCheck,
+  Wrench, Search, LogOut, PanelLeftClose, PanelLeft, Shield, ClipboardCheck,
   DollarSign, BookOpen,
   type LucideIcon,
 } from 'lucide-react'
@@ -211,6 +211,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
     .toUpperCase() || '?'
 
   const isDriver = user.role === 'driver'
+  const isEdgeToEdgePage = pathname === '/dashboard/control-tower'
 
   // ── Mobile-first PWA shell for drivers ──
   if (isDriver) {
@@ -346,7 +347,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
         </aside>
 
         {/* ── Main Content ── */}
-        <main className="flex-1 flex flex-col overflow-hidden">
+        <main className="flex-1 min-w-0 flex flex-col overflow-hidden">
           {/* Topbar */}
           <header className="flex items-center justify-between h-14 px-4 bg-white border-b border-gray-200/80 shrink-0 gap-4">
             {/* Left: Sidebar toggle + Page title */}
@@ -390,7 +391,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
               {/* User dropdown — isolated component to avoid full-layout re-renders */}
               <UserMenu
                 fullName={user.full_name || ''}
-                role={user.role}
+                _role={user.role}
                 initials={initials}
                 roleLabel={roleLabels[user.role] || user.role}
               />
@@ -398,7 +399,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
           </header>
 
           {/* Page content */}
-          <div className="flex-1 overflow-y-auto p-6">{children}</div>
+          <div className={`flex-1 ${isEdgeToEdgePage ? 'overflow-auto p-0' : 'overflow-y-auto p-6'}`}>{children}</div>
         </main>
 
         <ToastContainer />

@@ -27,6 +27,15 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         <script dangerouslySetInnerHTML={{ __html: `
           if ('serviceWorker' in navigator) {
             window.addEventListener('load', () => {
+              const isLocalDev = ['localhost', '127.0.0.1'].includes(window.location.hostname);
+              if (isLocalDev) {
+                navigator.serviceWorker.getRegistrations()
+                  .then((registrations) => Promise.all(registrations.map((registration) => registration.unregister())))
+                  .then(() => caches.keys())
+                  .then((keys) => Promise.all(keys.map((key) => caches.delete(key))))
+                  .catch(() => {});
+                return;
+              }
               navigator.serviceWorker.register('/sw.js').catch(() => {});
             });
           }

@@ -1,6 +1,6 @@
 # CURRENT_STATE — BHL OMS-TMS-WMS
 
-> **Cập nhật:** 27/04/2026 (session 27/04 — Decision Intelligence UX one-shot)  
+> **Cập nhật:** 01/05/2026 (session 01/05 — Control Tower map layout/dev cache fix)  
 > **Mục đích:** Mô tả trạng thái THỰC TẾ của hệ thống. AI đọc file này để biết code đang làm gì, **không** phải spec nói gì.  
 > **Quy tắc:** Khi code thay đổi → cập nhật file này. Nếu CURRENT_STATE không khớp code → file này sai.
 
@@ -22,6 +22,12 @@
 | Sentry | Cloud (sentry.io) | — | ✅ DSN configured (frontend + backend) |
 
 ## Vận hành Production
+
+### Frontend Dev/PWA Cache Note — ✅ Control Tower map fix (01/05/2026)
+- Root layout chỉ register service worker ngoài localhost; khi chạy local dev (`localhost`/`127.0.0.1`) app tự unregister service worker và xóa cache để tránh Next dev chunks cũ giữ code cũ.
+- `public/sw.js` bỏ qua toàn bộ fetch trên localhost/127.0.0.1, nên dev không bị PWA cache can thiệp.
+- `/dashboard/control-tower` chạy edge-to-edge trong dashboard shell (`p-0 overflow-auto`) và cockpit có `min-w-[1040px]`; khi viewport hẹp, page scroll ngang thay vì flex ép cột bản đồ về width 0.
+- Control Tower map container có critical Leaflet CSS + resize observer/invalidateSize để Leaflet reflow sau khi layout đổi kích thước.
 
 - Production server hiện chạy trên Mac mini qua Docker Compose file `bhl-oms/docker-compose.prod.yml`.
 - GitHub Actions self-hosted runner trên Mac mini tự deploy khi push lên `master`, dùng labels `self-hosted`, `macOS`, `production`.

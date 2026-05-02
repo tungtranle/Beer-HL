@@ -231,10 +231,7 @@ export function NotificationProvider({ children }: { children: React.ReactNode }
       if (!token && !getToken()) return
 
       const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
-      const wsHost = window.location.port === '3000'
-        ? `${window.location.hostname}:8080`
-        : window.location.host
-      const wsUrl = `${protocol}//${wsHost}/ws/notifications?token=${token || getToken()}`
+      const wsUrl = `${protocol}//${window.location.host}/v1/ws/notifications?token=${token || getToken()}`
       ws = new WebSocket(wsUrl)
       wsRef.current = ws
 
