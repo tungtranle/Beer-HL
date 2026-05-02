@@ -70,24 +70,71 @@ jobs:
 
       - name: Ensure SSL certs exist
         run: |
-          PERSISTENT_SSL="/Users/tungtranle/Projects/Beer-HL/bhl-oms/nginx/ssl"
           WORKSPACE_SSL="$GITHUB_WORKSPACE/$PROJECT_DIR/nginx/ssl"
           mkdir -p "$WORKSPACE_SSL"
-          if [ -f "$PERSISTENT_SSL/fullchain.pem" ] && [ -f "$PERSISTENT_SSL/privkey.pem" ]; then
-            cp "$PERSISTENT_SSL/fullchain.pem" "$WORKSPACE_SSL/fullchain.pem"
-            cp "$PERSISTENT_SSL/privkey.pem" "$WORKSPACE_SSL/privkey.pem"
-            echo "SSL certs copied from persistent location (real Let's Encrypt certs)"
-            openssl x509 -in "$WORKSPACE_SSL/fullchain.pem" -noout -enddate 2>/dev/null || true
-          elif [ ! -f "$WORKSPACE_SSL/fullchain.pem" ] || [ ! -f "$WORKSPACE_SSL/privkey.pem" ]; then
-            echo "WARNING: No real certs found at $PERSISTENT_SSL, generating self-signed"
-            openssl req -x509 -nodes -days 3650 -newkey rsa:2048 \
-              -keyout "$WORKSPACE_SSL/privkey.pem" \
-              -out "$WORKSPACE_SSL/fullchain.pem" \
-              -subj '/C=VN/ST=QuangNinh/L=HaLong/O=BHL/CN=bhl.symper.us'
-            echo "Self-signed cert generated (fallback)"
+
+          # Helper: check if a cert is real (not self-signed, not expired)
+          is_real_cert() {
+            local f="$1"
+            [ -f "$f" ] || return 1
+            # Check issuer is not self-signed (CN != O for real certs)
+            local issuer subject
+            issuer=$(openssl x509 -in "$f" -noout -issuer 2>/dev/null)
+            subject=$(openssl x509 -in "$f" -noout -subject 2>/dev/null)
+            # Let's Encrypt certs have issuer "Let's Encrypt"
+            echo "$issuer" | grep -qi "let.s encrypt\|letsencrypt\|zerossl\|digicert\|sectigo" && return 0
+            # If issuer != subject it's at least a proper CA cert (not self-signed)
+            [ "$issuer" != "$subject" ] && return 0
+            return 1
+          }
+
+          # Search priority: letsencrypt system dirs > docker volumes > persistent project dir
+          FOUND=""
+          for SEARCH_DIR in \
+            "/etc/letsencrypt/live/bhl.symper.us" \
+            "/etc/letsencrypt/live/oms.bhl.vn" \
+            "/var/lib/docker/volumes/bhl-oms_ssl/_data" \
+            "/Users/tungtranle/ssl" \
+            "/Users/tungtranle/certs" \
+            "/Users/tungtranle/Projects/Beer-HL/bhl-oms/nginx/ssl" \
+            "/Users/tungtranle/Projects/Beer-HL/nginx/ssl"; do
+            if [ -f "$SEARCH_DIR/fullchain.pem" ] && [ -f "$SEARCH_DIR/privkey.pem" ]; then
+              echo "Found certs at: $SEARCH_DIR"
+              openssl x509 -in "$SEARCH_DIR/fullchain.pem" -noout -subject -issuer -enddate 2>/dev/null || true
+              if is_real_cert "$SEARCH_DIR/fullchain.pem"; then
+                echo "  -> REAL cert (Let's Encrypt or CA-signed), using this"
+                FOUND="$SEARCH_DIR"
+                break
+              else
+                echo "  -> Self-signed, skipping"
+              fi
+            fi
+          done
+
+          if [ -n "$FOUND" ]; then
+            cp "$FOUND/fullchain.pem" "$WORKSPACE_SSL/fullchain.pem"
+            cp "$FOUND/privkey.pem" "$WORKSPACE_SSL/privkey.pem"
+            echo "SSL certs copied from: $FOUND"
           else
-            echo "SSL certs already in workspace, using existing"
+            echo "=== WARNING: No real SSL cert found anywhere! Listing all search paths: ==="
+            for SEARCH_DIR in \
+              "/etc/letsencrypt/live" \
+              "/Users/tungtranle/ssl" \
+              "/Users/tungtranle/certs" \
+              "/Users/tungtranle/Projects/Beer-HL/bhl-oms/nginx/ssl"; do
+              echo "--- $SEARCH_DIR ---"
+              ls -la "$SEARCH_DIR" 2>/dev/null || echo "  (not found)"
+            done
+            if [ ! -f "$WORKSPACE_SSL/fullchain.pem" ]; then
+              echo "Generating self-signed cert (FALLBACK - Cloudflare Full mode will fail)"
+              openssl req -x509 -nodes -days 3650 -newkey rsa:2048 \
+                -keyout "$WORKSPACE_SSL/privkey.pem" \
+                -out "$WORKSPACE_SSL/fullchain.pem" \
+                -subj '/C=VN/ST=QuangNinh/L=HaLong/O=BHL/CN=bhl.symper.us'
+            fi
           fi
+          echo "=== Final cert in use ==="
+          openssl x509 -in "$WORKSPACE_SSL/fullchain.pem" -noout -subject -issuer -enddate 2>/dev/null || echo "No cert"
 
       - name: Restart services
         run: |
@@ -149,6 +196,12 @@ jobs:
 
           # Success if API + nginx both responding locally
           if [ "$HTTP80" != "0" ] || [ "$HTTP443" != "0" ]; then
+            if [ "$HTTP443" = "0" ]; then
+              echo "=== FAIL: Nginx HTTPS (port 443) KHONG phan hoi - SSL cert issue? ==="
+              echo "--- Nginx logs ---"
+              docker compose -f $PROJECT_DIR/docker-compose.prod.yml logs nginx --tail 50
+              exit 1
+            fi
             echo "=== DEPLOY THANH CONG - API + Nginx UP ==="
             if [ "$HTTPS_PUBLIC" != "200" ]; then
               echo "WARNING: Public HTTPS chua accessible (Cloudflare delay?) - site se on sau vai phut"
