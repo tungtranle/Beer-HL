@@ -70,17 +70,23 @@ jobs:
 
       - name: Ensure SSL certs exist
         run: |
-          SSL_DIR="$GITHUB_WORKSPACE/$PROJECT_DIR/nginx/ssl"
-          mkdir -p "$SSL_DIR"
-          if [ ! -f "$SSL_DIR/fullchain.pem" ] || [ ! -f "$SSL_DIR/privkey.pem" ]; then
-            echo "SSL certs missing, generating self-signed..."
+          PERSISTENT_SSL="/Users/tungtranle/Projects/Beer-HL/bhl-oms/nginx/ssl"
+          WORKSPACE_SSL="$GITHUB_WORKSPACE/$PROJECT_DIR/nginx/ssl"
+          mkdir -p "$WORKSPACE_SSL"
+          if [ -f "$PERSISTENT_SSL/fullchain.pem" ] && [ -f "$PERSISTENT_SSL/privkey.pem" ]; then
+            cp "$PERSISTENT_SSL/fullchain.pem" "$WORKSPACE_SSL/fullchain.pem"
+            cp "$PERSISTENT_SSL/privkey.pem" "$WORKSPACE_SSL/privkey.pem"
+            echo "SSL certs copied from persistent location (real Let's Encrypt certs)"
+            openssl x509 -in "$WORKSPACE_SSL/fullchain.pem" -noout -enddate 2>/dev/null || true
+          elif [ ! -f "$WORKSPACE_SSL/fullchain.pem" ] || [ ! -f "$WORKSPACE_SSL/privkey.pem" ]; then
+            echo "WARNING: No real certs found at $PERSISTENT_SSL, generating self-signed"
             openssl req -x509 -nodes -days 3650 -newkey rsa:2048 \
-              -keyout "$SSL_DIR/privkey.pem" \
-              -out "$SSL_DIR/fullchain.pem" \
+              -keyout "$WORKSPACE_SSL/privkey.pem" \
+              -out "$WORKSPACE_SSL/fullchain.pem" \
               -subj '/C=VN/ST=QuangNinh/L=HaLong/O=BHL/CN=bhl.symper.us'
-            echo "Self-signed cert generated"
+            echo "Self-signed cert generated (fallback)"
           else
-            echo "SSL certs already exist, skipping"
+            echo "SSL certs already in workspace, using existing"
           fi
 
       - name: Restart services
@@ -99,21 +105,33 @@ jobs:
 
       - name: Health Check
         run: |
+          echo "=== Nginx container status (initial) ==="
+          docker compose -f $PROJECT_DIR/docker-compose.prod.yml ps nginx
+
           sleep 20
           for i in 1 2 3 4 5 6 7 8; do
             if curl -sf http://localhost:8080/health > /dev/null 2>&1; then
-              echo "API healthy - Deploy thanh cong!"
+              echo "API healthy - kiem tra nginx + HTTPS..."
               docker compose -f $PROJECT_DIR/docker-compose.prod.yml ps
-              exit 0
+              HTTP_CODE=$(curl -sk -o /dev/null -w "%{http_code}" https://bhl.symper.us/health --max-time 15 2>/dev/null || echo "0")
+              echo "Public HTTPS /health response: $HTTP_CODE"
+              if [ "$HTTP_CODE" = "200" ]; then
+                echo "=== DEPLOY THANH CONG - API + Nginx + HTTPS ==="
+                exit 0
+              else
+                echo "=== API OK nhung HTTPS khong hoat dong (code: $HTTP_CODE) ==="
+                echo "--- Nginx logs ---"
+                docker compose -f $PROJECT_DIR/docker-compose.prod.yml logs nginx --tail 30
+                exit 1
+              fi
             fi
             echo "Thu $i/8 - doi them 10s... ($(date '+%H:%M:%S'))"
             sleep 10
           done
           echo "=== API khong phan hoi sau 100s ==="
-          echo "--- Container status ---"
           docker compose -f $PROJECT_DIR/docker-compose.prod.yml ps
           echo "--- API logs (last 50) ---"
           docker compose -f $PROJECT_DIR/docker-compose.prod.yml logs api --tail 50
-          echo "--- Docker events (last 20) ---"
-          docker events --since 5m --until now --filter type=container 2>/dev/null | tail -20 || true
+          echo "--- Nginx logs (last 30) ---"
+          docker compose -f $PROJECT_DIR/docker-compose.prod.yml logs nginx --tail 30
           exit 1
