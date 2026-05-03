@@ -231,7 +231,12 @@ export function NotificationProvider({ children }: { children: React.ReactNode }
       if (!token && !getToken()) return
 
       const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
-      const wsUrl = `${protocol}//${window.location.host}/v1/ws/notifications?token=${token || getToken()}`
+      // In dev, connect directly to backend to avoid crashing Next.js dev server
+      // via WebSocket proxy errors (ECONNRESET on reconnect crashes webpack runtime)
+      const wsHost = process.env.NODE_ENV === 'development'
+        ? 'localhost:8080'
+        : window.location.host
+      const wsUrl = `${protocol}//${wsHost}/v1/ws/notifications?token=${token || getToken()}`
       ws = new WebSocket(wsUrl)
       wsRef.current = ws
 

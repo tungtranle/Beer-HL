@@ -7,9 +7,17 @@ export default function Home() {
   const router = useRouter()
 
   useEffect(() => {
-    if (getToken()) {
-      router.replace('/dashboard')
-    } else {
+    try {
+      if (typeof window !== 'undefined') {
+        const token = getToken()
+        if (token) {
+          router.replace('/dashboard')
+        } else {
+          router.replace('/login')
+        }
+      }
+    } catch (error) {
+      console.error('Error checking auth:', error)
       router.replace('/login')
     }
   }, [router])

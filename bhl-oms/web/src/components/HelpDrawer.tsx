@@ -417,7 +417,7 @@ export function HelpDrawer({ open, onClose, userRole }: HelpDrawerProps) {
   ] as const
 
   return createPortal(
-    <div className="fixed inset-0 z-50 flex justify-end">
+    <div className="fixed inset-0 z-[9999] flex justify-end">
       {/* Backdrop */}
       <div
         className="absolute inset-0 bg-black/20 backdrop-blur-sm"

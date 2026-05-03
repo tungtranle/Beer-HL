@@ -118,9 +118,13 @@ export async function apiFetch<T>(path: string, options: ApiOptions = {}): Promi
     if (token) {
       headers['Authorization'] = `Bearer ${token}`;
     } else if (typeof window !== 'undefined') {
-      const stored = getStoredToken();
-      if (stored) {
-        headers['Authorization'] = `Bearer ${stored}`;
+      try {
+        const stored = getStoredToken();
+        if (stored) {
+          headers['Authorization'] = `Bearer ${stored}`;
+        }
+      } catch (err) {
+        console.error('Error reading stored token:', err);
       }
     }
     return headers;
@@ -171,7 +175,12 @@ export async function apiFetch<T>(path: string, options: ApiOptions = {}): Promi
 
 export function getToken(): string | null {
   if (typeof window === 'undefined') return null;
-  return getStoredToken();
+  try {
+    return getStoredToken();
+  } catch (err) {
+    console.error('Error getting stored token:', err);
+    return null;
+  }
 }
 
 export function getUser(): { id: string; username: string; full_name: string; role: string; warehouse_ids: string[] } | null {

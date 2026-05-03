@@ -26,7 +26,8 @@ func NewRepository(db *pgxpool.Pool, log logger.Logger) *Repository {
 func (r *Repository) ListPendingDates(ctx context.Context, warehouseID uuid.UUID) ([]map[string]interface{}, error) {
 	rows, err := r.db.Query(ctx, `
 		SELECT s.delivery_date::text, COUNT(*) as shipment_count,
-		       COALESCE(SUM(s.total_weight_kg), 0) as total_weight_kg
+		       COALESCE(SUM(s.total_weight_kg), 0) as total_weight_kg,
+		       (s.delivery_date < current_date) as is_overdue
 		FROM shipments s
 		WHERE s.warehouse_id = $1 AND s.status = 'pending'
 		GROUP BY s.delivery_date
@@ -42,29 +43,73 @@ func (r *Repository) ListPendingDates(ctx context.Context, warehouseID uuid.UUID
 		var date string
 		var count int
 		var weight float64
-		if err := rows.Scan(&date, &count, &weight); err != nil {
+		var isOverdue bool
+		if err := rows.Scan(&date, &count, &weight, &isOverdue); err != nil {
 			return nil, err
 		}
 		dates = append(dates, map[string]interface{}{
 			"delivery_date":   date,
 			"shipment_count":  count,
 			"total_weight_kg": weight,
+			"is_overdue":      isOverdue,
 		})
 	}
 	return dates, nil
 }
 
-func (r *Repository) ListPendingShipments(ctx context.Context, warehouseID uuid.UUID, deliveryDate string) ([]domain.Shipment, error) {
-	rows, err := r.db.Query(ctx, `
+// GetPendingSummary trả về tổng hợp đơn tồn đọng theo ngày hôm nay.
+// Phân 3 nhóm: overdue (trễ hẹn), today (hôm nay), future (ngày mai+).
+func (r *Repository) GetPendingSummary(ctx context.Context, warehouseID uuid.UUID, today string) (map[string]interface{}, error) {
+	row := r.db.QueryRow(ctx, `
+		SELECT
+		  COUNT(*) FILTER (WHERE delivery_date < $2) AS overdue_count,
+		  COALESCE(SUM(total_weight_kg) FILTER (WHERE delivery_date < $2), 0) AS overdue_weight_kg,
+		  COUNT(*) FILTER (WHERE delivery_date = $2) AS today_count,
+		  COALESCE(SUM(total_weight_kg) FILTER (WHERE delivery_date = $2), 0) AS today_weight_kg,
+		  COUNT(*) FILTER (WHERE delivery_date > $2) AS future_count,
+		  COALESCE(SUM(total_weight_kg) FILTER (WHERE delivery_date > $2), 0) AS future_weight_kg
+		FROM shipments
+		WHERE warehouse_id = $1 AND status = 'pending'
+	`, warehouseID, today)
+
+	var overdueCount, todayCount, futureCount int
+	var overdueWeight, todayWeight, futureWeight float64
+	if err := row.Scan(&overdueCount, &overdueWeight, &todayCount, &todayWeight, &futureCount, &futureWeight); err != nil {
+		return nil, err
+	}
+	return map[string]interface{}{
+		"overdue_count":     overdueCount,
+		"overdue_weight_kg": overdueWeight,
+		"today_count":       todayCount,
+		"today_weight_kg":   todayWeight,
+		"future_count":      futureCount,
+		"future_weight_kg":  futureWeight,
+		"total_count":       overdueCount + todayCount,
+		"total_weight_kg":   overdueWeight + todayWeight,
+	}, nil
+}
+
+// ListPendingShipments lấy danh sách shipment pending.
+// Nếu includeOverdue=true: lấy tất cả delivery_date <= deliveryDate (gồm trễ hẹn).
+// Nếu false: chỉ lấy đúng delivery_date.
+func (r *Repository) ListPendingShipments(ctx context.Context, warehouseID uuid.UUID, deliveryDate string, includeOverdue bool) ([]domain.Shipment, error) {
+	var op string
+	if includeOverdue {
+		op = "<="
+	} else {
+		op = "="
+	}
+	query := fmt.Sprintf(`
 		SELECT s.id, s.shipment_number, s.order_id, s.customer_id, c.name, c.address,
 		       s.warehouse_id, s.status::text, s.delivery_date::text, s.total_weight_kg, s.total_volume_m3,
 		       c.latitude, c.longitude, s.is_urgent, s.created_at, o.created_at, o.approved_at
 		FROM shipments s
 		JOIN customers c ON c.id = s.customer_id
 		LEFT JOIN sales_orders o ON o.id = s.order_id
-		WHERE s.warehouse_id = $1 AND s.delivery_date = $2 AND s.status = 'pending'
-		ORDER BY s.is_urgent DESC, o.created_at ASC NULLS LAST, c.route_code, c.name
-	`, warehouseID, deliveryDate)
+		WHERE s.warehouse_id = $1 AND s.delivery_date %s $2 AND s.status = 'pending'
+		ORDER BY s.is_urgent DESC, s.delivery_date ASC, o.created_at ASC NULLS LAST, c.route_code, c.name
+	`, op)
+	rows, err := r.db.Query(ctx, query, warehouseID, deliveryDate)
 	if err != nil {
 		return nil, err
 	}
@@ -360,6 +405,19 @@ func (r *Repository) UpdateDriver(ctx context.Context, d *domain.Driver) error {
 func (r *Repository) DeleteDriver(ctx context.Context, id uuid.UUID) error {
 	_, err := r.db.Exec(ctx, `UPDATE drivers SET status = 'inactive' WHERE id = $1`, id)
 	return err
+}
+
+// CountCheckedInAvailableDrivers returns the number of drivers who have explicitly checked in
+// with status='available' for the given warehouse and date. Returns 0 if no check-in data exists.
+func (r *Repository) CountCheckedInAvailableDrivers(ctx context.Context, warehouseID uuid.UUID, date string) (int, error) {
+	var count int
+	err := r.db.QueryRow(ctx, `
+		SELECT COUNT(*) FROM drivers d
+		JOIN driver_checkins dc ON dc.driver_id = d.id
+		WHERE d.warehouse_id = $1 AND d.status = 'active'
+		AND dc.checkin_date = $2 AND dc.status = 'available'
+	`, warehouseID, date).Scan(&count)
+	return count, err
 }
 
 func (r *Repository) ListAvailableDrivers(ctx context.Context, warehouseID uuid.UUID, date string) ([]domain.Driver, error) {

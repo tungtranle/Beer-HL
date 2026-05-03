@@ -391,7 +391,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
               {/* User dropdown — isolated component to avoid full-layout re-renders */}
               <UserMenu
                 fullName={user.full_name || ''}
-                _role={user.role}
+                role={user.role}
                 initials={initials}
                 roleLabel={roleLabels[user.role] || user.role}
               />

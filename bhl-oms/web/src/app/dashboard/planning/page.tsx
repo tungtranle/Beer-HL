@@ -11,7 +11,7 @@ import { handleError } from '@/lib/handleError'
 import { AIContextStrip } from '@/components/ai'
 import {
   BarChart3, Truck, Package, Map, CheckSquare2, Check, RefreshCw, AlertTriangle,
-  MapPin, Scale, Save, ClipboardList,
+  MapPin, Scale, Save, ClipboardList, Clock, CalendarCheck, TriangleAlert,
   CheckCircle2, XCircle, Navigation2, Target, BarChart2, PartyPopper,
   type LucideIcon,
 } from 'lucide-react'
@@ -672,7 +672,7 @@ function DriverStatusModal({ drivers, checkins, onClose }: { drivers: Driver[]; 
 // ─── Types ───────────────────────────────────────────────
 interface Shipment {
   id: string; shipment_number: string; customer_name: string; customer_address?: string
-  total_weight_kg: number; total_volume_m3: number; status: string
+  total_weight_kg: number; total_volume_m3: number; status: string; delivery_date?: string
   is_urgent: boolean; created_at?: string; order_created_at?: string; order_confirmed_at?: string
 }
 interface Vehicle {
@@ -777,6 +777,17 @@ export default function PlanningPage() {
   const [warehouseId, setWarehouseId] = useState(user?.warehouse_ids?.[0] || '')
   const [warehouses, setWarehouses] = useState<any[]>([])
   const [deliveryDate, setDeliveryDate] = useState('')
+  // todayDate: ngày xuất phát (cố định = hôm nay) — dùng để query xe và tài xế
+  const todayDate = useMemo(() => new Date().toISOString().split('T')[0], [])
+  // includeOverdue: gồm cả đơn trễ hẹn (delivery_date < deliveryDate) vào danh sách đặt hàng
+  const [includeOverdue, setIncludeOverdue] = useState(true)
+  // pendingSummary: tổng hợp đơn tồn đọng theo nhóm
+  const [pendingSummary, setPendingSummary] = useState<{
+    overdue_count: number; overdue_weight_kg: number
+    today_count: number; today_weight_kg: number
+    future_count: number; future_weight_kg: number
+    total_count: number; total_weight_kg: number
+  } | null>(null)
   const [shipments, setShipments] = useState<Shipment[]>([])
   const [vehicles, setVehicles] = useState<Vehicle[]>([])
   const [drivers, setDrivers] = useState<Driver[]>([])
@@ -910,32 +921,39 @@ export default function PlanningPage() {
     }).catch(err => handleError(err))
   }, [])
 
-  // Auto-detect delivery date from pending shipments
+  // Auto-detect: khi warehouse thay đổi → load pending-dates + pending-summary
+  // deliveryDate mặc định = hôm nay (todayDate)
   useEffect(() => {
     if (!warehouseId) return
+    // Set default = today nếu chưa có
+    if (!deliveryDate) {
+      setDeliveryDate(todayDate)
+    }
+    // Fetch danh sách ngày có đơn (có is_overdue flag)
     apiFetch<any>(`/shipments/pending-dates?warehouse_id=${warehouseId}`)
       .then(r => {
         const dates: PendingDate[] = r.data || []
         setPendingDates(dates)
-        if (dates.length > 0 && !deliveryDate) {
-          setDeliveryDate(dates[0].delivery_date)
-        } else if (dates.length > 0 && !dates.find(d => d.delivery_date === deliveryDate)) {
-          // Current date has no data — auto-switch to first date with data
-          setDeliveryDate(dates[0].delivery_date)
-        }
       })
       .catch(err => handleError(err))
+    // Fetch tổng hợp backlog hôm nay
+    apiFetch<any>(`/shipments/pending-summary?warehouse_id=${warehouseId}&today=${todayDate}`)
+      .then(r => setPendingSummary(r.data || null))
+      .catch(() => {})
   }, [warehouseId]) // eslint-disable-line react-hooks/exhaustive-deps
 
   const loadData = useCallback(async () => {
     if (!warehouseId || !deliveryDate) return
     setError('')
     try {
+      // Xe và tài xế: LUÔN dùng todayDate (ngày xuất phát thực tế)
+      // Đơn hàng: dùng deliveryDate + includeOverdue flag
+      const overdueParam = includeOverdue ? '&include_overdue=true' : ''
       const [s, v, d, dc, av, ad] = await Promise.all([
-        apiFetch<any>(`/shipments/pending?warehouse_id=${warehouseId}&delivery_date=${deliveryDate}`),
-        apiFetch<any>(`/vehicles/available?warehouse_id=${warehouseId}&date=${deliveryDate}`),
-        apiFetch<any>(`/drivers/available?warehouse_id=${warehouseId}&date=${deliveryDate}`),
-        apiFetch<any>(`/drivers/checkins?warehouse_id=${warehouseId}&date=${deliveryDate}`).catch(() => ({ data: [] })),
+        apiFetch<any>(`/shipments/pending?warehouse_id=${warehouseId}&delivery_date=${deliveryDate}${overdueParam}`),
+        apiFetch<any>(`/vehicles/available?warehouse_id=${warehouseId}&date=${todayDate}`),
+        apiFetch<any>(`/drivers/available?warehouse_id=${warehouseId}&date=${todayDate}`),
+        apiFetch<any>(`/drivers/checkins?warehouse_id=${warehouseId}&date=${todayDate}`).catch(() => ({ data: [] })),
         apiFetch<any>(`/vehicles`).catch(() => ({ data: [] })),
         apiFetch<any>(`/drivers`).catch(() => ({ data: [] })),
       ])
@@ -956,7 +974,7 @@ export default function PlanningPage() {
     } catch (err: any) {
       setError(err.message)
     }
-  }, [warehouseId, deliveryDate])
+  }, [warehouseId, deliveryDate, includeOverdue, todayDate])
 
   useEffect(() => { loadData() }, [loadData])
 
@@ -1128,7 +1146,7 @@ export default function PlanningPage() {
     const critMap: Record<string, number> = {}
     criteriaOrder.forEach((c, idx) => { critMap[c.key] = c.enabled ? idx + 1 : 0 })
 
-    const buildBody = (mode: string) => ({
+    const buildBody = (mode: string, forcedIds?: string[]) => ({
       warehouse_id: warehouseId,
       delivery_date: deliveryDate,
       vehicle_ids: vehicleIdsToSend,
@@ -1143,6 +1161,11 @@ export default function PlanningPage() {
         cost_optimize: costReadiness?.ready || false,
         optimize_for: mode,
       },
+      // When provided, solver MUST deliver these shipments (no drop). Used to
+      // pin the same delivery subset across compare modes so cost/time metrics
+      // are directly comparable (apples-to-apples). Without this, each mode
+      // chooses a different subset under capacity pressure → metrics diverge.
+      ...(forcedIds && forcedIds.length > 0 ? { force_delivery_shipment_ids: forcedIds } : {}),
     })
 
     const pollJob = (jid: string, mode: 'cost' | 'time'): Promise<VRPResult | null> => {
@@ -1181,37 +1204,44 @@ export default function PlanningPage() {
     }
 
     try {
-      // Launch all 3 modes in parallel and map job IDs as soon as each response arrives.
-      const startMode = async (mode: 'cost' | 'time') => {
-        const res: any = await apiFetch('/planning/run-vrp', { method: 'POST', body: buildBody(mode) })
+      // Sequential, not parallel: COST first to determine the maximally-deliverable
+      // subset under fuel/toll optimization, then TIME mode forced to deliver the
+      // SAME subset. This guarantees both columns evaluate the same shipments so
+      // metrics (cost, time, km) are directly comparable. Without this, each mode
+      // drops a different subset under capacity pressure → user sees nonsensical
+      // results like "TIME mode is cheaper than COST mode".
+      const startMode = async (mode: 'cost' | 'time', forcedIds?: string[]) => {
+        const res: any = await apiFetch('/planning/run-vrp', { method: 'POST', body: buildBody(mode, forcedIds) })
         const jid = res?.data?.job_id
         if (jid) vrpJobMapRef.current[jid] = mode
         return { res, jid }
       }
 
-      const [a, b] = await Promise.all([
-        startMode('cost'),
-        startMode('time'),
-      ])
-
-      const resA = a.res
-      const resB = b.res
-
-      // Seed UI to avoid all columns staying at 0% before first event.
+      // ── Phase 1: COST mode (free choice of subset) ─────────────────
+      const a = await startMode('cost')
       if (a.jid) setCompareProgress(prev => ({ ...prev, cost: { ...prev.cost, stage: 'matrix', detail: 'Đã tạo job' } }))
-      if (b.jid) setCompareProgress(prev => ({ ...prev, time: { ...prev.time, stage: 'matrix', detail: 'Đã tạo job' } }))
+      const resultA = await pollJob(a.res.data?.job_id, 'cost')
+      if (a.res.data?.job_id) delete vrpJobMapRef.current[a.res.data.job_id]
 
-      // Poll all 2 jobs in parallel
-      const [resultA, resultB] = await Promise.all([
-        pollJob(resA.data?.job_id, 'cost'),
-        pollJob(resB.data?.job_id, 'time'),
-      ])
+      // Extract delivered shipment IDs from COST result to pin TIME mode.
+      const forcedShipmentIds: string[] = []
+      if (resultA && (resultA as any).trips) {
+        for (const trip of (resultA as any).trips as VRPTrip[]) {
+          for (const stop of trip.stops) {
+            if (stop.shipment_id) forcedShipmentIds.push(stop.shipment_id)
+            if (stop.consolidated_ids) forcedShipmentIds.push(...stop.consolidated_ids)
+          }
+        }
+      }
+
+      // ── Phase 2: TIME mode (forced to same subset) ─────────────────
+      const b = await startMode('time', forcedShipmentIds)
+      if (b.jid) setCompareProgress(prev => ({ ...prev, time: { ...prev.time, stage: 'matrix', detail: 'Đã tạo job' } }))
+      const resultB = await pollJob(b.res.data?.job_id, 'time')
+      if (b.res.data?.job_id) delete vrpJobMapRef.current[b.res.data.job_id]
 
       clearInterval(progressRef.current)
       setSolveProgress(100)
-      // Cleanup job map
-      if (resA.data?.job_id) delete vrpJobMapRef.current[resA.data.job_id]
-      if (resB.data?.job_id) delete vrpJobMapRef.current[resB.data.job_id]
       setCompareResult({ cost: resultA, time: resultB })
     } catch (err: any) {
       clearInterval(progressRef.current)
@@ -1581,42 +1611,97 @@ export default function PlanningPage() {
       <p className="text-sm text-gray-500 mb-6">Lập kế hoạch và tối ưu tuyến đường giao hàng — 5 bước</p>
 
       {/* ─── TOP CONTROLS ─── */}
-      <div className="bg-white rounded-xl shadow-sm p-4 mb-6 flex gap-4 items-end flex-wrap">
-        <div>
-          <label className="block text-xs font-medium text-gray-500 mb-1">Kho xuất</label>
-          <select value={warehouseId} onChange={e => { setWarehouseId(e.target.value); setStep(0) }}
-            className="px-3 py-2 border rounded-lg text-sm min-w-[200px]">
-            <option value="">-- Chọn kho --</option>
-            {warehouses.map((w: any) => <option key={w.id} value={w.id}>{w.name}</option>)}
-          </select>
+      <div className="bg-white rounded-xl shadow-sm p-4 mb-4">
+        {/* Row 1: Warehouse + Ngày xuất phát + Reload */}
+        <div className="flex gap-4 items-end flex-wrap">
+          <div>
+            <label className="block text-xs font-medium text-gray-500 mb-1">Kho xuất</label>
+            <select value={warehouseId} onChange={e => { setWarehouseId(e.target.value); setStep(0) }}
+              className="px-3 py-2 border rounded-lg text-sm min-w-[200px]">
+              <option value="">-- Chọn kho --</option>
+              {warehouses.map((w: any) => <option key={w.id} value={w.id}>{w.name}</option>)}
+            </select>
+          </div>
+          <div>
+            <label className="block text-xs font-medium text-gray-500 mb-1">
+              Ngày xuất phát
+              <span className="ml-1 text-gray-400 font-normal">(xe &amp; tài xế theo ngày này)</span>
+            </label>
+            <div className="flex items-center gap-2">
+              <div className="px-3 py-2 border border-gray-200 rounded-lg text-sm bg-gray-50 text-gray-700 font-medium flex items-center gap-1.5">
+                <CalendarCheck className="w-4 h-4 text-brand-500" />
+                {todayDate === new Date().toISOString().split('T')[0]
+                  ? `${new Date().toLocaleDateString('vi-VN', { day: '2-digit', month: '2-digit', year: 'numeric' })} (hôm nay)`
+                  : todayDate}
+              </div>
+            </div>
+          </div>
+          <button onClick={loadData} className="px-4 py-2 bg-gray-100 text-gray-600 rounded-lg hover:bg-gray-200 text-sm flex items-center gap-1.5">
+            <RefreshCw className="w-4 h-4" /> Tải lại dữ liệu
+          </button>
         </div>
-        <div>
-          <label className="block text-xs font-medium text-gray-500 mb-1">Ngày giao</label>
-          <input type="date" value={deliveryDate} onChange={e => { setDeliveryDate(e.target.value); setStep(0) }}
-            className="px-3 py-2 border rounded-lg text-sm" />
-        </div>
-        {pendingDates.length > 0 && (
-          <div className="flex gap-2 items-center">
-            <span className="text-xs text-gray-500">Ngày có đơn:</span>
-            {pendingDates.map(pd => (
-              <button key={pd.delivery_date} onClick={() => { setDeliveryDate(pd.delivery_date); setStep(0) }}
-                className={`px-2 py-1 text-xs rounded border transition ${
-                  pd.delivery_date === deliveryDate 
-                    ? 'bg-amber-100 border-amber-400 text-amber-800 font-medium' 
-                    : 'bg-gray-50 border-gray-200 text-gray-600 hover:bg-gray-100'
-                }`}>
-                {pd.delivery_date} ({pd.shipment_count})
-              </button>
-            ))}
+
+        {/* Row 2: Backlog summary + include-overdue toggle */}
+        {pendingSummary && (pendingSummary.overdue_count > 0 || pendingSummary.today_count > 0 || pendingSummary.future_count > 0) && (
+          <div className="mt-3 pt-3 border-t border-gray-100 flex items-center gap-3 flex-wrap">
+            <span className="text-xs text-gray-500 font-medium">Tồn đơn tại kho:</span>
+
+            {/* Trễ hẹn */}
+            {pendingSummary.overdue_count > 0 && (
+              <div className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border text-xs font-medium transition cursor-pointer ${
+                includeOverdue
+                  ? 'bg-red-50 border-red-300 text-red-700'
+                  : 'bg-gray-50 border-gray-200 text-gray-500 line-through'
+              }`}
+                onClick={() => { setIncludeOverdue(!includeOverdue); setStep(0) }}
+                title={includeOverdue ? 'Bấm để loại trừ đơn trễ hẹn' : 'Bấm để gộp đơn trễ hẹn vào kế hoạch'}
+              >
+                <TriangleAlert className="w-3.5 h-3.5" />
+                <span>Trễ hẹn: <strong>{pendingSummary.overdue_count}</strong> đơn</span>
+                <span className="text-red-400">· {(pendingSummary.overdue_weight_kg / 1000).toFixed(1)}T</span>
+                <span className={`ml-1 px-1 py-0.5 rounded text-[10px] ${includeOverdue ? 'bg-red-200 text-red-800' : 'bg-gray-200 text-gray-600'}`}>
+                  {includeOverdue ? '✓ gồm' : '✗ bỏ'}
+                </span>
+              </div>
+            )}
+
+            {/* Hôm nay */}
+            <div className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border text-xs font-medium ${
+              deliveryDate === todayDate
+                ? 'bg-amber-50 border-amber-300 text-amber-800'
+                : 'bg-gray-50 border-gray-200 text-gray-600 cursor-pointer hover:bg-amber-50 hover:border-amber-200'
+            }`}
+              onClick={() => { setDeliveryDate(todayDate); setStep(0) }}
+            >
+              <Clock className="w-3.5 h-3.5" />
+              <span>Hôm nay: <strong>{pendingSummary.today_count}</strong> đơn</span>
+              <span className="text-amber-500">· {(pendingSummary.today_weight_kg / 1000).toFixed(1)}T</span>
+            </div>
+
+            {/* Ngày mai+ */}
+            {pendingSummary.future_count > 0 && (
+              <div className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border bg-gray-50 border-gray-200 text-gray-500 text-xs font-medium"
+                title="Đơn giao ngày mai trở đi — sẽ hiện sau khi đến ngày">
+                <Package className="w-3.5 h-3.5" />
+                <span>Tới: <strong>{pendingSummary.future_count}</strong> đơn</span>
+              </div>
+            )}
+
+            {/* Tổng cộng nếu có overdue */}
+            {includeOverdue && pendingSummary.overdue_count > 0 && (
+              <div className="ml-2 flex items-center gap-1 text-xs text-gray-500 border-l pl-3">
+                <span>Tổng lập kế hoạch:</span>
+                <strong className="text-gray-800">{pendingSummary.total_count} đơn</strong>
+                <span>·</span>
+                <strong className="text-gray-800">{(pendingSummary.total_weight_kg / 1000).toFixed(1)}T</strong>
+              </div>
+            )}
           </div>
         )}
-        <button onClick={loadData} className="px-4 py-2 bg-gray-100 text-gray-600 rounded-lg hover:bg-gray-200 text-sm">
-          <RefreshCw className="w-4 h-4 inline mr-1" /> Tải lại dữ liệu
-        </button>
       </div>
 
       {/* ─── STEP INDICATOR ─── */}
-      <div className="bg-white rounded-xl shadow-sm p-4 mb-6">
+      <div className="bg-white rounded-xl shadow-sm p-4 mb-4">
         <div className="flex items-center justify-between">
           {STEPS.map((label, i) => (
             <div key={i} className="flex items-center flex-1">
@@ -1657,16 +1742,37 @@ export default function PlanningPage() {
         <div className="space-y-6">
           {/* Resource cards */}
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+            {/* ── Card 1: Đơn hàng ── */}
             <div className="bg-white rounded-xl shadow-sm p-5 border-l-4 border-amber-500">
-              <div className="text-xs text-gray-500 uppercase tracking-wide mb-1">Đơn hàng chờ giao</div>
+              <div className="text-xs text-gray-500 uppercase tracking-wide mb-1">Đơn hàng cần giao hôm nay</div>
               <div className="text-3xl font-bold text-amber-700">{shipments.length}</div>
               <div className="text-sm text-gray-500 mt-1">
                 Tổng tải: <strong>{(totalDemandKg / 1000).toFixed(1)}T</strong>
               </div>
+              {/* Breakdown trễ hẹn vs hôm nay */}
+              {(() => {
+                const overdueShipments = shipments.filter(s => s.delivery_date && s.delivery_date < todayDate)
+                const todayShipments = shipments.filter(s => !s.delivery_date || s.delivery_date >= todayDate)
+                if (overdueShipments.length === 0) return null
+                return (
+                  <div className="mt-2 flex flex-col gap-1">
+                    <div className="flex items-center gap-1.5 text-xs text-red-600 font-medium">
+                      <TriangleAlert className="w-3.5 h-3.5" />
+                      <span>Trễ hẹn: {overdueShipments.length} đơn ({(overdueShipments.reduce((s,x) => s + x.total_weight_kg, 0)/1000).toFixed(1)}T)</span>
+                    </div>
+                    <div className="flex items-center gap-1.5 text-xs text-amber-700">
+                      <Clock className="w-3.5 h-3.5" />
+                      <span>Hôm nay: {todayShipments.length} đơn</span>
+                    </div>
+                  </div>
+                )
+              })()}
             </div>
+
+            {/* ── Card 2: Xe ── */}
             <div className="bg-white rounded-xl shadow-sm p-5 border-l-4 border-blue-500 cursor-pointer hover:shadow-md transition"
               onClick={() => setShowVehicleStatusModal(true)}>
-              <div className="text-xs text-gray-500 uppercase tracking-wide mb-1">Xe khả dụng</div>
+              <div className="text-xs text-gray-500 uppercase tracking-wide mb-1">Xe khả dụng hôm nay</div>
               <div className="text-3xl font-bold text-blue-700">{vehicles.length}
                 {allVehicles.length > vehicles.length && <span className="text-sm font-normal text-gray-400 ml-1">/ {allVehicles.length} tổng</span>}
               </div>
@@ -1678,27 +1784,42 @@ export default function PlanningPage() {
               </div>
               <div className="text-xs text-blue-500 mt-2">Bấm để xem chi tiết trạng thái xe →</div>
             </div>
+
+            {/* ── Card 3: Tài xế — dùng check-in thực tế ── */}
             <div className="bg-white rounded-xl shadow-sm p-5 border-l-4 border-green-500 cursor-pointer hover:shadow-md transition"
               onClick={() => setShowDriverStatusModal(true)}>
-              <div className="text-xs text-gray-500 uppercase tracking-wide mb-1">Tài xế khả dụng</div>
-              <div className="text-3xl font-bold text-green-700">{drivers.length}</div>
-              <div className="text-sm text-gray-500 mt-1">
-                {drivers.length >= vehicles.length
-                  ? <span className="text-green-600">Đủ tài xế cho tất cả xe</span>
-                  : <span className="text-red-600">Thiếu {vehicles.length - drivers.length} tài xế</span>}
-              </div>
-              {driverCheckins.length > 0 && (() => {
-                const available = driverCheckins.filter((d: any) => d.checkin_status === 'available').length
+              <div className="text-xs text-gray-500 uppercase tracking-wide mb-1">Tài xế có mặt hôm nay</div>
+              {(() => {
+                const checkedInAvailable = driverCheckins.filter((d: any) => d.checkin_status === 'available').length
                 const onTrip = driverCheckins.filter((d: any) => d.checkin_status === 'on_trip').length
-                const offDuty = driverCheckins.filter((d: any) => d.checkin_status === 'off_duty').length
                 const notCheckedIn = driverCheckins.filter((d: any) => d.checkin_status === 'not_checked_in').length
+                const offDuty = driverCheckins.filter((d: any) => d.checkin_status === 'off_duty').length
+                // Số đang sẵn sàng = chỉ dùng check-in thực tế
+                const readyCount = driverCheckins.length > 0 ? checkedInAvailable : drivers.length
+                const readyLabel = driverCheckins.length > 0 ? 'đã check-in, sẵn sàng' : 'tài xế active'
                 return (
-                  <div className="flex flex-wrap gap-1 mt-2">
-                    {available > 0 && <span className="text-xs bg-green-100 text-green-700 px-1.5 py-0.5 rounded"><span className="w-2 h-2 rounded-full bg-green-500 inline-block mr-1" /> Sẵn sàng: {available}</span>}
-                    {onTrip > 0 && <span className="text-xs bg-blue-100 text-blue-700 px-1.5 py-0.5 rounded"><span className="w-2 h-2 rounded-full bg-blue-500 inline-block mr-1" /> Đang chạy: {onTrip}</span>}
-                    {offDuty > 0 && <span className="text-xs bg-red-100 text-red-700 px-1.5 py-0.5 rounded"><span className="w-2 h-2 rounded-full bg-red-500 inline-block mr-1" /> Nghỉ: {offDuty}</span>}
-                    {notCheckedIn > 0 && <span className="text-xs bg-yellow-100 text-yellow-700 px-1.5 py-0.5 rounded"><span className="w-2 h-2 rounded-full bg-yellow-400 inline-block mr-1" /> Chưa check-in: {notCheckedIn}</span>}
-                  </div>
+                  <>
+                    <div className="flex items-baseline gap-2">
+                      <div className="text-3xl font-bold text-green-700">{readyCount}</div>
+                      {driverCheckins.length > 0 && drivers.length > readyCount && (
+                        <span className="text-sm text-gray-400">/ {drivers.length} active</span>
+                      )}
+                    </div>
+                    <div className="text-sm text-gray-500 mt-1">
+                      {readyCount >= vehicles.length
+                        ? <span className="text-green-600">Đủ tài xế cho tất cả xe</span>
+                        : <span className="text-red-600">Thiếu {vehicles.length - readyCount} tài xế</span>}
+                    </div>
+                    <div className="text-xs text-gray-400 mt-0.5">{readyLabel}</div>
+                    {driverCheckins.length > 0 && (
+                      <div className="flex flex-wrap gap-1 mt-2">
+                        {checkedInAvailable > 0 && <span className="text-xs bg-green-100 text-green-700 px-1.5 py-0.5 rounded flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-green-500 inline-block" /> Sẵn sàng: {checkedInAvailable}</span>}
+                        {onTrip > 0 && <span className="text-xs bg-blue-100 text-blue-700 px-1.5 py-0.5 rounded flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-blue-500 inline-block" /> Đang chạy: {onTrip}</span>}
+                        {offDuty > 0 && <span className="text-xs bg-red-100 text-red-700 px-1.5 py-0.5 rounded flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-red-500 inline-block" /> Nghỉ: {offDuty}</span>}
+                        {notCheckedIn > 0 && <span className="text-xs bg-yellow-100 text-yellow-700 px-1.5 py-0.5 rounded flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-yellow-400 inline-block" /> Chưa check-in: {notCheckedIn}</span>}
+                      </div>
+                    )}
+                  </>
                 )
               })()}
               <div className="text-xs text-green-500 mt-2">Bấm để xem chi tiết tài xế →</div>
@@ -1743,13 +1864,15 @@ export default function PlanningPage() {
               </div>
               <div className="bg-gray-50 rounded-lg p-3 text-center">
                 <div className={`text-lg font-bold ${capacityRatio > 100 ? 'text-red-600' : capacityRatio > 80 ? 'text-amber-600' : 'text-green-600'}`}>
-                  {capacityRatio > 100 ? '⚠ Quá tải' : capacityRatio > 80 ? ' Gần đầy' : '✓ OK'}
+                  {capacityRatio > 100 ? 'Quá tải' : capacityRatio > 80 ? 'Gần đầy' : 'OK'}
                 </div>
                 <div className="text-xs text-gray-500">Trạng thái tải</div>
               </div>
               <div className="bg-gray-50 rounded-lg p-3 text-center">
-                <div className="text-lg font-bold text-gray-700">{deliveryDate}</div>
-                <div className="text-xs text-gray-500">Ngày giao</div>
+                <div className="text-lg font-bold text-gray-700">
+                  {new Date(todayDate).toLocaleDateString('vi-VN', { day: '2-digit', month: '2-digit' })}
+                </div>
+                <div className="text-xs text-gray-500">Ngày xuất phát</div>
               </div>
             </div>
 

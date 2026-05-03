@@ -142,6 +142,7 @@ func (r *DemoRepository) DeleteOwnedEntities(ctx context.Context, tx pgx.Tx, ent
 		"ai_inbox_items":        `DELETE FROM ai_inbox_items WHERE id = $1 AND EXISTS (SELECT 1 FROM qa_owned_entities WHERE run_id = $2 AND entity_type = $3 AND entity_id = $1)`,
 		"ai_simulations":        `DELETE FROM ai_simulations WHERE id = $1 AND EXISTS (SELECT 1 FROM qa_owned_entities WHERE run_id = $2 AND entity_type = $3 AND entity_id = $1)`,
 		"gate_checks":           `DELETE FROM gate_checks WHERE id = $1 AND EXISTS (SELECT 1 FROM qa_owned_entities WHERE run_id = $2 AND entity_type = $3 AND entity_id = $1)`,
+		"picking_orders":        `DELETE FROM picking_orders WHERE id = $1 AND EXISTS (SELECT 1 FROM qa_owned_entities WHERE run_id = $2 AND entity_type = $3 AND entity_id = $1)`,
 		"trip_stops":            `DELETE FROM trip_stops WHERE id = $1 AND EXISTS (SELECT 1 FROM qa_owned_entities WHERE run_id = $2 AND entity_type = $3 AND entity_id = $1)`,
 		"trips":                 `DELETE FROM trips WHERE id = $1 AND EXISTS (SELECT 1 FROM qa_owned_entities WHERE run_id = $2 AND entity_type = $3 AND entity_id = $1)`,
 		"shipments":             `DELETE FROM shipments WHERE id = $1 AND EXISTS (SELECT 1 FROM qa_owned_entities WHERE run_id = $2 AND entity_type = $3 AND entity_id = $1)`,
@@ -165,7 +166,7 @@ func (r *DemoRepository) DeleteOwnedEntities(ctx context.Context, tx pgx.Tx, ent
 	deleteOrder := []string{
 		"driver_checkins",
 		"ai_feedback", "ai_audit_log", "ai_inbox_items", "ai_simulations",
-		"gate_checks", "trip_stops", "trips", "vehicles", "shipments", "order_confirmations",
+		"gate_checks", "picking_orders", "trip_stops", "trips", "vehicles", "shipments", "order_confirmations",
 		"entity_events", "order_notes", "receivable_ledger", "order_items", "sales_orders",
 		"stock_moves", "stock_quants", "lots", "daily_kpi_snapshots", "integration_dlq",
 		"notifications", "discrepancies", "reconciliations", "daily_close_summaries",

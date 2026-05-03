@@ -96,8 +96,8 @@ func (s *Service) SetEventRecorder(r *events.Recorder) {
 	s.evtRecorder = r
 }
 
-func (s *Service) ListPendingShipments(ctx context.Context, warehouseID uuid.UUID, deliveryDate string) ([]domain.Shipment, error) {
-	return s.repo.ListPendingShipments(ctx, warehouseID, deliveryDate)
+func (s *Service) ListPendingShipments(ctx context.Context, warehouseID uuid.UUID, deliveryDate string, includeOverdue bool) ([]domain.Shipment, error) {
+	return s.repo.ListPendingShipments(ctx, warehouseID, deliveryDate, includeOverdue)
 }
 
 func (s *Service) ToggleUrgent(ctx context.Context, shipmentID uuid.UUID, isUrgent bool) error {
@@ -160,6 +160,10 @@ func (s *Service) ListPendingDates(ctx context.Context, warehouseID uuid.UUID) (
 	return s.repo.ListPendingDates(ctx, warehouseID)
 }
 
+func (s *Service) GetPendingSummary(ctx context.Context, warehouseID uuid.UUID, today string) (map[string]interface{}, error) {
+	return s.repo.GetPendingSummary(ctx, warehouseID, today)
+}
+
 // VRPCriteria configures optimization priorities and constraints.
 type VRPCriteria struct {
 	MaxCapacity    int    `json:"max_capacity"`     // priority 1-6, 0=off
@@ -179,6 +183,10 @@ type RunVRPRequest struct {
 	ShipmentIDs      []uuid.UUID  `json:"shipment_ids,omitempty"`
 	VehicleIDs       []uuid.UUID  `json:"vehicle_ids,omitempty"`
 	Criteria         *VRPCriteria `json:"criteria,omitempty"`
+	// ForceDeliveryShipmentIDs: when set, the solver MUST deliver these shipments
+	// (no disjunction → cannot drop). Used by compare flow to ensure COST and TIME
+	// modes evaluate the same shipment subset so their metrics are comparable.
+	ForceDeliveryShipmentIDs []uuid.UUID `json:"force_delivery_shipment_ids,omitempty"`
 	RequestingUserID *uuid.UUID   `json:"-"` // Injected by handler for WS progress broadcast
 }
 
@@ -191,7 +199,7 @@ func (s *Service) RunVRP(ctx context.Context, req RunVRPRequest) (string, error)
 	}
 
 	// Get shipments
-	shipments, err := s.repo.ListPendingShipments(ctx, req.WarehouseID, req.DeliveryDate)
+	shipments, err := s.repo.ListPendingShipments(ctx, req.WarehouseID, req.DeliveryDate, false)
 	if err != nil {
 		return "", fmt.Errorf("list shipments: %w", err)
 	}
@@ -239,6 +247,46 @@ func (s *Service) RunVRP(ctx context.Context, req RunVRPRequest) (string, error)
 		return "", fmt.Errorf("không có xe khả dụng")
 	}
 
+	// Limit vehicles to the number of available drivers.
+	// Sending 90 vehicles to the solver when only ~32 drivers are available causes the solver to
+	// create 80+ single-stop routes (one per vehicle), which is operationally irrational and
+	// makes the UI claim "32 tài xế" while the result shows 81 chuyến.
+	// Each route needs exactly one driver, so capping at driver count forces route consolidation.
+	//
+	// Priority order (FIRST match wins, NOT max):
+	//   1. driver_checkins.status='available' for the delivery date (authoritative)
+	//   2. active drivers without an existing trip on that date (fallback when no check-in data)
+	// NOTE: a low driver count may legitimately leave some orders undelivered — that is the
+	// correct outcome, not a bug. The dispatcher must arrange more drivers or split the date.
+	driverCap := 0
+	checkedIn, checkinErr := s.repo.CountCheckedInAvailableDrivers(ctx, req.WarehouseID, req.DeliveryDate)
+	driverSource := "none"
+	if checkinErr == nil && checkedIn > 0 {
+		driverCap = checkedIn
+		driverSource = "checkin"
+	} else {
+		// Only fall back if there is NO check-in record at all for that date.
+		availDrivers, driverErr := s.repo.ListAvailableDrivers(ctx, req.WarehouseID, req.DeliveryDate)
+		if driverErr == nil && len(availDrivers) > 0 {
+			driverCap = len(availDrivers)
+			driverSource = "active_no_trip"
+		}
+	}
+	if driverCap > 0 && len(vehicles) > driverCap {
+		// Sort vehicles by capacity descending so we pick the largest vehicles first
+		sort.Slice(vehicles, func(i, j int) bool {
+			return vehicles[i].CapacityKg > vehicles[j].CapacityKg
+		})
+		originalCount := len(vehicles)
+		vehicles = vehicles[:driverCap]
+		s.log.Info(ctx, "vehicles_capped_to_drivers",
+			logger.F("vehicles_before", originalCount),
+			logger.F("vehicles_after", len(vehicles)),
+			logger.F("driver_cap", driverCap),
+			logger.F("driver_source", driverSource),
+			logger.F("checked_in", checkedIn))
+	}
+
 	// Build VRP solver request — use UUID suffix to guarantee uniqueness even with concurrent jobs
 	// (Windows timer resolution is ~1ms; UnixNano alone can collide when two jobs start simultaneously)
 	jobID := fmt.Sprintf("vrp-%s-%s", time.Now().Format("20060102"), uuid.New().String()[:8])
@@ -254,6 +302,40 @@ func (s *Service) RunVRP(ctx context.Context, req RunVRPRequest) (string, error)
 	// Phase B — load per-customer max vehicle weight (VRP physical-access constraint).
 	// Non-blocking: missing data → no restriction.
 	customerMaxKg := s.loadCustomerMaxVehicleWeight(ctx, shipments)
+
+	// ── Capacity sanity check (logged + returned to caller) ──
+	// Compute total cargo vs total fleet capacity. If cargo exceeds fleet, the solver will
+	// physically be unable to deliver everything — log a clear warning so dispatchers do not
+	// blame the solver for "missing orders". This is the #1 source of false-positive bug
+	// reports for VRP results (see analysis 2026-05-03).
+	var totalCargoKg, totalFleetKg float64
+	for _, sh := range shipments {
+		totalCargoKg += sh.TotalWeightKg
+	}
+	for _, v := range vehicles {
+		totalFleetKg += v.CapacityKg
+	}
+	capacityRatio := 0.0
+	if totalFleetKg > 0 {
+		capacityRatio = totalCargoKg / totalFleetKg
+	}
+	if capacityRatio > 0.95 {
+		// ≥95% means very high pressure on the solver; ≥100% guarantees unassigned orders.
+		s.log.Warn(ctx, "vrp_capacity_pressure",
+			logger.F("cargo_kg", totalCargoKg),
+			logger.F("fleet_kg", totalFleetKg),
+			logger.F("ratio_pct", capacityRatio*100),
+			logger.F("shipment_count", len(shipments)),
+			logger.F("vehicle_count", len(vehicles)),
+			logger.F("driver_cap", driverCap),
+			logger.F("interpretation", func() string {
+				if capacityRatio >= 1.0 {
+					missingT := (totalCargoKg - totalFleetKg) / 1000
+					return fmt.Sprintf("cargo exceeds fleet by %.1fT — solver MUST drop orders", missingT)
+				}
+				return "cargo near fleet ceiling — expect 5–15% unassigned"
+			}()))
+	}
 
 	solverReq := buildSolverRequest(depotLat, depotLng, shipments, vehicles, jobID, costInfos, customerMaxKg)
 
@@ -284,6 +366,15 @@ func (s *Service) RunVRP(ctx context.Context, req RunVRPRequest) (string, error)
 	solverReq.OptimizeFor = optimizeFor
 	solverReq.MaxTripMinutes = criteria.MaxTripMinutes
 
+	// Pin specific shipments as undroppable (used by compare flow).
+	if len(req.ForceDeliveryShipmentIDs) > 0 {
+		forced := make([]string, 0, len(req.ForceDeliveryShipmentIDs))
+		for _, sid := range req.ForceDeliveryShipmentIDs {
+			forced = append(forced, sid.String())
+		}
+		solverReq.ForceDeliveryNodeIDs = forced
+	}
+
 	// Call VRP solver asynchronously
 	go s.callVRPSolver(jobID, solverReq, shipments, vehicles, criteria, req.RequestingUserID)
 
@@ -300,6 +391,7 @@ type solverRequest struct {
 	MaxTripMinutes      int                 `json:"max_trip_minutes,omitempty"`
 	TollStations        []solverTollStation `json:"toll_stations,omitempty"`
 	TollExpressways     []solverTollExway   `json:"toll_expressways,omitempty"`
+	ForceDeliveryNodeIDs []string           `json:"force_delivery_node_ids,omitempty"`
 }
 
 type solverNode struct {

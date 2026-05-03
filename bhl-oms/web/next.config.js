@@ -69,6 +69,14 @@ const nextConfig = {
 }
 
 if (process.env.NODE_ENV !== 'production') {
+  // Use in-memory webpack cache in dev to avoid ENOENT race conditions
+  // when the .next directory is modified while the server is running.
+  nextConfig.webpack = (config, { dev }) => {
+    if (dev) {
+      config.cache = { type: 'memory' }
+    }
+    return config
+  }
   module.exports = nextConfig
 } else {
   module.exports = withSentryConfig(nextConfig, {

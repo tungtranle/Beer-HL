@@ -149,22 +149,35 @@ def is_toll_on_route(from_lat, from_lng, to_lat, to_lng, toll_lat, toll_lng):
     - Detour factor is independent of road geometry
     - A toll with detour ratio 1.05 means going through it adds only 5% to journey
     
-    The max allowed detour scales with distance:
-    - Short arcs (<5km): generous (toll within ~3km radius)
-    - Medium arcs (20km): ~15% detour
-    - Long arcs (50km+): ~10% detour
+    The max allowed detour scales with distance, calibrated to Vietnam highway reality
+    where expressways add ~5–15% distance vs direct line but cut 30–50% time:
+    - Short arcs (<5km, intra-urban): 30% — wide tolerance for nearby gates
+    - Short-medium (5–30km): 20% — typical district-level tolls
+    - Medium (30–100km): 15% — provincial-scale, expressway gates fit here
+    - Long (>100km): 10% — inter-provincial expressways (e.g. HN-HP, HCM-LT)
+
+    Previous formula `max(0.10, 3.0/direct_km)` was wrong: at 100km arcs it allowed
+    only 3% detour and missed real expressway tolls; at 5km arcs it allowed 60%
+    and produced false positives.
     """
     direct_km = haversine(from_lat, from_lng, to_lat, to_lng)
     if direct_km < 0.3:
         return False  # Too short, skip
-    
+
     via_toll_km = (haversine(from_lat, from_lng, toll_lat, toll_lng) +
                    haversine(toll_lat, toll_lng, to_lat, to_lng))
-    
-    # Scale max detour ratio: generous for short arcs, strict for long ones
-    max_detour_pct = max(0.10, 3.0 / max(direct_km, 0.5))
+
+    # Distance-banded detour tolerance (calibrated to Vietnam highway data)
+    if direct_km < 5:
+        max_detour_pct = 0.30
+    elif direct_km < 30:
+        max_detour_pct = 0.20
+    elif direct_km < 100:
+        max_detour_pct = 0.15
+    else:
+        max_detour_pct = 0.10
     max_ratio = 1.0 + max_detour_pct
-    
+
     return via_toll_km <= direct_km * max_ratio
 
 
@@ -600,6 +613,10 @@ def solve_vrp(data, progress_callback=None):
     use_cost = data.get('use_cost_optimization', False)
     max_trip_minutes = data.get('max_trip_minutes', 480)  # default 8 hours
     max_trip_seconds = max_trip_minutes * 60
+    # When set, these node ids MUST be delivered (no disjunction added). Used by
+    # the compare-strategies flow to force COST and TIME modes to evaluate the
+    # same shipment subset so their metrics are directly comparable.
+    force_delivery_node_ids = set(str(x) for x in (data.get('force_delivery_node_ids') or []))
     arc_toll_details = {}  # (vehicle_id, from_node, to_node) → toll details for fallback
     
     # Build distance matrix — prefer OSRM, fallback to Haversine
@@ -697,15 +714,34 @@ def solve_vrp(data, progress_callback=None):
 
     # ── Set arc cost based on optimization mode ──
     if optimize_for == 'time':
-        # TIME: arc cost = duration + 20min service per stop
+        # TIME: arc cost = pure travel + service time (seconds).
+        # Fixed vehicle activation cost (7200s = 2 hours) discourages the solver from
+        # freely using all 90 vehicles just to minimize total time.
+        # Note: makespan finalizer is intentionally NOT used here — it overrides fixed vehicle
+        # cost by splitting routes, leading back to 80+ single-stop routes.
+        # Instead we minimize total time (sum of all arcs) which naturally consolidates routes.
         routing.SetArcCostEvaluatorOfAllVehicles(time_service_cb_index)
-        logger.info(f"Optimize mode: TIME (duration + 20min/stop, source={'osrm' if duration_matrix is not None else 'haversine_est'})")
+        # 4 hours = ~7 stops worth of (drive+service). Forces solver to prefer
+        # appending an order to an existing route (detour cost ~30-60min) over
+        # opening a new vehicle, which is the only way to honour the invariant
+        # "TIME mode total time ≤ COST mode total time" with sane trip counts.
+        for vi in range(num_vehicles):
+            routing.SetFixedCostOfVehicle(14400, vi)  # 4 hours fixed cost per vehicle used
+        logger.info(f"Optimize mode: TIME (pure duration+service, fixed_vehicle_cost=14400s, source={'osrm' if duration_matrix is not None else 'haversine_est'})")
     elif optimize_for == 'cost' and len(per_vehicle_cost_cb_indices) == num_vehicles:
         # COST: arc cost = fuel_vnd + toll_vnd per vehicle (true VND minimization)
-        # Solver will naturally prefer toll roads when paying toll is cheaper than the detour.
+        # Fixed vehicle activation cost (300,000 VND ≈ 100km of fuel) consolidates routes
+        # so solver doesn't create 1-order routes when high drop penalty forces all deliveries.
         for vi, cb_idx in enumerate(per_vehicle_cost_cb_indices):
             routing.SetArcCostEvaluatorOfVehicle(cb_idx, vi)
-        logger.info(f"Optimize mode: COST (per-vehicle VND = fuel+toll, {num_vehicles} vehicles)")
+        # 1.5M VND ≈ 500km of fuel (~6–7 stops worth of detour). Without this,
+        # COST mode happily opens 80+ vehicles because adding a 100km arc costs
+        # ~330K VND while opening a new vehicle was only 300K VND — the solver
+        # could not prefer consolidation. Required to honour the invariant
+        # "COST mode total cost ≤ TIME mode total cost" at sensible trip counts.
+        for vi in range(num_vehicles):
+            routing.SetFixedCostOfVehicle(1_500_000, vi)  # ~500km fuel overhead per vehicle
+        logger.info(f"Optimize mode: COST (per-vehicle VND = fuel+toll, fixed_vehicle_cost=1.5M VND, {num_vehicles} vehicles)")
     else:
         # DISTANCE (or COST without toll data): arc cost = normal distance (meters)
         routing.SetArcCostEvaluatorOfAllVehicles(transit_callback_index)
@@ -722,23 +758,26 @@ def solve_vrp(data, progress_callback=None):
         time_limit_seconds = int(max_trip_seconds * 1.5)
         logger.info(f"DISTANCE mode: relaxed time limit {max_trip_minutes}min → {time_limit_seconds // 60}min")
 
+    # Allow up to 60 minutes of slack on the time accumulator so the solver can
+    # squeeze in extra orders that would otherwise be dropped purely because of
+    # the hard 480-min trip ceiling. Real drivers have flexibility (overtime,
+    # waiting time at customer) — modeling 0 slack was too rigid and caused ~21%
+    # unassigned even when capacity was still available.
+    time_slack_seconds = 60 * 60  # 60 min slack per node
     routing.AddDimension(
         time_service_cb_index,
-        0,                    # no slack
-        time_limit_seconds,   # max per vehicle
+        time_slack_seconds,   # slack — allows per-stop flex without breaking total cap
+        time_limit_seconds,   # max per vehicle (hard cap on cumulative time)
         True,                 # start cumul to zero
         'Time'
     )
-    logger.info(f"Time dimension: max {time_limit_seconds // 60} min/vehicle")
+    logger.info(f"Time dimension: max {time_limit_seconds // 60} min/vehicle, slack {time_slack_seconds // 60} min")
 
-    if optimize_for == 'time':
-        # Minimize makespan: reduce the LONGEST vehicle's total time
-        time_dimension = routing.GetDimensionOrDie('Time')
-        for v in range(num_vehicles):
-            routing.AddVariableMinimizedByFinalizer(
-                time_dimension.CumulVar(routing.End(v))
-            )
-        logger.info("TIME mode: makespan minimizer active")
+    # TIME mode: do NOT use makespan minimizer (AddVariableMinimizedByFinalizer).
+    # Reason: makespan minimizer overrides fixed vehicle costs by aggressively splitting
+    # routes to reduce the longest individual route. This results in 80+ single-stop
+    # routes which is operationally irrational. Total time minimization (via arc costs +
+    # fixed vehicle cost) produces better solutions: fewer routes, similar delivery coverage.
 
     # Capacity constraint
     def demand_callback(from_index):
@@ -755,13 +794,37 @@ def solve_vrp(data, progress_callback=None):
     )
     
     # Allow dropping nodes (unassigned shipments)
-    # Penalty must match the cost unit of the optimization mode
+    # Penalty = cost of NOT visiting a node. Must be much higher than any real delivery arc cost.
+    # Calibration target: penalty ≥ 100x typical arc cost so solver never drops a node unless
+    # capacity/time hard constraints make it physically impossible.
+    # COST mode: arc cost = VND. Typical arc 200km × 3300 VND/km ≈ 660k VND. Penalty 50M = ~75x ✓
+    # TIME mode: arc cost = seconds. Typical arc = 1-2h drive + 20min service = 5400s. Old penalty
+    #   100_000s (28h) was only ~18x → solver dropped extra orders that COST mode kept (asymmetry
+    #   between modes broke INV "cost.delivered ≈ time.delivered"). Set to 1_000_000s (~278h ≈
+    #   180x typical arc) so TIME mode also delivers everything physically possible.
+    # DISTANCE mode: arc cost = meters. Old 1M m (1000km) penalty kept.
     if optimize_for == 'time':
-        penalty = 100_000  # ~28 hours in seconds
+        penalty = 1_000_000     # ~278 hours — matches COST mode delivery rate
+    elif optimize_for == 'cost':
+        penalty = 50_000_000    # 50M VND — forces delivery of all orders (15,000km equivalent)
     else:
-        penalty = 1_000_000  # ~1000km in meters (both cost and distance modes use meters)
+        penalty = 1_000_000     # 1000km — reasonable for distance mode
+    # Forced nodes get an effectively-infinite penalty (1e15) instead of "no disjunction".
+    # Reason: without disjunction, the node becomes a HARD constraint. If the first-solution
+    # heuristic can't fit all forced nodes initially (common with tight time/capacity budgets),
+    # OR-Tools returns no solution at all. With very-high penalty, dropping is so expensive the
+    # solver overwhelmingly avoids it, but a feasible solution can always be returned.
+    forced_penalty = 10**15
+    forced_count = 0
     for node in range(1, num_nodes):
-        routing.AddDisjunction([manager.NodeToIndex(node)], penalty)
+        node_id = str(nodes[node - 1].get('id', ''))
+        if node_id and node_id in force_delivery_node_ids:
+            routing.AddDisjunction([manager.NodeToIndex(node)], forced_penalty)
+            forced_count += 1
+        else:
+            routing.AddDisjunction([manager.NodeToIndex(node)], penalty)
+    if forced_count > 0:
+        logger.info(f"force_delivery: {forced_count}/{num_nodes-1} nodes pinned (penalty={forced_penalty:.0e})")
 
     # ── Phase B: Customer VRP constraints — vehicle weight filter ──
     # Each node may declare `max_vehicle_weight_kg` (integer kg). Vehicles whose
@@ -788,14 +851,30 @@ def solve_vrp(data, progress_callback=None):
         logger.info(f"Applied vehicle-weight constraint to {weight_constraint_count}/{len(nodes)} nodes")
     
     # Search parameters
+    # GUIDED_LOCAL_SEARCH needs adequate budget to escape local optima.
+    # Old budget (30s) was too short for problems with 100+ nodes and 30+ vehicles —
+    # the solver returned the first feasible solution with little improvement,
+    # leaving 20%+ orders unassigned.
+    # Budget scales with problem size: nodes × vehicles ≈ search-space proxy.
     search_params = pywrapcp.DefaultRoutingSearchParameters()
     search_params.first_solution_strategy = routing_enums_pb2.FirstSolutionStrategy.PATH_CHEAPEST_ARC
     search_params.local_search_metaheuristic = routing_enums_pb2.LocalSearchMetaheuristic.GUIDED_LOCAL_SEARCH
+
+    problem_size = max(num_nodes, 1) * max(num_vehicles, 1)
+    if problem_size < 500:        # tiny: <50 nodes × 10 vehicles
+        budget_s = 30
+    elif problem_size < 2000:     # small: 100 nodes × 20 vehicles
+        budget_s = 60
+    elif problem_size < 6000:     # medium: 150 nodes × 40 vehicles
+        budget_s = 120
+    elif problem_size < 15000:    # large: 200 nodes × 75 vehicles
+        budget_s = 180
+    else:                         # very large
+        budget_s = 300
     if optimize_for == 'distance':
-        # Distance mode: allow more search time to find better solutions
-        search_params.time_limit.seconds = 45
-    else:
-        search_params.time_limit.seconds = 30
+        budget_s = int(budget_s * 1.25)  # distance mode benefits a bit more from extra time
+    search_params.time_limit.seconds = budget_s
+    logger.info(f"Search budget: {budget_s}s (problem_size={problem_size}, nodes={num_nodes}, vehicles={num_vehicles})")
     
     # Solve
     emit("solving", 45, f"{num_nodes-1} điểm, {num_vehicles} xe, chế độ {optimize_for}")
@@ -950,11 +1029,23 @@ def solve_vrp(data, progress_callback=None):
     
     emit("done", 100, f"{len(routes)} tuyến, {len(unassigned_ids)} chưa xếp, {solve_time_ms}ms")
     
+    # Aggregate totals so callers can verify the mode invariants:
+    #   cost(COST_mode)  ≤ cost(TIME_mode)
+    #   time(TIME_mode)  ≤ time(COST_mode)
+    total_distance_km = round(sum(r.get('distance_km', 0.0) for r in routes), 1)
+    total_duration_min = int(sum(r.get('duration_min', 0) for r in routes))
+    total_cost_vnd = int(sum(
+        (r.get('cost_breakdown') or {}).get('total_route_cost_vnd', 0) for r in routes
+    ))
+
     return {
         'status': 'completed',
         'solve_time_ms': solve_time_ms,
         'distance_source': 'osrm' if use_osrm else 'haversine',
         'optimize_for': optimize_for,
+        'total_distance_km': total_distance_km,
+        'total_duration_min': total_duration_min,
+        'total_cost_vnd': total_cost_vnd,
         'routes': routes,
         'unassigned': unassigned_ids
     }

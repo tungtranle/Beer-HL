@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net/http"
 	"strconv"
+	"time"
 
 	"bhl-oms/internal/domain"
 	"bhl-oms/internal/middleware"
@@ -39,6 +40,7 @@ func (h *Handler) RegisterRoutes(r *gin.RouterGroup) {
 	// Shipments (pending for VRP)
 	r.GET("/shipments/pending", h.ListPendingShipments)
 	r.GET("/shipments/pending-dates", h.ListPendingDates)
+	r.GET("/shipments/pending-summary", h.GetPendingSummary)
 	r.PUT("/shipments/:id/urgent", middleware.RequireRole("admin", "dispatcher"), h.ToggleUrgent)
 
 	// Resources - Vehicles
@@ -181,12 +183,34 @@ func (h *Handler) ListPendingShipments(c *gin.Context) {
 		return
 	}
 
-	shipments, err := h.svc.ListPendingShipments(c.Request.Context(), warehouseID, deliveryDate)
+	// include_overdue=true: lấy tất cả delivery_date <= deliveryDate (gồm trễ hẹn)
+	includeOverdue := c.Query("include_overdue") == "true"
+
+	shipments, err := h.svc.ListPendingShipments(c.Request.Context(), warehouseID, deliveryDate, includeOverdue)
 	if err != nil {
 		response.InternalError(c)
 		return
 	}
 	response.OK(c, shipments)
+}
+
+func (h *Handler) GetPendingSummary(c *gin.Context) {
+	warehouseID, err := uuid.Parse(c.Query("warehouse_id"))
+	if err != nil {
+		response.BadRequest(c, "warehouse_id là bắt buộc")
+		return
+	}
+	today := c.Query("today")
+	if today == "" {
+		// fallback: dùng ngày hiện tại server
+		today = time.Now().Format("2006-01-02")
+	}
+	summary, err := h.svc.GetPendingSummary(c.Request.Context(), warehouseID, today)
+	if err != nil {
+		response.InternalError(c)
+		return
+	}
+	response.OK(c, summary)
 }
 
 func (h *Handler) ToggleUrgent(c *gin.Context) {
