@@ -20,7 +20,7 @@ services:
       - REDIS_URL=redis://redis:6379/0
       - JWT_PRIV_KEY_PATH=/app/keys/private.pem
       - JWT_PUB_KEY_PATH=/app/keys/public.pem
-      - JWT_ACCESS_TTL=15m
+      - JWT_ACCESS_TTL=8h
       - JWT_REFRESH_TTL=168h
       - VRP_SOLVER_URL=http://vrp:8090
       - OSRM_URL=http://osrm:5000
@@ -33,7 +33,7 @@ services:
       - ZALO_OA_ID=${ZALO_OA_ID}
       - INTEGRATION_MOCK=${INTEGRATION_MOCK:-false}
       - SENTRY_DSN=${SENTRY_DSN:-}
-      - ENABLE_TEST_PORTAL=${ENABLE_TEST_PORTAL:-false}
+      - ENABLE_TEST_PORTAL=true
       - LOG_LEVEL=INFO
     volumes:
       - ./keys:/app/keys:ro
@@ -132,6 +132,8 @@ services:
     build:
       context: ./vrp-solver
       dockerfile: Dockerfile
+    ports:
+      - "8090:8090"
     environment:
       - OSRM_URL=http://osrm:5000
     restart: unless-stopped
