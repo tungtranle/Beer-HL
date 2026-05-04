@@ -298,6 +298,18 @@ Hiển thị danh sách đơn cùng NPP cùng ngày → gom vào 1 shipment. Hi�
 └──────────────────────────────────────────────────────┘
 ```
 
+#### WEB-TMS-01b: So sánh phương án VRP — apples-to-apples decision UX (03/05/2026)
+
+Khi dispatcher bấm so sánh `Tối ưu chi phí` và `Giao nhanh`, hệ thống không hiển thị 2 cột ngang hàng ngay từ đầu. Flow bắt buộc:
+
+1. Chạy cost mode trước để chọn tập đơn khả thi theo đội xe/capacity.
+2. Chạy time mode sau với cùng `force_delivery_shipment_ids` để đảm bảo hai phương án so sánh trên cùng tập đơn, tránh "táo so cam" khi capacity không đủ.
+3. UI hiển thị hero recommendation trước: capacity warning nếu còn unassigned, KPI chính kèm delta so với phương án còn lại, nút `Áp dụng phương án này`.
+4. Phương án còn lại nằm trong drawer `Xem Giao nhanh/Tối ưu chi phí`; drawer chỉ mở khi user cần xem sâu.
+5. Drawer phải nêu diff vận hành: số đơn đổi xe, số chuyến/xe chênh, km chênh, phí cầu đường chênh, và gợi ý khi nào nên đổi sang phương án còn lại.
+
+Nguyên tắc UX: compare luôn nói rõ `cùng N đơn`; nếu còn đơn chưa giao, banner capacity phải xuất hiện trước metrics để user hiểu giới hạn vật lý.
+
 ### WEB-TMS-02: Danh sách chuyến xe
 
 | Column | Filter |

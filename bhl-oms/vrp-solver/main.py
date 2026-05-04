@@ -729,19 +729,32 @@ def solve_vrp(data, progress_callback=None):
             routing.SetFixedCostOfVehicle(14400, vi)  # 4 hours fixed cost per vehicle used
         logger.info(f"Optimize mode: TIME (pure duration+service, fixed_vehicle_cost=14400s, source={'osrm' if duration_matrix is not None else 'haversine_est'})")
     elif optimize_for == 'cost' and len(per_vehicle_cost_cb_indices) == num_vehicles:
-        # COST: arc cost = fuel_vnd + toll_vnd per vehicle (true VND minimization)
-        # Fixed vehicle activation cost (300,000 VND ≈ 100km of fuel) consolidates routes
-        # so solver doesn't create 1-order routes when high drop penalty forces all deliveries.
-        for vi, cb_idx in enumerate(per_vehicle_cost_cb_indices):
-            routing.SetArcCostEvaluatorOfVehicle(cb_idx, vi)
-        # 1.5M VND ≈ 500km of fuel (~6–7 stops worth of detour). Without this,
-        # COST mode happily opens 80+ vehicles because adding a 100km arc costs
-        # ~330K VND while opening a new vehicle was only 300K VND — the solver
-        # could not prefer consolidation. Required to honour the invariant
-        # "COST mode total cost ≤ TIME mode total cost" at sensible trip counts.
+        # COST: arc cost = AVERAGE VND across all vehicles (not per-vehicle).
+        # Root-cause of per-vehicle approach: solver selects cheapest-per-km vehicles
+        # (usually smaller capacity) → needs MORE trips → total cost HIGHER than TIME mode.
+        # Fix: use a single average-cost matrix (same structure as TIME mode) so the solver
+        # consolidates routes using the largest-capacity vehicles, then VND post-compute
+        # captures actual fuel+toll breakdown per vehicle type.
+        cost_fixed_vnd = int(data.get('cost_fixed_vehicle_vnd', 5_000_000))
+        _nm = len(cost_matrices[0])
+        avg_cost_matrix = [[0] * _nm for _ in range(_nm)]
+        for _i in range(_nm):
+            for _j in range(_nm):
+                if _i != _j:
+                    avg_cost_matrix[_i][_j] = int(round(
+                        sum(cm[_i][_j] for cm in cost_matrices) / num_vehicles
+                    ))
+        def make_avg_cost_cb(mat):
+            def cb(from_index, to_index):
+                fn = manager.IndexToNode(from_index)
+                tn = manager.IndexToNode(to_index)
+                return mat[fn][tn]
+            return cb
+        avg_cost_cb_idx = routing.RegisterTransitCallback(make_avg_cost_cb(avg_cost_matrix))
+        routing.SetArcCostEvaluatorOfAllVehicles(avg_cost_cb_idx)
         for vi in range(num_vehicles):
-            routing.SetFixedCostOfVehicle(1_500_000, vi)  # ~500km fuel overhead per vehicle
-        logger.info(f"Optimize mode: COST (per-vehicle VND = fuel+toll, fixed_vehicle_cost=1.5M VND, {num_vehicles} vehicles)")
+            routing.SetFixedCostOfVehicle(cost_fixed_vnd, vi)
+        logger.info(f"Optimize mode: COST (avg VND matrix, fixed_vehicle_cost={cost_fixed_vnd/1e6:.1f}M VND, {num_vehicles} vehicles)")
     else:
         # DISTANCE (or COST without toll data): arc cost = normal distance (meters)
         routing.SetArcCostEvaluatorOfAllVehicles(transit_callback_index)
@@ -809,12 +822,15 @@ def solve_vrp(data, progress_callback=None):
         penalty = 50_000_000    # 50M VND — forces delivery of all orders (15,000km equivalent)
     else:
         penalty = 1_000_000     # 1000km — reasonable for distance mode
-    # Forced nodes get an effectively-infinite penalty (1e15) instead of "no disjunction".
-    # Reason: without disjunction, the node becomes a HARD constraint. If the first-solution
-    # heuristic can't fit all forced nodes initially (common with tight time/capacity budgets),
-    # OR-Tools returns no solution at all. With very-high penalty, dropping is so expensive the
-    # solver overwhelmingly avoids it, but a feasible solution can always be returned.
-    forced_penalty = 10**15
+    # Forced nodes get a penalty 10× the normal drop penalty (NOT 10^15).
+    # Reason: 10^15 dwarfs the actual arc-cost objective (~10^6 sec for TIME, ~10^9 VND
+    # for COST) by 6-9 orders of magnitude. Once forced nodes are covered, the objective
+    # is dominated by the penalty baseline, making the local-search metaheuristic blind
+    # to real improvements (TIME mode could end up SLOWER than COST mode because the
+    # solver couldn't see the time-cost gradient over the noise floor).
+    # 10× normal penalty is enough to make dropping a forced node cost more than any
+    # realistic single-route reorganization, while keeping the objective signal alive.
+    forced_penalty = penalty * 10
     forced_count = 0
     for node in range(1, num_nodes):
         node_id = str(nodes[node - 1].get('id', ''))

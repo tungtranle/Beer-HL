@@ -178,16 +178,16 @@ type VRPCriteria struct {
 }
 
 type RunVRPRequest struct {
-	WarehouseID      uuid.UUID    `json:"warehouse_id"`
-	DeliveryDate     string       `json:"delivery_date"`
-	ShipmentIDs      []uuid.UUID  `json:"shipment_ids,omitempty"`
-	VehicleIDs       []uuid.UUID  `json:"vehicle_ids,omitempty"`
-	Criteria         *VRPCriteria `json:"criteria,omitempty"`
+	WarehouseID  uuid.UUID    `json:"warehouse_id"`
+	DeliveryDate string       `json:"delivery_date"`
+	ShipmentIDs  []uuid.UUID  `json:"shipment_ids,omitempty"`
+	VehicleIDs   []uuid.UUID  `json:"vehicle_ids,omitempty"`
+	Criteria     *VRPCriteria `json:"criteria,omitempty"`
 	// ForceDeliveryShipmentIDs: when set, the solver MUST deliver these shipments
 	// (no disjunction → cannot drop). Used by compare flow to ensure COST and TIME
 	// modes evaluate the same shipment subset so their metrics are comparable.
 	ForceDeliveryShipmentIDs []uuid.UUID `json:"force_delivery_shipment_ids,omitempty"`
-	RequestingUserID *uuid.UUID   `json:"-"` // Injected by handler for WS progress broadcast
+	RequestingUserID         *uuid.UUID  `json:"-"` // Injected by handler for WS progress broadcast
 }
 
 // RunVRP sends problem to VRP solver and stores result
@@ -208,10 +208,16 @@ func (s *Service) RunVRP(ctx context.Context, req RunVRPRequest) (string, error)
 		return "", fmt.Errorf("không có shipment nào cho ngày %s", req.DeliveryDate)
 	}
 
-	// Filter if specific IDs provided
-	if len(req.ShipmentIDs) > 0 {
+	// Filter if specific IDs provided. In compare Phase 2, force_delivery_shipment_ids
+	// is the authoritative shipment universe: TIME must solve ONLY the subset COST
+	// delivered, not the broader pending list sent by an older frontend bundle.
+	shipmentIDs := req.ShipmentIDs
+	if len(req.ForceDeliveryShipmentIDs) > 0 {
+		shipmentIDs = req.ForceDeliveryShipmentIDs
+	}
+	if len(shipmentIDs) > 0 {
 		idSet := make(map[uuid.UUID]bool)
-		for _, id := range req.ShipmentIDs {
+		for _, id := range shipmentIDs {
 			idSet[id] = true
 		}
 		var filtered []domain.Shipment
@@ -221,6 +227,9 @@ func (s *Service) RunVRP(ctx context.Context, req RunVRPRequest) (string, error)
 			}
 		}
 		shipments = filtered
+		if len(shipments) == 0 {
+			return "", fmt.Errorf("không tìm thấy shipment nào khớp với IDs đã cho (stale IDs?)")
+		}
 	}
 
 	// Get vehicles
@@ -337,7 +346,7 @@ func (s *Service) RunVRP(ctx context.Context, req RunVRPRequest) (string, error)
 			}()))
 	}
 
-	solverReq := buildSolverRequest(depotLat, depotLng, shipments, vehicles, jobID, costInfos, customerMaxKg)
+	solverReq := buildSolverRequest(depotLat, depotLng, shipments, vehicles, jobID, costInfos, customerMaxKg, req.ForceDeliveryShipmentIDs)
 
 	// Store job as processing
 	s.jobs.Store(jobID, &domain.VRPResult{JobID: jobID, Status: "processing"})
@@ -365,6 +374,11 @@ func (s *Service) RunVRP(ctx context.Context, req RunVRPRequest) (string, error)
 	solverReq.UseCostOptimization = true
 	solverReq.OptimizeFor = optimizeFor
 	solverReq.MaxTripMinutes = criteria.MaxTripMinutes
+	// Pass fixed vehicle cost for COST mode explicitly so Python solver uses the
+	// correct value even before the container is restarted with new default.
+	if optimizeFor == "cost" {
+		solverReq.CostFixedVehicleVND = 5_000_000
+	}
 
 	// Pin specific shipments as undroppable (used by compare flow).
 	if len(req.ForceDeliveryShipmentIDs) > 0 {
@@ -382,16 +396,20 @@ func (s *Service) RunVRP(ctx context.Context, req RunVRPRequest) (string, error)
 }
 
 type solverRequest struct {
-	JobID               string              `json:"job_id"`
-	Depot               [2]float64          `json:"depot"`
-	Nodes               []solverNode        `json:"nodes"`
-	Vehicles            []solverVehicle     `json:"vehicles"`
-	UseCostOptimization bool                `json:"use_cost_optimization,omitempty"`
-	OptimizeFor         string              `json:"optimize_for,omitempty"`
-	MaxTripMinutes      int                 `json:"max_trip_minutes,omitempty"`
-	TollStations        []solverTollStation `json:"toll_stations,omitempty"`
-	TollExpressways     []solverTollExway   `json:"toll_expressways,omitempty"`
-	ForceDeliveryNodeIDs []string           `json:"force_delivery_node_ids,omitempty"`
+	JobID                string              `json:"job_id"`
+	Depot                [2]float64          `json:"depot"`
+	Nodes                []solverNode        `json:"nodes"`
+	Vehicles             []solverVehicle     `json:"vehicles"`
+	UseCostOptimization  bool                `json:"use_cost_optimization,omitempty"`
+	OptimizeFor          string              `json:"optimize_for,omitempty"`
+	MaxTripMinutes       int                 `json:"max_trip_minutes,omitempty"`
+	TollStations         []solverTollStation `json:"toll_stations,omitempty"`
+	TollExpressways      []solverTollExway   `json:"toll_expressways,omitempty"`
+	ForceDeliveryNodeIDs []string            `json:"force_delivery_node_ids,omitempty"`
+	// CostFixedVehicleVND: fixed vehicle activation cost in VND for COST mode.
+	// Must be higher than a typical full-trip arc cost so the solver prefers
+	// adding stops to existing vehicles over opening new ones.
+	CostFixedVehicleVND int64 `json:"cost_fixed_vehicle_vnd,omitempty"`
 }
 
 type solverNode struct {
@@ -441,7 +459,7 @@ type solverTollGate struct {
 	KmMarker float64 `json:"km_marker"`
 }
 
-func buildSolverRequest(depotLat, depotLng float64, shipments []domain.Shipment, vehicles []domain.Vehicle, jobID string, costInfos []domain.VehicleCostInfo, customerMaxKg map[uuid.UUID]int) *solverRequest {
+func buildSolverRequest(depotLat, depotLng float64, shipments []domain.Shipment, vehicles []domain.Vehicle, jobID string, costInfos []domain.VehicleCostInfo, customerMaxKg map[uuid.UUID]int, forceDeliveryIDs []uuid.UUID) *solverRequest {
 	req := &solverRequest{
 		JobID: jobID,
 		Depot: [2]float64{depotLat, depotLng},
@@ -487,6 +505,19 @@ func buildSolverRequest(depotLat, depotLng float64, shipments []domain.Shipment,
 			sv.FuelCostPerKm = ci.FuelCostPerKm
 		}
 		req.Vehicles = append(req.Vehicles, sv)
+	}
+
+	// Add force delivery node IDs (convert UUID to string)
+	if len(forceDeliveryIDs) > 0 {
+		forceMap := make(map[string]bool)
+		for _, id := range forceDeliveryIDs {
+			forceMap[id.String()] = true
+		}
+		for _, node := range req.Nodes {
+			if forceMap[node.ID] {
+				req.ForceDeliveryNodeIDs = append(req.ForceDeliveryNodeIDs, node.ID)
+			}
+		}
 	}
 
 	return req

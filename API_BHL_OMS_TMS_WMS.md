@@ -427,9 +427,12 @@ Invalidate refresh token trong DB.
   "warehouse_id": "uuid",
   "delivery_date": "2026-03-20",
   "shipment_ids": ["uuid1", "uuid2"],   // Optional: auto-select nếu bỏ trống
-  "vehicle_ids": ["uuid1", "uuid2"]      // Optional: auto-select available
+  "vehicle_ids": ["uuid1", "uuid2"],     // Optional: auto-select available
+  "force_delivery_shipment_ids": ["uuid1", "uuid2"] // Optional: compare flow pin cùng tập đơn giữa cost/time
 }
 ```
+
+> `force_delivery_shipment_ids` dùng cho VRP compare apples-to-apples: mode sau phải giao cùng tập shipment với mode trước để metric chi phí/thời gian không bị so sánh trên 2 subset khác nhau khi thiếu capacity.
 
 **Response 200:** (Async — trả job_id, poll cho kết quả)
 ```json

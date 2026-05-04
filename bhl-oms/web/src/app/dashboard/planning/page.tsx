@@ -10,9 +10,11 @@ import { useNotifications } from '@/lib/notifications'
 import { handleError } from '@/lib/handleError'
 import { AIContextStrip } from '@/components/ai'
 import {
-  BarChart3, Truck, Package, Map, CheckSquare2, Check, RefreshCw, AlertTriangle,
+  BarChart3, Truck, Package, Map as MapIcon, CheckSquare2, Check, RefreshCw, AlertTriangle,
   MapPin, Scale, Save, ClipboardList, Clock, CalendarCheck, TriangleAlert,
   CheckCircle2, XCircle, Navigation2, Target, BarChart2, PartyPopper,
+  Trophy, Lightbulb, ArrowRight, ChevronDown, ChevronUp,
+  Zap, Wallet, Info, Cloud, CalendarDays, Maximize2, Sparkles, Eye,
   type LucideIcon,
 } from 'lucide-react'
 
@@ -346,7 +348,7 @@ function TripDetailModal({ trip, tripIdx, vehicles, warehouse, vrpConstraintsMap
             </button>
             <button onClick={() => setIsFullscreen(!isFullscreen)} title={isFullscreen ? 'Thu nhỏ' : 'Phóng to'}
               className="w-8 h-8 rounded-full bg-white/20 hover:bg-white/30 flex items-center justify-center text-lg">
-              {isFullscreen ? <CheckSquare2 className='w-4 h-4' /> : <Map className='w-4 h-4' />}
+              {isFullscreen ? <CheckSquare2 className='w-4 h-4' /> : <MapIcon className='w-4 h-4' />}
             </button>
             <button onClick={onClose} className="w-8 h-8 rounded-full bg-white/20 hover:bg-white/30 flex items-center justify-center"><XCircle className="w-5 h-5" /></button>
           </div>
@@ -716,6 +718,61 @@ interface VRPResult {
   distance_source?: string; optimize_for?: string
 }
 
+const deliveredShipmentSet = (result: VRPResult | null): Set<string> => {
+  const delivered = new Set<string>()
+  if (!result?.trips) return delivered
+  for (const trip of result.trips) {
+    for (const stop of trip.stops || []) {
+      if (stop.shipment_id) delivered.add(stop.shipment_id)
+      for (const cid of (stop.consolidated_ids || [])) delivered.add(cid)
+    }
+  }
+  return delivered
+}
+
+const sameShipmentSet = (a: Set<string>, b: Set<string>): boolean => {
+  if (a.size !== b.size) return false
+  return Array.from(a).every(id => b.has(id))
+}
+
+// ─── Compare-modal helpers (world-class hero+drawer pattern) ──────────
+// Shows winner KPI cards with delta vs alternative. Tone "good" = green up arrow,
+// "bad" = red down arrow, "neutral" = gray. Single source of truth for the
+// recommended phương án presentation.
+function KPICard({ icon, label, value, sub, tone }: {
+  icon: React.ReactNode; label: string; value: string; sub?: string;
+  tone: 'good' | 'bad' | 'neutral'
+}) {
+  const subColor = tone === 'good' ? 'text-emerald-700 bg-emerald-100' : tone === 'bad' ? 'text-red-700 bg-red-100' : 'text-gray-600 bg-gray-100'
+  return (
+    <div className="bg-white rounded-xl p-3 shadow-sm border border-gray-100">
+      <div className="flex items-center gap-1.5 text-xs text-gray-500 mb-1">
+        <span className="text-gray-400">{icon}</span>
+        <span>{label}</span>
+      </div>
+      <div className="text-lg font-bold text-gray-800 leading-tight">{value}</div>
+      {sub && <div className={`inline-block mt-1 text-[11px] px-1.5 py-0.5 rounded font-medium ${subColor}`}>{sub}</div>}
+    </div>
+  )
+}
+
+function CompareRow({ label, value, muted }: { label: string; value: string; muted?: boolean }) {
+  return (
+    <div className={`flex justify-between ${muted ? 'text-xs' : ''}`}>
+      <span className={muted ? 'text-gray-400' : 'text-gray-600'}>{label}</span>
+      <span className={muted ? 'text-gray-500' : 'font-medium text-gray-800'}>{value}</span>
+    </div>
+  )
+}
+
+// Format delta vs alternative. Negative = winner is lower (good for cost/time/km).
+// Returns "-12.5M (-23%)" or "+27h (+22%)" with explicit sign.
+function deltaText(delta: number, pct: number, _lowerIsBetter: boolean, fmt: (v: number) => string): string {
+  if (delta === 0) return '= phương án còn lại'
+  const sign = delta < 0 ? '−' : '+'
+  return `${sign}${fmt(Math.abs(delta))} (${pct >= 0 ? '+' : ''}${pct}%) vs alt`
+}
+
 function buildVRPReviewHighlights(result: VRPResult, vehicles: Vehicle[]) {
   const highlights: { label: string; value: string; impact: 'positive' | 'neutral' | 'negative' | 'warning'; reason: string }[] = []
   const unassignedCount = result.unassigned_shipments?.length || result.summary?.total_unassigned || 0
@@ -754,8 +811,323 @@ function buildVRPReviewHighlights(result: VRPResult, vehicles: Vehicle[]) {
   return highlights.slice(0, 5)
 }
 
+// ─── Decision Support Panel — sticky context advisor ─────────────────
+// Computes context (day-of-week, urgent count, capacity gap, weather)
+// and produces a rule-based recommendation. Always visible while compareResult
+// is open so the operator can verify whether the auto-recommended winner
+// matches today's operating conditions.
+function DecisionSupportPanel({
+  deliveryDate, urgentCount, totalShipments, unassignedCount, totalWeightShortKg,
+  recommendedKey, onAlignWithRecommendation,
+}: {
+  deliveryDate: string
+  urgentCount: number
+  totalShipments: number
+  unassignedCount: number
+  totalWeightShortKg: number
+  recommendedKey: 'cost' | 'time'
+  onAlignWithRecommendation: (k: 'cost' | 'time') => void
+}) {
+  const dow = useMemo(() => {
+    if (!deliveryDate) return { idx: -1, label: '—', isWeekend: false }
+    const d = new Date(deliveryDate + 'T00:00:00')
+    const idx = d.getDay() // 0=CN
+    const labels = ['Chủ nhật', 'Thứ 2', 'Thứ 3', 'Thứ 4', 'Thứ 5', 'Thứ 6', 'Thứ 7']
+    return { idx, label: labels[idx], isWeekend: idx === 0 || idx === 6 }
+  }, [deliveryDate])
+
+  const urgencyLevel = urgentCount > 0 || dow.isWeekend ? 'time' : 'cost'
+  const matchesRecommended = urgencyLevel === recommendedKey
+  const reason = urgentCount > 0
+    ? `Có ${urgentCount} đơn gấp — ưu tiên giao đúng deadline`
+    : dow.isWeekend
+      ? `${dow.label} — đường có thể đông, chọn nhanh để tránh kẹt`
+      : 'Ngày bình thường, không có đơn ép giờ — ưu tiên tiết kiệm chi phí'
+
+  const advisedLabel = urgencyLevel === 'cost' ? 'TIẾT KIỆM (Tối ưu chi phí)' : 'GIAO NHANH'
+
+  // Inline horizontal strip — no overlay, no content blocking
+  const contextChips = [
+    {
+      icon: <CalendarDays className="w-3.5 h-3.5" />,
+      label: dow.label + (dow.isWeekend ? ' (cuối tuần)' : ''),
+      color: dow.isWeekend ? 'bg-amber-50 text-amber-800 border-amber-200' : 'bg-gray-50 text-gray-600 border-gray-200',
+    },
+    {
+      icon: <AlertTriangle className={`w-3.5 h-3.5 ${urgentCount > 0 ? 'text-red-500' : 'text-gray-400'}`} />,
+      label: urgentCount > 0 ? `${urgentCount} đơn gấp` : 'Không có đơn gấp',
+      color: urgentCount > 0 ? 'bg-red-50 text-red-700 border-red-200' : 'bg-gray-50 text-gray-500 border-gray-200',
+    },
+    {
+      icon: <Package className={`w-3.5 h-3.5 ${unassignedCount > 0 ? 'text-amber-500' : 'text-emerald-500'}`} />,
+      label: unassignedCount > 0 ? `Thiếu tải ${(totalWeightShortKg / 1000).toFixed(0)}T` : 'Capacity đủ',
+      color: unassignedCount > 0 ? 'bg-amber-50 text-amber-700 border-amber-200' : 'bg-emerald-50 text-emerald-700 border-emerald-200',
+    },
+  ]
+
+  return (
+    <div className="flex items-center gap-2 flex-wrap" aria-label="Decision Support">
+      {/* Context chips */}
+      {contextChips.map((c, i) => (
+        <span key={i} className={`inline-flex items-center gap-1 px-2 py-1 rounded-full text-xs font-medium border ${c.color}`}>
+          {c.icon}{c.label}
+        </span>
+      ))}
+
+      {/* Divider */}
+      <span className="text-gray-300 select-none">→</span>
+
+      {/* Recommendation pill */}
+      <span className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold border-2 ${
+        matchesRecommended
+          ? 'bg-emerald-50 text-emerald-800 border-emerald-300'
+          : 'bg-amber-50 text-amber-800 border-amber-300'
+      }`}>
+        <Sparkles className="w-3.5 h-3.5" />
+        Nên chọn: {advisedLabel}
+        {matchesRecommended
+          ? <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
+          : (
+            <button
+              onClick={() => onAlignWithRecommendation(urgencyLevel)}
+              className="ml-1 underline underline-offset-2 hover:no-underline"
+            >
+              Đổi →
+            </button>
+          )
+        }
+      </span>
+    </div>
+  )
+}
+
+// ─── Compare Deep-Dive Modal — Tier 3 split-view map ─────────────────
+// Two leaflet maps side-by-side, one per phương án.
+// Shipments that change vehicle assignment between plans are highlighted
+// with an orange pulsing ring. Click them → popup with reasoning text.
+type MovedShip = {
+  shipmentId: string; customerName: string; weightKg: number
+  lat: number; lng: number
+  winnerVehicle: string; winnerVehiclePlate: string; winnerCapPct: number
+  altVehicle: string;    altVehiclePlate: string;    altCapPct: number
+}
+
+function CompareDeepDiveModal({
+  winnerRes, altRes, winnerLabel, altLabel,
+  vehicles, warehouse, movedShipments, onClose,
+}: {
+  winnerRes: VRPResult; altRes: VRPResult
+  winnerLabel: string; altLabel: string
+  vehicles: Vehicle[]
+  warehouse: { lat: number; lng: number; name: string } | null
+  movedShipments: MovedShip[]
+  onClose: () => void
+}) {
+  const leftMapRef = useRef<any>(null)
+  const rightMapRef = useRef<any>(null)
+  const leftElRef = useRef<HTMLDivElement>(null)
+  const rightElRef = useRef<HTMLDivElement>(null)
+  const [selectedMoved, setSelectedMoved] = useState<MovedShip | null>(null)
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return
+    let cancelled = false
+
+    const tripColors = ['#2563eb', '#dc2626', '#16a34a', '#ea580c', '#9333ea', '#0891b2', '#ca8a04', '#db2777', '#65a30d', '#7c3aed']
+
+    const renderMap = async (
+      el: HTMLDivElement, ref: React.MutableRefObject<any>, res: VRPResult,
+    ) => {
+      const L = (await import('leaflet')).default
+      if (cancelled) return
+      if (ref.current) { ref.current.remove(); ref.current = null }
+      const map = L.map(el, { zoomControl: true, scrollWheelZoom: true })
+      L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 19, attribution: '© OSM' }).addTo(map)
+      ref.current = map
+
+      const allPoints: [number, number][] = []
+      const movedSet = new Set(movedShipments.map(m => m.shipmentId))
+
+      // Depot
+      if (warehouse) {
+        const depotIcon = L.divIcon({
+          html: `<div style="background:#1e40af;color:white;width:30px;height:30px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:700;border:3px solid white;box-shadow:0 2px 8px rgba(0,0,0,.4)">KHO</div>`,
+          className: '', iconSize: [30, 30], iconAnchor: [15, 15],
+        })
+        L.marker([warehouse.lat, warehouse.lng], { icon: depotIcon }).addTo(map).bindPopup(`<b>${warehouse.name}</b>`)
+        allPoints.push([warehouse.lat, warehouse.lng])
+      }
+
+      // Per-trip rendering
+      ;(res.trips || []).forEach((trip, ti) => {
+        const color = tripColors[ti % tripColors.length]
+        const veh = vehicles.find(v => v.id === trip.vehicle_id)
+        const plate = veh?.plate_number || trip.plate_number || trip.vehicle_id.slice(0, 6)
+
+        // Draw actual OSRM road geometry. The deep-dive is used for operational review;
+        // straight depot→stop lines are misleading because km/fuel/toll are road-based.
+        const linePts: [number, number][] = []
+        if (warehouse) linePts.push([warehouse.lat, warehouse.lng])
+        for (const s of trip.stops || []) {
+          if (s.latitude && s.longitude) linePts.push([s.latitude, s.longitude])
+        }
+        if (warehouse) linePts.push([warehouse.lat, warehouse.lng])
+        if (linePts.length >= 2) {
+          fetchOSRMRoute(linePts).then(route => {
+            if (cancelled || !ref.current) return
+            L.polyline(route?.geometry?.length ? route.geometry : linePts, {
+              color,
+              weight: 3,
+              opacity: route?.geometry?.length ? 0.65 : 0.35,
+              dashArray: route?.geometry?.length ? undefined : '8 5',
+            }).addTo(ref.current)
+            const boundsPts = route?.geometry?.length ? route.geometry : linePts
+            boundsPts.forEach(p => allPoints.push(p))
+            if (allPoints.length > 0 && ref.current) {
+              ref.current.fitBounds(L.latLngBounds(allPoints.map(p => L.latLng(p[0], p[1]))), { padding: [30, 30] })
+            }
+          })
+        }
+
+        // Stop markers
+        ;(trip.stops || []).forEach((stop, si) => {
+          if (!stop.latitude || !stop.longitude) return
+          allPoints.push([stop.latitude, stop.longitude])
+          const sid = stop.shipment_id || ''
+          const isMoved = movedSet.has(sid) || (stop.consolidated_ids || []).some(id => movedSet.has(id))
+          if (isMoved) {
+            // Highlighted pulsing orange marker
+            const movedIcon = L.divIcon({
+              html: `<div class="bhl-pulse-ring" style="position:relative;width:26px;height:26px"><div style="position:absolute;inset:0;background:#f97316;border:3px solid white;border-radius:50%;box-shadow:0 2px 8px rgba(0,0,0,.4);display:flex;align-items:center;justify-content:center;color:white;font-size:11px;font-weight:700">${si + 1}</div></div>`,
+              className: '', iconSize: [26, 26], iconAnchor: [13, 13],
+            })
+            const moved = movedShipments.find(m => m.shipmentId === sid || (stop.consolidated_ids || []).includes(m.shipmentId))
+            const marker = L.marker([stop.latitude, stop.longitude], { icon: movedIcon, zIndexOffset: 1000 }).addTo(map)
+            marker.bindPopup(`<b>${stop.customer_name}</b><br/>Xe: <b style="color:${color}">${plate}</b><br/><i style="color:#ea580c">↻ Đơn này được gán xe khác ở phương án còn lại</i><br/><span style="font-size:11px;color:#666">Click để xem chi tiết bên ngoài</span>`)
+            marker.on('click', () => { if (moved) setSelectedMoved(moved) })
+          } else {
+            const icon = L.divIcon({
+              html: `<div style="background:${color};color:white;width:18px;height:18px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:9px;font-weight:600;border:1.5px solid white;opacity:.85">${si + 1}</div>`,
+              className: '', iconSize: [18, 18], iconAnchor: [9, 9],
+            })
+            L.marker([stop.latitude, stop.longitude], { icon }).addTo(map)
+              .bindPopup(`<b>${stop.customer_name}</b><br/>Xe: <b style="color:${color}">${plate}</b>`)
+          }
+        })
+      })
+
+      // Fit to known stop/depot bounds immediately; OSRM geometry will expand bounds when loaded.
+      if (allPoints.length > 0) {
+        map.fitBounds(L.latLngBounds(allPoints.map(p => L.latLng(p[0], p[1]))), { padding: [30, 30] })
+      }
+    }
+
+    if (leftElRef.current) renderMap(leftElRef.current, leftMapRef, winnerRes)
+    if (rightElRef.current) renderMap(rightElRef.current, rightMapRef, altRes)
+
+    return () => {
+      cancelled = true
+      if (leftMapRef.current) { leftMapRef.current.remove(); leftMapRef.current = null }
+      if (rightMapRef.current) { rightMapRef.current.remove(); rightMapRef.current = null }
+    }
+  }, [winnerRes, altRes, vehicles, warehouse, movedShipments])
+
+  return (
+    <div className="fixed inset-0 z-50 bg-black/60 flex items-center justify-center p-4" onClick={onClose}>
+      <div className="bg-white rounded-2xl w-full h-full max-w-[1600px] max-h-[92vh] flex flex-col shadow-2xl" onClick={e => e.stopPropagation()}>
+        {/* Header */}
+        <div className="px-6 py-4 border-b border-gray-200 flex items-center gap-4">
+          <div className="flex items-center gap-2">
+            <Eye className="w-5 h-5 text-purple-600" />
+            <h2 className="text-lg font-bold text-gray-800">Soi sâu khác biệt — {movedShipments.length} đơn đổi xe</h2>
+          </div>
+          <div className="flex-1" />
+          {/* Legend */}
+          <div className="flex items-center gap-4 text-xs text-gray-600">
+            <span className="flex items-center gap-1.5">
+              <span className="inline-block w-4 h-4 rounded-full bg-blue-700 border-2 border-white"></span> Kho
+            </span>
+            <span className="flex items-center gap-1.5">
+              <span className="inline-block w-3 h-3 rounded-full bg-gray-400 border border-white"></span> Đơn cố định (cùng xe)
+            </span>
+            <span className="flex items-center gap-1.5">
+              <span className="inline-block w-4 h-4 rounded-full bg-orange-500 border-2 border-white animate-pulse"></span> Đơn đổi xe (click)
+            </span>
+          </div>
+          <button onClick={onClose} className="px-3 py-1.5 text-sm bg-gray-100 hover:bg-gray-200 rounded-lg">Đóng</button>
+        </div>
+
+        {/* Two-pane maps */}
+        <div className="flex-1 grid grid-cols-2 gap-2 p-2 min-h-0">
+          <div className="relative rounded-xl overflow-hidden border-2 border-emerald-300">
+            <div className="absolute top-2 left-2 z-[400] bg-white/95 px-3 py-1.5 rounded-lg shadow text-sm">
+              <span className="font-bold text-emerald-700">{winnerLabel}</span>
+              <span className="text-xs text-amber-700 ml-2">★ ĐỀ XUẤT</span>
+              <div className="text-[11px] text-gray-500">{winnerRes.trips?.length || 0} chuyến · {(winnerRes.summary?.total_distance_km || 0).toFixed(0)} km</div>
+            </div>
+            <div ref={leftElRef} className="w-full h-full" />
+          </div>
+          <div className="relative rounded-xl overflow-hidden border-2 border-blue-300">
+            <div className="absolute top-2 left-2 z-[400] bg-white/95 px-3 py-1.5 rounded-lg shadow text-sm">
+              <span className="font-bold text-blue-700">{altLabel}</span>
+              <div className="text-[11px] text-gray-500">{altRes.trips?.length || 0} chuyến · {(altRes.summary?.total_distance_km || 0).toFixed(0)} km</div>
+            </div>
+            <div ref={rightElRef} className="w-full h-full" />
+          </div>
+        </div>
+
+        {/* Selected moved-shipment detail strip */}
+        <div className="border-t border-gray-200 px-6 py-3 bg-gray-50 min-h-[80px] flex items-center">
+          {selectedMoved ? (
+            <div className="w-full flex items-start gap-4">
+              <div className="w-10 h-10 rounded-full bg-orange-100 flex items-center justify-center flex-shrink-0">
+                <Sparkles className="w-5 h-5 text-orange-600" />
+              </div>
+              <div className="flex-1 min-w-0">
+                <div className="font-bold text-gray-800 text-sm mb-1">
+                  {selectedMoved.customerName} <span className="text-gray-500 font-normal">— {selectedMoved.weightKg.toFixed(0)} kg</span>
+                </div>
+                <div className="text-sm text-gray-700">
+                  <span className="text-emerald-700 font-semibold">{winnerLabel}:</span> gán xe <b>{selectedMoved.winnerVehiclePlate}</b> (đầy {selectedMoved.winnerCapPct.toFixed(0)}%)
+                  <span className="mx-2 text-gray-400">·</span>
+                  <span className="text-blue-700 font-semibold">{altLabel}:</span> gán xe <b>{selectedMoved.altVehiclePlate}</b> (đầy {selectedMoved.altCapPct.toFixed(0)}%)
+                </div>
+                <div className="text-xs text-gray-500 mt-1 italic">
+                  Solver chọn xe khác để tối ưu mục tiêu của từng phương án (chi phí vs thời gian)
+                </div>
+              </div>
+              <button onClick={() => setSelectedMoved(null)} className="text-xs text-gray-400 hover:text-gray-600">×</button>
+            </div>
+          ) : (
+            <div className="text-sm text-gray-400 italic w-full text-center">
+              Click vào điểm cam nhấp nháy trên một trong 2 bản đồ để xem chi tiết đơn đổi xe
+            </div>
+          )}
+        </div>
+      </div>
+      {/* pulse animation */}
+      <style jsx global>{`
+        .bhl-pulse-ring::before {
+          content: '';
+          position: absolute;
+          inset: -6px;
+          border: 3px solid #f97316;
+          border-radius: 50%;
+          opacity: 0.7;
+          animation: bhl-pulse-ring 1.4s ease-out infinite;
+        }
+        @keyframes bhl-pulse-ring {
+          0%   { transform: scale(0.8); opacity: 0.7; }
+          80%  { transform: scale(1.6); opacity: 0; }
+          100% { transform: scale(1.6); opacity: 0; }
+        }
+      `}</style>
+    </div>
+  )
+}
+
 const STEPS = ['Tổng quan', 'Chọn xe', 'Xem đơn hàng', 'Tạo kế hoạch giao hàng', 'Duyệt & Tạo chuyến']
-const STEP_ICON_COMPONENTS: LucideIcon[] = [BarChart3, Truck, Package, Map, CheckSquare2]
+const STEP_ICON_COMPONENTS: LucideIcon[] = [BarChart3, Truck, Package, MapIcon, CheckSquare2]
 
 export default function PlanningPage() {
   const user = getUser()
@@ -856,6 +1228,7 @@ export default function PlanningPage() {
     cost:     { pct: 0, stage: '', detail: '' },
     time:     { pct: 0, stage: '', detail: '' },
   })
+  const [compareTrace, setCompareTrace] = useState<string[]>([])
   const vrpJobMapRef = useRef<Record<string, 'cost' | 'time' | 'single'>>({})
 
   // Step 5: driver assignment & approval
@@ -899,8 +1272,10 @@ export default function PlanningPage() {
   const [scenarioName, setScenarioName] = useState('')
   const [showScenarios, setShowScenarios] = useState(false)
   const [savedJobId, setSavedJobId] = useState('')
-  const [compareResult, setCompareResult] = useState<{ cost: VRPResult | null; time: VRPResult | null } | null>(null)
+  const [compareResult, setCompareResult] = useState<{ cost: VRPResult | null; time: VRPResult | null; costFellBackToTime?: boolean; rawCost?: VRPResult | null } | null>(null)
   const [comparing, setComparing] = useState(false)
+  const [showAltDetail, setShowAltDetail] = useState(false)
+  const [showDeepDive, setShowDeepDive] = useState(false)
 
   const { subscribeVRPProgress } = useNotifications()
 
@@ -968,9 +1343,8 @@ export default function PlanningPage() {
       // Default: select all vehicles
       setSelectedVehicleIds(new Set((v.data || []).map((x: Vehicle) => x.id)))
       setExcludedShipmentIds(new Set())
-      // Reset VRP
-      setVrpResult(null)
-      setApproved(false)
+      // Keep an existing solve/compare result visible during background reloads.
+      // Results are explicitly cleared only when the user starts a new run or changes inputs.
     } catch (err: any) {
       setError(err.message)
     }
@@ -1141,14 +1515,22 @@ export default function PlanningPage() {
       cost:     { pct: 0, stage: '', detail: '' },
       time:     { pct: 0, stage: '', detail: '' },
     })
+    setCompareTrace([])
+
+    const traceCompare = (message: string) => {
+      const ts = new Date().toLocaleTimeString('vi-VN', { hour12: false })
+      setCompareTrace(prev => [...prev, `${ts} ${message}`].slice(-12))
+    }
 
     const vehicleIdsToSend = Array.from(selectedVehicleIds)
+    const shipmentIdsToSend = activeShipments.map(s => s.id)
     const critMap: Record<string, number> = {}
     criteriaOrder.forEach((c, idx) => { critMap[c.key] = c.enabled ? idx + 1 : 0 })
 
     const buildBody = (mode: string, forcedIds?: string[]) => ({
       warehouse_id: warehouseId,
       delivery_date: deliveryDate,
+      shipment_ids: forcedIds && forcedIds.length > 0 ? forcedIds : shipmentIdsToSend,
       vehicle_ids: vehicleIdsToSend,
       criteria: {
         max_capacity: critMap['max_capacity'] || 0,
@@ -1161,18 +1543,25 @@ export default function PlanningPage() {
         cost_optimize: costReadiness?.ready || false,
         optimize_for: mode,
       },
-      // When provided, solver MUST deliver these shipments (no drop). Used to
-      // pin the same delivery subset across compare modes so cost/time metrics
-      // are directly comparable (apples-to-apples). Without this, each mode
-      // chooses a different subset under capacity pressure → metrics diverge.
+      // When provided, solver strongly pins these shipments. The compare flow
+      // still verifies the returned delivered set before rendering, because
+      // capacity/time-window constraints can make a hard apples-to-apples result
+      // impossible for a particular selection.
       ...(forcedIds && forcedIds.length > 0 ? { force_delivery_shipment_ids: forcedIds } : {}),
     })
 
     const pollJob = (jid: string, mode: 'cost' | 'time'): Promise<VRPResult | null> => {
-      return new Promise((resolve) => {
+      traceCompare(`${mode.toUpperCase()}: bắt đầu poll job ${jid || '(missing)'}`)
+      return new Promise((resolve, reject) => {
+        if (!jid) {
+          reject(new Error(`${mode.toUpperCase()}: backend không trả job_id`))
+          return
+        }
+        let consecutivePollErrors = 0
         const poll = setInterval(async () => {
           try {
             const r: any = await apiFetch(`/planning/jobs/${jid}`)
+            consecutivePollErrors = 0
             if (r.data?.status === 'processing') {
               // Fallback progress source when WS messages are delayed/missed.
               setCompareProgress(prev => ({
@@ -1187,6 +1576,7 @@ export default function PlanningPage() {
             if (r.data?.status === 'completed' || r.data?.status === 'failed' || r.data?.status === 'no_solution') {
               clearInterval(poll)
               const doneStage = r.data?.status === 'completed' ? 'done' : 'error'
+              traceCompare(`${mode.toUpperCase()}: job ${jid} kết thúc status=${r.data?.status}`)
               setCompareProgress(prev => ({
                 ...prev,
                 [mode]: {
@@ -1197,9 +1587,25 @@ export default function PlanningPage() {
               }))
               resolve(r.data)
             }
-          } catch { /* keep polling */ }
+          } catch (err: any) {
+            consecutivePollErrors += 1
+            const message = err?.message || 'unknown error'
+            traceCompare(`${mode.toUpperCase()}: lỗi poll job ${jid}: ${message}`)
+            if (message.includes('Job không tồn tại') || message.includes('404')) {
+              clearInterval(poll)
+              reject(new Error(`${mode.toUpperCase()}: job ${jid} không còn trong bộ nhớ backend. Backend có thể vừa khởi động lại; vui lòng chạy lại so sánh.`))
+              return
+            }
+            if (consecutivePollErrors >= 10) {
+              clearInterval(poll)
+              reject(new Error(`${mode.toUpperCase()}: mất kết nối backend khi đang chờ job ${jid}. Backend có thể vừa dừng/khởi động lại; vui lòng chạy lại so sánh sau khi health OK.`))
+            }
+          }
         }, 2000)
-        setTimeout(() => { clearInterval(poll); resolve(null) }, 180000)
+        setTimeout(() => {
+          clearInterval(poll)
+          reject(new Error(`${mode.toUpperCase()}: quá 360 giây chưa có kết quả từ VRP job ${jid}. Job có thể vẫn đang tính route OSRM; vui lòng thử giảm số đơn hoặc chạy lại sau khi solver rảnh.`))
+        }, 360000)
       })
     }
 
@@ -1211,9 +1617,11 @@ export default function PlanningPage() {
       // drops a different subset under capacity pressure → user sees nonsensical
       // results like "TIME mode is cheaper than COST mode".
       const startMode = async (mode: 'cost' | 'time', forcedIds?: string[]) => {
+        traceCompare(`${mode.toUpperCase()}: gửi yêu cầu chạy VRP${forcedIds?.length ? ` với ${forcedIds.length} đơn đã pin` : ''}`)
         const res: any = await apiFetch('/planning/run-vrp', { method: 'POST', body: buildBody(mode, forcedIds) })
         const jid = res?.data?.job_id
         if (jid) vrpJobMapRef.current[jid] = mode
+        traceCompare(`${mode.toUpperCase()}: backend tạo job ${jid || '(missing)'}`)
         return { res, jid }
       }
 
@@ -1222,16 +1630,16 @@ export default function PlanningPage() {
       if (a.jid) setCompareProgress(prev => ({ ...prev, cost: { ...prev.cost, stage: 'matrix', detail: 'Đã tạo job' } }))
       const resultA = await pollJob(a.res.data?.job_id, 'cost')
       if (a.res.data?.job_id) delete vrpJobMapRef.current[a.res.data.job_id]
+      if (!resultA || resultA.status !== 'completed') {
+        throw new Error(resultA?.error || `COST: job ${a.res.data?.job_id || ''} chưa hoàn tất thành công, không thể lấy danh sách đơn để chạy TIME.`)
+      }
 
       // Extract delivered shipment IDs from COST result to pin TIME mode.
-      const forcedShipmentIds: string[] = []
-      if (resultA && (resultA as any).trips) {
-        for (const trip of (resultA as any).trips as VRPTrip[]) {
-          for (const stop of trip.stops) {
-            if (stop.shipment_id) forcedShipmentIds.push(stop.shipment_id)
-            if (stop.consolidated_ids) forcedShipmentIds.push(...stop.consolidated_ids)
-          }
-        }
+      const costDeliveredSet = deliveredShipmentSet(resultA)
+      const forcedShipmentIds = Array.from(costDeliveredSet)
+      traceCompare(`COST: giao được ${forcedShipmentIds.length} đơn, chuyển danh sách này sang TIME`)
+      if (forcedShipmentIds.length === 0) {
+        throw new Error('Phương án tối ưu chi phí không giao được đơn nào, không thể so sánh trade-off.')
       }
 
       // ── Phase 2: TIME mode (forced to same subset) ─────────────────
@@ -1239,13 +1647,53 @@ export default function PlanningPage() {
       if (b.jid) setCompareProgress(prev => ({ ...prev, time: { ...prev.time, stage: 'matrix', detail: 'Đã tạo job' } }))
       const resultB = await pollJob(b.res.data?.job_id, 'time')
       if (b.res.data?.job_id) delete vrpJobMapRef.current[b.res.data.job_id]
+      if (!resultB || resultB.status !== 'completed') {
+        throw new Error(resultB?.error || `TIME: job ${b.res.data?.job_id || ''} chưa hoàn tất thành công, không thể so sánh.`)
+      }
+
+      const timeDeliveredSet = deliveredShipmentSet(resultB)
+      traceCompare(`TIME: trả về ${timeDeliveredSet.size} đơn, kiểm tra cùng tập với COST`)
+      if (!sameShipmentSet(costDeliveredSet, timeDeliveredSet)) {
+        const missingInTime = forcedShipmentIds.filter(id => !timeDeliveredSet.has(id)).length
+        const extraInTime = Array.from(timeDeliveredSet).filter(id => !costDeliveredSet.has(id)).length
+        throw new Error(`Không thể so sánh apples-to-apples: Giao nhanh không giữ đúng tập ${forcedShipmentIds.length} đơn của Tối ưu chi phí (thiếu ${missingInTime}, thừa ${extraInTime}). Hãy giảm số đơn/xe hoặc chạy lại với thêm năng lực.`)
+      }
 
       clearInterval(progressRef.current)
       setSolveProgress(100)
-      setCompareResult({ cost: resultA, time: resultB })
+
+      // ── Definitive invariant guard ────────────────────────────────────
+      // The COST-mode solver minimises a per-arc fuel+toll proxy matrix, but the
+      // reported total_cost_vnd is recomputed from the full OSRM route geometry
+      // (post-solve). On some datasets the two layers disagree and COST returns
+      // a plan that is provably more expensive than TIME on the same shipments.
+      // Math: cost(COST_plan) > cost(TIME_plan) on identical shipment set ⇒
+      // COST mode has no cost-optimal claim. Fall back to TIME plan as the
+      // cost-recommended plan; both cards will then show the same numbers and
+      // the UI naturally collapses to a single coherent recommendation.
+      const reportedCostA = resultA.summary?.total_cost_vnd || 0
+      const reportedCostB = resultB.summary?.total_cost_vnd || 0
+      const costFellBack = reportedCostA > reportedCostB && reportedCostB > 0
+      // Diagnostic: log raw summaries so we can tell whether identical numbers
+      // come from solver convergence vs fallback substitution.
+      console.log('[VRP compare] raw cost summary:', resultA.summary)
+      console.log('[VRP compare] raw time summary:', resultB.summary)
+      console.log('[VRP compare] reported cost A vs B:', reportedCostA, reportedCostB, 'fellBack=', costFellBack)
+      if (costFellBack) {
+        traceCompare(`COST proxy đắt hơn TIME thực tế (${(reportedCostA/1e6).toFixed(1)}M > ${(reportedCostB/1e6).toFixed(1)}M) — hiển thị kết quả thực từng mode, có banner cảnh báo`)
+      } else if (reportedCostA === reportedCostB) {
+        traceCompare(`Hai mode hội tụ cùng chi phí ${(reportedCostA/1e6).toFixed(1)}M — kiểm tra xem có phải cùng plan không`)
+      }
+      // Always show actual results from each mode so user sees genuine route differences.
+      // costFellBackToTime=true triggers an informational banner explaining the proxy/OSRM discrepancy,
+      // but does NOT replace COST result with TIME result — showing identical panels is more misleading
+      // than showing honest trade-offs where COST routes differ from TIME routes.
+      setCompareResult({ cost: resultA, time: resultB, costFellBackToTime: costFellBack, rawCost: costFellBack ? resultA : undefined })
+      traceCompare('DONE: đã có kết quả so sánh cùng tập đơn')
     } catch (err: any) {
       clearInterval(progressRef.current)
       setError(err.message)
+      traceCompare(`ERROR: ${err.message}`)
     }
     setComparing(false)
   }
@@ -2283,7 +2731,7 @@ export default function PlanningPage() {
           {/* Pre-run info */}
           {!vrpResult && !running && (
             <div className="bg-white rounded-xl shadow-sm p-6 text-center">
-              <div className="flex items-center justify-center mb-4">{costReadiness?.ready ? <CheckCircle2 className="w-12 h-12 text-green-500" /> : <Map className="w-12 h-12 text-gray-400" />}</div>
+              <div className="flex items-center justify-center mb-4">{costReadiness?.ready ? <CheckCircle2 className="w-12 h-12 text-green-500" /> : <MapIcon className="w-12 h-12 text-gray-400" />}</div>
               <h2 className="text-xl font-bold text-gray-800 mb-2">
                 {costReadiness?.ready ? 'Sẵn sàng tối ưu chi phí vận chuyển' : 'Sẵn sàng tối ưu tuyến đường'}
               </h2>
@@ -2510,17 +2958,17 @@ export default function PlanningPage() {
             </div>
           )}
 
-          {/* Comparing animation — 3-column Vietnamese stage progress */}
+          {/* Comparing animation — sequential two-phase Vietnamese stage progress */}
           {comparing && (
             <div className="bg-white rounded-xl shadow-sm p-6">
               <div className="text-center mb-5">
-                <h2 className="text-xl font-bold text-gray-800">Đang so sánh 2 phương án song song...</h2>
-                <p className="text-sm text-gray-400 mt-1">{activeShipments.length} đơn × 2 lần giải — VRP chạy đồng thời</p>
+                <h2 className="text-xl font-bold text-gray-800">Đang so sánh 2 phương án tuần tự v2...</h2>
+                <p className="text-sm text-gray-400 mt-1">Phase 1 chốt danh sách đơn bằng tối ưu chi phí, Phase 2 giao nhanh dùng đúng danh sách đó</p>
               </div>
               <div className="grid grid-cols-2 gap-4">
                 {([
-                  { key: 'cost'     as const, icon: '$', label: 'Tối ưu chi phí', border: 'border-green-200',  activeCls: 'bg-green-50 text-green-800',  bar: 'bg-green-500' },
-                  { key: 'time'     as const, icon: '', label: 'Giao nhanh',      border: 'border-blue-200',   activeCls: 'bg-blue-50 text-blue-800',    bar: 'bg-blue-500' },
+                  { key: 'cost'     as const, icon: '$', label: 'Tối ưu chi phí', phase: '(Phase 1: chạy trước)', border: 'border-green-200',  activeCls: 'bg-green-50 text-green-800',  bar: 'bg-green-500' },
+                  { key: 'time'     as const, icon: '', label: 'Giao nhanh',      phase: '(Phase 2: chạy sau)',  border: 'border-blue-200',   activeCls: 'bg-blue-50 text-blue-800',    bar: 'bg-blue-500' },
                 ]).map(mode => {
                   const prog = compareProgress[mode.key]
                   const isDone = prog.stage === 'done'
@@ -2529,6 +2977,7 @@ export default function PlanningPage() {
                       <div className="font-semibold text-sm mb-3 flex items-center gap-2">
                         <span>{mode.icon}</span>
                         <span>{mode.label}</span>
+                        <span className="text-xs text-gray-400 font-normal">{mode.phase}</span>
                         {isDone && <span className="ml-auto text-green-600 text-xs">Xong</span>}
                       </div>
                       <div className="space-y-1.5">
@@ -2560,88 +3009,513 @@ export default function PlanningPage() {
               <div className="text-center mt-4 text-sm text-gray-500">
                 Hoàn thành: {[compareProgress.cost, compareProgress.time].filter(p => p.stage === 'done').length}/2
               </div>
+              <div className="mt-4 bg-gray-50 border border-gray-200 rounded-lg p-3 text-left">
+                <div className="text-xs font-semibold text-gray-600 mb-2">Nhật ký chạy VRP compare</div>
+                <div className="space-y-1 max-h-36 overflow-y-auto">
+                  {compareTrace.length > 0 ? compareTrace.map((line, idx) => (
+                    <div key={idx} className="text-[11px] text-gray-500 font-mono leading-snug">{line}</div>
+                  )) : (
+                    <>
+                      <div className="text-[11px] text-gray-500 font-mono leading-snug">1. COST: chạy trước để chốt tập đơn khả thi.</div>
+                      <div className="text-[11px] text-gray-500 font-mono leading-snug">2. TIME: chỉ chạy sau khi COST xong và dùng đúng tập đơn đó.</div>
+                    </>
+                  )}
+                </div>
+              </div>
             </div>
           )}
 
-          {/* Comparison Result */}
-          {compareResult && !comparing && (
-            <div className="bg-white rounded-xl shadow-sm p-6 mb-6">
-              <div className="flex items-center justify-between mb-4">
-                <h2 className="text-lg font-bold text-gray-800"><Scale className="w-4 h-4 inline mr-1" /> So sánh 2 phương án tối ưu</h2>
-                <button onClick={() => setCompareResult(null)}
-                  className="text-gray-400 hover:text-gray-600 text-sm">✕ Đóng</button>
-              </div>
-              {(() => {
-                const modeDescs: Record<string, string> = {
-                  cost: 'Tránh đường có phí BOT, tối ưu xăng + cầu đường',
-                  time: 'Ưu tiên đường nhanh nhất, cân bằng thời gian các xe',
+          {/* Comparison Result — World-class hero+drawer pattern.
+              Both modes deliver the SAME shipment subset (enforced by force_delivery_shipment_ids
+              in compareStrategies), so metrics are directly comparable (no apples-vs-oranges). */}
+          {compareResult && !comparing && (() => {
+            const cost = compareResult.cost
+            const time = compareResult.time
+            if (!cost?.summary && !time?.summary) {
+              return (
+                <div className="bg-white rounded-xl shadow-sm p-6 mb-6 text-center">
+                  <XCircle className="w-8 h-8 text-red-500 inline mr-2" />
+                  <p className="text-red-600 inline">Không thể so sánh — cả 2 phương án đều lỗi</p>
+                  <button onClick={() => setCompareResult(null)} className="ml-4 text-sm text-gray-500 hover:text-gray-700">Đóng</button>
+                </div>
+              )
+            }
+            // Winner policy: recommend the dominated winner if one mode is both cheaper
+            // and faster on the verified same shipment set. If there is a real trade-off,
+            // default to cost because FMCG distribution usually optimizes VND first.
+            let recommended: 'cost' | 'time' = cost?.summary ? 'cost' : 'time'
+            if (cost?.summary && time?.summary) {
+              const costCheaperOrEqual = (cost.summary.total_cost_vnd || 0) <= (time.summary.total_cost_vnd || 0)
+              const costFasterOrEqual = (cost.summary.total_duration_min || 0) <= (time.summary.total_duration_min || 0)
+              const timeCheaperOrEqual = (time.summary.total_cost_vnd || 0) <= (cost.summary.total_cost_vnd || 0)
+              const timeFasterOrEqual = (time.summary.total_duration_min || 0) <= (cost.summary.total_duration_min || 0)
+              if (timeCheaperOrEqual && timeFasterOrEqual && (!costCheaperOrEqual || !costFasterOrEqual)) recommended = 'time'
+              if (costCheaperOrEqual && costFasterOrEqual && (!timeCheaperOrEqual || !timeFasterOrEqual)) recommended = 'cost'
+            }
+            const winnerRes = recommended === 'cost' ? cost : time
+            const altRes = recommended === 'cost' ? time : cost
+            const costFellBack = !!compareResult.costFellBackToTime
+            const rawCostSummary = compareResult.rawCost?.summary
+            const costModeLostReportedCost = false  // handled at compareStrategies(); see costFellBack
+            const winnerLabel = recommended === 'cost' ? 'Tối ưu chi phí' : 'Giao nhanh'
+            const altLabel = recommended === 'cost' ? 'Giao nhanh' : 'Tối ưu chi phí'
+            const winnerColor = recommended === 'cost' ? 'green' : 'blue'
+
+            // Detect plan-level identity (not just totals): hash trip→stops→shipment_id sequence.
+            // If hashes match, COST and TIME truly converged on the SAME assignment+order — common
+            // on tight-capacity datasets where fuel and time are both monotone in distance and there
+            // are no toll-vs-distance trade-offs available. We tell the user explicitly.
+            const planFingerprint = (r: VRPResult | null): string => {
+              if (!r?.trips) return ''
+              return r.trips
+                .map(t => `${t.vehicle_id}:${(t.stops||[]).map(s => s.shipment_id || `${s.latitude},${s.longitude}`).join('>')}`)
+                .sort()
+                .join('|')
+            }
+            const samePlanByFingerprint = !!cost && !!time && planFingerprint(cost) === planFingerprint(time) && planFingerprint(cost) !== ''
+
+            const ws = winnerRes!.summary
+            const as = altRes?.summary
+            const totalShipments = (ws.total_shipments_assigned || 0) + (ws.total_unassigned || 0)
+            const deliveryPct = totalShipments > 0 ? Math.round(100 * (ws.total_shipments_assigned || 0) / totalShipments) : 0
+
+            // Delta helpers — value of WINNER minus value of ALT.
+            // For cost/time/km lower-is-better, winner having lower value = win (negative delta).
+            const fmtMoney = (v: number) => `${(v / 1_000_000).toFixed(1)}M`
+            const fmtHrs = (m: number) => `${Math.floor(m / 60)}h${m % 60}p`
+            const fmtKm = (km: number) => `${Math.round(km).toLocaleString()} km`
+            const deltaPct = (a: number, b: number) => b > 0 ? Math.round(100 * (a - b) / b) : 0
+
+            const dCost = as ? (ws.total_cost_vnd || 0) - (as.total_cost_vnd || 0) : 0
+            const dTime = as ? (ws.total_duration_min || 0) - (as.total_duration_min || 0) : 0
+            const dKm = as ? (ws.total_distance_km || 0) - (as.total_distance_km || 0) : 0
+            const dCostPct = as ? deltaPct(ws.total_cost_vnd || 0, as.total_cost_vnd || 0) : 0
+            const dTimePct = as ? deltaPct(ws.total_duration_min || 0, as.total_duration_min || 0) : 0
+
+            // Diff at action-level: shipment-to-vehicle assignment diff between winner & alt.
+            // Both have the same set of shipments (pinned), so a "moved" shipment changed vehicle.
+            // Also collect coordinates + customer + capacity context for Tier-3 deep-dive modal.
+            type AssignInfo = { vehicle: string; lat: number; lng: number; customer: string; weight: number }
+            const buildAssignment = (r: VRPResult | null): Map<string, AssignInfo> => {
+              const m = new Map<string, AssignInfo>()
+              if (!r?.trips) return m
+              for (const trip of r.trips) {
+                for (const stop of trip.stops || []) {
+                  const w = stop.weight_kg ?? stop.cumulative_load_kg ?? 0
+                  const info: AssignInfo = {
+                    vehicle: trip.vehicle_id, lat: stop.latitude, lng: stop.longitude,
+                    customer: stop.customer_name, weight: w,
+                  }
+                  if (stop.shipment_id) m.set(stop.shipment_id, info)
+                  for (const cid of (stop.consolidated_ids || [])) m.set(cid, info)
                 }
-                const modes = [
-                  { key: 'cost' as const, label: 'Tối ưu chi phí', color: 'green', result: compareResult.cost },
-                  { key: 'time' as const, label: ' Giao nhanh', color: 'blue', result: compareResult.time },
-                ]
-                const validModes = modes.filter(m => m.result?.summary)
-                if (validModes.length === 0) return <p className="text-red-500">Không thể so sánh — tất cả phương án đều lỗi</p>
-                const colorMap: Record<string, string> = { green: 'border-green-200 bg-green-50/50', blue: 'border-blue-200 bg-blue-50/50', purple: 'border-purple-200 bg-purple-50/50' }
-                const textColorMap: Record<string, string> = { green: 'text-green-700', blue: 'text-blue-700', purple: 'text-purple-700' }
-                const btnColorMap: Record<string, string> = { green: 'bg-green-600 hover:bg-green-700', blue: 'bg-blue-600 hover:bg-blue-700', purple: 'bg-purple-600 hover:bg-purple-700' }
-                const bestCost = Math.min(...validModes.map(m => m.result!.summary.total_cost_vnd || Infinity))
-                const bestTime = Math.min(...validModes.map(m => m.result!.summary.total_duration_min || Infinity))
-                const bestDist = Math.min(...validModes.map(m => m.result!.summary.total_distance_km || Infinity))
-                // Compute max single trip duration for each mode
-                const getMaxTripMin = (r: VRPResult) => Math.max(...(r.trips || []).map(t => t.total_duration_min || 0), 0)
-                const bestMaxTrip = Math.min(...validModes.map(m => getMaxTripMin(m.result!)))
-                return (
-                  <div>
-                    <div className={`grid gap-4 mb-4`} style={{ gridTemplateColumns: `repeat(${validModes.length}, minmax(0, 1fr))` }}>
-                      {validModes.map(m => {
-                        const s = m.result!.summary
-                        const isBestCost = (s.total_cost_vnd || 0) === bestCost
-                        const isBestTime = (s.total_duration_min || 0) === bestTime
-                        const isBestDist = (s.total_distance_km || 0) === bestDist
-                        const maxTrip = getMaxTripMin(m.result!)
-                        const isBestMaxTrip = maxTrip === bestMaxTrip
+              }
+              return m
+            }
+            const winnerAssign = buildAssignment(winnerRes)
+            const altAssign = buildAssignment(altRes)
+
+            // Build per-trip capacity util map for richer popup info
+            const tripCapPct = (r: VRPResult | null, vehicleId: string): number => {
+              if (!r?.trips) return 0
+              const t = r.trips.find(tr => tr.vehicle_id === vehicleId)
+              if (!t) return 0
+              const veh = vehicles.find(v => v.id === vehicleId)
+              const cap = veh?.capacity_kg || 15000
+              return cap > 0 ? (t.total_weight_kg / cap) * 100 : 0
+            }
+            const plateOf = (vid: string) => {
+              const v = vehicles.find(x => x.id === vid)
+              return v?.plate_number || vid.slice(0, 6)
+            }
+
+            const movedShipments: MovedShip[] = []
+            winnerAssign.forEach((winInfo, sid) => {
+              const altInfo = altAssign.get(sid)
+              if (altInfo && altInfo.vehicle !== winInfo.vehicle) {
+                movedShipments.push({
+                  shipmentId: sid,
+                  customerName: winInfo.customer,
+                  weightKg: winInfo.weight,
+                  lat: winInfo.lat, lng: winInfo.lng,
+                  winnerVehicle: winInfo.vehicle,
+                  winnerVehiclePlate: plateOf(winInfo.vehicle),
+                  winnerCapPct: tripCapPct(winnerRes, winInfo.vehicle),
+                  altVehicle: altInfo.vehicle,
+                  altVehiclePlate: plateOf(altInfo.vehicle),
+                  altCapPct: tripCapPct(altRes, altInfo.vehicle),
+                })
+              }
+            })
+            const movedCount = movedShipments.length
+            const winnerVehicles = new Set(Array.from(winnerAssign.values()).map(a => a.vehicle))
+            const altVehicles = new Set(Array.from(altAssign.values()).map(a => a.vehicle))
+            const sameSetVerified = sameShipmentSet(deliveredShipmentSet(cost), deliveredShipmentSet(time))
+            const tripsDiff = (winnerRes!.trips?.length || 0) - (altRes?.trips?.length || 0)
+            const vehiclesDiff = winnerVehicles.size - altVehicles.size
+
+            const choseCost = recommended === 'cost'
+            const altIsCheaper = dCost > 0  // winner is more expensive than alt
+            const altIsFaster = dTime > 0   // winner takes more time than alt
+
+            const winnerBg = choseCost ? 'from-emerald-50 to-green-50 border-emerald-300' : 'from-sky-50 to-blue-50 border-blue-300'
+            const winnerAccent = choseCost ? 'text-emerald-700' : 'text-blue-700'
+            const winnerBtn = choseCost ? 'bg-emerald-600 hover:bg-emerald-700' : 'bg-blue-600 hover:bg-blue-700'
+            const altBtnLight = choseCost ? 'border-blue-300 text-blue-700 hover:bg-blue-50' : 'border-emerald-300 text-emerald-700 hover:bg-emerald-50'
+
+            // Decision aid — when to pick alt
+            const altReasons = choseCost
+              ? ['Có deadline gấp (sự kiện, đám tiệc)', 'Đường có nguy cơ tắc (mưa, lễ)', 'Khách VIP cần giao trước trưa']
+              : costModeLostReportedCost
+                ? ['Không nên đổi chỉ vì nhãn “Tối ưu chi phí”: phương án này đang đắt hơn trên chi phí OSRM thực tế', 'Chỉ dùng để điều tra vì sao solver cost-proxy lệch với route cost report', 'Cần sửa solver objective trước khi coi đây là phương án tiết kiệm']
+                : ['Ngày bình thường, không có đơn gấp', 'Muốn tiết kiệm chi phí xăng + cầu đường', 'Tài xế có thời gian linh hoạt']
+
+            return (
+              <div className="space-y-4 mb-6">
+                {costFellBack && !samePlanByFingerprint && (
+                  <div className="bg-amber-50 border-2 border-amber-300 rounded-xl p-4 flex items-start gap-3">
+                    <AlertTriangle className="w-5 h-5 text-amber-600 mt-0.5 flex-shrink-0" />
+                    <div className="flex-1">
+                      <div className="font-bold text-amber-900 mb-1">
+                        Chi phí báo cáo của Tối ưu chi phí cao hơn Giao nhanh — các tuyến đường vẫn khác nhau
+                      </div>
+                      <div className="text-sm text-amber-800">
+                        Solver chi phí tối ưu proxy fuel+toll trả về tuyến đường khác, nhưng khi tính lại total_cost_vnd theo OSRM thực tế,
+                        phương án này tốn <span className="font-semibold">{rawCostSummary ? `${((rawCostSummary.total_cost_vnd || 0) / 1e6).toFixed(1)}M ₫` : `${((cost?.summary?.total_cost_vnd || 0) / 1e6).toFixed(1)}M ₫`}</span>{' '}
+                        so với Giao nhanh <span className="font-semibold">{((time?.summary?.total_cost_vnd || 0) / 1e6).toFixed(1)}M ₫</span>.
+                        Hai cột vẫn hiển thị kết quả thực từng mode — hãy xem phân công xe để thấy sự khác biệt.
+                      </div>
+                      <div className="text-xs text-amber-700 mt-2">
+                        Nguyên nhân: ma trận chi phí pre-solve dùng leg OSRM riêng lẻ, còn total_cost_vnd tính trên tuyến chạy thật sau khi nối các leg — hai lớp có thể lệch nhau.
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {samePlanByFingerprint && (
+                  <div className="bg-sky-50 border-2 border-sky-300 rounded-xl p-4 flex items-start gap-3">
+                    <Info className="w-5 h-5 text-sky-600 mt-0.5 flex-shrink-0" />
+                    <div className="flex-1">
+                      <div className="font-bold text-sky-900 mb-1">
+                        Hai mục tiêu hội tụ về cùng 1 phương án — không có trade-off để chọn
+                      </div>
+                      <div className="text-sm text-sky-800">
+                        Solver chạy độc lập 2 lần với 2 mục tiêu (chi phí nhiên liệu + phí cầu vs tổng thời gian),
+                        nhưng với <span className="font-semibold">{(cost?.trips?.length || 0)} chuyến · {Math.round(cost?.summary?.total_distance_km || 0).toLocaleString()} km</span>{' '}
+                        trên cùng tập đơn cố định, cả 2 đều chọn đúng cùng cách phân xe và cùng thứ tự dừng.
+                      </div>
+                      <div className="text-xs text-sky-700 mt-2">
+                        Lý do: trên dataset này nhiên liệu ≈ k₁ × km và thời gian ≈ k₂ × km (tốc độ đường tương đồng,
+                        không có lựa chọn cao tốc kín có thể đánh đổi km lấy thời gian), nên hai objective biến đổi
+                        đơn điệu của cùng đại lượng → cùng lời giải tối ưu. Đây là kết quả đúng về toán, không phải lỗi.
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {/* Capacity warning banner — surfaces the physical limit BEFORE user looks at metrics */}
+                {(ws.total_unassigned || 0) > 0 && (
+                  <div className="bg-amber-50 border-2 border-amber-300 rounded-xl p-4 flex items-start gap-3">
+                    <AlertTriangle className="w-5 h-5 text-amber-600 mt-0.5 flex-shrink-0" />
+                    <div className="flex-1">
+                      <div className="font-bold text-amber-900 mb-1">
+                        Thiếu năng lực — {ws.total_unassigned} đơn không thể giao hôm nay
+                      </div>
+                      <div className="text-sm text-amber-800">
+                        Cả 2 phương án đều giao được tối đa <span className="font-bold">{ws.total_shipments_assigned}/{totalShipments}</span> đơn
+                        ({deliveryPct}%). Phần còn lại vượt quá khả năng đội xe hiện tại.
+                      </div>
+                      <div className="text-xs text-amber-700 mt-2">
+                        Gợi ý: thêm xe/tài xế · tách kế hoạch sang ngày mai · giảm đơn ưu tiên thấp
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {costModeLostReportedCost && (
+                  <div className="bg-rose-50 border-2 border-rose-300 rounded-xl p-4 flex items-start gap-3">
+                    <AlertTriangle className="w-5 h-5 text-rose-600 mt-0.5 flex-shrink-0" />
+                    <div className="flex-1">
+                      <div className="font-bold text-rose-900 mb-1">
+                        Kết quả bất thường: Giao nhanh rẻ hơn Tối ưu chi phí trên chi phí OSRM thực tế
+                      </div>
+                      <div className="text-sm text-rose-800">
+                        Hai phương án đã cùng tập đơn, nhưng mode chi phí đang tối ưu trên ma trận xấp xỉ trước solve,
+                        còn số hiển thị được tính lại bằng tuyến OSRM thực tế sau solve. Khi hai lớp tính này lệch,
+                        nhãn &ldquo;Tối ưu chi phí&rdquo; không còn là phương án rẻ nhất theo báo cáo cuối.
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {/* HERO — Winner card */}
+                <div className={`bg-gradient-to-br ${winnerBg} border-2 rounded-2xl p-6 shadow-sm`}>
+                  <div className="flex items-start justify-between mb-4">
+                    <div className="flex items-center gap-3">
+                      <div className={`w-10 h-10 rounded-full bg-white flex items-center justify-center ${winnerAccent}`}>
+                        <Trophy className="w-5 h-5" />
+                      </div>
+                      <div>
+                        <div className="text-xs text-gray-500 font-medium uppercase tracking-wide">Khuyến nghị</div>
+                        <div className={`text-xl font-bold ${winnerAccent}`}>{winnerLabel}</div>
+                      </div>
+                    </div>
+                    <button onClick={() => setCompareResult(null)} className="text-gray-400 hover:text-gray-600 text-sm">✕</button>
+                  </div>
+
+                  {/* One-line summary — the trade-off in plain Vietnamese */}
+                  {as && (
+                    <div className="bg-white/70 rounded-lg px-4 py-3 mb-4 text-sm text-gray-700">
+                      <Lightbulb className="w-4 h-4 inline text-amber-500 mr-1.5 -mt-0.5" />
+                      Giao <span className="font-bold">{ws.total_shipments_assigned} đơn</span> với{' '}
+                      <span className="font-bold">{winnerRes!.trips?.length || 0} chuyến</span>.
+                      {altIsCheaper && altIsFaster ? (
+                        <> Phương án &ldquo;{altLabel}&rdquo; vừa nhanh hơn vừa rẻ hơn — nên dùng nó.</>
+                      ) : altIsCheaper ? (
+                        <> Phương án &ldquo;{altLabel}&rdquo; rẻ hơn <span className="font-bold text-emerald-700">{fmtMoney(Math.abs(dCost))} ₫</span> nhưng chậm hơn <span className="font-bold text-amber-700">{fmtHrs(Math.abs(dTime))}</span>.</>
+                      ) : altIsFaster ? (
+                        <> Đổi sang &ldquo;{altLabel}&rdquo; sẽ nhanh hơn <span className="font-bold text-blue-700">{fmtHrs(Math.abs(dTime))}</span> nhưng tốn thêm <span className="font-bold text-red-600">{fmtMoney(Math.abs(dCost))} ₫</span>.</>
+                      ) : (
+                        <> Phương án này tối ưu cả chi phí lẫn thời gian.</>
+                      )}
+                    </div>
+                  )}
+
+                  {/* 4 KPI cards with delta vs alt */}
+                  <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-5">
+                    <KPICard
+                      icon={<Package className="w-4 h-4" />}
+                      label="Đơn giao"
+                      value={`${ws.total_shipments_assigned}/${totalShipments}`}
+                      sub={`${deliveryPct}%`}
+                      tone="neutral"
+                    />
+                    <KPICard
+                      icon={<Wallet className="w-4 h-4" />}
+                      label="Tổng chi phí"
+                      value={`${fmtMoney(ws.total_cost_vnd || 0)} ₫`}
+                      sub={as ? deltaText(dCost, dCostPct, true, fmtMoney) : undefined}
+                      tone={as ? (dCost <= 0 ? 'good' : 'bad') : 'neutral'}
+                    />
+                    <KPICard
+                      icon={<Clock className="w-4 h-4" />}
+                      label="Tổng thời gian"
+                      value={fmtHrs(ws.total_duration_min || 0)}
+                      sub={as ? deltaText(dTime, dTimePct, true, (m) => fmtHrs(Math.abs(m as number))) : undefined}
+                      tone={as ? (dTime <= 0 ? 'good' : 'bad') : 'neutral'}
+                    />
+                    <KPICard
+                      icon={<Navigation2 className="w-4 h-4" />}
+                      label="Quãng đường"
+                      value={fmtKm(ws.total_distance_km || 0)}
+                      sub={as ? `${dKm >= 0 ? '+' : ''}${Math.round(dKm).toLocaleString()} km` : undefined}
+                      tone={as ? (dKm <= 0 ? 'good' : 'bad') : 'neutral'}
+                    />
+                  </div>
+
+                  {/* Action row */}
+                  <div className="flex items-center gap-3 flex-wrap">
+                    <button
+                      onClick={() => { setVrpResult(winnerRes); setOptimizeFor(recommended); setCompareResult(null); setShowAltDetail(false); }}
+                      className={`px-6 py-3 ${winnerBtn} text-white rounded-lg text-sm font-semibold shadow-sm flex items-center gap-2`}
+                    >
+                      <CheckCircle2 className="w-4 h-4" /> Áp dụng phương án này
+                    </button>
+                    {as && (
+                      <button
+                        onClick={() => setShowAltDetail((v) => !v)}
+                        className={`px-5 py-3 bg-white border-2 ${altBtnLight} rounded-lg text-sm font-medium flex items-center gap-2 transition`}
+                      >
+                        Xem &ldquo;{altLabel}&rdquo;
+                        {showAltDetail ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
+                      </button>
+                    )}
+                  </div>
+                </div>
+
+                {/* DRAWER — alt mode detail (collapsible) */}
+                {showAltDetail && as && (
+                  <div className="bg-white border border-gray-200 rounded-2xl p-6 shadow-sm">
+                    <div className="flex items-center justify-between mb-3">
+                      <div className="flex items-center gap-2">
+                        <Scale className="w-5 h-5 text-gray-600" />
+                        <h3 className="font-bold text-gray-800">So sánh trade-off — cùng {ws.total_shipments_assigned} đơn</h3>
+                      </div>
+                      <span className="text-xs text-gray-500 bg-gray-100 px-2 py-1 rounded">
+                        <Info className="w-3 h-3 inline mr-1" />
+                        {sameSetVerified ? 'Đã kiểm chứng 2 phương án cùng tập đơn' : 'Không hiển thị nếu lệch tập đơn'}
+                      </span>
+                    </div>
+                    {/* Decision context chips — inline, no overlay */}
+                    <div className="mb-4 pb-4 border-b border-gray-100">
+                      <DecisionSupportPanel
+                        deliveryDate={deliveryDate}
+                        urgentCount={activeShipments.filter(s => s.is_urgent).length}
+                        totalShipments={activeShipments.length}
+                        unassignedCount={ws.total_unassigned || 0}
+                        totalWeightShortKg={(activeShipments.reduce((sum, s) => sum + (s.total_weight_kg || 0), 0)) - (ws.total_weight_kg || 0)}
+                        recommendedKey={recommended}
+                        onAlignWithRecommendation={(target) => {
+                          if (target === recommended) return
+                          const targetRes = target === 'cost' ? cost : time
+                          if (targetRes) {
+                            setVrpResult(targetRes); setOptimizeFor(target)
+                            setCompareResult(null); setShowAltDetail(false); setShowDeepDive(false)
+                          }
+                        }}
+                      />
+                    </div>
+                    {costModeLostReportedCost && (
+                      <div className="mb-4 rounded-lg border border-rose-300 bg-rose-50 px-4 py-3 text-sm text-rose-800">
+                        <AlertTriangle className="w-4 h-4 inline mr-1 -mt-0.5" />
+                        Cost solver proxy đang thua số đo OSRM thực tế: Giao nhanh rẻ hơn {(Math.abs((cost?.summary?.total_cost_vnd || 0) - (time?.summary?.total_cost_vnd || 0)) / 1_000_000).toFixed(1)}M đ và nhanh hơn {fmtHrs(Math.abs((cost?.summary?.total_duration_min || 0) - (time?.summary?.total_duration_min || 0)))}. Không dùng phương án proxy này như “tối ưu chi phí”.
+                      </div>
+                    )}
+
+                    {/* Side-by-side */}
+                    <div className="grid grid-cols-2 gap-4 mb-5">
+                      {[
+                        { key: recommended, label: winnerLabel, res: winnerRes, isWinner: true, color: winnerColor },
+                        { key: recommended === 'cost' ? 'time' : 'cost', label: altLabel, res: altRes, isWinner: false, color: recommended === 'cost' ? 'blue' : 'green' },
+                      ].map(m => {
+                        const s = m.res!.summary
+                        const displayLabel = m.key === 'cost' && costModeLostReportedCost ? 'Tối ưu chi phí proxy' : m.label
                         return (
-                          <div key={m.key} className={`border-2 ${colorMap[m.color]} rounded-xl p-4`}>
-                            <div className={`text-sm font-bold ${textColorMap[m.color]} mb-1`}>{m.label}</div>
-                            <div className="text-[10px] text-gray-500 mb-3">{modeDescs[m.key]}</div>
-                            <div className="space-y-2 text-sm">
-                              <div className="flex justify-between"><span className="text-gray-600">Đơn giao</span><span className="font-bold">{s.total_shipments_assigned}/{s.total_shipments_assigned + (s.total_unassigned || 0)}</span></div>
-                              {(s.total_unassigned || 0) > 0 && (
-                                <div className="flex justify-between"><span className="text-red-500">Chưa giao</span><span className="font-bold text-red-600">{s.total_unassigned}</span></div>
-                              )}
-                              <div className="flex justify-between"><span className="text-gray-600">Khối lượng</span><span>{((s.total_weight_kg || 0) / 1000).toFixed(1)} tấn</span></div>
-                              <div className="flex justify-between"><span className="text-gray-600">Số chuyến</span><span>{s.total_trips}</span></div>
-                              <div className="flex justify-between"><span className="text-gray-600">TB tải trọng</span><span>{(s.avg_capacity_util_pct || 0).toFixed(0)}%</span></div>
-                              <div className="flex justify-between border-t pt-1"><span className="text-gray-600">Tổng chi phí</span><span className={`font-bold ${isBestCost ? 'text-green-600' : ''}`}>{((s.total_cost_vnd || 0) / 1_000_000).toFixed(1)}M đ {isBestCost ? '' : ''}</span></div>
-                              <div className="flex justify-between"><span className="text-gray-600">┗ Xăng/dầu</span><span className="text-orange-600">{((s.total_fuel_cost_vnd || 0) / 1_000_000).toFixed(1)}M</span></div>
-                              <div className="flex justify-between"><span className="text-gray-600">┗ Cầu đường</span><span className="text-red-600">{((s.total_toll_cost_vnd || 0) / 1_000_000).toFixed(1)}M</span></div>
-                              <div className="flex justify-between border-t pt-1"><span className="text-gray-600">Tổng thời gian</span><span className={`font-bold ${isBestTime ? 'text-blue-600' : ''}`}>{Math.round((s.total_duration_min || 0) / 60)}h{(s.total_duration_min || 0) % 60}p {isBestTime ? '' : ''}</span></div>
-                              <div className="flex justify-between"><span className="text-gray-600">Chuyến dài nhất</span><span className={`${isBestMaxTrip ? 'text-blue-600 font-bold' : ''}`}>{Math.floor(maxTrip / 60)}h{maxTrip % 60}p {isBestMaxTrip ? '' : ''}</span></div>
-                              <div className="flex justify-between"><span className="text-gray-600">Quãng đường</span><span className={isBestDist ? 'text-purple-600 font-bold' : ''}>{(s.total_distance_km || 0).toFixed(0)} km {isBestDist ? '' : ''}</span></div>
-                              <div className="flex justify-between"><span className="text-gray-600">VND/tấn</span><span>{((s.avg_cost_per_ton_vnd || 0) / 1000).toFixed(0)}K</span></div>
+                          <div key={m.key} className={`rounded-xl p-4 border-2 ${m.isWinner ? (m.color === 'green' ? 'border-emerald-300 bg-emerald-50/40' : 'border-blue-300 bg-blue-50/40') : 'border-gray-200 bg-gray-50/40'}`}>
+                            <div className="flex items-center justify-between mb-3">
+                              <span className={`font-bold text-sm ${m.color === 'green' ? 'text-emerald-700' : 'text-blue-700'}`}>{displayLabel}</span>
+                              {m.isWinner && <span className="text-[10px] bg-amber-100 text-amber-800 px-2 py-0.5 rounded-full font-bold">★ ĐỀ XUẤT</span>}
+                              {!m.isWinner && m.key === 'cost' && costModeLostReportedCost && <span className="text-[10px] bg-rose-100 text-rose-700 px-2 py-0.5 rounded-full font-bold">proxy lệch</span>}
                             </div>
+                            <dl className="space-y-1.5 text-sm">
+                              <CompareRow label="Chi phí" value={`${fmtMoney(s.total_cost_vnd || 0)} ₫`} />
+                              <CompareRow label="┗ Xăng/dầu" value={`${fmtMoney(s.total_fuel_cost_vnd || 0)} ₫`} muted />
+                              <CompareRow label="┗ Cầu đường" value={`${fmtMoney(s.total_toll_cost_vnd || 0)} ₫`} muted />
+                              <CompareRow label="Tổng giờ" value={fmtHrs(s.total_duration_min || 0)} />
+                              <CompareRow label="Quãng đường" value={fmtKm(s.total_distance_km || 0)} />
+                              <CompareRow label="Số chuyến" value={`${s.total_trips}`} />
+                              <CompareRow label="Số xe dùng" value={`${m.isWinner ? winnerVehicles.size : altVehicles.size}`} />
+                              <CompareRow label="TB tải trọng" value={`${(s.avg_capacity_util_pct || 0).toFixed(0)}%`} />
+                            </dl>
                           </div>
                         )
                       })}
                     </div>
-                    {/* Action buttons */}
-                    <div className="flex gap-3 justify-center flex-wrap">
-                      {validModes.map(m => (
-                        <button key={m.key} onClick={() => {
-                          setVrpResult(m.result)
-                          setOptimizeFor(m.key)
-                          setCompareResult(null)
-                        }} className={`px-5 py-2 ${btnColorMap[m.color]} text-white rounded-lg text-sm font-medium`}>
-                          Chọn {m.label}
-                        </button>
-                      ))}
+
+                    {/* Diff at action-level — what actually changes operationally */}
+                    <div className="bg-amber-50/60 border border-amber-200 rounded-lg p-4 mb-5">
+                      <div className="font-semibold text-amber-900 text-sm mb-2 flex items-center gap-2">
+                        <Zap className="w-4 h-4" />
+                        Khác biệt thực tế (không chỉ là con số)
+                      </div>
+                      <ul className="space-y-1.5 text-sm text-amber-900">
+                        {movedCount > 0 && (
+                          <li>
+                            <button
+                              type="button"
+                              onClick={() => setShowDeepDive(true)}
+                              className="w-full text-left flex items-start gap-2 px-2 py-1.5 -mx-2 rounded hover:bg-amber-100 transition group"
+                              title="Click để mở deep-dive map split-view"
+                            >
+                              <ArrowRight className="w-4 h-4 mt-0.5 flex-shrink-0" />
+                              <span className="flex-1">
+                                <b>{movedCount}</b> đơn được gán sang xe khác giữa 2 phương án
+                              </span>
+                              <span className="text-xs text-purple-700 font-semibold flex items-center gap-1 group-hover:underline">
+                                <Eye className="w-3.5 h-3.5" /> Soi sâu trên map
+                              </span>
+                            </button>
+                          </li>
+                        )}
+                        {tripsDiff !== 0 && (
+                          <li className="flex items-start gap-2">
+                            <ArrowRight className="w-4 h-4 mt-0.5 flex-shrink-0" />
+                            <span>
+                              Số chuyến: <b>{winnerRes!.trips?.length || 0}</b> ({winnerLabel}) vs <b>{altRes?.trips?.length || 0}</b> ({altLabel}) —
+                              chênh {Math.abs(tripsDiff)} chuyến
+                            </span>
+                          </li>
+                        )}
+                        {vehiclesDiff !== 0 && (
+                          <li className="flex items-start gap-2">
+                            <ArrowRight className="w-4 h-4 mt-0.5 flex-shrink-0" />
+                            <span>Số xe sử dụng chênh <b>{Math.abs(vehiclesDiff)}</b> xe</span>
+                          </li>
+                        )}
+                        {Math.abs(dKm) >= 1 && (
+                          <li className="flex items-start gap-2">
+                            <ArrowRight className="w-4 h-4 mt-0.5 flex-shrink-0" />
+                            <span>Quãng đường chênh <b>{Math.abs(Math.round(dKm)).toLocaleString()} km</b> — {dKm < 0 ? `${winnerLabel} đi đường ngắn hơn` : `${altLabel} đi đường ngắn hơn`}</span>
+                          </li>
+                        )}
+                        {((ws.total_toll_cost_vnd || 0) !== (as?.total_toll_cost_vnd || 0)) && (
+                          <li className="flex items-start gap-2">
+                            <ArrowRight className="w-4 h-4 mt-0.5 flex-shrink-0" />
+                            <span>Phí cầu đường chênh <b>{fmtMoney(Math.abs((ws.total_toll_cost_vnd || 0) - (as?.total_toll_cost_vnd || 0)))} ₫</b></span>
+                          </li>
+                        )}
+                        {movedCount === 0 && tripsDiff === 0 && vehiclesDiff === 0 && Math.abs(dKm) < 1 && (
+                          <li className="text-amber-800 text-xs italic">Hai phương án gần như giống nhau về vận hành — chọn cái nào cũng được.</li>
+                        )}
+                      </ul>
+                    </div>
+
+                    {/* Decision aid */}
+                    <div className="bg-blue-50/60 border border-blue-200 rounded-lg p-4 mb-5">
+                      <div className="font-semibold text-blue-900 text-sm mb-2 flex items-center gap-2">
+                        <Lightbulb className="w-4 h-4" />
+                        Khi nào nên đổi sang &ldquo;{altLabel}&rdquo;?
+                      </div>
+                      {costModeLostReportedCost && recommended === 'time' && (
+                        <div className="mb-3 rounded-lg border border-rose-300 bg-rose-50 px-3 py-2 text-sm text-rose-800">
+                          <AlertTriangle className="w-4 h-4 inline mr-1 -mt-0.5" />
+                          Không khuyến nghị đổi: phương án &ldquo;Tối ưu chi phí&rdquo; đang đắt hơn &ldquo;Giao nhanh&rdquo; theo chi phí OSRM thực tế.
+                        </div>
+                      )}
+                      <ul className="space-y-1 text-sm text-blue-900">
+                        {altReasons.map((r, i) => (
+                          <li key={i} className="flex items-start gap-2">
+                            <Check className="w-4 h-4 mt-0.5 flex-shrink-0 text-blue-600" />
+                            <span>{r}</span>
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+
+                    {/* Switch action */}
+                    <div className="flex items-center gap-3 justify-end">
+                      <button onClick={() => setShowAltDetail(false)} className="px-4 py-2 text-sm text-gray-600 hover:text-gray-800">
+                        Quay lại đề xuất
+                      </button>
+                      <button
+                        onClick={() => {
+                          const altKey: 'cost' | 'time' = recommended === 'cost' ? 'time' : 'cost'
+                          setVrpResult(altRes); setOptimizeFor(altKey); setCompareResult(null); setShowAltDetail(false)
+                        }}
+                        className="px-5 py-2 bg-gray-800 hover:bg-gray-900 text-white rounded-lg text-sm font-medium flex items-center gap-2"
+                      >
+                        Chuyển sang &ldquo;{altLabel}&rdquo; <ArrowRight className="w-4 h-4" />
+                      </button>
                     </div>
                   </div>
-                )
-              })()}
-            </div>
-          )}
+                )}
+
+                {/* Tier 3 — Deep-dive split-view modal (mounted only when opened) */}
+                {showDeepDive && altRes && movedShipments.length > 0 && (
+                  <CompareDeepDiveModal
+                    winnerRes={winnerRes!}
+                    altRes={altRes}
+                    winnerLabel={winnerLabel}
+                    altLabel={altLabel}
+                    vehicles={vehicles}
+                    warehouse={warehouseMapInfo}
+                    movedShipments={movedShipments}
+                    onClose={() => setShowDeepDive(false)}
+                  />
+                )}
+              </div>
+            )
+          })()}
 
           {/* VRP Failed */}
           {vrpResult && (!vrpResult.trips || vrpResult.trips.length === 0) && !running && (
@@ -3340,7 +4214,7 @@ export default function PlanningPage() {
                         )}
                         <button onClick={() => setSelectedTripIdx(tripIdx)}
                           className="px-3 py-1 bg-blue-50 text-blue-700 rounded-lg hover:bg-blue-100 transition text-xs font-medium">
-                          <Map className="w-4 h-4 inline mr-1" /> Xem bản đồ
+                          <MapIcon className="w-4 h-4 inline mr-1" /> Xem bản đồ
                         </button>
                       </div>
                     </div>

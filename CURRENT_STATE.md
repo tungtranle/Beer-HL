@@ -1,6 +1,6 @@
 # CURRENT_STATE — BHL OMS-TMS-WMS
 
-> **Cập nhật:** 02/05/2026 (session 02/05 — Production 502 fix: nginx WebSocket + resilient deploy)  
+> **Cập nhật:** 03/05/2026 (session 03/05 — VRP compare UI apples-to-apples guard)  
 > **Mục đích:** Mô tả trạng thái THỰC TẾ của hệ thống. AI đọc file này để biết code đang làm gì, **không** phải spec nói gì.  
 > **Quy tắc:** Khi code thay đổi → cập nhật file này. Nếu CURRENT_STATE không khớp code → file này sai.
 
@@ -20,6 +20,12 @@
 | Prometheus | Docker | :9090 | ✅ Configured (profile: monitoring) |
 | Grafana | Docker | :3030 | ✅ Configured (profile: monitoring) |
 | Sentry | Cloud (sentry.io) | — | ✅ DSN configured (frontend + backend) |
+
+## VRP Planning Compare — ✅ apples-to-apples UI guard (03/05/2026)
+- `/dashboard/planning` compare flow now scopes both solver runs to the active shipment list via `shipment_ids`.
+- Compare runs sequentially: COST first chooses the deliverable subset, then TIME receives that subset as `force_delivery_shipment_ids`.
+- Frontend validates the returned delivered shipment sets before rendering the comparison. If TIME cannot keep the exact COST subset, UI raises an apples-to-apples error instead of showing misleading “cùng X đơn”.
+- Recommendation policy now detects dominance: if one mode is both cheaper and faster on the verified same set, that mode is recommended; real trade-off cases still default to cost-first business priority.
 
 ## Vận hành Production
 
@@ -139,6 +145,7 @@
   - doc_type: license (with license_class B2/C/D/E), health_check + expiry_date tracking
 - **VRP:** Run solver, get result, approve plan → tạo trips + stops
 - **VRP compare fallback (27/04):** nếu Python solver không khả dụng và backend rơi sang mock heuristic, `optimize_for=cost` và `optimize_for=time` vẫn tạo phương án khác nhau thay vì trả 2 kết quả giống hệt.
+- **VRP apples-to-apples compare (03/05):** `/dashboard/planning` chạy compare theo 2 pha (cost trước, time sau với `force_delivery_shipment_ids`) để 2 phương án giao cùng tập đơn khi thiếu capacity; UI chuyển sang hero recommendation + alt drawer, hiển thị capacity warning, delta vs alternative và diff vận hành, tránh so sánh "táo so cam".
 - **VRP fallback toll modeling (27/04):** mock heuristic không còn chỉ tính tiền xăng; đã ước lượng thêm BOT theo `toll_stations`/`toll_expressways` + `vehicle_toll_class` từ solver input và ghi vào `trip.toll_cost_vnd`, `trip.total_cost_vnd`, `summary.total_toll_cost_vnd`.
 - **Shipments:** Pending list + **pending-dates** (dates with pending shipment counts per warehouse) + **urgent toggle**
 - **Driver Check-in:** Check-in/out hàng ngày + dispatcher view trạng thái toàn kho

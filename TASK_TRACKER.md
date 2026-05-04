@@ -562,6 +562,7 @@ Actual:   78 →  ?
 | 5.22 | Dispatcher: Move stop between trips API | Dev | ✅ | P1 | POST /trips/:id/stops/:stopId/move + modal UI |
 | 5.23 | Dispatcher: Cancel trip + redistribute | Dev | ✅ | P1 | POST /trips/:id/cancel + confirmation modal |
 | 5.24 | Dispatcher: VRP action bar (brand color) | Dev | ✅ | P1 | bg-brand-500 VRP btn |
+| 5.24b | Dispatcher: VRP apples-to-apples compare UX | Dev | ✅ | P0 | cost→time pinned subset, capacity warning, hero recommendation, alt drawer, operational diff |
 | 5.25 | Dispatcher: Driver/vehicle status modals (UXUI) | Dev | ✅ | P1 | Driver info modal: vehicle, trip, speed, GPS |
 | 5.26 | Dispatcher: Trip anomaly dots on map | Dev | ✅ | P1 | CSS @keyframes ping-ring pulsing red markers |
 

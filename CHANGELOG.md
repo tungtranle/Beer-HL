@@ -7,6 +7,92 @@
 
 ## [Unreleased] — Phase 6 + UX Overhaul + Phase 8 Fleet & Driver + **Phase 9 WMS Pallet/QR/Bin/Cycle Count COMPLETE (15/15)** + **Sprint 1 World-Class (F2/F3/F7/H4/TD-020) GO LIVE** + **Sprint UX-1 World-Class Design System** + **Sprint UX-2 Dashboard Pages Redesign (ALL DONE)** + **Sprint UX-3 Pagination & Filter Audit (in progress)** + **AQF Roadmap ALL COMPLETE** + **Session 28/04 Historical Data Completeness Audit** + **Sprint Component System (30/04) COMPLETE** + **Performance Sprint 1-2-3 (30/04) COMPLETE**
 
+### 2026-05-03 (đêm) — VRP compare UI: enforce same shipment set before rendering
+
+#### Fixed
+- `web/src/app/dashboard/planning/page.tsx`: compare request now sends `shipment_ids` from the active UI list, so COST and TIME do not silently run on a broader pending set.
+- TIME run still receives `force_delivery_shipment_ids` from the COST delivered set, but frontend now also verifies returned delivered shipment sets are exactly equal before rendering the trade-off drawer.
+- If sets differ, UI stops with an apples-to-apples error instead of showing misleading copy like “cùng 83 đơn”.
+- Recommendation logic now detects dominance: if TIME is both cheaper and faster (or COST is both cheaper and faster) on the verified same set, that mode becomes the recommendation; otherwise cost remains the default business priority for a true trade-off.
+
+#### Verification
+- `npx tsc --noEmit --pretty false` — PASS.
+- `get_errors` on `web/src/app/dashboard/planning/page.tsx` — PASS.
+- `npm run build` — `Compiled successfully`; local repo still has existing ESLint dependency warning: missing `@typescript-eslint/eslint-plugin`.
+- Restarted Next dev server after clearing `.next`; `/dashboard/planning` HTTP 200.
+- Playwright e2e API probe on Hạ Long 2026-05-03: COST sent 25 `shipment_ids`, TIME sent 25 `force_delivery_shipment_ids`, both completed, delivered set equality PASS (`missing_in_time=0`, `extra_in_time=0`).
+
+#### Docs Updated
+- `CURRENT_STATE.md`
+- `CHANGELOG.md`
+
+---
+
+### 2026-05-03 (tối) — VRP compare logic fix: forced_penalty không còn drown objective
+
+#### Fixed
+- `vrp-solver/main.py` line 820: `forced_penalty` đổi từ `10**15` xuống `penalty * 10` (TIME=10M sec, COST=500M VND, DISTANCE=10M m).
+- Bug gốc: `10^15` lớn hơn arc-cost objective (~10^6 sec / ~10^9 VND) đến 6-9 bậc → khi tất cả forced node đã được phục vụ, objective bị penalty baseline lấn át, metaheuristic local-search "mù" với gradient thực sự → TIME mode có thể trả kết quả CHẬM HƠN COST mode trên CHÍNH metric thời gian (user case: 13h chậm hơn / 7M VND đắt hơn dù pin cùng tập đơn).
+- Sau fix: forced nodes vẫn cứng (drop 1 forced ≈ 10× drop 1 thường), nhưng objective signal giữ được → solver hội tụ đúng.
+
+#### Verification (e2e thật, không phải synthetic)
+- Restart VRP container (`RESTART_VRP_LOCAL.bat` qua `Start-Process` để né VS Code freeze) → `/health` = ok.
+- `docker exec bhl-oms-vrp-1 grep "forced_penalty = penalty" /app/main.py` → line 820 — code mới đã trong container (volume mount).
+- Playwright e2e thật trên kho Hạ Long, ngày 2026-05-03:
+  - Test 1 — 25 đơn nhỏ / 32 xe: cost = time hoàn toàn (8M VND, 22.58h, 4 trips) — bài toán dễ, cả 2 mode hội tụ về cùng optimum, cả 3 invariant PASS.
+  - Test 2 — 80 đơn mix / 32 xe (force pin 61 đã giao của cost): cost = 34.64M / 97.30h, time = 34.43M / 97.85h. Sai lệch còn 0.6% (trước fix là ~12%), nằm trong nhiễu metaheuristic (Guided Local Search stochastic). Inversion catastrophic 13h ĐÃ HẾT.
+- Backend `/v1/health` + web `/dashboard/planning` HTTP 200.
+
+#### Notes
+- 0.5-0.6% noise giữa 2 mode trên cùng tập đơn pin là expected với VRP stochastic. Muốn 0% cần fix seed hoặc tăng search budget — không phải scope hiện tại.
+- Capacity warning + Tier 3 deep-dive vẫn nguyên không đổi.
+
+#### Docs Updated
+- `CHANGELOG.md`
+- `vrp-solver/main.py` (inline comment giải thích lý do 10× thay vì 10^15)
+
+---
+
+### 2026-05-03 (chiều) — VRP compare Tier 3 deep-dive + Decision Support Panel
+
+#### Added
+- `web/src/app/dashboard/planning/page.tsx`: 2 component mới `DecisionSupportPanel` (sticky right, ngày-trong-tuần + đơn gấp + capacity gap + khuyến nghị bối cảnh) và `CompareDeepDiveModal` (split-view 2 leaflet maps, highlight các đơn đổi xe bằng pulse-ring cam, click → strip thông tin xe winner/alt + capacity util).
+- Bấm vào dòng "X đơn được gán sang xe khác" trong drawer so sánh → mở Tier 3 modal.
+- Decision Panel cảnh báo khi recommendation cứng (cost-default) lệch với bối cảnh thực tế (đơn gấp / cuối tuần) và cho phép chuyển 1-click sang phương án phù hợp.
+
+#### Verification
+- `npm run build` — Compiled successfully (page bundle 162KB, +35KB so với version Tier 1+2).
+- Bundle grep: `Soi sâu` / `bhl-pulse-ring` / `movedShipments` đều có mặt → Tier 3 + Decision Panel đã được Next minify đóng gói.
+- Dev server `/dashboard/planning` HTTP 200.
+- TypeScript no errors.
+
+#### Docs Updated
+- `CHANGELOG.md`
+- `CURRENT_STATE.md`
+
+---
+
+### 2026-05-03 — VRP apples-to-apples compare + world-class decision UX
+
+#### Fixed
+- `vrp-solver/main.py`: thêm `force_delivery_node_ids`; forced nodes dùng penalty rất lớn thay vì hard no-drop để giữ lời giải khả dụng nhưng gần như không drop các đơn đã pin.
+- `internal/tms/service.go`: thêm `force_delivery_shipment_ids` vào `POST /v1/planning/run-vrp` và pipe sang solver; thêm cảnh báo capacity pressure khi tổng hàng vượt đội xe khả dụng.
+- `web/src/app/dashboard/planning/page.tsx`: compare chạy tuần tự cost → time pinned cùng tập đơn, loại bỏ tình trạng COST/TIME chọn 2 subset khác nhau khi thiếu capacity.
+- UI compare chuyển từ 2 cột số liệu ngang hàng sang hero recommendation + capacity warning + KPI delta + alt drawer + diff vận hành, giúp dispatcher ra quyết định mà không bị "táo so cam".
+
+#### Verification
+- Python syntax check `python -m py_compile vrp-solver/main.py` — PASS.
+- Self-test synthetic 156 đơn / 32 xe / 243% capacity: không pin chỉ overlap 63% và invariant cost-vs-time fail; có pin → same delivered count, cost mode rẻ hơn, time mode nhanh hơn — PASS.
+- `get_errors` on `web/src/app/dashboard/planning/page.tsx` and `internal/tms/service.go` — PASS.
+- Localhost page `/dashboard/planning` loaded HTTP 200.
+
+#### Docs Updated
+- `CURRENT_STATE.md`
+- `CHANGELOG.md`
+- `TASK_TRACKER.md`
+- `UIX_BHL_OMS_TMS_WMS.md`
+- `API_BHL_OMS_TMS_WMS.md`
+
 ### 2026-05-02 — Production 502 fix: nginx WebSocket routing + resilient deploy
 
 #### Problem

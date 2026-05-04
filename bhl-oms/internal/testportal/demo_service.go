@@ -263,6 +263,28 @@ func (s *DemoService) ListScenarios() []DemoScenario {
 		},
 		demoscenarioDispatcherMorning(),
 		demoscenarioDispatcherAM(),
+		{
+			ID:          "DEMO-VRP-03",
+			Title:       "VRP trade-off thực — 137 đơn lịch sử, 5 hành lang BOT, 50 xe",
+			Category:    "TMS/VRP",
+			Description: "Clone 137 đơn hàng thực từ 90 ngày lịch sử, trải đều 5 hành lang từ kho Hà Long: S (Ninh Bình/Thanh Hóa qua Cầu Thái Hà), W (Hà Nội/HY qua Phù Đổng+QL5), N (Thái Nguyên/Bắc Giang qua Phù Đổng), D (Hải Dương/Bắc Ninh), E (Hải Phòng/Quảng Ninh qua Cầu Bạch Đằng). 50 xe hỗn hợp 3.5T/5T/8T, 60 tài xế check-in. COST vs TIME chạy trên cùng 137 đơn → 2 phương án phải khác nhau rõ ràng do phí BOT và km đường tránh khác nhau theo hành lang.",
+			Roles:       []string{"qa.demo", "dispatcher", "management"},
+			DataSummary: "60 driver_checkins + ~137 sales_orders + ~137 shipments owned (clone từ lịch sử thực, không tạo khách giả). 50 xe hỗn hợp từ fleet BHL. Cleanup scoped, historical_rows_touched = 0.",
+			Steps: []ScenarioStep{
+				{Role: "qa.demo", Page: "/test-portal/demo", Action: "Load DEMO-VRP-03", Expected: "historical_rows_touched = 0, ~137 đơn QA-V03-* trải 5 hành lang S/W/N/D/E"},
+				{Role: "dispatcher", Page: "/dashboard/planning", Action: "Chọn kho WH-HL → bấm So sánh trade-off COST vs TIME", Expected: "2 phương án ra chi phí khác nhau (COST thấp hơn TIME), km khác nhau, số chuyến có thể khác"},
+				{Role: "dispatcher", Page: "/dashboard/planning", Action: "Mở map deep-dive 1 chuyến hành lang E (Hải Phòng)", Expected: "Tuyến OSRM qua Cầu Bạch Đằng; COST có thể chọn đường vòng ít phí hơn so với TIME"},
+				{Role: "qa.demo", Page: "/test-portal/demo", Action: "Cleanup DEMO-VRP-03", Expected: "owned data deleted, fleet và historical data intact"},
+			},
+			PreviewData: []ScenarioDataPoint{
+				{Label: "Nguồn dữ liệu", Value: "137 đơn clone từ lịch sử thực 90 ngày (không tạo đơn giả)"},
+				{Label: "5 hành lang", Value: "S=30 · W=24 · N=18 · D=28 · E=37 đơn"},
+				{Label: "Fleet", Value: "50 xe hỗn hợp 3.5T/5T/8T từ BHL, 60 tài xế check-in"},
+				{Label: "Tổng tải", Value: "~240T trải 5 hành lang có phí BOT khác nhau"},
+				{Label: "BOT giao thoa", Value: "Cầu Bạch Đằng 50k · QL5 Trạm 1+2 55k · Phù Đổng 50k · Cầu Thái Hà 50k · Đại Yên 45k"},
+				{Label: "Mục đích", Value: "Chứng minh VRP COST ≠ TIME trên dữ liệu lịch sử thực — không phải data tổng hợp"},
+			},
+		},
 	}
 	for i := range ss {
 		ss[i].Guide = scenarioGuide(ss[i].ID)
@@ -406,7 +428,7 @@ func (s *DemoService) cleanupScenarioInTx(ctx context.Context, tx pgx.Tx, scenar
 // scenarioAppURL trả URL deep-link đến trang app phù hợp để xem kết quả demo ngay.
 func (s *DemoService) scenarioAppURL(scenarioID, date string) string {
 	switch scenarioID {
-	case "DEMO-VRP-01", "DEMO-VRP-02":
+	case "DEMO-VRP-01", "DEMO-VRP-02", "DEMO-VRP-03":
 		return "/dashboard/planning?date=" + date + "&warehouse=WH-HL"
 	case "DEMO-DISPATCH-01", "DEMO-AI-DISPATCH-01", "DEMO-MORNING-01", "DEMO-DISPATCHER-AM-01":
 		return "/dashboard/control-tower"
@@ -458,6 +480,8 @@ func (s *DemoService) seedScenario(ctx context.Context, tx pgx.Tx, scenarioID st
 		return s.seedVRPLargeFleet(ctx, tx, runID, actor)
 	case "DEMO-VRP-02":
 		return s.seedVRPDiverseLoad(ctx, tx, runID, actor)
+	case "DEMO-VRP-03":
+		return s.seedVRPTradeoffRoutes(ctx, tx, runID, actor)
 	case "DEMO-MORNING-01":
 		return s.seedDispatcherMorning(ctx, tx, runID, actor)
 	case "DEMO-DISPATCHER-AM-01":
