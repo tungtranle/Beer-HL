@@ -181,6 +181,23 @@ func (r *DemoRepository) DeleteOwnedEntities(ctx context.Context, tx pgx.Tx, ent
 	}
 
 	deleted := 0
+
+	// Special handling: before deleting shipments, delete all picking_orders that reference them
+	// to avoid FK constraint violations from picking_orders not in qa_owned_entities
+	if shipmentEntities, ok := byType["shipments"]; ok && len(shipmentEntities) > 0 {
+		for _, shipmentEntity := range shipmentEntities {
+			// Delete picking_orders that reference this shipment (regardless of ownership)
+			cmd, err := tx.Exec(ctx,
+				`DELETE FROM picking_orders WHERE shipment_id = $1`,
+				shipmentEntity.EntityID,
+			)
+			if err != nil {
+				return deleted, fmt.Errorf("delete picking_orders for owned shipment %s: %w", shipmentEntity.EntityID, err)
+			}
+			deleted += int(cmd.RowsAffected())
+		}
+	}
+
 	for _, entityType := range deleteOrder {
 		stmt, ok := deleteSQL[entityType]
 		if !ok {

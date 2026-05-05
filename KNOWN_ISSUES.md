@@ -85,7 +85,8 @@
 | — | Vietnamese text (???? garble) in order notes for SO-20260317 | Fixed corrupted DB data with Unicode escapes; caused by PowerShell SQL piping (KI-006) | 2026-03-16 |
 | — | ListCreditBalances/ListCustomers crash (no credit_limit column) | JOIN `credit_limits` table instead of `customers.credit_limit` | 2026-03-20 |
 | — | ResetTestData wrong table names | Fixed: removed non-existent tables, added missing ones | 2026-03-20 |
+| KI-012 | Demo scenario cleanup fails with FK constraint: `picking_orders` references deleted `shipments` | Fixed `DeleteOwnedEntities()` in `demo_repository.go`: delete all `picking_orders` where `shipment_id` matches before deleting shipments, even if picking_orders not in owned registry | 2026-05-05 |
 
 ---
 
-*Updated: 2026-03-21*
+*Updated: 2026-05-05*

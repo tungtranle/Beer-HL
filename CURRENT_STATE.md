@@ -1,6 +1,6 @@
 # CURRENT_STATE — BHL OMS-TMS-WMS
 
-> **Cập nhật:** 03/05/2026 (session 03/05 — VRP compare UI apples-to-apples guard)  
+> **Cập nhật:** 05/05/2026 (session 05/05 — Demo scenario cleanup FK fix)  
 > **Mục đích:** Mô tả trạng thái THỰC TẾ của hệ thống. AI đọc file này để biết code đang làm gì, **không** phải spec nói gì.  
 > **Quy tắc:** Khi code thay đổi → cập nhật file này. Nếu CURRENT_STATE không khớp code → file này sai.
 
@@ -20,6 +20,14 @@
 | Prometheus | Docker | :9090 | ✅ Configured (profile: monitoring) |
 | Grafana | Docker | :3030 | ✅ Configured (profile: monitoring) |
 | Sentry | Cloud (sentry.io) | — | ✅ DSN configured (frontend + backend) |
+
+## Bug Fixes — 05/05/2026
+
+### ✅ Demo scenario cleanup FK constraint violation (KI-012)
+- **Issue:** When cleanup demo scenario, `DELETE shipments` failed with FK constraint error from `picking_orders_shipment_id_fkey` because `picking_orders` from old scenario runs still referenced the shipments being deleted.
+- **Root cause:** `DeleteOwnedEntities()` only deleted `picking_orders` that were in `qa_owned_entities` registry, but shipments could be referenced by untracked picking_orders from different runs.
+- **Fix:** Modified `demo_repository.go` line ~183 to delete all `picking_orders` where `shipment_id` matches before deleting shipments (regardless of ownership status).
+- **Test result:** DEMO-03 load (created 313 records) + cleanup (deleted 313 records) — ✅ SUCCESS, no FK error.
 
 ## VRP Planning Compare — ✅ apples-to-apples UI guard (03/05/2026)
 - `/dashboard/planning` compare flow now scopes both solver runs to the active shipment list via `shipment_ids`.
