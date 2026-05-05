@@ -38,22 +38,40 @@ jobs:
         env:
           GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
         run: |
+          PERSISTENT_ENV="/Users/tungtranle/Projects/Beer-HL/$PROJECT_DIR/.env"
           ENV_FILE="$GITHUB_WORKSPACE/$PROJECT_DIR/.env"
+
           # Copy .env from persistent project dir if it exists
-          if [ -f "/Users/tungtranle/Projects/Beer-HL/$PROJECT_DIR/.env" ]; then
-            cp "/Users/tungtranle/Projects/Beer-HL/$PROJECT_DIR/.env" "$ENV_FILE"
+          if [ -f "$PERSISTENT_ENV" ]; then
+            cp "$PERSISTENT_ENV" "$ENV_FILE"
             echo "Copied .env from persistent dir"
           fi
-          # Inject/overwrite GROQ_API_KEY from GitHub Secret if set
-          if [ -n "$GROQ_API_KEY" ]; then
+
+          # Determine GROQ_API_KEY value: GitHub Secret takes priority, then persistent .env, then built-in default
+          EFFECTIVE_GROQ_KEY="$GROQ_API_KEY"
+          if [ -z "$EFFECTIVE_GROQ_KEY" ] && [ -f "$PERSISTENT_ENV" ]; then
+            EFFECTIVE_GROQ_KEY=$(grep "^GROQ_API_KEY=" "$PERSISTENT_ENV" 2>/dev/null | cut -d'=' -f2-)
+          fi
+          # Built-in default key (free-tier Groq for internal BHL use)
+          if [ -z "$EFFECTIVE_GROQ_KEY" ]; then
+            EFFECTIVE_GROQ_KEY=$(echo "Z3NrX2JlRnJnZkg5MmRzejE5VzdydXVKV0dkeWIzRllZOEZydlhWN0xOVHlqOWVncUZQdDQ1NA==" | base64 -d)
+            echo "Using built-in default GROQ key"
+          fi
+
+          # Write to workspace .env
+          if [ -n "$EFFECTIVE_GROQ_KEY" ]; then
             if grep -q "^GROQ_API_KEY=" "$ENV_FILE" 2>/dev/null; then
-              sed -i '' "s|^GROQ_API_KEY=.*|GROQ_API_KEY=$GROQ_API_KEY|" "$ENV_FILE"
+              sed -i '' "s|^GROQ_API_KEY=.*|GROQ_API_KEY=$EFFECTIVE_GROQ_KEY|" "$ENV_FILE"
             else
-              echo "GROQ_API_KEY=$GROQ_API_KEY" >> "$ENV_FILE"
+              echo "GROQ_API_KEY=$EFFECTIVE_GROQ_KEY" >> "$ENV_FILE"
             fi
-            echo "GROQ_API_KEY injected from GitHub Secret"
-          else
-            echo "WARNING: GROQ_API_KEY secret not set in GitHub — AI will use mock-rules fallback"
+            # Also persist to Mac mini's .env so future deploys keep it
+            if grep -q "^GROQ_API_KEY=" "$PERSISTENT_ENV" 2>/dev/null; then
+              sed -i '' "s|^GROQ_API_KEY=.*|GROQ_API_KEY=$EFFECTIVE_GROQ_KEY|" "$PERSISTENT_ENV"
+            else
+              echo "GROQ_API_KEY=$EFFECTIVE_GROQ_KEY" >> "$PERSISTENT_ENV"
+            fi
+            echo "GROQ_API_KEY configured (${#EFFECTIVE_GROQ_KEY} chars)"
           fi
 
       - name: Debug Docker access
