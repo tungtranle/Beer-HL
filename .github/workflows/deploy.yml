@@ -176,16 +176,85 @@ jobs:
           echo "=== Final cert in use ==="
           openssl x509 -in "$WORKSPACE_SSL/fullchain.pem" -noout -subject -issuer -enddate 2>/dev/null || echo "No cert"
 
+      - name: Prepare OSRM data
+        run: |
+          # OSRM now uses named Docker volume "bhl-oms_osrm-data"
+          # Check if the named volume already has data (from a previous setup)
+          VOLUME_NAME="bhl-oms_osrm-data"
+          DATA_EXISTS=$(docker run --rm -v "${VOLUME_NAME}:/data" alpine:latest \
+            test -f /data/vietnam-latest.osrm && echo "yes" || echo "no" 2>/dev/null || echo "no")
+
+          if [ "$DATA_EXISTS" = "yes" ]; then
+            echo "OSRM named volume has data — OSRM will start normally"
+            echo "OSRM_ENABLED=true" >> $GITHUB_ENV
+          else
+            # Check if old bind-mount data exists on disk (migration from old setup)
+            PERSISTENT_OSRM="/Users/tungtranle/Projects/Beer-HL/$PROJECT_DIR/osrm-data"
+            if [ -f "$PERSISTENT_OSRM/vietnam-latest.osrm" ]; then
+              echo "Found OSRM data on disk — migrating to named volume..."
+              docker run --rm \
+                -v "${PERSISTENT_OSRM}:/src:ro" \
+                -v "${VOLUME_NAME}:/data" \
+                alpine:latest sh -c "cp -r /src/. /data/"
+              echo "OSRM data migrated to named volume ✓"
+              echo "OSRM_ENABLED=true" >> $GITHUB_ENV
+            else
+              echo "WARNING: No OSRM data found. OSRM will be skipped."
+              echo "To set up OSRM, run: docker run --rm -v bhl-oms_osrm-data:/data ghcr.io/project-osrm/osrm-backend osrm-extract ..."
+              echo "OSRM_ENABLED=false" >> $GITHUB_ENV
+            fi
+          fi
+
       - name: Restart services
         run: |
-          # Bring up all services; force-recreate nginx to pick up config changes
-          docker compose -f $PROJECT_DIR/docker-compose.prod.yml up -d
+          if [ "$OSRM_ENABLED" = "true" ]; then
+            echo "Starting all services including OSRM..."
+            docker compose -f $PROJECT_DIR/docker-compose.prod.yml up -d
+          else
+            echo "Starting services WITHOUT OSRM (no data)..."
+            docker compose -f $PROJECT_DIR/docker-compose.prod.yml up -d --scale osrm=0
+          fi
+          # Force-recreate nginx to pick up config changes
           docker compose -f $PROJECT_DIR/docker-compose.prod.yml up -d --force-recreate --no-deps nginx
+          echo "=== OSRM status: $OSRM_ENABLED ==="
 
-      - name: Sync DB (migrations + master data)
+      - name: Run DB migrations only (no data sync)
         run: |
           sleep 8
-          bash $PROJECT_DIR/scripts/db-sync.sh
+          # Only run schema migrations — NOT seed_master.sql
+          # seed_master.sql was removed to prevent local→server data overwrite
+          CONTAINER="bhl-oms-postgres-1"
+          DB_USER="bhl"
+          DB_NAME="bhl_prod"
+          MIGRATIONS_DIR="$GITHUB_WORKSPACE/$PROJECT_DIR/migrations"
+
+          if ! docker exec "$CONTAINER" pg_isready -U "$DB_USER" -d "$DB_NAME" -q 2>/dev/null; then
+            echo "Postgres not ready, skipping migrations"
+            exit 0
+          fi
+
+          docker exec "$CONTAINER" psql -U "$DB_USER" -d "$DB_NAME" -c "
+            CREATE TABLE IF NOT EXISTS schema_migrations (
+              filename VARCHAR(200) PRIMARY KEY,
+              applied_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+            );" -q
+
+          APPLIED=0
+          for filepath in $(ls "$MIGRATIONS_DIR"/[0-9]*.up.sql 2>/dev/null | sort); do
+            filename=$(basename "$filepath")
+            count=$(docker exec "$CONTAINER" psql -U "$DB_USER" -d "$DB_NAME" -t -c \
+              "SELECT COUNT(*) FROM schema_migrations WHERE filename='$filename';" 2>/dev/null | tr -d ' ')
+            if [ "${count:-0}" -gt 0 ]; then
+              continue
+            fi
+            echo "Applying migration: $filename"
+            docker exec -i "$CONTAINER" psql -U "$DB_USER" -d "$DB_NAME" -q < "$filepath"
+            docker exec "$CONTAINER" psql -U "$DB_USER" -d "$DB_NAME" -c \
+              "INSERT INTO schema_migrations (filename) VALUES ('$filename');" -q
+            APPLIED=$((APPLIED + 1))
+            echo "  v $filename"
+          done
+          echo "Migrations applied: $APPLIED"
 
       - name: Cleanup old images
         run: docker image prune -f

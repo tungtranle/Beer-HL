@@ -1,0 +1,115 @@
+name: Setup OSRM Data (one-time)
+
+on:
+  workflow_dispatch:
+    inputs:
+      force_rebuild:
+        description: 'Rebuild even if data already exists'
+        required: false
+        default: 'false'
+        type: choice
+        options:
+          - 'false'
+          - 'true'
+
+jobs:
+  setup-osrm:
+    name: Download & Process Vietnam OSM data
+    runs-on: [self-hosted, macOS, production]
+    timeout-minutes: 180
+
+    env:
+      PATH: /opt/homebrew/bin:/opt/homebrew/sbin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin
+      VOLUME_NAME: bhl-oms_osrm-data
+      OSM_URL: https://download.geofabrik.de/asia/vietnam-latest.osm.pbf
+
+    steps:
+      - name: Check if OSRM data already exists
+        id: check
+        run: |
+          DATA_EXISTS=$(docker run --rm -v "${VOLUME_NAME}:/data" alpine:latest \
+            sh -c "test -f /data/vietnam-latest.osrm && echo yes || echo no" 2>/dev/null || echo "no")
+          echo "data_exists=$DATA_EXISTS" >> $GITHUB_OUTPUT
+          echo "OSRM data exists: $DATA_EXISTS"
+          echo "Force rebuild: ${{ inputs.force_rebuild }}"
+
+      - name: Skip if data exists and not forced
+        if: steps.check.outputs.data_exists == 'yes' && inputs.force_rebuild == 'false'
+        run: |
+          echo "OSRM data already exists in named volume. Skipping rebuild."
+          echo "To force rebuild, re-run this workflow with force_rebuild=true"
+          exit 0
+
+      - name: Download Vietnam OSM data
+        run: |
+          echo "=== Downloading Vietnam OSM data (~250MB) ==="
+          docker run --rm \
+            -v "${VOLUME_NAME}:/data" \
+            alpine:latest sh -c "
+              apk add --no-cache curl &&
+              echo 'Downloading...' &&
+              curl -L -o /data/vietnam-latest.osm.pbf '${OSM_URL}' &&
+              ls -lh /data/vietnam-latest.osm.pbf
+            "
+          echo "Download complete"
+
+      - name: Extract OSM data (osrm-extract)
+        run: |
+          echo "=== Extracting OSM data (may take 20-40 min) ==="
+          docker run --rm \
+            -v "${VOLUME_NAME}:/data" \
+            -m 4g \
+            osrm/osrm-backend:latest \
+            osrm-extract -p /opt/car.lua /data/vietnam-latest.osm.pbf
+          echo "Extract done"
+
+      - name: Partition routing data (osrm-partition)
+        run: |
+          echo "=== Partitioning routing data (may take 20-40 min) ==="
+          docker run --rm \
+            -v "${VOLUME_NAME}:/data" \
+            -m 4g \
+            osrm/osrm-backend:latest \
+            osrm-partition /data/vietnam-latest.osrm
+          echo "Partition done"
+
+      - name: Customize routing data (osrm-customize)
+        run: |
+          echo "=== Customizing routing data (may take 5-10 min) ==="
+          docker run --rm \
+            -v "${VOLUME_NAME}:/data" \
+            -m 4g \
+            osrm/osrm-backend:latest \
+            osrm-customize /data/vietnam-latest.osrm
+          echo "Customize done"
+
+      - name: Verify OSRM data
+        run: |
+          echo "=== Verifying OSRM data files ==="
+          docker run --rm -v "${VOLUME_NAME}:/data" alpine:latest \
+            sh -c "ls -lh /data/vietnam-latest.osrm* 2>/dev/null || echo 'No .osrm files found!'"
+
+          DATA_OK=$(docker run --rm -v "${VOLUME_NAME}:/data" alpine:latest \
+            sh -c "test -f /data/vietnam-latest.osrm && echo yes || echo no" 2>/dev/null || echo "no")
+
+          if [ "$DATA_OK" = "yes" ]; then
+            echo "OSRM data setup SUCCESSFUL"
+          else
+            echo "ERROR: OSRM data setup FAILED"
+            exit 1
+          fi
+
+      - name: Start OSRM service
+        run: |
+          PROJECT_DIR="bhl-oms"
+          CHECKOUT="/Users/tungtranle/actions-runner/_work/Beer-HL/Beer-HL"
+          if [ -f "$CHECKOUT/$PROJECT_DIR/docker-compose.prod.yml" ]; then
+            docker compose -f "$CHECKOUT/$PROJECT_DIR/docker-compose.prod.yml" up -d osrm
+            sleep 10
+            echo "=== OSRM container status ==="
+            docker compose -f "$CHECKOUT/$PROJECT_DIR/docker-compose.prod.yml" ps osrm
+            echo "=== OSRM test request ==="
+            curl -sf "http://localhost:5000/route/v1/driving/105.8,21.0;106.6,10.8?overview=false" 2>/dev/null | head -c 200 || echo "OSRM not yet responding (may need more time to load)"
+          else
+            echo "docker-compose.prod.yml not found at expected path, OSRM started via volume — start it via next deploy"
+          fi
