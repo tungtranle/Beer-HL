@@ -958,38 +958,12 @@ function CompareDeepDiveModal({
         allPoints.push([warehouse.lat, warehouse.lng])
       }
 
-      // Per-trip rendering
+      // Pass 1 — add stop markers synchronously so the map is interactive immediately
       ;(res.trips || []).forEach((trip, ti) => {
         const color = tripColors[ti % tripColors.length]
         const veh = vehicles.find(v => v.id === trip.vehicle_id)
         const plate = veh?.plate_number || trip.plate_number || trip.vehicle_id.slice(0, 6)
 
-        // Draw actual OSRM road geometry. The deep-dive is used for operational review;
-        // straight depot→stop lines are misleading because km/fuel/toll are road-based.
-        const linePts: [number, number][] = []
-        if (warehouse) linePts.push([warehouse.lat, warehouse.lng])
-        for (const s of trip.stops || []) {
-          if (s.latitude && s.longitude) linePts.push([s.latitude, s.longitude])
-        }
-        if (warehouse) linePts.push([warehouse.lat, warehouse.lng])
-        if (linePts.length >= 2) {
-          fetchOSRMRoute(linePts).then(route => {
-            if (cancelled || !ref.current) return
-            L.polyline(route?.geometry?.length ? route.geometry : linePts, {
-              color,
-              weight: 3,
-              opacity: route?.geometry?.length ? 0.65 : 0.35,
-              dashArray: route?.geometry?.length ? undefined : '8 5',
-            }).addTo(ref.current)
-            const boundsPts = route?.geometry?.length ? route.geometry : linePts
-            boundsPts.forEach(p => allPoints.push(p))
-            if (allPoints.length > 0 && ref.current) {
-              ref.current.fitBounds(L.latLngBounds(allPoints.map(p => L.latLng(p[0], p[1]))), { padding: [30, 30] })
-            }
-          })
-        }
-
-        // Stop markers
         ;(trip.stops || []).forEach((stop, si) => {
           if (!stop.latitude || !stop.longitude) return
           allPoints.push([stop.latitude, stop.longitude])
@@ -1016,9 +990,34 @@ function CompareDeepDiveModal({
         })
       })
 
-      // Fit to known stop/depot bounds immediately; OSRM geometry will expand bounds when loaded.
+      // Fit to known stop/depot bounds immediately
       if (allPoints.length > 0) {
         map.fitBounds(L.latLngBounds(allPoints.map(p => L.latLng(p[0], p[1]))), { padding: [30, 30] })
+      }
+
+      // Pass 2 — fetch OSRM routes sequentially (one at a time) to avoid overwhelming the
+      // proxy with 35+ concurrent requests, which causes all to fail and fall back to straight lines.
+      for (let ti = 0; ti < (res.trips || []).length; ti++) {
+        if (cancelled || !ref.current) break
+        const trip = res.trips[ti]
+        const color = tripColors[ti % tripColors.length]
+
+        const linePts: [number, number][] = []
+        if (warehouse) linePts.push([warehouse.lat, warehouse.lng])
+        for (const s of trip.stops || []) {
+          if (s.latitude && s.longitude) linePts.push([s.latitude, s.longitude])
+        }
+        if (warehouse) linePts.push([warehouse.lat, warehouse.lng])
+        if (linePts.length < 2) continue
+
+        const route = await fetchOSRMRoute(linePts)
+        if (cancelled || !ref.current) break
+        L.polyline(route?.geometry?.length ? route.geometry : linePts, {
+          color,
+          weight: 3,
+          opacity: route?.geometry?.length ? 0.65 : 0.35,
+          dashArray: route?.geometry?.length ? undefined : '8 5',
+        }).addTo(ref.current)
       }
     }
 
