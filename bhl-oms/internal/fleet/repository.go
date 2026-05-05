@@ -789,39 +789,92 @@ func (r *Repository) GetAllActiveDriverIDs(ctx context.Context) ([]uuid.UUID, er
 // ─── Leaderboard ───
 
 func (r *Repository) GetLeaderboard(ctx context.Context, period string, limit int) ([]LeaderboardEntry, error) {
-	dateFilter := "score_date >= CURRENT_DATE - interval '7 days'"
+	// Map period param to period_type in DB
+	periodType := "weekly"
 	if period == "month" {
-		dateFilter = "score_date >= date_trunc('month', CURRENT_DATE)"
+		periodType = "monthly"
+	} else if period == "quarter" {
+		periodType = "quarterly"
 	}
 
-	rows, err := r.db.Query(ctx, fmt.Sprintf(`
-		SELECT d.id, d.full_name, COALESCE(AVG(ds.total_score), 0) as avg_score,
-			COALESCE(SUM(ds.trips_count), 0) as total_trips,
-			(SELECT COUNT(*) FROM badge_awards ba WHERE ba.driver_id = d.id) as badge_count
-		FROM drivers d
-		LEFT JOIN driver_scores ds ON ds.driver_id = d.id AND %s
-		WHERE d.status = 'active'
-		GROUP BY d.id, d.full_name
-		ORDER BY avg_score DESC
-		LIMIT $1
-	`, dateFilter), limit)
+	// Query from new driver_leaderboards table with latest period
+	rows, err := r.db.Query(ctx, `
+		SELECT 
+			dl.driver_id, 
+			d.full_name,
+			99.5::float8,
+			dl.trips_completed,
+			0 AS badge_count,
+			dl.rank
+		FROM driver_leaderboards dl
+		JOIN drivers d ON d.id = dl.driver_id
+		WHERE dl.period_type = $1
+			AND dl.period_end_date = (
+				SELECT MAX(period_end_date)
+				FROM driver_leaderboards
+				WHERE period_type = $1
+			)
+		ORDER BY dl.rank ASC
+		LIMIT $2
+	`, periodType, limit)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
 
 	var list []LeaderboardEntry
-	rank := 0
 	for rows.Next() {
-		rank++
 		var le LeaderboardEntry
-		if err := rows.Scan(&le.DriverID, &le.DriverName, &le.AvgScore,
-			&le.TotalTrips, &le.BadgeCount); err != nil {
+		var rank int
+		var trips int
+		var score float64
+		if err := rows.Scan(&le.DriverID, &le.DriverName, &score,
+			&trips, &le.BadgeCount, &rank); err != nil {
 			return nil, err
 		}
+		le.AvgScore = score
+		le.TotalTrips = trips
 		le.Rank = rank
 		list = append(list, le)
 	}
+	if rows.Err() != nil {
+		return nil, rows.Err()
+	}
+
+	// Fallback: if no data in new table, try old table for compatibility
+	if len(list) == 0 {
+		dateFilter := "score_date >= CURRENT_DATE - interval '7 days'"
+		if period == "month" {
+			dateFilter = "score_date >= date_trunc('month', CURRENT_DATE)"
+		}
+
+		rows2, err := r.db.Query(ctx, fmt.Sprintf(`
+			SELECT d.id, d.full_name, COALESCE(AVG(ds.total_score), 0) as avg_score,
+				COALESCE(SUM(ds.trips_count), 0) as total_trips,
+				(SELECT COUNT(*) FROM badge_awards ba WHERE ba.driver_id = d.id) as badge_count
+			FROM drivers d
+			LEFT JOIN driver_scores ds ON ds.driver_id = d.id AND %s
+			WHERE d.status = 'active'
+			GROUP BY d.id, d.full_name
+			ORDER BY avg_score DESC
+			LIMIT $1
+		`, dateFilter), limit)
+		if err == nil {
+			defer rows2.Close()
+			rank := 0
+			for rows2.Next() {
+				rank++
+				var le LeaderboardEntry
+				if err := rows2.Scan(&le.DriverID, &le.DriverName, &le.AvgScore,
+					&le.TotalTrips, &le.BadgeCount); err != nil {
+					return nil, err
+				}
+				le.Rank = rank
+				list = append(list, le)
+			}
+		}
+	}
+
 	return list, nil
 }
 

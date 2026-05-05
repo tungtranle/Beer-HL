@@ -12,7 +12,7 @@
 |-----------|------|------|--------|
 | Backend API | Go + Gin | :8080 | ✅ Hoạt động (default port 8080) |
 | Frontend | Next.js 14 + Tailwind | :3000 | ✅ Hoạt động (`restart-services.bat` now relaunches frontend in separate CMD window) |
-| Database | PostgreSQL 16 | :5434 | ✅ migrations tới 043 (`ai_feature_flags`, AI audit/inbox/simulation/feedback) |
+| Database | PostgreSQL 16 | :5434 | ✅ migrations tới 012 (`driver_performance_tracking`, including driver_scorecards, leaderboards, vehicle_health, vehicle_tco, driver_vehicle_assignments + 4.5k+ historical records seeded) |
 | Cache/PubSub | Redis | :6379 | ✅ GPS + pub/sub |
 | VRP Solver | Python + OR-Tools | :8090 | ✅ Hoạt động |
 | OSRM Routing | Docker (Vietnam data) | :5000 | ✅ Production: `platform: linux/amd64` + `pull_policy: if_not_present` — healthcheck disabled (OSRM container không có curl/wget) |

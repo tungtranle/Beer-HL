@@ -219,6 +219,65 @@ func (s *DemoService) ListScenarios() []DemoScenario {
 			PreviewData: []ScenarioDataPoint{{Label: "Audit routes", Value: "cloud / rules / blocked"}, {Label: "Feedback", Value: "correct + not_useful"}},
 		},
 		{
+			ID:          "DEMO-AI-DVKH-01",
+			Title:       "AI DVKH: Outreach Queue — NPP ưu tiên liên hệ hôm nay",
+			Category:    "AI-NATIVE/DVKH",
+			Description: "Seed AI Inbox cho DVKH với 3 NPP ưu tiên liên hệ hôm nay (outreach queue): kết hợp tín hiệu công nợ + nhịp đặt hàng giảm + ước tính tồn kho. Kèm đơn pending_approval và audit evidence. Core workflow vẫn chạy khi ai.master OFF.",
+			Roles:       []string{"qa.demo", "dvkh", "management"},
+			DataSummary: "1 order pending_approval + receivable ledger + 3 ai_inbox_items (dvkh) + 2 ai_audit_log; tất cả owned, historical_rows_touched = 0.",
+			Steps: []ScenarioStep{
+				{Role: "admin", Page: "/dashboard/settings/ai", Action: "Bật ai.master, ai.credit_score, ai.forecast, ai.explainability", Expected: "Outreach Queue xuất hiện trong AI Inbox; tắt lại form đặt hàng vẫn bình thường"},
+				{Role: "dvkh", Page: "/dashboard", Action: "Mở AI Inbox — xem Outreach Queue", Expected: "3 NPP ưu tiên hiển thị với lý do kết hợp: công nợ / nhịp giảm / tồn kho thấp"},
+				{Role: "dvkh", Page: "/dashboard/customers", Action: "Click NPP #1 (P0) → xem risk context", Expected: "Risk strip hiển thị nếu flag ON; DVKH vẫn tạo đơn bình thường nếu flag OFF"},
+				{Role: "dvkh", Page: "/dashboard/orders/new", Action: "Tạo đơn cho NPP rủi ro trong queue", Expected: "Form hoạt động bình thường; risk strip là gợi ý, không block"},
+			},
+			PreviewData: []ScenarioDataPoint{
+				{Label: "AI Inbox (dvkh)", Value: "3 items: P0 vượt hạn mức / P1 nhịp giảm / P2 tồn kho thấp"},
+				{Label: "Flags cần bật", Value: "ai.master + ai.credit_score + ai.forecast"},
+				{Label: "Baseline", Value: "AI OFF → không có Outreach Queue, form đặt hàng vẫn dùng được"},
+			},
+		},
+		{
+			ID:          "DEMO-AI-DVKH-02",
+			Title:       "AI DVKH: Demand Forecast + Seasonal Alert khi tạo đơn",
+			Category:    "AI-NATIVE/DVKH",
+			Description: "Seed AI Inbox seasonal alert (dịp lễ +28%) và demand forecast 4 tuần cho DVKH. Kèm 1 đơn confirmed để minh họa luồng tạo đơn bình thường dù có hoặc không có AI flag.",
+			Roles:       []string{"qa.demo", "dvkh", "management"},
+			DataSummary: "1 order confirmed + 3 ai_inbox_items (dvkh) + 2 ai_audit_log rows; owned, historical_rows_touched = 0.",
+			Steps: []ScenarioStep{
+				{Role: "admin", Page: "/dashboard/settings/ai", Action: "Bật ai.forecast, ai.explainability", Expected: "Seasonal alert và demand forecast panel xuất hiện; tắt thì tạo đơn bình thường"},
+				{Role: "dvkh", Page: "/dashboard", Action: "Xem AI Inbox — seasonal alert + demand forecast", Expected: "Thấy cảnh báo lễ +28% và danh sách 3 NPP có xu hướng tăng nhanh"},
+				{Role: "dvkh", Page: "/dashboard/orders/new", Action: "Tạo đơn → seasonal alert banner hiển thị", Expected: "Banner gợi ý tăng sản lượng; DVKH vẫn toàn quyền quyết định số lượng đặt"},
+				{Role: "dvkh", Page: "/dashboard/customers", Action: "Xem demand forecast 4 tuần cho NPP", Expected: "Biểu đồ dự báo và delta so với thực tế; nhấn Vì sao? để xem explainability"},
+			},
+			PreviewData: []ScenarioDataPoint{
+				{Label: "AI Inbox (dvkh)", Value: "Seasonal alert 30/4 +28% / Forecast 3 NPP tăng / Gap 2 NPP thấp hơn dự báo"},
+				{Label: "Flags cần bật", Value: "ai.forecast (+ ai.explainability để xem lý do)"},
+				{Label: "Baseline", Value: "AI OFF → không có alert/forecast panel, tạo đơn vẫn dùng được"},
+			},
+		},
+		{
+			ID:          "DEMO-AI-DVKH-03",
+			Title:       "AI DVKH: Copilot Chat + Intent + Explainability",
+			Category:    "AI-NATIVE/DVKH",
+			Description: "Seed AI audit evidence và inbox cho Copilot DVKH: truy vấn 'NPP chưa đặt hàng tuần này', intent match, Zalo draft gợi ý và feedback loop. Kèm audit cloud/rules để demo privacy router.",
+			Roles:       []string{"qa.demo", "dvkh", "management"},
+			DataSummary: "2 ai_inbox_items (dvkh) + 3 ai_audit_log (cloud+rules) + 1 ai_feedback; owned, historical_rows_touched = 0.",
+			Steps: []ScenarioStep{
+				{Role: "admin", Page: "/dashboard/settings/ai", Action: "Bật ai.copilot, ai.intent, ai.explainability, ai.feedback", Expected: "Copilot panel xuất hiện; tắt panel ẩn nhưng tất cả workflow vẫn hoạt động"},
+				{Role: "dvkh", Page: "/dashboard", Action: "Gõ vào Copilot: 'NPP nào chưa đặt hàng tuần này?'", Expected: "Groq trả lời với danh sách 5 NPP + context ngắn gọn; privacy router log cloud route"},
+				{Role: "dvkh", Page: "/dashboard", Action: "Click Vì sao? trên kết quả Copilot", Expected: "Explainability popover: nguồn dữ liệu, rule áp dụng, không lưu raw prompt"},
+				{Role: "dvkh", Page: "/dashboard/customers", Action: "Dùng AI Zalo Draft cho NPP A", Expected: "Draft tin nhắn Zalo sinh từ context công nợ + nhịp đặt hàng; DVKH sửa trước khi gửi"},
+				{Role: "dvkh", Page: "/dashboard", Action: "Gửi feedback 'Đúng' cho Copilot", Expected: "Feedback ghi nhận, Trust Loop score cập nhật (không tự nâng automation tier)"},
+			},
+			PreviewData: []ScenarioDataPoint{
+				{Label: "AI Inbox (dvkh)", Value: "Copilot query result + Zalo draft suggestion"},
+				{Label: "Audit evidence", Value: "cloud (groq) + rules route + 1 positive feedback"},
+				{Label: "Flags cần bật", Value: "ai.copilot + ai.intent + ai.explainability + ai.feedback"},
+				{Label: "Baseline", Value: "AI OFF → không có Copilot panel, mọi workflow DVKH vẫn bình thường"},
+			},
+		},
+		{
 			ID:          "DEMO-VRP-01",
 			Title:       "VRP chuẩn sản xuất — 50 xe thực BHL, ~48 tài xế",
 			Category:    "TMS/VRP",
@@ -438,17 +497,28 @@ func (s *DemoService) scenarioAppURL(scenarioID, date string) string {
 		return "/dashboard/orders"
 	case "DEMO-02", "DEMO-AI-02":
 		return "/dashboard/approvals"
+	case "DEMO-AI-DVKH-01", "DEMO-AI-DVKH-02", "DEMO-AI-DVKH-03":
+		return "/dashboard"
 	default:
 		return "/dashboard"
 	}
 }
 
 func (s *DemoService) findScenario(id string) (DemoScenario, bool) {
-	for _, scenario := range s.ListScenarios() {
+	scenarios := s.ListScenarios()
+	for _, scenario := range scenarios {
 		if scenario.ID == id {
 			return scenario, true
 		}
 	}
+	// Log available scenarios for debugging
+	scenarioIDs := make([]string, len(scenarios))
+	for i, sc := range scenarios {
+		scenarioIDs[i] = sc.ID
+	}
+	s.log.Warn(context.Background(), "qa_scenario_not_found",
+		logger.F("requested", id),
+		logger.F("available_count", len(scenarios)))
 	return DemoScenario{}, false
 }
 
@@ -486,6 +556,12 @@ func (s *DemoService) seedScenario(ctx context.Context, tx pgx.Tx, scenarioID st
 		return s.seedDispatcherMorning(ctx, tx, runID, actor)
 	case "DEMO-DISPATCHER-AM-01":
 		return s.seedDispatcherAM(ctx, tx, runID, actor)
+	case "DEMO-AI-DVKH-01":
+		return s.seedAIDVKHOutreach(ctx, tx, runID, actor)
+	case "DEMO-AI-DVKH-02":
+		return s.seedAIDVKHForecast(ctx, tx, runID, actor)
+	case "DEMO-AI-DVKH-03":
+		return s.seedAIDVKHCopilot(ctx, tx, runID, actor)
 	default:
 		return 0, fmt.Errorf("scenario chưa có seeder: %s", scenarioID)
 	}

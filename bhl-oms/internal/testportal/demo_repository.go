@@ -48,11 +48,12 @@ func (r *DemoRepository) Begin(ctx context.Context) (pgx.Tx, error) {
 
 func (r *DemoRepository) CreateRun(ctx context.Context, tx pgx.Tx, scenario DemoScenario, actor DemoActor) (uuid.UUID, error) {
 	var runID uuid.UUID
+	// Allow NULL created_by for QA scenarios (public/demo access)
 	err := tx.QueryRow(ctx, `
 		INSERT INTO qa_scenario_runs (scenario_id, scenario_title, status, created_by, created_by_name)
-		VALUES ($1, $2, 'running', $3, $4)
+		VALUES ($1, $2, 'running', NULL::uuid, $3)
 		RETURNING id
-	`, scenario.ID, scenario.Title, actor.UserID, actor.FullName).Scan(&runID)
+	`, scenario.ID, scenario.Title, actor.FullName).Scan(&runID)
 	if err != nil {
 		return uuid.Nil, fmt.Errorf("create qa run: %w", err)
 	}

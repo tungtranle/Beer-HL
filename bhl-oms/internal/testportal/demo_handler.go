@@ -8,6 +8,7 @@ import (
 	"bhl-oms/pkg/response"
 
 	"github.com/gin-gonic/gin"
+	"github.com/google/uuid"
 )
 
 func (h *Handler) ListDemoScenarios(c *gin.Context) {
@@ -40,6 +41,11 @@ func (h *Handler) ListDemoRuns(c *gin.Context) {
 
 func (h *Handler) LoadDemoScenario(c *gin.Context) {
 	actor := DemoActor{UserID: middleware.GetUserID(c), FullName: middleware.GetFullName(c)}
+	// If no user (e.g., public access), use system user
+	if actor.UserID == uuid.Nil {
+		actor.UserID = uuid.MustParse("00000000-0000-0000-0000-000000000001")
+		actor.FullName = "System QA"
+	}
 	result, err := h.demoSvc.RunScenario(c.Request.Context(), c.Param("id"), actor)
 	if err != nil {
 		h.log.Warn(c.Request.Context(), "qa_demo_scenario_load_failed", logger.F("scenario", c.Param("id")), logger.F("err", err.Error()))

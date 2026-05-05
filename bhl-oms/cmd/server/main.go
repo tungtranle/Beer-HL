@@ -98,6 +98,13 @@ func main() {
 	}
 	appLog.Info(ctx, "auth_initialized", logger.F("algorithm", "RS256"))
 
+	// Seed QA system user for test portal (if not exists)
+	if cfg.EnableTestPortal {
+		if err := seedQAUser(ctx, pool, appLog); err != nil {
+			appLog.Warn(ctx, "qa_user_seed_failed", logger.F("error", err.Error()))
+		}
+	}
+
 	// GPS Hub (WebSocket + Redis pub/sub)
 	// HIGH-007: split AllowedOrigins env var into slice
 	var allowedOrigins []string
