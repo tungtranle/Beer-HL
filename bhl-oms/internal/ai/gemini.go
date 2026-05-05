@@ -263,8 +263,17 @@ func (c *ChainedProvider) Generate(ctx context.Context, prompt string) (string, 
 			if err != nil && strings.Contains(err.Error(), "429") {
 				break
 			}
+			// Brief backoff before retry on transient errors (network timeout etc.)
+			if attempt == 0 {
+				select {
+				case <-ctx.Done():
+					goto fallbackMock
+				case <-time.After(200 * time.Millisecond):
+				}
+			}
 		}
 	}
+fallbackMock:
 	// All real providers failed — use mock
 	_ = lastErr
 	c.setLastUsed((&MockProvider{}).Name())

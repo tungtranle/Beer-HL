@@ -34,6 +34,28 @@ jobs:
       - name: Copy secret keys (not in git)
         run: cp -r /Users/tungtranle/Projects/Beer-HL/$PROJECT_DIR/keys $PROJECT_DIR/keys
 
+      - name: Inject secrets into .env
+        env:
+          GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
+        run: |
+          ENV_FILE="$GITHUB_WORKSPACE/$PROJECT_DIR/.env"
+          # Copy .env from persistent project dir if it exists
+          if [ -f "/Users/tungtranle/Projects/Beer-HL/$PROJECT_DIR/.env" ]; then
+            cp "/Users/tungtranle/Projects/Beer-HL/$PROJECT_DIR/.env" "$ENV_FILE"
+            echo "Copied .env from persistent dir"
+          fi
+          # Inject/overwrite GROQ_API_KEY from GitHub Secret if set
+          if [ -n "$GROQ_API_KEY" ]; then
+            if grep -q "^GROQ_API_KEY=" "$ENV_FILE" 2>/dev/null; then
+              sed -i '' "s|^GROQ_API_KEY=.*|GROQ_API_KEY=$GROQ_API_KEY|" "$ENV_FILE"
+            else
+              echo "GROQ_API_KEY=$GROQ_API_KEY" >> "$ENV_FILE"
+            fi
+            echo "GROQ_API_KEY injected from GitHub Secret"
+          else
+            echo "WARNING: GROQ_API_KEY secret not set in GitHub — AI will use mock-rules fallback"
+          fi
+
       - name: Debug Docker access
         run: |
           echo "PATH = $PATH"
