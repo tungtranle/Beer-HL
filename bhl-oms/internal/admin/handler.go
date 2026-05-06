@@ -537,13 +537,34 @@ func (h *Handler) SystemHealth(c *gin.Context) {
 
 // GET /v1/admin/permissions
 func (h *Handler) GetPermissions(c *gin.Context) {
-	matrix, err := h.svc.GetPermissionMatrix(c.Request.Context())
+	perms, err := h.svc.repo.GetAllRolePermissions(c.Request.Context())
 	if err != nil {
 		h.log.Error(c.Request.Context(), "get_permissions_failed", err)
 		response.InternalError(c)
 		return
 	}
-	response.OK(c, matrix)
+
+	// Convert to API format (frontend expects flat array with 'allowed' field)
+	type PermissionDTO struct {
+		ID       string `json:"id"`
+		Role     string `json:"role"`
+		Resource string `json:"resource"`
+		Action   string `json:"action"`
+		Allowed  bool   `json:"allowed"`
+	}
+
+	var result []PermissionDTO
+	for _, p := range perms {
+		result = append(result, PermissionDTO{
+			ID:       p.ID.String(),
+			Role:     p.Role,
+			Resource: p.Resource,
+			Action:   p.Action,
+			Allowed:  p.IsAllowed,
+		})
+	}
+
+	response.OK(c, result)
 }
 
 // PUT /v1/admin/permissions
