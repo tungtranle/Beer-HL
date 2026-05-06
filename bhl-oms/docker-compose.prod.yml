@@ -150,7 +150,7 @@ services:
     platform: linux/amd64
     pull_policy: if_not_present
     volumes:
-      - osrm-data:/data
+      - ./osrm-data:/data
     command: osrm-routed --algorithm mld /data/vietnam-latest.osrm
     restart: unless-stopped
     healthcheck:
@@ -214,6 +214,5 @@ services:
 
 volumes:
   pg-data:
-  osrm-data:
   prometheus-data:
   grafana-data:

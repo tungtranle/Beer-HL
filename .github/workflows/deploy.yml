@@ -176,47 +176,11 @@ jobs:
           echo "=== Final cert in use ==="
           openssl x509 -in "$WORKSPACE_SSL/fullchain.pem" -noout -subject -issuer -enddate 2>/dev/null || echo "No cert"
 
-      - name: Prepare OSRM data
-        run: |
-          # OSRM now uses named Docker volume "bhl-oms_osrm-data"
-          # Check if the named volume already has data (from a previous setup)
-          VOLUME_NAME="bhl-oms_osrm-data"
-          DATA_EXISTS=$(docker run --rm -v "${VOLUME_NAME}:/data" alpine:latest \
-            test -f /data/vietnam-latest.osrm && echo "yes" || echo "no" 2>/dev/null || echo "no")
-
-          if [ "$DATA_EXISTS" = "yes" ]; then
-            echo "OSRM named volume has data — OSRM will start normally"
-            echo "OSRM_ENABLED=true" >> $GITHUB_ENV
-          else
-            # Check if old bind-mount data exists on disk (migration from old setup)
-            PERSISTENT_OSRM="/Users/tungtranle/Projects/Beer-HL/$PROJECT_DIR/osrm-data"
-            if [ -f "$PERSISTENT_OSRM/vietnam-latest.osrm" ]; then
-              echo "Found OSRM data on disk — migrating to named volume..."
-              docker run --rm \
-                -v "${PERSISTENT_OSRM}:/src:ro" \
-                -v "${VOLUME_NAME}:/data" \
-                alpine:latest sh -c "cp -r /src/. /data/"
-              echo "OSRM data migrated to named volume ✓"
-              echo "OSRM_ENABLED=true" >> $GITHUB_ENV
-            else
-              echo "WARNING: No OSRM data found. OSRM will be skipped."
-              echo "To set up OSRM, run: docker run --rm -v bhl-oms_osrm-data:/data ghcr.io/project-osrm/osrm-backend osrm-extract ..."
-              echo "OSRM_ENABLED=false" >> $GITHUB_ENV
-            fi
-          fi
-
       - name: Restart services
         run: |
-          if [ "$OSRM_ENABLED" = "true" ]; then
-            echo "Starting all services including OSRM..."
-            docker compose -f $PROJECT_DIR/docker-compose.prod.yml up -d
-          else
-            echo "Starting services WITHOUT OSRM (no data)..."
-            docker compose -f $PROJECT_DIR/docker-compose.prod.yml up -d --scale osrm=0
-          fi
-          # Force-recreate nginx to pick up config changes
+          # Bring up all services; force-recreate nginx to pick up config changes
+          docker compose -f $PROJECT_DIR/docker-compose.prod.yml up -d
           docker compose -f $PROJECT_DIR/docker-compose.prod.yml up -d --force-recreate --no-deps nginx
-          echo "=== OSRM status: $OSRM_ENABLED ==="
 
       - name: Run DB migrations only (no data sync)
         run: |
