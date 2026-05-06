@@ -27,6 +27,8 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
+        with:
+          clean: false  # Preserve osrm-data/ (in .gitignore) between deploys
 
       - name: Trust checked out workspace
         run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
@@ -175,6 +177,25 @@ jobs:
           fi
           echo "=== Final cert in use ==="
           openssl x509 -in "$WORKSPACE_SSL/fullchain.pem" -noout -subject -issuer -enddate 2>/dev/null || echo "No cert"
+
+      - name: Ensure OSRM data is available
+        run: |
+          WORKSPACE_OSRM="$GITHUB_WORKSPACE/$PROJECT_DIR/osrm-data"
+          PERSISTENT_OSRM="/Users/tungtranle/Projects/Beer-HL/$PROJECT_DIR/osrm-data"
+
+          if [ -f "$WORKSPACE_OSRM/vietnam-latest.osrm" ]; then
+            echo "OSRM data exists at workspace path — OK"
+          elif [ -f "$PERSISTENT_OSRM/vietnam-latest.osrm" ]; then
+            echo "OSRM data found at persistent dir, linking to workspace..."
+            rm -rf "$WORKSPACE_OSRM"
+            ln -sfn "$PERSISTENT_OSRM" "$WORKSPACE_OSRM"
+            echo "Linked: $PERSISTENT_OSRM -> $WORKSPACE_OSRM"
+          else
+            echo "WARNING: No OSRM data found anywhere. OSRM will fail."
+            echo "Searching for osrm data on disk:"
+            find /Users/tungtranle -name 'vietnam-latest.osrm' 2>/dev/null | head -5 || echo "Not found"
+            mkdir -p "$WORKSPACE_OSRM"
+          fi
 
       - name: Restart services
         run: |
